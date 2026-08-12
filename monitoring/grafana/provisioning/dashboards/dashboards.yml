@@ -1,0 +1,15 @@
+# Phase 5e — tells Grafana to auto-load any dashboard JSON dropped into
+# /var/lib/grafana/dashboards (mounted from ./monitoring/grafana/dashboards)
+# on startup, no manual import needed.
+apiVersion: 1
+
+providers:
+  - name: "AI Orchestrator"
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

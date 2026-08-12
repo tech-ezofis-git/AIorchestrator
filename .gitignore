@@ -1,0 +1,9 @@
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.egg-info/
+
+# Eval harness (Phase 5c) run output — generated locally, never committed.
+app/evals/reports/

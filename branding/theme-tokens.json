@@ -1,0 +1,57 @@
+{
+  "brandColor": "#00bcd4",
+  "brandColorNote": "Confirmed on both properties: the marketing site's primary CTA button, and the product app's own --secondary-9 token.",
+  "recommendedForNativeApp": {
+    "fontUi": "Inter",
+    "fontMarketingHeadings": "Poppins",
+    "accentPrimary": "#00bcd4",
+    "accentSecondary": "#7c5cff"
+  },
+  "productApp": {
+    "source": "https://demoapp.ezofis.com (public sign-in page, no login)",
+    "fonts": { "ui": "Inter", "marketing": "Poppins" },
+    "semantic": {
+      "accentPrimary": "#7c5cff",
+      "accentSoft": "#f3f0ff",
+      "secondary": "#00bcd4",
+      "surfacePrimary": "#ffffff",
+      "surfaceSecondary": "#f6f6f9",
+      "bgDashboard": "#f6f3fb",
+      "textPrimary": "#1f2937",
+      "textSecondary": "#4d4d73",
+      "textMuted": "#8181a0",
+      "borderDefault": "#e6e6ef",
+      "errorMain": "#e5484d",
+      "warningMain": "#f76b15",
+      "successMain": "#30a46c",
+      "infoMain": "#0090ff"
+    },
+    "scales": {
+      "primary": ["#fdfcff","#fbf7ff","#f3f0ff","#e7d8ff","#dbceff","#cfc4ff","#c3baff","#9c89ff","#7c5cff","#6a4cf0","#5b3ed6","#1f2937"],
+      "secondary": ["#f9fdfe","#f1fbfc","#dbf7fd","#c5f2fb","#aeeaf5","#95dfed","#70d0e1","#00bbd3","#00bcd4","#00b0c8","#007f94","#003e47"],
+      "red": ["#fffcfc","#fff7f7","#feebec","#ffdbdc","#ffcdce","#fdbdbe","#f4a9aa","#eb8e90","#e5484d","#dc3e42","#ce2c31","#641723"],
+      "green": ["#fbfefc","#f4fbf6","#e6f6eb","#d6f1df","#c4e8d1","#adddc0","#8eceaa","#5bb98b","#30a46c","#2b9a66","#218358","#193b2d"],
+      "orange": ["#fefcfb","#fff7ed","#ffefd6","#ffdfb5","#ffd19a","#ffc182","#f5ae73","#ec9455","#f76b15","#ef5f00","#cc4e00","#582d1d"],
+      "blue": ["#fbfdff","#f4faff","#e6f4fe","#d5efff","#c2e5ff","#acd8fc","#8ec8f6","#5eb1ef","#0090ff","#0588f0","#0d74ce","#113264"],
+      "gray": ["#fdfcfd","#f6f6f9","#e6e6ef","#dadae5","#cecedc","#c1c1d2","#b5b5c9","#9b9bb6","#8181a0","#67678a","#4d4d73","#33335c","#1f2937"]
+    },
+    "componentDetail": {
+      "buttonBorderRadius": "5px",
+      "authScreen": { "background": "#121113", "text": "#b5b2bc", "note": "dark auth shell in front of an otherwise light-themed app" }
+    },
+    "logoAssets": {
+      "mark": "branding/assets/ezofis-logo-mark.png",
+      "text": "branding/assets/ezofis-logo-text.png"
+    }
+  },
+  "marketingSite": {
+    "source": "https://ezofis.com (public homepage, WordPress/Elementor)",
+    "fonts": { "body": "Open Sans", "heading": "Lato" },
+    "ctaColor": "#00bcd4",
+    "buttonBorderRadius": "4px",
+    "headerBackground": "#ffffff",
+    "logoAssets": {
+      "wordmarkWhite": "branding/assets/ezofis-marketing-logo.svg"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+# Phase 5e — local Prometheus config: scrapes the orchestrator app's
+# GET /metrics (Phase 5d, app/control/metrics.py) over the docker-compose
+# network. "app" resolves via Docker's embedded DNS, same as postgres/redis
+# already do for the app service itself.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "ai-orchestrator"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8000"]

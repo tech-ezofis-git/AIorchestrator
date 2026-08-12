@@ -1,0 +1,28 @@
+# Chat memory-honoring — starting set, not exhaustive (rule 7).
+#
+# Each case's turns use DIFFERENT session_ids on purpose — proving the
+# stated preference is honored ACROSS sessions (the whole point of Phase
+# 5a's memory), not just recalled within one ongoing conversation. Only
+# the LAST turn's output is scored — earlier turns exist purely to write
+# the memory.
+cases:
+  - id: chat-remembers-communication-preference
+    description: >
+      A "remember that..." write in one session must be reflected in a
+      LATER Chat reply in a different session (same mocked user).
+    intent: chat
+    input:
+      turns:
+        - session_id: eval-chat-memory-write
+          message: "remember that I prefer email over phone calls for any follow-ups"
+        - session_id: eval-chat-memory-read
+          message: "What's the best way to reach me about something urgent?"
+    scoring:
+      method: llm_judge
+      rubric: |
+        Earlier, in a DIFFERENT session, the same user said: "remember
+        that I prefer email over phone calls for any follow-ups". Rate how
+        well THIS reply honors that stated preference (e.g. recommending
+        or assuming email over a phone call), on a scale of 1 (ignores or
+        contradicts it) to 5 (clearly and correctly honors it).
+      pass_threshold: 4

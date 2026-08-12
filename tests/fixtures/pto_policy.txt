@@ -1,0 +1,13 @@
+PTO Policy (Test Fixture)
+
+This is sample test-fixture content for the AI Orchestrator's Phase 2
+Search pipeline. It is not real EZOFIS documentation.
+
+Employees accrue paid time off (PTO) at a rate of 1.5 days per month of
+full-time employment. Unused PTO carries over into the next calendar year
+up to a maximum of 10 days. To request vacation, submit a PTO request to
+your manager at least two weeks in advance through the internal portal.
+
+Sick leave is tracked separately from vacation PTO and does not require
+advance notice. Employees should notify their manager as soon as
+reasonably possible when taking sick leave.

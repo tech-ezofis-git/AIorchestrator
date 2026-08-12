@@ -1,0 +1,13 @@
+Expense Reimbursement Policy (Test Fixture)
+
+This is sample test-fixture content for the AI Orchestrator's Phase 2
+Search pipeline. It is not real EZOFIS documentation.
+
+Employees may submit expense reports for reimbursement of approved
+business expenses, including travel, meals, and client entertainment. All
+expense claims must include an itemized receipt and be submitted within 30
+days of the expense date. Reimbursement requires manager approval before
+payment is issued.
+
+Expenses submitted without a receipt over $25 will not be reimbursed
+except in exceptional, pre-approved circumstances.

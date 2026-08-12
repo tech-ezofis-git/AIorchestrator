@@ -1,0 +1,40 @@
+# Forecast narration accuracy — starting set, not exhaustive (rule 7).
+#
+# app/integrations/forecast_model.py's run_forecast is mocked and
+# deterministic per metric text (a SHA256 hash of the metric string), so
+# the exact predicted_values can't be hardcoded here without depending on
+# that hash formula. The rule-based case below instead cross-checks the
+# narration against forecast_result.predicted_values FROM THE SAME
+# response (app/evals/scoring.py's numbers_from_field_present_in_text) —
+# robust to that implementation detail, and a more faithful test of "does
+# the narration match the raw numbers" (rule 7) than a hardcoded value.
+cases:
+  - id: forecast-narration-mentions-real-numbers
+    description: "The narration must actually mention the real predicted values, not paraphrased or invented ones."
+    intent: forecast
+    input:
+      turns:
+        - message: "forecast eval-metric-alpha for next quarter"
+    scoring:
+      method: rule
+      function: numbers_from_field_present_in_text
+      args:
+        text_field: reply
+        numbers_field: forecast_result.predicted_values
+        tolerance: 1.0
+
+  - id: forecast-narration-quality
+    description: "LLM-judge: does the narration clearly explain the trend and confidence interval, without inventing anything?"
+    intent: forecast
+    input:
+      turns:
+        - message: "forecast eval-metric-beta for next quarter"
+    scoring:
+      method: llm_judge
+      rubric: |
+        Rate whether this response clearly explains the forecast trend and
+        the confidence interval in plain language, without inventing any
+        numbers not present in forecast_result. Scale 1 (unclear, or
+        invents numbers not in forecast_result) to 5 (clear, accurate,
+        plain-language explanation grounded only in forecast_result).
+      pass_threshold: 4
