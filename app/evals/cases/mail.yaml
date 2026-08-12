@@ -1,0 +1,52 @@
+# Mail draft appropriateness — starting set, not exhaustive (rule 7).
+# Every case here only reaches the DRAFT step (app/agents/mail_agent.py) —
+# nothing is ever sent; see app/evals/runner.py's module docstring.
+cases:
+  - id: mail-draft-has-valid-recipient
+    intent: mail
+    input:
+      turns:
+        - message: "send an email to jane@example.com about the quarterly report deadline next Friday"
+    scoring:
+      method: rule
+      function: matches_regex
+      args:
+        field: mail_draft.recipient
+        pattern: '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+
+  - id: mail-draft-has-non-empty-subject
+    intent: mail
+    input:
+      turns:
+        - message: "send an email to jane@example.com about the quarterly report deadline next Friday"
+    scoring:
+      method: rule
+      function: field_non_empty
+      args:
+        field: mail_draft.subject
+
+  - id: mail-draft-has-non-empty-body
+    intent: mail
+    input:
+      turns:
+        - message: "send an email to jane@example.com about the quarterly report deadline next Friday"
+    scoring:
+      method: rule
+      function: field_non_empty
+      args:
+        field: mail_draft.body
+
+  - id: mail-draft-appropriateness
+    description: "LLM-judge: is the draft a reasonable, professional, on-topic email for the request?"
+    intent: mail
+    input:
+      turns:
+        - message: "send an email to jane@example.com about the quarterly report deadline next Friday"
+    scoring:
+      method: llm_judge
+      rubric: |
+        Rate whether this drafted email (recipient/subject/body) is a
+        reasonable, professional, on-topic draft for "the quarterly report
+        deadline next Friday", on a scale of 1 (off-topic or
+        inappropriate) to 5 (clearly appropriate and professional).
+      pass_threshold: 4

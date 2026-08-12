@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Orchestrator — Test Console</title>
+<link rel="icon" href="/static/ezofis-logo-mark.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* EZOFIS design tokens — collected from demoapp.ezofis.com + ezofis.com,
+     see branding/ezofis-theme.md in the repo. */
+  :root {
+    --accent-primary: #00bcd4;   /* brand cyan — confirmed on both properties */
+    --accent-primary-hover: #00a8be;
+    --accent-secondary: #7c5cff; /* app's internal purple accent */
+    --accent-soft: #f3f0ff;
+    --surface: #ffffff;
+    --surface-secondary: #f6f6f9;
+    --bg-dashboard: #f6f3fb;
+    --text-primary: #1f2937;
+    --text-secondary: #4d4d73;
+    --text-muted: #8181a0;
+    --border-default: #e6e6ef;
+    --error-main: #e5484d;
+    --warning-main: #f76b15;
+    --success-main: #30a46c;
+    --info-main: #0090ff;
+    --radius-sm: 5px;
+    --radius-md: 8px;
+    --shadow-sm: 0 1px 2px 0 rgba(15,23,42,0.05);
+    --shadow-md: 0 4px 12px -2px rgba(15,23,42,0.08);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-dashboard);
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-default);
+  }
+  header img { width: 32px; height: 32px; border-radius: 8px; }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0; flex: 1; }
+  header .sub { font-size: 12px; color: var(--text-muted); margin-top: 1px; }
+  .health-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-muted); transition: background .2s; }
+  .health-dot.up { background: var(--success-main); }
+  .health-dot.down { background: var(--error-main); }
+  .health-label { font-size: 12px; color: var(--text-secondary); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    max-width: 1200px;
+    margin: 24px auto;
+    gap: 20px;
+    padding: 0 20px;
+  }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+  }
+  .sidebar { padding: 16px; height: fit-content; position: sticky; top: 20px; }
+  .sidebar h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 0 0 10px; }
+  .sidebar label { display: block; font-size: 12px; color: var(--text-secondary); margin: 14px 0 4px; }
+  .sidebar input[type=text], .sidebar input[type=password] {
+    width: 100%; padding: 8px 10px; font-size: 13px; font-family: inherit;
+    border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+    color: var(--text-primary); background: var(--surface-secondary);
+  }
+  .field-hint { font-size: 10.5px; color: var(--text-muted); margin-top: 3px; }
+  .llm-status { font-size: 11.5px; margin-top: 8px; padding: 6px 8px; border-radius: var(--radius-sm); display: none; }
+  .llm-status.ok { display: block; background: #e6f6eb; color: var(--success-main); }
+  .llm-status.fail { display: block; background: #fff1f0; color: var(--error-main); }
+  .llm-status.pending { display: block; background: var(--surface-secondary); color: var(--text-secondary); }
+  .sidebar .row { display: flex; gap: 6px; align-items: center; }
+  button {
+    font-family: inherit; cursor: pointer; border: none; border-radius: var(--radius-sm);
+    font-weight: 500; transition: background .15s, opacity .15s;
+  }
+  .btn-primary { background: var(--accent-primary); color: white; padding: 8px 14px; font-size: 13px; }
+  .btn-primary:hover { background: var(--accent-primary-hover); }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-ghost { background: var(--surface-secondary); color: var(--text-secondary); padding: 6px 10px; font-size: 12px; }
+  .btn-ghost:hover { background: var(--border-default); }
+  .btn-secondary { background: var(--accent-soft); color: var(--accent-secondary); padding: 6px 12px; font-size: 12px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip {
+    font-size: 11px; padding: 5px 9px; background: var(--surface-secondary);
+    color: var(--text-secondary); border-radius: 999px; cursor: pointer; border: 1px solid var(--border-default);
+  }
+  .chip:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+
+  .main { display: flex; flex-direction: column; height: calc(100vh - 120px); min-height: 500px; }
+  .transcript { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .empty-state { margin: auto; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+  .msg { max-width: 78%; }
+  .msg.user { align-self: flex-end; }
+  .msg.assistant { align-self: flex-start; }
+  .msg.system { align-self: center; max-width: 90%; }
+  .bubble {
+    padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap;
+  }
+  .msg.user .bubble { background: var(--accent-primary); color: white; border-bottom-right-radius: 4px; }
+  .msg.assistant .bubble { background: var(--surface-secondary); color: var(--text-primary); border-bottom-left-radius: 4px; }
+  .msg.system .bubble { background: #fff1f0; color: var(--error-main); border: 1px solid #ffd7d5; font-size: 12.5px; }
+  .msg-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 4px; padding: 0 4px; }
+
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .badge {
+    font-size: 10.5px; padding: 3px 8px; border-radius: 6px; font-weight: 500;
+    background: var(--accent-soft); color: var(--accent-secondary);
+  }
+  .badge.info { background: #e6f4fe; color: var(--info-main); }
+  .badge.success { background: #e6f6eb; color: var(--success-main); }
+  .badge.warn { background: #fff7ed; color: var(--warning-main); }
+
+  .detail-block {
+    margin-top: 10px; padding: 10px 12px; background: var(--surface);
+    border: 1px solid var(--border-default); border-radius: var(--radius-sm); font-size: 12px;
+  }
+  .detail-block .dt-title { font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  .detail-block table { width: 100%; border-collapse: collapse; }
+  .detail-block td { padding: 3px 0; vertical-align: top; }
+  .detail-block td:first-child { color: var(--text-muted); width: 110px; }
+  .mail-draft-actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+  .raw-toggle { font-size: 11px; color: var(--text-muted); cursor: pointer; text-decoration: underline; margin-top: 6px; display: inline-block; }
+  pre.raw-json { font-size: 11px; background: #1f2937; color: #d1d5db; padding: 10px; border-radius: 6px; overflow-x: auto; margin-top: 6px; }
+
+  .composer { border-top: 1px solid var(--border-default); padding: 14px 20px; background: var(--surface); border-radius: 0 0 var(--radius-md) var(--radius-md); }
+  .composer form { display: flex; gap: 10px; }
+  .composer textarea {
+    flex: 1; resize: none; font-family: inherit; font-size: 13.5px; padding: 10px 12px;
+    border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-secondary);
+    color: var(--text-primary); min-height: 42px; max-height: 120px;
+  }
+  .composer textarea:focus, .sidebar input:focus { outline: 2px solid var(--accent-primary); outline-offset: -1px; }
+  .spinner {
+    width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.4); border-top-color: white;
+    border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; vertical-align: -1px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <img src="/static/ezofis-logo-mark.png" alt="EZOFIS">
+  <div>
+    <h1>AI Orchestrator — Test Console</h1>
+    <div class="sub">Manual test UI for POST /chat and POST /actions/{id}/confirm</div>
+  </div>
+  <span class="health-dot" id="healthDot"></span>
+  <span class="health-label" id="healthLabel">checking…</span>
+</header>
+
+<div class="layout">
+  <aside class="card sidebar">
+    <h2>Session</h2>
+    <label for="sessionId">session_id</label>
+    <div class="row">
+      <input type="text" id="sessionId" />
+      <button class="btn-ghost" id="newSessionBtn" title="New random session id">New</button>
+    </div>
+
+    <h2 style="margin-top:20px">Model &amp; Connection</h2>
+    <label for="llmModel">Model</label>
+    <input type="text" id="llmModel" placeholder="gpt-4.1-mini" />
+
+    <label for="llmApiBase">API base <span style="font-weight:400">(optional — custom/self-hosted/Azure endpoint)</span></label>
+    <input type="text" id="llmApiBase" placeholder="https://your-endpoint/v1" />
+
+    <label for="llmApiKey">API key <span style="font-weight:400">(optional)</span></label>
+    <input type="password" id="llmApiKey" placeholder="leave blank to keep current" />
+    <div class="field-hint" id="llmKeyHint"></div>
+
+    <div class="row" style="margin-top:10px">
+      <button class="btn-primary" id="llmSaveBtn" style="flex:1">Save</button>
+      <button class="btn-ghost" id="llmTestBtn">Test</button>
+    </div>
+    <div class="llm-status" id="llmStatus"></div>
+
+    <h2 style="margin-top:20px">Try a capability</h2>
+    <div class="chips" id="quickPrompts"></div>
+
+    <h2 style="margin-top:20px">About</h2>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+      Calls this same origin's <code>/chat</code> and
+      <code>/actions/&#123;id&#125;/confirm</code> directly — no separate
+      backend config needed. EZOFIS integrations are mocked
+      (see <code>app/integrations/</code>), so replies are deterministic
+      placeholder data unless a real LLM key is configured in <code>.env</code>.
+    </div>
+  </aside>
+
+  <section class="card main">
+    <div class="transcript" id="transcript">
+      <div class="empty-state">Send a message below, or click a capability chip to try one.</div>
+    </div>
+    <div class="composer">
+      <form id="composerForm">
+        <textarea id="messageInput" placeholder="Type a message… (e.g. &quot;search for the PTO policy&quot;)" rows="1"></textarea>
+        <button type="submit" class="btn-primary" id="sendBtn">Send</button>
+      </form>
+    </div>
+  </section>
+</div>
+
+<script>
+const transcript = document.getElementById('transcript');
+const sessionIdInput = document.getElementById('sessionId');
+const messageInput = document.getElementById('messageInput');
+const composerForm = document.getElementById('composerForm');
+const sendBtn = document.getElementById('sendBtn');
+const healthDot = document.getElementById('healthDot');
+const healthLabel = document.getElementById('healthLabel');
+
+function newSessionId() {
+  return 'console-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
+}
+sessionIdInput.value = newSessionId();
+document.getElementById('newSessionBtn').addEventListener('click', () => {
+  sessionIdInput.value = newSessionId();
+  addSystemMessage('Started a new session: ' + sessionIdInput.value);
+});
+
+// --- Model & Connection panel -------------------------------------------
+const llmModelInput = document.getElementById('llmModel');
+const llmApiBaseInput = document.getElementById('llmApiBase');
+const llmApiKeyInput = document.getElementById('llmApiKey');
+const llmKeyHint = document.getElementById('llmKeyHint');
+const llmStatus = document.getElementById('llmStatus');
+const llmSaveBtn = document.getElementById('llmSaveBtn');
+const llmTestBtn = document.getElementById('llmTestBtn');
+
+function setLlmStatus(kind, text) {
+  llmStatus.className = 'llm-status ' + kind;
+  llmStatus.textContent = text;
+}
+
+async function loadLlmConfig() {
+  try {
+    const res = await fetch('/console/llm-config');
+    const data = await res.json();
+    llmModelInput.value = data.model || '';
+    llmApiBaseInput.value = data.api_base || '';
+    llmKeyHint.textContent = data.has_api_key
+      ? 'A key is currently set server-side.'
+      : 'No key set — relying on a provider env var (e.g. OPENAI_API_KEY) in .env.';
+  } catch (e) {
+    llmKeyHint.textContent = 'Could not load current config.';
+  }
+}
+loadLlmConfig();
+
+async function saveLlmConfig() {
+  const payload = { model: llmModelInput.value.trim(), api_base: llmApiBaseInput.value.trim() };
+  if (llmApiKeyInput.value.trim()) payload.api_key = llmApiKeyInput.value.trim();
+  llmSaveBtn.disabled = true;
+  try {
+    const res = await fetch('/console/llm-config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setLlmStatus('ok', `Saved — model "${data.model}"${data.api_base ? ' @ ' + data.api_base : ''}.`);
+      llmApiKeyInput.value = '';
+      loadLlmConfig();
+    } else {
+      setLlmStatus('fail', 'Save failed: ' + (data.detail || res.status));
+    }
+  } catch (e) {
+    setLlmStatus('fail', 'Save failed — network error.');
+  } finally {
+    llmSaveBtn.disabled = false;
+  }
+}
+llmSaveBtn.addEventListener('click', saveLlmConfig);
+
+async function testLlmConnection() {
+  llmTestBtn.disabled = true;
+  const originalText = llmTestBtn.textContent;
+  llmTestBtn.innerHTML = '<span class="spinner"></span>';
+  setLlmStatus('pending', 'Testing connection…');
+  try {
+    const res = await fetch('/console/llm-test', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      setLlmStatus('ok', `Connected — model replied: "${data.reply}"`);
+    } else {
+      setLlmStatus('fail', 'Failed: ' + data.error);
+    }
+  } catch (e) {
+    setLlmStatus('fail', 'Failed — network error.');
+  } finally {
+    llmTestBtn.disabled = false;
+    llmTestBtn.textContent = originalText;
+  }
+}
+llmTestBtn.addEventListener('click', testLlmConnection);
+
+const QUICK_PROMPTS = [
+  'search for the PTO policy',
+  'summarize document DOC-123',
+  'give me insights on report RPT-456',
+  'forecast revenue for next quarter',
+  'what is the status of invoice INV-1234',
+  'send an email to jane@example.com about the quarterly report',
+  'remember that I prefer email over phone calls',
+  'hello there',
+];
+const chipsEl = document.getElementById('quickPrompts');
+QUICK_PROMPTS.forEach(p => {
+  const chip = document.createElement('span');
+  chip.className = 'chip';
+  chip.textContent = p.length > 28 ? p.slice(0, 26) + '…' : p;
+  chip.title = p;
+  chip.addEventListener('click', () => { messageInput.value = p; sendMessage(); });
+  chipsEl.appendChild(chip);
+});
+
+async function checkHealth() {
+  try {
+    const res = await fetch('/health');
+    if (res.ok) { healthDot.className = 'health-dot up'; healthLabel.textContent = 'API online'; }
+    else { healthDot.className = 'health-dot down'; healthLabel.textContent = 'API error (' + res.status + ')'; }
+  } catch (e) {
+    healthDot.className = 'health-dot down';
+    healthLabel.textContent = 'API unreachable';
+  }
+}
+checkHealth();
+setInterval(checkHealth, 15000);
+
+function clearEmptyState() {
+  const empty = transcript.querySelector('.empty-state');
+  if (empty) empty.remove();
+}
+
+function addUserMessage(text) {
+  clearEmptyState();
+  const div = document.createElement('div');
+  div.className = 'msg user';
+  div.innerHTML = `<div class="bubble"></div>`;
+  div.querySelector('.bubble').textContent = text;
+  transcript.appendChild(div);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function addSystemMessage(text) {
+  clearEmptyState();
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.innerHTML = `<div class="bubble"></div>`;
+  div.querySelector('.bubble').textContent = text;
+  transcript.appendChild(div);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function fieldRow(label, value) {
+  if (value === null || value === undefined) return '';
+  return `<tr><td>${label}</td><td>${value}</td></tr>`;
+}
+
+function renderMailDraft(draft, sessionId) {
+  const id = 'mail-' + Math.random().toString(16).slice(2);
+  setTimeout(() => {
+    const btn = document.getElementById(id + '-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Confirming…';
+      try {
+        const res = await fetch(`/actions/${draft.action_id}/confirm?session_id=${encodeURIComponent(sessionId)}`, { method: 'POST' });
+        const data = await res.json();
+        const resultEl = document.getElementById(id + '-result');
+        if (res.ok) {
+          resultEl.innerHTML = `<span class="badge success">Sent (mocked) · action ${data.action_id}</span>`;
+        } else {
+          resultEl.innerHTML = `<span class="badge warn">${res.status}: ${(data.detail || 'failed')}</span>`;
+        }
+      } catch (e) {
+        document.getElementById(id + '-result').innerHTML = `<span class="badge warn">Request failed</span>`;
+      }
+      btn.remove();
+    });
+  }, 0);
+  return `
+    <div class="detail-block">
+      <div class="dt-title">Mail draft (not sent)</div>
+      <table>
+        ${fieldRow('Recipient', draft.recipient)}
+        ${fieldRow('Subject', draft.subject)}
+        ${fieldRow('Action ID', draft.action_id)}
+      </table>
+      <div style="margin-top:6px;white-space:pre-wrap;color:var(--text-secondary)">${draft.body}</div>
+      <div class="mail-draft-actions">
+        <button class="btn-secondary" id="${id}-btn">Confirm &amp; Send</button>
+        <span id="${id}-result"></span>
+      </div>
+    </div>`;
+}
+
+function renderAssistantMessage(body, sessionId) {
+  clearEmptyState();
+  const div = document.createElement('div');
+  div.className = 'msg assistant';
+
+  const badges = [];
+  if (body.latency_ms != null) badges.push(`<span class="badge info">${body.latency_ms} ms</span>`);
+  if (body.token_usage) badges.push(`<span class="badge">${body.token_usage.total_tokens ?? '?'} tokens</span>`);
+
+  let details = '';
+  if (body.chunk_ids && body.chunk_ids.length) {
+    details += `<div class="detail-block"><div class="dt-title">Search citations</div>chunk_ids: ${body.chunk_ids.join(', ')}</div>`;
+  }
+  if (body.document_id) {
+    details += `<div class="detail-block"><div class="dt-title">Summary</div>document_id: ${body.document_id}</div>`;
+  }
+  if (body.cited_data_points && body.cited_data_points.length) {
+    details += `<div class="detail-block"><div class="dt-title">Cited data points</div>${body.cited_data_points.join(', ')}</div>`;
+  }
+  if (body.ocr_result) {
+    details += `<div class="detail-block"><div class="dt-title">OCR result</div><table>${Object.entries(body.ocr_result).map(([k,v]) => fieldRow(k, JSON.stringify(v))).join('')}</table></div>`;
+  }
+  if (body.forecast_result) {
+    const f = body.forecast_result;
+    details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
+      ${fieldRow('Metric', f.metric)}${fieldRow('Horizon', f.horizon)}
+      ${fieldRow('Predicted values', (f.predicted_values || []).join(', '))}
+    </table></div>`;
+  }
+  if (body.invoice_reference) {
+    details += `<div class="detail-block"><div class="dt-title">AP / Invoice</div>invoice_reference: ${body.invoice_reference}</div>`;
+  }
+  if (body.mail_draft) {
+    details += renderMailDraft(body.mail_draft, sessionId);
+  }
+
+  const rawId = 'raw-' + Math.random().toString(16).slice(2);
+  div.innerHTML = `
+    <div class="bubble"></div>
+    <div class="badges">${badges.join('')}</div>
+    ${details}
+    <span class="raw-toggle" data-target="${rawId}">view raw JSON</span>
+    <pre class="raw-json" id="${rawId}" style="display:none"></pre>
+  `;
+  div.querySelector('.bubble').textContent = body.reply ?? '(no reply text)';
+  div.querySelector(`#${rawId}`).textContent = JSON.stringify(body, null, 2);
+  div.querySelector('.raw-toggle').addEventListener('click', (e) => {
+    const pre = document.getElementById(e.target.dataset.target);
+    pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
+  });
+
+  transcript.appendChild(div);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+async function sendMessage() {
+  const message = messageInput.value.trim();
+  if (!message) return;
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+
+  addUserMessage(message);
+  messageInput.value = '';
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, message }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId);
+    } else {
+      addSystemMessage(`${res.status}: ${data.detail || 'request failed'}`);
+    }
+  } catch (e) {
+    addSystemMessage('Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send';
+  }
+}
+
+composerForm.addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });
+messageInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+</script>
+</body>
+</html>

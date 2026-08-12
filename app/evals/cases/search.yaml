@@ -1,0 +1,100 @@
+# Search citation accuracy — starting set, not exhaustive (rule 7). Add
+# more cases here as real usage surfaces scenarios worth pinning.
+#
+# Each case ingests its own small, self-contained document set (inline
+# `text`, not a file reference — see app/evals/runner.py's SetupDocument)
+# into a fresh in-memory vector store, so retrieval is deterministic and
+# these cases never depend on anything outside this file.
+cases:
+  - id: search-pto-accrual-cites-source
+    description: >
+      Asking about PTO accrual should retrieve the PTO policy doc (not the
+      unrelated expense policy doc) and cite it inline.
+    intent: search
+    setup:
+      documents:
+        - title: "PTO Policy"
+          text: |
+            PTO Policy.
+
+            Employees accrue paid time off (PTO) at a rate of 1.5 days per
+            month of full-time employment. Unused PTO carries over into the
+            next calendar year up to a maximum of 10 days. To request
+            vacation, submit a PTO request to your manager at least two
+            weeks in advance through the internal portal.
+        - title: "Expense Policy"
+          text: |
+            Expense Policy.
+
+            Employees may submit expense reimbursement requests for
+            approved business travel, client meals, and office supplies.
+            All requests must include an itemized receipt and be submitted
+            within 30 days of the expense.
+    input:
+      turns:
+        - message: "How much PTO do I accrue per month?"
+    scoring:
+      method: rule
+      function: matches_regex
+      args:
+        field: reply
+        pattern: '\[\d+\]'
+
+  - id: search-pto-accrual-has-chunk-ids
+    description: "Same query — the response must also carry chunk_ids for traceability, not just an inline citation marker."
+    intent: search
+    setup:
+      documents:
+        - title: "PTO Policy"
+          text: |
+            PTO Policy.
+
+            Employees accrue paid time off (PTO) at a rate of 1.5 days per
+            month of full-time employment. Unused PTO carries over into the
+            next calendar year up to a maximum of 10 days.
+        - title: "Expense Policy"
+          text: |
+            Expense Policy.
+
+            Employees may submit expense reimbursement requests for
+            approved business travel, client meals, and office supplies.
+    input:
+      turns:
+        - message: "How much PTO do I accrue per month?"
+    scoring:
+      method: rule
+      function: field_non_empty
+      args:
+        field: chunk_ids
+
+  - id: search-answer-is-on-topic
+    description: "LLM-judge: does the answer actually address PTO accrual, not just cite something?"
+    intent: search
+    setup:
+      documents:
+        - title: "PTO Policy"
+          text: |
+            PTO Policy.
+
+            Employees accrue paid time off (PTO) at a rate of 1.5 days per
+            month of full-time employment. Unused PTO carries over into the
+            next calendar year up to a maximum of 10 days.
+        - title: "Expense Policy"
+          text: |
+            Expense Policy.
+
+            Employees may submit expense reimbursement requests for
+            approved business travel, client meals, and office supplies.
+    input:
+      turns:
+        - message: "How much PTO do I accrue per month?"
+    scoring:
+      method: llm_judge
+      rubric: |
+        The user asked "How much PTO do I accrue per month?" over an
+        indexed PTO policy document that states PTO accrues at a rate of
+        1.5 days per month. Rate how directly and correctly this response
+        answers that specific question, on a scale of 1 (does not answer
+        it, or answers something else, e.g. the expense policy) to 5
+        (directly and correctly answers it, citing the source).
+      pass_threshold: 4

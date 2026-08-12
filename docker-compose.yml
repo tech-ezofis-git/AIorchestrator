@@ -1,0 +1,102 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8010:8000"
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://orchestrator:orchestrator@postgres:5432/orchestrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: orchestrator
+      POSTGRES_PASSWORD: orchestrator
+      POSTGRES_DB: orchestrator
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Numeric prefixes force run order: pgvector extension before the
+      # Phase 2 migration that declares a VECTOR column, before the
+      # Phase 4b audit_log migration, before the Phase 5a memories
+      # migration (no ordering dependency between 0001/0002/0003
+      # themselves, but the prefix scheme keeps every future one
+      # deterministic too).
+      - ./scripts/init-pgvector.sql:/docker-entrypoint-initdb.d/01-init-pgvector.sql
+      - ./db/migrations/0001_create_documents_and_chunks.sql:/docker-entrypoint-initdb.d/02-create-documents-and-chunks.sql
+      - ./db/migrations/0002_create_audit_log.sql:/docker-entrypoint-initdb.d/03-create-audit-log.sql
+      - ./db/migrations/0003_create_memories.sql:/docker-entrypoint-initdb.d/04-create-memories.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orchestrator -d orchestrator"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # --- Local Prometheus + Grafana (Phase 5e) ------------------------------
+  # Opt-in via the "monitoring" profile so plain `docker compose up`
+  # remains exactly what it's always been (app + postgres + redis only,
+  # every prior phase's "docker compose up unaffected" acceptance
+  # criterion still holds). Bring these up explicitly:
+  #   docker compose --profile monitoring up -d
+  # Local dev convenience only — standing up a PRODUCTION Prometheus/
+  # Grafana/alerting stack is still a deployment-time concern outside this
+  # repo's scope (see README's "Local Prometheus + Grafana (Phase 5e)").
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["monitoring"]
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    profiles: ["monitoring"]
+    ports:
+      - "3000:3000"
+    environment:
+      # Local dev only — change these (or set GRAFANA_ADMIN_USER/
+      # GRAFANA_ADMIN_PASSWORD in .env) before exposing this anywhere but
+      # localhost. Never used by the app itself; pydantic-settings ignores
+      # unrelated env vars (see app/config.py's extra="ignore"), so these
+      # are safe to keep in the same .env file.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
+  prometheus_data:
+  grafana_data:

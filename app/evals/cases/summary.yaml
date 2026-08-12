@@ -1,0 +1,32 @@
+# Summary faithfulness — starting set, not exhaustive (rule 7).
+#
+# app/integrations/ezofis_client.py's fetch_document is mocked and
+# returns the SAME deterministic boilerplate text for any document_id
+# (see its docstring) — that content is quoted verbatim in the rubric
+# below, since it's exactly what the Summary agent's LLM call actually
+# saw as the source.
+cases:
+  - id: summary-faithful-to-mocked-source
+    description: >
+      A summary of the mocked EZOFIS document content must not invent
+      names, numbers, dates, or claims beyond that (deliberately generic)
+      boilerplate.
+    intent: summary
+    input:
+      turns:
+        - message: "summarize document DOC-EVAL-1"
+    scoring:
+      method: llm_judge
+      rubric: |
+        The source document (mocked EZOFIS content, exactly as fetched) is:
+        "This is placeholder content for EZOFIS document 'DOC-EVAL-1'. In a
+        real integration this would be the document's actual text (or an
+        extracted/OCR'd version of it) fetched from EZOFIS. For now it
+        exists only so the Summary agent has real text to summarize during
+        development and testing."
+
+        Rate how faithful the summary below is to ONLY that source — no
+        invented names, numbers, dates, or claims not present in it — on a
+        scale of 1 (heavily invents details not in the source) to 5 (fully
+        faithful, invents nothing beyond the source).
+      pass_threshold: 4
