@@ -10,7 +10,7 @@ they're pass-through, so they never reach this class's LLM path.
 just formatting, no LLM call. Every intent uses it to build the final
 response envelope (correlation_id/latency/token_usage/chunk_ids/
 document_id/cited_data_points/ocr_result/forecast_result/invoice_reference/
-mail_draft).
+mail_draft/ap_result).
 
 `synthesize_search_answer` (Phase 2), `synthesize_summary`,
 `synthesize_insight` (Phase 3a), `synthesize_forecast`, and
@@ -129,6 +129,7 @@ class ResponseComposer:
         forecast_result: Optional[dict] = None,
         invoice_reference: Optional[str] = None,
         mail_draft: Optional[dict] = None,
+        ap_result: Optional[dict] = None,
     ) -> ChatResponse:
         return ChatResponse(
             session_id=session_id,
@@ -143,6 +144,7 @@ class ResponseComposer:
             forecast_result=forecast_result,
             invoice_reference=invoice_reference,
             mail_draft=mail_draft,
+            ap_result=ap_result,
         )
 
     async def _llm_synthesize(self, *, system_prompt: str, user_content: str) -> dict:

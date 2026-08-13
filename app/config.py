@@ -92,6 +92,17 @@ class Settings(BaseSettings):
     ocr_max_file_bytes: int = 25 * 1024 * 1024  # 25 MiB
     azure_storage_connection_string: Optional[str] = None
 
+    # --- Ezofis cloud API (AP skills: auth, credits, PO/vendor masters) ---
+    ezofis_api_base: str = "https://cloud.ezofis.com/api"
+    ezofis_login_email: Optional[str] = None
+    ezofis_login_password: Optional[str] = None
+    ezofis_env: str = "trial"
+    ezofis_timeout_seconds: float = 30.0
+    ap_llm_planner: bool = False
+    ap_amount_tolerance: float = 0.02
+    ap_approved_threshold: int = 80
+    ap_partial_threshold: int = 50
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

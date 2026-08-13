@@ -235,15 +235,14 @@
       Calls this same origin's <code>/chat</code> and
       <code>/actions/&#123;id&#125;/confirm</code> directly — no separate
       backend config needed. EZOFIS integrations are mocked
-      (see <code>app/integrations/</code>), so replies are deterministic
-      placeholder data unless a real LLM key is configured in <code>.env</code>
-      (choose default / fallback models above — no key in the UI).
+      (see <code>app/integrations/</code>) unless <code>EZOFIS_LOGIN_*</code>
+      is set; AP document jobs still run against the mock PO/vendor masters.
     </div>
   </aside>
 
   <section class="card main">
     <div class="transcript" id="transcript">
-      <div class="empty-state">Send a message below, open <strong>OCR document</strong> to upload a file, or click a capability chip.</div>
+      <div class="empty-state">Send a message below, open <strong>OCR</strong> or <strong>AP invoice</strong> to upload a file, or click a capability chip.</div>
     </div>
     <details class="ocr-panel" id="ocrPanel">
       <summary>OCR document — upload file or blob path</summary>
@@ -272,6 +271,39 @@ Due Date,DATE</textarea>
         <div class="ocr-actions">
           <button type="button" class="btn-primary" id="ocrSendBtn">Run OCR</button>
           <span class="field-hint">POST /chat with intent=ocr (multipart if file is set)</span>
+        </div>
+      </div>
+    </details>
+    <details class="ocr-panel" id="apPanel">
+      <summary>AP invoice — skills, file, or invoice JSON</summary>
+      <div class="ocr-grid">
+        <div>
+          <label for="apFile">File (wins over filepath)</label>
+          <input type="file" id="apFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
+        </div>
+        <div>
+          <label for="apFilepath">Blob filepath</label>
+          <input type="text" id="apFilepath" placeholder="container/invoice.pdf" />
+        </div>
+        <div>
+          <label for="apTenant">tenant_id</label>
+          <input type="text" id="apTenant" value="default" />
+        </div>
+        <div>
+          <label for="apItemId">item_id (re-runs)</label>
+          <input type="text" id="apItemId" placeholder="optional stable key" />
+        </div>
+        <div style="grid-column:1/-1">
+          <label>skills (empty = tenant default plan)</label>
+          <div id="apSkillBoxes" style="display:flex;flex-wrap:wrap;gap:10px 16px;font-size:12.5px;color:var(--text-secondary);padding-top:4px"></div>
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="apInvoiceJson">invoice_json (optional; skips OCR)</label>
+          <textarea id="apInvoiceJson" placeholder='{"invoice_number":"INV-100","vendor":"ACME Supplies","po_number":"PO-1","total":1234.56}'></textarea>
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-primary" id="apSendBtn">Run AP</button>
+          <span class="field-hint">POST /chat with intent=ap (multipart if file is set)</span>
         </div>
       </div>
     </details>
@@ -426,6 +458,7 @@ llmTestBtn.addEventListener('click', testLlmConnection);
 
 const QUICK_PROMPTS = [
   { label: 'OCR document', ocr: true },
+  { label: 'AP invoice skills', ap: true },
   { label: 'search for the PTO policy', message: 'search for the PTO policy' },
   { label: 'summarize document DOC-123', message: 'summarize document DOC-123' },
   { label: 'give me insights on report RPT-456', message: 'give me insights on report RPT-456' },
@@ -437,6 +470,17 @@ const QUICK_PROMPTS = [
 ];
 const chipsEl = document.getElementById('quickPrompts');
 const ocrPanel = document.getElementById('ocrPanel');
+const apPanel = document.getElementById('apPanel');
+const AP_SKILLS = ['extract_invoice','po_match','duplicate_detect','vendor_validate','backorder_detect','finalize_decision'];
+const apSkillBoxes = document.getElementById('apSkillBoxes');
+AP_SKILLS.forEach(id => {
+  const label = document.createElement('label');
+  label.style.display = 'flex';
+  label.style.alignItems = 'center';
+  label.style.gap = '6px';
+  label.innerHTML = `<input type="checkbox" value="${id}"> ${id}`;
+  apSkillBoxes.appendChild(label);
+});
 QUICK_PROMPTS.forEach(p => {
   const chip = document.createElement('span');
   chip.className = 'chip';
@@ -446,6 +490,11 @@ QUICK_PROMPTS.forEach(p => {
     if (p.ocr) {
       ocrPanel.open = true;
       ocrPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+    if (p.ap) {
+      apPanel.open = true;
+      apPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       return;
     }
     messageInput.value = p.message;
@@ -558,6 +607,17 @@ function renderOcrResult(ocr) {
   return html;
 }
 
+function renderApResult(ap) {
+  const skills = Array.isArray(ap.skills_run) ? ap.skills_run.join(', ') : '';
+  let html = `<div class="detail-block"><div class="dt-title">AP result</div>`;
+  html += `<table>${fieldRow('Decision', ap.decision)}${fieldRow('Credits', ap.credits_charged)}${fieldRow('Skills', skills)}${fieldRow('Run', ap.run_id)}</table>`;
+  if (ap.artifacts) {
+    html += `<pre class="ocr-text-preview">${escapeHtml(JSON.stringify(ap.artifacts, null, 2))}</pre>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -588,6 +648,9 @@ function renderAssistantMessage(body, sessionId) {
   if (body.ocr_result) {
     details += renderOcrResult(body.ocr_result);
   }
+  if (body.ap_result) {
+    details += renderApResult(body.ap_result);
+  }
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -608,6 +671,10 @@ function renderAssistantMessage(body, sessionId) {
     const n = (body.ocr_result.ocrResult || []).length;
     const src = body.ocr_result.source_reference || 'document';
     bubbleText = `OCR extracted ${n} field${n === 1 ? '' : 's'} from ${src}.`;
+  }
+  if (body.ap_result) {
+    const ap = body.ap_result;
+    bubbleText = `AP ${ap.decision || 'complete'} · ${(ap.skills_run || []).length} skill(s) · ${ap.credits_charged ?? 0} credit(s).`;
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -705,6 +772,83 @@ async function sendOcrJob() {
 }
 
 document.getElementById('ocrSendBtn').addEventListener('click', sendOcrJob);
+
+function selectedApSkills() {
+  return Array.from(document.querySelectorAll('#apSkillBoxes input[type=checkbox]:checked')).map(el => el.value);
+}
+
+async function sendApJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const fileInput = document.getElementById('apFile');
+  const filepath = document.getElementById('apFilepath').value.trim();
+  const file = fileInput.files && fileInput.files[0];
+  const tenantId = document.getElementById('apTenant').value.trim() || 'default';
+  const itemId = document.getElementById('apItemId').value.trim();
+  const skills = selectedApSkills();
+  let invoiceJson = null;
+  const invoiceRaw = document.getElementById('apInvoiceJson').value.trim();
+  if (invoiceRaw) {
+    try { invoiceJson = JSON.parse(invoiceRaw); }
+    catch (e) { addSystemMessage('invoice_json is not valid JSON.'); return; }
+  }
+  if (!file && !filepath && !invoiceJson && !itemId) {
+    addSystemMessage('AP needs a file, filepath, invoice_json, or item_id (for re-runs).');
+    return;
+  }
+  const label = file ? `AP file: ${file.name}` : (filepath ? `AP filepath: ${filepath}` : `AP job (${itemId || tenantId})`);
+  addUserMessage(label);
+  const apSendBtn = document.getElementById('apSendBtn');
+  apSendBtn.disabled = true;
+  apSendBtn.innerHTML = '<span class="spinner"></span> Running';
+  sendBtn.disabled = true;
+  try {
+    let res;
+    if (file) {
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'ap');
+      form.append('tenant_id', tenantId);
+      if (itemId) form.append('item_id', itemId);
+      if (filepath) form.append('filepath', filepath);
+      if (skills.length) form.append('skills', JSON.stringify(skills));
+      if (invoiceJson) form.append('invoice_json', JSON.stringify(invoiceJson));
+      form.append('file', file, file.name);
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          intent: 'ap',
+          payload: {
+            filepath: filepath || null,
+            tenant_id: tenantId,
+            item_id: itemId || null,
+            skills: skills.length ? skills : null,
+            invoice_json: invoiceJson,
+          },
+        }),
+      });
+    }
+    const data = await res.json();
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    addSystemMessage('Network error — is the API reachable?');
+  } finally {
+    apSendBtn.disabled = false;
+    apSendBtn.textContent = 'Run AP';
+    sendBtn.disabled = false;
+  }
+}
+
+document.getElementById('apSendBtn').addEventListener('click', sendApJob);
 
 async function sendMessage() {
   const message = messageInput.value.trim();

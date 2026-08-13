@@ -1,0 +1,197 @@
+"""Phase 1 AP skill registry and runner."""
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+from typing import Any, Awaitable, Callable, Optional
+
+from app.ap_skills import backorder_detect, duplicate_detect, extract_invoice, finalize_decision, po_match, vendor_validate
+from app.ap_skills.planner import maybe_reorder, resolve_skills
+from app.ap_skills.store import ApStore
+from app.ap_skills.types import (
+    PHASE1_SKILL_ORDER,
+    ApContext,
+    ApSkillError,
+    ApSkillResult,
+)
+
+logger = logging.getLogger("orchestrator.ap_runner")
+
+SkillFn = Callable[[ApContext], Awaitable[ApSkillResult]]
+
+REGISTRY: dict[str, SkillFn] = {
+    extract_invoice.SKILL_ID: extract_invoice.run,
+    po_match.SKILL_ID: po_match.run,
+    duplicate_detect.SKILL_ID: duplicate_detect.run,
+    vendor_validate.SKILL_ID: vendor_validate.run,
+    backorder_detect.SKILL_ID: backorder_detect.run,
+    finalize_decision.SKILL_ID: finalize_decision.run,
+}
+
+
+def resolve_item_key(job: dict[str, Any]) -> str:
+    item_id = str(job.get("item_id") or "").strip()
+    if item_id:
+        return item_id
+    filepath = str(job.get("filepath") or "").strip()
+    if filepath:
+        return filepath
+    filename = str(job.get("filename") or "").strip()
+    if filename:
+        return f"upload:{filename}"
+    invoice_json = job.get("invoice_json")
+    if isinstance(invoice_json, dict) and invoice_json:
+        canonical = json.dumps(invoice_json, sort_keys=True, default=str)
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+        return f"invoice:{digest}"
+    raise ApSkillError("AP document job needs filepath, file, invoice_json, or item_id.")
+
+
+class ApSkillRunner:
+    def __init__(
+        self,
+        *,
+        store: ApStore,
+        ezofis: Any,
+        settings: Any,
+        dispatcher: Any = None,
+        llm: Any = None,
+    ):
+        self._store = store
+        self._ezofis = ezofis
+        self._settings = settings
+        self._dispatcher = dispatcher
+        self._llm = llm
+
+    async def run(self, *, session_id: str, document_job: dict[str, Any]) -> dict[str, Any]:
+        tenant_id = str(document_job.get("tenant_id") or "default").strip() or "default"
+        item_key = resolve_item_key(document_job)
+        plan = await self._store.get_plan(tenant_id)
+        enabled = list((plan or {}).get("enabled_skills") or PHASE1_SKILL_ORDER)
+        thresholds = dict((plan or {}).get("thresholds") or {})
+        requested = document_job.get("skills")
+        if requested is not None and not isinstance(requested, list):
+            raise ApSkillError("payload.skills must be a list of skill ids.")
+
+        skills = resolve_skills(requested=requested, enabled=enabled)
+        skills = await maybe_reorder(
+            skills,
+            llm=self._llm,
+            use_planner=bool(getattr(self._settings, "ap_llm_planner", False)) and requested is None,
+        )
+        if not skills:
+            raise ApSkillError("No enabled skills to run for this tenant.")
+
+        run_id = await self._store.create_run(
+            session_id=session_id,
+            tenant_id=tenant_id,
+            item_key=item_key,
+            requested_skills=skills,
+        )
+        artifacts = await self._store.load_artifacts(tenant_id=tenant_id, item_key=item_key)
+        invoice_json = document_job.get("invoice_json")
+        extracted = artifacts.get("extract_invoice") or {}
+        if not invoice_json and isinstance(extracted.get("invoice"), dict):
+            invoice_json = extracted["invoice"]
+
+        ctx = ApContext(
+            tenant_id=tenant_id,
+            item_key=item_key,
+            run_id=run_id,
+            session_id=session_id,
+            invoice_json=invoice_json if isinstance(invoice_json, dict) else None,
+            artifacts=artifacts,
+            settings=self._settings,
+            ezofis=self._ezofis,
+            llm=self._llm,
+            dispatcher=self._dispatcher,
+            store=self._store,
+            document_job=document_job,
+            thresholds=thresholds,
+        )
+
+        skills_run: list[str] = []
+        credits_charged = 0
+        identify = item_key
+        try:
+            for skill_id in skills:
+                handler = REGISTRY.get(skill_id)
+                if handler is None:
+                    raise ApSkillError(f"Unknown skill '{skill_id}'.")
+                result = await handler(ctx)
+                artifact = dict(result.data)
+                ctx.artifacts[skill_id] = artifact
+                if skill_id == "extract_invoice" and isinstance(artifact.get("invoice"), dict):
+                    ctx.invoice_json = artifact["invoice"]
+                    identify = artifact["invoice"].get("invoice_number") or identify
+                await self._store.save_artifact(
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    item_key=item_key,
+                    skill_id=skill_id,
+                    result=artifact,
+                )
+                charge_status = await self._charge(
+                    tenant_id=tenant_id,
+                    skill_id=skill_id,
+                    identify=str(identify),
+                    credits=result.credits,
+                )
+                await self._store.record_credit(
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    skill_id=skill_id,
+                    credits=result.credits,
+                    identify=str(identify),
+                    status=charge_status,
+                )
+                skills_run.append(skill_id)
+                credits_charged += result.credits
+
+            finalize = ctx.artifacts.get("finalize_decision") or {}
+            decision = finalize.get("decision") or (ctx.artifacts.get("po_match") or {}).get("decision")
+            await self._store.finish_run(
+                run_id=run_id,
+                status="completed",
+                decision=decision,
+                credits_charged=credits_charged,
+            )
+            return {
+                "run_id": run_id,
+                "tenant_id": tenant_id,
+                "item_key": item_key,
+                "skills_run": skills_run,
+                "credits_charged": credits_charged,
+                "decision": decision,
+                "artifacts": {k: ctx.artifacts[k] for k in skills_run},
+            }
+        except Exception:
+            try:
+                await self._store.finish_run(
+                    run_id=run_id,
+                    status="failed",
+                    decision=None,
+                    credits_charged=credits_charged,
+                )
+            except Exception:
+                logger.warning("ap_run_fail_status_update_failed")
+            raise
+
+    async def _charge(self, *, tenant_id: str, skill_id: str, identify: str, credits: int) -> str:
+        try:
+            result = await self._ezofis.charge_activity_credit(
+                tenant_id=tenant_id,
+                skill_id=skill_id,
+                identify=identify,
+                credit=credits,
+            )
+            if isinstance(result, dict) and result.get("status") == "failed":
+                return "failed"
+            return "charged"
+        except Exception:
+            logger.warning("ap_credit_charge_failed", extra={"skill_id": skill_id})
+            return "failed"
+
+
+__all__ = ["ApSkillRunner", "REGISTRY", "resolve_item_key"]

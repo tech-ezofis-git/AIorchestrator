@@ -1,19 +1,17 @@
-"""The AP (Accounts Payable) agent (Phase 3c) — fetches invoice status
-through the Dispatcher's `fetch_invoice_status` tool (never calling
-ezofis_client directly), then asks the Response Composer's AP synthesis
-path for a plain-language answer. Read-only, single-turn.
-
-Higher-stakes than prior agents: this touches financial data, so
-reference extraction is deliberately conservative and fails closed (see
-app.agents.reference_extraction.extract_invoice_reference). Only a
-clearly-formatted invoice reference triggers a tool call; anything else
-returns an explicit clarification — no tool call, no LLM call, no guess.
-A wrong guess here would mean surfacing financial data for the wrong
-invoice, not just an oddly-scoped answer.
+"""The AP (Accounts Payable) agent — legacy invoice-status Q&A, or an
+agentic document job (`intent=ap` + file/filepath/invoice_json) that runs
+tenant-gated skills at 1 credit each.
 """
+from __future__ import annotations
+
+import json
 import logging
+from typing import Any, Optional
 
 from app.agents.reference_extraction import extract_invoice_reference
+from app.ap_skills.runner import ApSkillRunner
+from app.ap_skills.store import ApStore
+from app.config import Settings
 from app.core.dispatcher import Dispatcher
 from app.core.response_composer import ResponseComposer
 
@@ -26,23 +24,62 @@ _CLARIFICATION_REPLY = (
 
 
 class ApAgent:
-    def __init__(self, dispatcher: Dispatcher, response_composer: ResponseComposer):
+    def __init__(
+        self,
+        dispatcher: Dispatcher,
+        response_composer: ResponseComposer,
+        *,
+        settings: Optional[Settings] = None,
+        ezofis_client: Any = None,
+        llm_adapter: Any = None,
+        db_pool: Any = None,
+    ):
         self._dispatcher = dispatcher
         self._response_composer = response_composer
+        self._settings = settings
+        self._ezofis = ezofis_client
+        self._llm = llm_adapter
+        self._db_pool = db_pool
+        self._runner: Optional[ApSkillRunner] = None
 
-    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]], **_: object) -> dict:
-        """Returns {"reply": str, "usage": dict | None, "invoice_reference": str | None}.
+    def _cfg(self) -> Settings:
+        if self._settings is None:
+            from app.config import get_settings
 
-        If no confident invoice reference is found, returns the
-        clarification reply directly — the Dispatcher is never called (no
-        tool call is made) and the LLM is never called either (this is a
-        canned, deterministic refusal, not a guess dressed up by an LLM).
+            return get_settings()
+        return self._settings
 
-        Only the reference identifier and the outcome (found/not found)
-        are logged — never the fetched invoice's financial fields. A tool
-        failure is logged separately by the Dispatcher itself (tool_name +
-        error_type only, also no payload).
-        """
+    def _skill_runner(self) -> ApSkillRunner:
+        if self._runner is None:
+            if self._db_pool is None or self._ezofis is None:
+                raise RuntimeError("AP document jobs require a database pool and Ezofis client.")
+            self._runner = ApSkillRunner(
+                store=ApStore(self._db_pool),
+                ezofis=self._ezofis,
+                settings=self._cfg(),
+                dispatcher=self._dispatcher,
+                llm=self._llm,
+            )
+        return self._runner
+
+    async def handle(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        history: list[dict[str, str]],
+        document_job: Optional[dict[str, Any]] = None,
+        **_: object,
+    ) -> dict:
+        if document_job:
+            result = await self._skill_runner().run(session_id=session_id, document_job=document_job)
+            return {
+                "reply": json.dumps(result, default=str),
+                "usage": None,
+                "ap_result": result,
+                "invoice_reference": None,
+            }
+
         invoice_reference = extract_invoice_reference(message)
         if invoice_reference is None:
             logger.info("ap_reference_not_found", extra={"session_id": session_id, "outcome": "not_found"})

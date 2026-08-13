@@ -1,14 +1,18 @@
 """Shared test fakes for Phase 2 (Search/RAG), Phase 4b (audit
-persistence), and Phase 5a (Chat memory) — a tiny in-memory stand-in for
-the asyncpg pool so tests never need a live Postgres(+pgvector) instance.
+persistence), Phase 5a (Chat memory), and AP document jobs — a tiny
+in-memory stand-in for the asyncpg pool so tests never need a live
+Postgres(+pgvector) instance.
 
 Understands only the fixed set of query shapes app/knowledge/vector_store.py,
-app/control/audit_store.py, and app/control/memory_store.py issue (matched
-by distinctive substrings) — not a general SQL engine.
+app/control/audit_store.py, app/control/memory_store.py, and
+app/ap_skills/store.py issue (matched by distinctive substrings) — not a
+general SQL engine.
 """
+import json
 import math
 import re
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -23,12 +27,29 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return dot / (norm_a * norm_b)
 
 
+def _json_val(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, (bytes, bytearray)):
+        value = value.decode("utf-8")
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
 class FakeDBPool:
     def __init__(self):
         self.documents: dict[str, dict[str, Any]] = {}
         self.chunks: dict[str, dict[str, Any]] = {}
         self.audit_log: list[dict[str, Any]] = []
         self.memories: list[dict[str, Any]] = []
+        self.ap_runs: dict[str, dict[str, Any]] = {}
+        self.ap_skill_artifacts: list[dict[str, Any]] = []
+        self.ap_tenant_plans: dict[str, dict[str, Any]] = {}
+        self.ap_credit_ledger: list[dict[str, Any]] = []
 
     async def fetchrow(self, query: str, *args: Any):
         if "INSERT INTO documents" in query:
@@ -37,6 +58,23 @@ class FakeDBPool:
             row = {"id": doc_id, "source": source, "title": title, "metadata": metadata_json}
             self.documents[str(doc_id)] = row
             return row
+        if "INSERT INTO ap_runs" in query:
+            run_id, session_id, tenant_id, item_key, requested_skills, status = args
+            row = {
+                "id": run_id,
+                "session_id": session_id,
+                "tenant_id": tenant_id,
+                "item_key": item_key,
+                "requested_skills": _json_val(requested_skills),
+                "status": status,
+                "decision": None,
+                "credits_charged": 0,
+            }
+            self.ap_runs[str(run_id)] = row
+            return {"id": run_id}
+        if "FROM ap_tenant_plans" in query:
+            tenant_id = args[0]
+            return self.ap_tenant_plans.get(str(tenant_id))
         raise AssertionError(f"FakeDBPool.fetchrow: unrecognized query: {query!r}")
 
     async def executemany(self, query: str, args_list: list[tuple]):
@@ -69,8 +107,26 @@ class FakeDBPool:
         if "FROM memories" in query:
             user_id, limit = args
             matches = [m for m in self.memories if m["user_id"] == user_id]
-            matches.reverse()  # self.memories is append-order (oldest first); newest first per the real query's ORDER BY created_at DESC
+            matches.reverse()
             return [{"fact": m["fact"]} for m in matches[:limit]]
+        if "FROM ap_skill_artifacts" in query:
+            if "AND skill_id" in query:
+                tenant_id, skill_id = args
+                return [
+                    {"item_key": row["item_key"], "result_json": row["result_json"]}
+                    for row in self.ap_skill_artifacts
+                    if row["tenant_id"] == tenant_id and row["skill_id"] == skill_id
+                ]
+            tenant_id, item_key = args
+            return [
+                {
+                    "skill_id": row["skill_id"],
+                    "result_json": row["result_json"],
+                    "created_at": row["created_at"],
+                }
+                for row in self.ap_skill_artifacts
+                if row["tenant_id"] == tenant_id and row["item_key"] == item_key
+            ]
         if "text_search @@" in query:
             search_query, top_n = args
             terms = [t.lower() for t in re.findall(r"\w+", search_query)]
@@ -113,6 +169,40 @@ class FakeDBPool:
                     "latency_ms": latency_ms,
                     "redacted_request_snippet": redacted_request_snippet,
                     "redacted_response_snippet": redacted_response_snippet,
+                }
+            )
+            return
+        if "UPDATE ap_runs" in query:
+            run_id, status, decision, credits_charged = args
+            row = self.ap_runs.get(str(run_id))
+            if row is not None:
+                row["status"] = status
+                row["decision"] = decision
+                row["credits_charged"] = credits_charged
+            return
+        if "INSERT INTO ap_skill_artifacts" in query:
+            run_id, tenant_id, item_key, skill_id, result_json = args
+            self.ap_skill_artifacts.append(
+                {
+                    "run_id": run_id,
+                    "tenant_id": tenant_id,
+                    "item_key": item_key,
+                    "skill_id": skill_id,
+                    "result_json": _json_val(result_json),
+                    "created_at": datetime.now(timezone.utc),
+                }
+            )
+            return
+        if "INSERT INTO ap_credit_ledger" in query:
+            run_id, tenant_id, skill_id, credits, identify, status = args
+            self.ap_credit_ledger.append(
+                {
+                    "run_id": run_id,
+                    "tenant_id": tenant_id,
+                    "skill_id": skill_id,
+                    "credits": credits,
+                    "identify": identify,
+                    "status": status,
                 }
             )
             return

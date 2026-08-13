@@ -104,6 +104,7 @@ from starlette.background import BackgroundTask
 
 from app.agents.ap_agent import ApAgent
 from app.agents.chat_agent import ChatAgent
+from app.ap_skills.store import ApStoreUnavailableError
 from app.agents.forecast_agent import ForecastAgent
 from app.agents.insight_agent import InsightAgent
 from app.agents.mail_agent import MailAgent
@@ -234,7 +235,7 @@ async def lifespan(app: FastAPI):
     if not settings.llm_api_base:
         apply_preset(llm_adapter, runtime_models.default_preset_id)
     embedding_adapter = EmbeddingAdapter(settings)
-    ezofis_client = EzofisClient()
+    ezofis_client = EzofisClient(settings)
     context_manager = ContextManager(redis_client, settings.session_ttl_seconds, ezofis_client)
     intent_router = IntentRouter()
     response_composer = ResponseComposer(llm_adapter)
@@ -286,7 +287,14 @@ async def lifespan(app: FastAPI):
         llm_model=settings.llm_model,
         narration_cache_ttl_seconds=settings.forecast_narration_cache_ttl_seconds,
     )
-    ap_agent = ApAgent(dispatcher, response_composer)
+    ap_agent = ApAgent(
+        dispatcher,
+        response_composer,
+        settings=settings,
+        ezofis_client=ezofis_client,
+        llm_adapter=llm_adapter,
+        db_pool=db_pool,
+    )
 
     # Constructed only after dispatcher (needs store_memory/fetch_memories
     # registered), response_composer (needs synthesize_memory_fact), and
@@ -489,7 +497,7 @@ _CHAT_MULTIPART_SCHEMA = {
     "type": "object",
     "properties": {
         "session_id": {"type": "string", "description": "Required session id."},
-        "message": {"type": "string", "description": "Chat text (optional for intent=ocr with file/filepath)."},
+        "message": {"type": "string", "description": "Chat text (optional for intent=ocr|ap with file/filepath/invoice_json)."},
         "intent": {
             "type": "string",
             "description": "Explicit agent (ocr, ap, chat, …). Omit to use keyword routing.",
@@ -519,6 +527,17 @@ _CHAT_MULTIPART_SCHEMA = {
             "example": [],
         },
         "model": {"type": "string", "description": "Optional LLM model override."},
+        "tenant_id": {"type": "string", "description": "AP tenant id (intent=ap)."},
+        "item_id": {"type": "string", "description": "Stable AP document key for skill re-runs."},
+        "skills": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": 'AP skill ids, e.g. ["vendor_validate"]. Omit for tenant default plan.',
+        },
+        "invoice_json": {
+            "type": "string",
+            "description": "Pre-extracted invoice JSON object (intent=ap).",
+        },
         "file": {
             "type": "string",
             "format": "binary",
@@ -560,6 +579,27 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "ap_invoice_json": {
+                            "summary": "AP skills from invoice JSON",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "ap",
+                                "payload": {
+                                    "tenant_id": "demo-tenant",
+                                    "item_id": "inv-100",
+                                    "invoice_json": {
+                                        "invoice_number": "INV-100",
+                                        "vendor": "ACME Supplies",
+                                        "po_number": "PO-1",
+                                        "total": 1234.56,
+                                        "currency": "USD",
+                                        "line_items": [
+                                            {"description": "Widget", "qty": 10, "amount": 1234.56}
+                                        ],
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
                 # File browser in Swagger (select multipart/form-data).
@@ -587,7 +627,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     message = (payload.message or "").strip()
     explicit = (payload.intent or "").strip().lower()
     if not message:
-        if has_filepath or has_upload or explicit == "ocr":
+        if has_filepath or has_upload or explicit in ("ocr", "ap"):
             message = (payload.instruction or "").strip() or "Process the document and generate structured JSON."
         else:
             raise HTTPException(status_code=422, detail="message is required.")
@@ -637,6 +677,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     request.state.intent = intent.value
 
     document_job = None
+    has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
+    has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
     if intent == Intent.OCR and (has_filepath or (parsed.file_bytes is not None)):
         if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
@@ -662,6 +704,24 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     elif intent == Intent.OCR and explicit == "ocr" and not (has_filepath or parsed.file_bytes is not None):
         # Explicit OCR without a document still allows legacy "run ocr on SCN-.." messages.
         pass
+    elif intent == Intent.AP and explicit == "ap" and (
+        has_filepath or parsed.file_bytes is not None or has_invoice_json or has_item_id
+    ):
+        if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        document_job = {
+            "instruction": payload.instruction,
+            "filepath": None if parsed.file_bytes is not None else (payload.payload.filepath if payload.payload else None),
+            "file_bytes": parsed.file_bytes,
+            "filename": parsed.filename if parsed.file_bytes is not None else None,
+            "content_type": parsed.content_type if parsed.file_bytes is not None else None,
+            "pageno": payload.payload.pageno if payload.payload else None,
+            "tenant_id": payload.payload.tenant_id if payload.payload else None,
+            "skills": payload.payload.skills if payload.payload else None,
+            "invoice_json": payload.payload.invoice_json if payload.payload else None,
+            "item_id": payload.payload.item_id if payload.payload else None,
+            "model": payload.payload.model if payload.payload else None,
+        }
 
     # Gate 3: permission check — needs the classified intent, so it can
     # only run here, not earlier. The Dispatcher/agent must never be
@@ -693,6 +753,10 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     except VectorStoreUnavailableError as exc:
         raise HTTPException(
             status_code=503, detail="Document store is currently unavailable, please try again."
+        ) from exc
+    except ApStoreUnavailableError as exc:
+        raise HTTPException(
+            status_code=503, detail="AP store is currently unavailable, please try again."
         ) from exc
     except ToolExecutionError as exc:
         raise HTTPException(
@@ -738,6 +802,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         forecast_result=result.get("forecast_result"),
         invoice_reference=result.get("invoice_reference"),
         mail_draft=result.get("mail_draft"),
+        ap_result=result.get("ap_result"),
     )
 
 
