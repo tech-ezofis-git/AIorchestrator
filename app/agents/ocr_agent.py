@@ -16,6 +16,9 @@ from app.config import Settings
 from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
 from app.integrations.ocr_engine import OcrEngineError
+from app.llm.adapter import LLMAdapter
+from app.llm.model_presets import apply_preset, get_preset
+from app.llm.runtime_models import RuntimeModelSelection
 
 logger = logging.getLogger("orchestrator.ocr_agent")
 
@@ -26,10 +29,15 @@ class OcrAgent:
         dispatcher: Dispatcher,
         response_composer: Optional[ResponseComposer] = None,
         settings: Optional[Settings] = None,
+        *,
+        llm_adapter: Optional[LLMAdapter] = None,
+        runtime_models: Optional[RuntimeModelSelection] = None,
     ):
         self._dispatcher = dispatcher
         self._composer = response_composer
         self._settings = settings
+        self._llm = llm_adapter
+        self._runtime_models = runtime_models
 
     def _cfg(self) -> Settings:
         if self._settings is None:
@@ -126,10 +134,9 @@ class OcrAgent:
             raise RuntimeError("ResponseComposer is required for OCR document jobs.")
 
         model = (job.get("model") or "").strip() or None
-        # Prefer explicit payload.model; otherwise keep whatever the shared
-        # LLMAdapter is already configured with (Azure preset at startup).
+        # Prefer explicit payload.model; otherwise keep the shared adapter
+        # (default preset chosen in the Test Console / startup).
         primary = model
-        fallback = (settings.ocr_fallback_model or "").strip() or None
 
         try:
             synthesized = await self._composer.synthesize_ocr_json(
@@ -141,18 +148,17 @@ class OcrAgent:
                 model=primary,
                 max_recommended_fields=settings.ocr_max_recommended_fields,
             )
-        except Exception:
+        except Exception as exc:
             logger.warning("ocr_structuring_primary_failed", extra={"model": primary or "default"})
-            if not fallback or fallback == primary:
-                raise
-            synthesized = await self._composer.synthesize_ocr_json(
+            synthesized = await self._structure_with_fallback(
                 instruction=instruction,
                 ocr_text=ocr_text,
                 parameters=parameters,
                 tableparameters=tableparameters,
                 page_label=pages.label(),
-                model=fallback,
+                primary=primary,
                 max_recommended_fields=settings.ocr_max_recommended_fields,
+                error=exc,
             )
 
         fields = synthesized["ocrResult"]
@@ -177,6 +183,68 @@ class OcrAgent:
             },
             "ocr_result": body,
         }
+
+    async def _structure_with_fallback(
+        self,
+        *,
+        instruction: str,
+        ocr_text: str,
+        parameters: list[str],
+        tableparameters: list[str],
+        page_label: str,
+        primary: Optional[str],
+        max_recommended_fields: int,
+        error: Exception,
+    ) -> dict[str, Any]:
+        """Retry OCR structuring on the console/env fallback model."""
+        assert self._composer is not None
+        settings = self._cfg()
+        fallback_preset = (
+            self._runtime_models.fallback_preset_id if self._runtime_models else None
+        )
+        env_fallback = (settings.ocr_fallback_model or "").strip() or None
+
+        if fallback_preset and self._llm is not None and get_preset(fallback_preset):
+            default_preset = (
+                self._runtime_models.default_preset_id
+                if self._runtime_models
+                else None
+            )
+            logger.warning(
+                "ocr_structuring_fallback_preset",
+                extra={"fallback_preset_id": fallback_preset},
+            )
+            apply_preset(self._llm, fallback_preset)
+            try:
+                return await self._composer.synthesize_ocr_json(
+                    instruction=instruction,
+                    ocr_text=ocr_text,
+                    parameters=parameters,
+                    tableparameters=tableparameters,
+                    page_label=page_label,
+                    model=None,
+                    max_recommended_fields=max_recommended_fields,
+                )
+            finally:
+                if default_preset and get_preset(default_preset):
+                    apply_preset(self._llm, default_preset)
+
+        if env_fallback and env_fallback != primary:
+            logger.warning(
+                "ocr_structuring_fallback_model",
+                extra={"model": env_fallback},
+            )
+            return await self._composer.synthesize_ocr_json(
+                instruction=instruction,
+                ocr_text=ocr_text,
+                parameters=parameters,
+                tableparameters=tableparameters,
+                page_label=page_label,
+                model=env_fallback,
+                max_recommended_fields=max_recommended_fields,
+            )
+
+        raise error
 
 
 def _locked_body(

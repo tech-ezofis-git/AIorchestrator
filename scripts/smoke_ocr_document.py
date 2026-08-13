@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("OCR_EXTRACT_URL", "")
+os.environ.setdefault("QWEN_MAC_API_KEY", "smoke-key")
 os.environ.setdefault("AZURE_SOUTH_INDIA_API_KEY", "smoke-key")
 os.environ.setdefault("AZURE_EAST_US_API_KEY", "smoke-key")
 

@@ -145,6 +145,7 @@ from app.llm.model_presets import (
     get_preset,
     list_presets_public,
 )
+from app.llm.runtime_models import RuntimeModelSelection
 from app.models.chat import ChatRequest, ChatResponse
 from app.models.chat_request_parser import parse_chat_request
 from app.models.pending_action import ConfirmActionResponse
@@ -220,8 +221,12 @@ async def lifespan(app: FastAPI):
     llm_adapter = LLMAdapter(settings)
     # Prefer a hardcoded Azure preset when .env has no custom endpoint —
     # the Test Console can switch presets at runtime via /console/llm-config.
+    runtime_models = RuntimeModelSelection(default_preset_id=DEFAULT_PRESET_ID)
+    env_fallback = (settings.ocr_fallback_model or "").strip()
+    if env_fallback and get_preset(env_fallback):
+        runtime_models.fallback_preset_id = env_fallback
     if not settings.llm_api_base:
-        apply_preset(llm_adapter, DEFAULT_PRESET_ID)
+        apply_preset(llm_adapter, runtime_models.default_preset_id)
     embedding_adapter = EmbeddingAdapter(settings)
     ezofis_client = EzofisClient()
     context_manager = ContextManager(redis_client, settings.session_ttl_seconds, ezofis_client)
@@ -261,7 +266,13 @@ async def lifespan(app: FastAPI):
     dispatcher.register_tool(FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler(memory_store))
     summary_agent = SummaryAgent(dispatcher, response_composer)
     insight_agent = InsightAgent(dispatcher, response_composer)
-    ocr_agent = OcrAgent(dispatcher, response_composer, settings)
+    ocr_agent = OcrAgent(
+        dispatcher,
+        response_composer,
+        settings,
+        llm_adapter=llm_adapter,
+        runtime_models=runtime_models,
+    )
     forecast_agent = ForecastAgent(
         dispatcher,
         response_composer,
@@ -315,6 +326,7 @@ async def lifespan(app: FastAPI):
     # the same shared instance every agent already calls through, so
     # reconfiguring it here takes effect everywhere with no app restart.
     app.state.llm_adapter = llm_adapter
+    app.state.runtime_models = runtime_models
 
     yield
 
@@ -350,24 +362,32 @@ async def console() -> HTMLResponse:
 
 class LLMConfigUpdate(BaseModel):
     """Body for POST /console/llm-config. Every field is optional — only
-    the fields you send are changed (see LLMAdapter.configure). Send
-    `preset_id` to apply a hardcoded Azure preset (model + base + key +
-    api_version) from app/llm/model_presets.py. Send an empty string for
-    `api_base`/`api_key`/`api_version` to explicitly clear it."""
+    the fields you send are changed. Prefer `default_preset_id` /
+    `fallback_preset_id` (Azure presets; keys stay in .env). `preset_id`
+    is an alias for `default_preset_id`. Send an empty string for
+    `fallback_preset_id` to clear it, or for `api_base`/`api_key`/
+    `api_version` to clear those manual overrides."""
 
-    preset_id: Optional[str] = None
+    default_preset_id: Optional[str] = None
+    fallback_preset_id: Optional[str] = None
+    preset_id: Optional[str] = None  # alias for default_preset_id
     model: Optional[str] = None
     api_base: Optional[str] = None
     api_key: Optional[str] = None
     api_version: Optional[str] = None
 
 
+def _llm_config_response(request: Request) -> dict:
+    llm_adapter: LLMAdapter = request.app.state.llm_adapter
+    runtime: RuntimeModelSelection = request.app.state.runtime_models
+    return {**llm_adapter.describe(), **runtime.describe()}
+
+
 @app.get("/console/llm-presets")
 async def get_llm_presets() -> dict:
     """Hardcoded Azure OpenAI deployments the Test Console can switch
     between. Never includes API keys — those stay server-side in
-    model_presets.py and are applied when POST /console/llm-config sends
-    a preset_id."""
+    .env and are applied when POST /console/llm-config sends a preset id."""
     return {"presets": list_presets_public(), "default_preset_id": DEFAULT_PRESET_ID}
 
 
@@ -375,33 +395,45 @@ async def get_llm_presets() -> dict:
 async def get_llm_config(request: Request) -> dict:
     """Current LLM model/endpoint config, safe to return over the wire —
     never the API key's value, only whether one is set (see
-    LLMAdapter.describe). Backs the Test Console's settings panel on
-    page load. Same guardrail exemption as /console, /health, and /metrics
-    — a dev/admin endpoint, not a user-facing capability."""
-    llm_adapter: LLMAdapter = request.app.state.llm_adapter
-    return llm_adapter.describe()
+    LLMAdapter.describe). Includes default/fallback preset ids for OCR."""
+    return _llm_config_response(request)
 
 
 @app.post("/console/llm-config")
 async def update_llm_config(payload: LLMConfigUpdate, request: Request) -> dict:
-    """Runtime model/endpoint reconfiguration from the Test Console — see
-    LLMAdapter.configure's docstring for why this takes effect for every
-    agent immediately, no app restart needed. In-memory only: a restart
-    reverts to the default preset (or .env if LLM_API_BASE is set).
-    Never logs the submitted api_key's value (see LLMAdapter.configure)."""
+    """Runtime model selection from the Test Console. Preset switches
+    apply Azure model/base/key from .env — no key needed in the UI.
+    In-memory only: a restart reverts to the default preset."""
     llm_adapter: LLMAdapter = request.app.state.llm_adapter
-    if payload.preset_id is not None and payload.preset_id != "":
-        if get_preset(payload.preset_id) is None:
-            raise HTTPException(status_code=400, detail=f"Unknown preset_id: {payload.preset_id}")
-        apply_preset(llm_adapter, payload.preset_id)
-        return llm_adapter.describe()
-    llm_adapter.configure(
-        model=payload.model,
-        api_base=payload.api_base,
-        api_key=payload.api_key,
-        api_version=payload.api_version,
-    )
-    return llm_adapter.describe()
+    runtime: RuntimeModelSelection = request.app.state.runtime_models
+
+    default_id = payload.default_preset_id if payload.default_preset_id is not None else payload.preset_id
+    if default_id is not None and default_id != "":
+        if get_preset(default_id) is None:
+            raise HTTPException(status_code=400, detail=f"Unknown default_preset_id: {default_id}")
+        apply_preset(llm_adapter, default_id)
+        runtime.set_default(default_id)
+
+    if payload.fallback_preset_id is not None:
+        try:
+            runtime.set_fallback(payload.fallback_preset_id or None)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Manual override path (Advanced) — only when no default preset was sent.
+    if default_id is None or default_id == "":
+        if any(
+            v is not None
+            for v in (payload.model, payload.api_base, payload.api_key, payload.api_version)
+        ):
+            llm_adapter.configure(
+                model=payload.model,
+                api_base=payload.api_base,
+                api_key=payload.api_key,
+                api_version=payload.api_version,
+            )
+
+    return _llm_config_response(request)
 
 
 @app.post("/console/llm-test")
