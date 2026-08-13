@@ -435,7 +435,89 @@ async def metrics() -> Response:
     return Response(content=render_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.post("/chat", response_model=ChatResponse)
+_CHAT_MULTIPART_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "session_id": {"type": "string", "description": "Required session id."},
+        "message": {"type": "string", "description": "Chat text (optional for intent=ocr with file/filepath)."},
+        "intent": {
+            "type": "string",
+            "description": "Explicit agent (ocr, ap, chat, …). Omit to use keyword routing.",
+        },
+        "instruction": {
+            "type": "string",
+            "description": "OCR hints (region / date format).",
+        },
+        "filepath": {
+            "type": "string",
+            "description": "Blob URL or container/blob path.",
+        },
+        "pageno": {
+            "type": "string",
+            "description": "Page: omit/1..5 = one page; -1 = up to 5 pages.",
+        },
+        "parameters": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": 'One entry per field as Name,TYPE — e.g. Invoice No,SHORT_TEXT',
+            "example": ["Invoice No,SHORT_TEXT", "Due Date,DATE"],
+        },
+        "tableparameters": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional table field definitions (same Name,TYPE format).",
+            "example": [],
+        },
+        "model": {"type": "string", "description": "Optional LLM model override."},
+        "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "Upload any OCR-supported file (pdf/png/jpg/…). Wins over filepath.",
+        },
+    },
+    "required": ["session_id"],
+}
+
+
+@app.post(
+    "/chat",
+    response_model=ChatResponse,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                # JSON payload textbox in Swagger (select application/json).
+                "application/json": {
+                    "schema": ChatRequest.model_json_schema(
+                        ref_template="#/components/schemas/{model}"
+                    ),
+                    "examples": {
+                        "chat": {
+                            "summary": "Plain chat",
+                            "value": {"session_id": "demo", "message": "Hello"},
+                        },
+                        "ocr_blob": {
+                            "summary": "OCR from blob path",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "ocr",
+                                "instruction": "Region: India. Normalize DATE fields to YYYY-MM-DD.",
+                                "payload": {
+                                    "filepath": "ezts2e3b7b3738a34f94878ea006dad93230/INV26-27002140.pdf",
+                                    "pageno": "1",
+                                    "parameters": ["Invoice No,SHORT_TEXT", "Due Date,DATE"],
+                                    "tableparameters": [],
+                                },
+                            },
+                        },
+                    },
+                },
+                # File browser in Swagger (select multipart/form-data).
+                "multipart/form-data": {"schema": _CHAT_MULTIPART_SCHEMA},
+            },
+        }
+    },
+)
 async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatResponse:
     started_at = time.perf_counter()
     parsed = await parse_chat_request(request)

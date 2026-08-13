@@ -46,10 +46,8 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     filepath = _form_str(form.get("filepath"))
     pageno = _form_str(form.get("pageno"))
     model = _form_str(form.get("model"))
-    parameters = _parse_json_list(_form_str(form.get("parameters")), field="parameters")
-    tableparameters = _parse_json_list(
-        _form_str(form.get("tableparameters")), field="tableparameters"
-    )
+    parameters = _parse_form_string_list(form, "parameters")
+    tableparameters = _parse_form_string_list(form, "tableparameters")
 
     upload = form.get("file")
     file_bytes = None
@@ -101,13 +99,59 @@ def _form_str(value: Any) -> Optional[str]:
     return text or None
 
 
+def _parse_form_string_list(form: Any, field: str) -> list[str]:
+    """Accept Swagger multipart array fields OR a single JSON-array string."""
+    values = form.getlist(field) if hasattr(form, "getlist") else [form.get(field)]
+    values = [v for v in values if v is not None and not isinstance(v, UploadFile)]
+    if not values:
+        return []
+
+    # Multiple form parts with the same name (OpenAPI array → Swagger UI).
+    if len(values) > 1:
+        return [str(v).strip() for v in values if str(v).strip()]
+
+    return _parse_json_list(_form_str(values[0]), field=field)
+
+
 def _parse_json_list(raw: Optional[str], *, field: str) -> list[str]:
     if raw is None or raw == "":
         return []
+    text = (
+        str(raw)
+        .strip()
+        .replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+    )
+    # Swagger sometimes wraps the whole JSON array in extra quotes.
+    if len(text) >= 2 and text[0] == "'" and text[-1] == "'":
+        text = text[1:-1].strip()
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"{field} must be a JSON array.") from exc
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # Single Name,TYPE entry pasted without JSON brackets.
+        if "," in text and not text.startswith("["):
+            return [text]
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f'{field} must be a JSON array string, e.g. '
+                f'["Invoice No,SHORT_TEXT","Due Date,DATE"]'
+            ),
+        ) from None
+    if isinstance(data, str):
+        # Double-encoded JSON string containing an array.
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            return [data]
     if not isinstance(data, list):
-        raise HTTPException(status_code=422, detail=f"{field} must be a JSON array.")
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f'{field} must be a JSON array string, e.g. '
+                f'["Invoice No,SHORT_TEXT","Due Date,DATE"]'
+            ),
+        )
     return [str(x) for x in data]

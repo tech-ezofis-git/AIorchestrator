@@ -325,9 +325,22 @@ class ResponseComposer:
 
         from app.agents.ocr_helpers import parse_parameter_entries
 
-        previous_model = getattr(self._llm, "_model", None)
-        if model:
+        previous = {
+            "model": getattr(self._llm, "_model", None),
+            "api_base": getattr(self._llm, "_api_base", None),
+            "api_key": getattr(self._llm, "_api_key", None),
+            "api_version": getattr(self._llm, "_api_version", None),
+            "preset_id": getattr(self._llm, "_preset_id", None),
+        }
+        switched = False
+        # Only switch when caller asks for a different model string than the
+        # adapter already has (avoid turning azure/gpt-4.1-mini into gpt-4.1-mini
+        # and dropping the Azure key/base mid-request).
+        if model and model != previous["model"] and not (
+            previous["model"] and previous["model"].endswith("/" + model)
+        ):
             self._llm.configure(model=model)
+            switched = True
 
         try:
             parsed_params = parse_parameter_entries(parameters)
@@ -356,8 +369,14 @@ class ResponseComposer:
                 ]
             )
         finally:
-            if model and previous_model:
-                self._llm.configure(model=previous_model)
+            if switched:
+                self._llm.configure(
+                    model=previous["model"] or model,
+                    api_base=previous["api_base"] if previous["api_base"] is not None else "",
+                    api_key=previous["api_key"] if previous["api_key"] is not None else "",
+                    api_version=previous["api_version"] if previous["api_version"] is not None else "",
+                    preset_id=previous["preset_id"] if previous["preset_id"] is not None else "",
+                )
 
         fields, table_result = _parse_ocr_json_content(
             result["content"],

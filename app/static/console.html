@@ -148,7 +148,41 @@
     border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-secondary);
     color: var(--text-primary); min-height: 42px; max-height: 120px;
   }
-  .composer textarea:focus, .sidebar input:focus { outline: 2px solid var(--accent-primary); outline-offset: -1px; }
+  .composer textarea:focus, .sidebar input:focus, .sidebar textarea:focus, .sidebar select:focus {
+    outline: 2px solid var(--accent-primary); outline-offset: -1px;
+  }
+  .ocr-panel {
+    border-top: 1px solid var(--border-default);
+    padding: 12px 20px 0;
+    background: var(--surface-secondary);
+  }
+  .ocr-panel summary {
+    cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--text-secondary);
+    padding-bottom: 10px; list-style: none;
+  }
+  .ocr-panel summary::-webkit-details-marker { display: none; }
+  .ocr-panel[open] summary { color: var(--accent-primary); }
+  .ocr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: 12px; }
+  @media (max-width: 700px) { .ocr-grid { grid-template-columns: 1fr; } }
+  .ocr-grid label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+  .ocr-grid input[type=text], .ocr-grid input[type=file], .ocr-grid textarea {
+    width: 100%; padding: 7px 9px; font-size: 12.5px; font-family: inherit;
+    border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text-primary);
+  }
+  .ocr-grid textarea { min-height: 54px; resize: vertical; }
+  .ocr-actions { display: flex; gap: 8px; align-items: center; grid-column: 1 / -1; }
+  .ocr-fields-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ocr-fields-table th {
+    text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--text-muted); padding: 4px 6px; border-bottom: 1px solid var(--border-default);
+  }
+  .ocr-fields-table td { padding: 5px 6px; border-bottom: 1px solid var(--border-default); vertical-align: top; }
+  .ocr-text-preview {
+    max-height: 120px; overflow: auto; white-space: pre-wrap; font-size: 11.5px;
+    color: var(--text-secondary); margin-top: 6px; padding: 8px; background: var(--surface-secondary);
+    border-radius: var(--radius-sm);
+  }
   .spinner {
     width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.4); border-top-color: white;
     border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; vertical-align: -1px;
@@ -219,8 +253,38 @@
 
   <section class="card main">
     <div class="transcript" id="transcript">
-      <div class="empty-state">Send a message below, or click a capability chip to try one.</div>
+      <div class="empty-state">Send a message below, open <strong>OCR document</strong> to upload a file, or click a capability chip.</div>
     </div>
+    <details class="ocr-panel" id="ocrPanel">
+      <summary>OCR document — upload file or blob path</summary>
+      <div class="ocr-grid">
+        <div>
+          <label for="ocrFile">File (wins over filepath)</label>
+          <input type="file" id="ocrFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
+        </div>
+        <div>
+          <label for="ocrFilepath">Blob filepath</label>
+          <input type="text" id="ocrFilepath" placeholder="container/blob.pdf" />
+        </div>
+        <div>
+          <label for="ocrPageno">pageno</label>
+          <input type="text" id="ocrPageno" value="1" placeholder="1 or -1" />
+        </div>
+        <div>
+          <label for="ocrInstruction">instruction</label>
+          <input type="text" id="ocrInstruction" value="Region: India. Normalize DATE fields to YYYY-MM-DD." />
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="ocrParameters">parameters (one Name,TYPE per line)</label>
+          <textarea id="ocrParameters" placeholder="Invoice No,SHORT_TEXT&#10;Due Date,DATE">Invoice No,SHORT_TEXT
+Due Date,DATE</textarea>
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-primary" id="ocrSendBtn">Run OCR</button>
+          <span class="field-hint">POST /chat with intent=ocr (multipart if file is set)</span>
+        </div>
+      </div>
+    </details>
     <div class="composer">
       <form id="composerForm">
         <textarea id="messageInput" placeholder="Type a message… (e.g. &quot;search for the PTO policy&quot;)" rows="1"></textarea>
@@ -382,22 +446,32 @@ async function testLlmConnection() {
 llmTestBtn.addEventListener('click', testLlmConnection);
 
 const QUICK_PROMPTS = [
-  'search for the PTO policy',
-  'summarize document DOC-123',
-  'give me insights on report RPT-456',
-  'forecast revenue for next quarter',
-  'what is the status of invoice INV-1234',
-  'send an email to jane@example.com about the quarterly report',
-  'remember that I prefer email over phone calls',
-  'hello there',
+  { label: 'OCR document', ocr: true },
+  { label: 'search for the PTO policy', message: 'search for the PTO policy' },
+  { label: 'summarize document DOC-123', message: 'summarize document DOC-123' },
+  { label: 'give me insights on report RPT-456', message: 'give me insights on report RPT-456' },
+  { label: 'forecast revenue for next quarter', message: 'forecast revenue for next quarter' },
+  { label: 'what is the status of invoice INV-1234', message: 'what is the status of invoice INV-1234' },
+  { label: 'send an email to jane@example.com…', message: 'send an email to jane@example.com about the quarterly report' },
+  { label: 'remember that I prefer email…', message: 'remember that I prefer email over phone calls' },
+  { label: 'hello there', message: 'hello there' },
 ];
 const chipsEl = document.getElementById('quickPrompts');
+const ocrPanel = document.getElementById('ocrPanel');
 QUICK_PROMPTS.forEach(p => {
   const chip = document.createElement('span');
   chip.className = 'chip';
-  chip.textContent = p.length > 28 ? p.slice(0, 26) + '…' : p;
-  chip.title = p;
-  chip.addEventListener('click', () => { messageInput.value = p; sendMessage(); });
+  chip.textContent = p.label.length > 28 ? p.label.slice(0, 26) + '…' : p.label;
+  chip.title = p.message || p.label;
+  chip.addEventListener('click', () => {
+    if (p.ocr) {
+      ocrPanel.open = true;
+      ocrPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      return;
+    }
+    messageInput.value = p.message;
+    sendMessage();
+  });
   chipsEl.appendChild(chip);
 });
 
@@ -483,6 +557,36 @@ function renderMailDraft(draft, sessionId) {
     </div>`;
 }
 
+function renderOcrResult(ocr) {
+  const fields = Array.isArray(ocr.ocrResult) ? ocr.ocrResult : [];
+  const tables = Array.isArray(ocr.tableResult) ? ocr.tableResult : [];
+  const fieldRows = fields.map(f =>
+    `<tr><td>${escapeHtml(f.name ?? '')}</td><td>${escapeHtml(String(f.value ?? 'null'))}</td><td>${escapeHtml(f.type ?? '')}</td></tr>`
+  ).join('');
+  let html = `<div class="detail-block"><div class="dt-title">OCR result</div>`;
+  html += `<table>${fieldRow('Status', ocr.ocr_status)}${fieldRow('Source', ocr.source_reference)}</table>`;
+  if (fields.length) {
+    html += `<table class="ocr-fields-table" style="margin-top:8px"><thead><tr><th>Name</th><th>Value</th><th>Type</th></tr></thead><tbody>${fieldRows}</tbody></table>`;
+  }
+  if (tables.length) {
+    html += `<div style="margin-top:8px;color:var(--text-muted)">tableResult (${tables.length})</div>`;
+    html += `<pre class="ocr-text-preview">${escapeHtml(JSON.stringify(tables, null, 2))}</pre>`;
+  }
+  if (ocr.ocr_text) {
+    html += `<div style="margin-top:8px;color:var(--text-muted)">ocr_text</div><div class="ocr-text-preview">${escapeHtml(ocr.ocr_text)}</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function renderAssistantMessage(body, sessionId) {
   clearEmptyState();
   const div = document.createElement('div');
@@ -503,7 +607,7 @@ function renderAssistantMessage(body, sessionId) {
     details += `<div class="detail-block"><div class="dt-title">Cited data points</div>${body.cited_data_points.join(', ')}</div>`;
   }
   if (body.ocr_result) {
-    details += `<div class="detail-block"><div class="dt-title">OCR result</div><table>${Object.entries(body.ocr_result).map(([k,v]) => fieldRow(k, JSON.stringify(v))).join('')}</table></div>`;
+    details += renderOcrResult(body.ocr_result);
   }
   if (body.forecast_result) {
     const f = body.forecast_result;
@@ -519,6 +623,14 @@ function renderAssistantMessage(body, sessionId) {
     details += renderMailDraft(body.mail_draft, sessionId);
   }
 
+  let bubbleText = body.reply ?? '(no reply text)';
+  // OCR replies are JSON strings — show a short summary in the bubble.
+  if (body.ocr_result && typeof body.reply === 'string' && body.reply.trim().startsWith('{')) {
+    const n = (body.ocr_result.ocrResult || []).length;
+    const src = body.ocr_result.source_reference || 'document';
+    bubbleText = `OCR extracted ${n} field${n === 1 ? '' : 's'} from ${src}.`;
+  }
+
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
   div.innerHTML = `
     <div class="bubble"></div>
@@ -527,7 +639,7 @@ function renderAssistantMessage(body, sessionId) {
     <span class="raw-toggle" data-target="${rawId}">view raw JSON</span>
     <pre class="raw-json" id="${rawId}" style="display:none"></pre>
   `;
-  div.querySelector('.bubble').textContent = body.reply ?? '(no reply text)';
+  div.querySelector('.bubble').textContent = bubbleText;
   div.querySelector(`#${rawId}`).textContent = JSON.stringify(body, null, 2);
   div.querySelector('.raw-toggle').addEventListener('click', (e) => {
     const pre = document.getElementById(e.target.dataset.target);
@@ -537,6 +649,83 @@ function renderAssistantMessage(body, sessionId) {
   transcript.appendChild(div);
   transcript.scrollTop = transcript.scrollHeight;
 }
+
+function parseParameterLines(raw) {
+  return String(raw || '')
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+async function sendOcrJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const fileInput = document.getElementById('ocrFile');
+  const filepath = document.getElementById('ocrFilepath').value.trim();
+  const file = fileInput.files && fileInput.files[0];
+  const parameters = parseParameterLines(document.getElementById('ocrParameters').value);
+  const pageno = document.getElementById('ocrPageno').value.trim() || '1';
+  const instruction = document.getElementById('ocrInstruction').value.trim();
+
+  if (!file && !filepath) {
+    addSystemMessage('OCR needs a file upload or a blob filepath.');
+    return;
+  }
+
+  const label = file ? `OCR file: ${file.name}` : `OCR filepath: ${filepath}`;
+  addUserMessage(label);
+
+  const ocrSendBtn = document.getElementById('ocrSendBtn');
+  ocrSendBtn.disabled = true;
+  ocrSendBtn.innerHTML = '<span class="spinner"></span> Running';
+  sendBtn.disabled = true;
+
+  try {
+    let res;
+    if (file) {
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'ocr');
+      form.append('pageno', pageno);
+      if (instruction) form.append('instruction', instruction);
+      parameters.forEach(p => form.append('parameters', p));
+      form.append('tableparameters', '[]');
+      form.append('file', file, file.name);
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          intent: 'ocr',
+          instruction: instruction || null,
+          payload: {
+            filepath,
+            pageno,
+            parameters,
+            tableparameters: [],
+          },
+        }),
+      });
+    }
+    const data = await res.json();
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    addSystemMessage('Network error — is the API reachable?');
+  } finally {
+    ocrSendBtn.disabled = false;
+    ocrSendBtn.textContent = 'Run OCR';
+    sendBtn.disabled = false;
+  }
+}
+
+document.getElementById('ocrSendBtn').addEventListener('click', sendOcrJob);
 
 async function sendMessage() {
   const message = messageInput.value.trim();
