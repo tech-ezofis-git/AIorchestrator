@@ -3,6 +3,19 @@ import json
 
 import pytest
 
+from app.agents.ocr_helpers import parse_parameter_entries
+
+
+def test_parse_parameter_entries_splits_concatenated_chain():
+    assert parse_parameter_entries(["Invoice No,SHORT_TEXT,Due Date,DATE"]) == [
+        ("Invoice No", "SHORT_TEXT"),
+        ("Due Date", "DATE"),
+    ]
+    assert parse_parameter_entries(["Invoice No,SHORT_TEXT", "Due Date,DATE"]) == [
+        ("Invoice No", "SHORT_TEXT"),
+        ("Due Date", "DATE"),
+    ]
+
 
 def test_legacy_ocr_keyword_path_still_works(client, monkeypatch):
     llm_calls = []
@@ -67,11 +80,14 @@ def test_explicit_ocr_document_job_locked_json_shape(client, monkeypatch):
     assert "ocrResult" in reply
     assert reply["ocrResult"][0]["name"] == "Invoice No"
     assert reply["ocrResult"][0]["value"] == "INV/26-27/002140"
-    assert reply["ocr_json"]["ocrResult"] == reply["ocrResult"]
-    assert "tokens" in reply
+    assert "tableResult" in reply
+    assert "ocr_json" not in reply
+    assert "tokens" not in reply
     assert "ocr_text" in reply
     assert reply["ocr_text"]
     assert body["ocr_result"]["ocrResult"] == reply["ocrResult"]
+    assert body["ocr_result"]["tableResult"] == reply["tableResult"]
+    assert body["token_usage"]["total_tokens"] == 15
     assert "model_used" not in reply
 
 

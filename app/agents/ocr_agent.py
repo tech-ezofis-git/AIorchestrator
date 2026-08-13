@@ -112,13 +112,12 @@ class OcrAgent:
             ]
             body = _locked_body(
                 ocr_result=ocr_result_fields,
-                tokens=_zero_tokens(),
                 ocr_text="",
             )
             body["source_reference"] = source
             body["ocr_status"] = ocr_status
             return {
-                "reply": json.dumps(body, ensure_ascii=False),
+                "reply": json.dumps(_reply_payload(body), ensure_ascii=False),
                 "usage": None,
                 "ocr_result": body,
             }
@@ -127,12 +126,10 @@ class OcrAgent:
             raise RuntimeError("ResponseComposer is required for OCR document jobs.")
 
         model = (job.get("model") or "").strip() or None
-        primary = (
-            model
-            or (settings.ocr_default_model or "").strip()
-            or settings.llm_model
-        )
-        fallback = (settings.ocr_fallback_model or "").strip() or primary
+        # Prefer explicit payload.model; otherwise keep whatever the shared
+        # LLMAdapter is already configured with (Azure preset at startup).
+        primary = model
+        fallback = (settings.ocr_fallback_model or "").strip() or None
 
         try:
             synthesized = await self._composer.synthesize_ocr_json(
@@ -145,8 +142,8 @@ class OcrAgent:
                 max_recommended_fields=settings.ocr_max_recommended_fields,
             )
         except Exception:
-            logger.warning("ocr_structuring_primary_failed", extra={"model": primary})
-            if fallback == primary:
+            logger.warning("ocr_structuring_primary_failed", extra={"model": primary or "default"})
+            if not fallback or fallback == primary:
                 raise
             synthesized = await self._composer.synthesize_ocr_json(
                 instruction=instruction,
@@ -161,56 +158,44 @@ class OcrAgent:
         fields = synthesized["ocrResult"]
         table_result = synthesized.get("tableResult")
         usage = synthesized.get("usage") or {}
-        tokens = {
-            "prompt_tokens": usage.get("prompt_tokens") or 0,
-            "completion_tokens": usage.get("completion_tokens") or 0,
-            "total_tokens": usage.get("total_tokens") or 0,
-            "cache_tokens": usage.get("cache_tokens") or 0,
-        }
-        body = _locked_body(ocr_result=fields, tokens=tokens, ocr_text=ocr_text, table_result=table_result)
+        body = _locked_body(
+            ocr_result=fields,
+            ocr_text=ocr_text,
+            table_result=table_result,
+        )
         body["source_reference"] = source
         body["ocr_status"] = ocr_status
         if ocr_tool.get("mock"):
             body["mock"] = True
 
         return {
-            "reply": json.dumps(
-                {k: body[k] for k in ("ocrResult", "tokens", "ocr_text", "ocr_json") if k in body}
-                | ({"tableResult": table_result} if table_result is not None else {}),
-                ensure_ascii=False,
-            ),
+            "reply": json.dumps(_reply_payload(body), ensure_ascii=False),
             "usage": {
-                "prompt_tokens": tokens["prompt_tokens"],
-                "completion_tokens": tokens["completion_tokens"],
-                "total_tokens": tokens["total_tokens"],
+                "prompt_tokens": usage.get("prompt_tokens") or 0,
+                "completion_tokens": usage.get("completion_tokens") or 0,
+                "total_tokens": usage.get("total_tokens") or 0,
             },
             "ocr_result": body,
         }
 
 
-def _zero_tokens() -> dict[str, int]:
-    return {
-        "prompt_tokens": 0,
-        "completion_tokens": 0,
-        "total_tokens": 0,
-        "cache_tokens": 0,
-    }
-
-
 def _locked_body(
     *,
     ocr_result: list[dict[str, Any]],
-    tokens: dict[str, int],
     ocr_text: str,
     table_result: Any = None,
 ) -> dict[str, Any]:
-    body: dict[str, Any] = {
+    """Single OCR payload node: fields + tables + text (no nested duplicates)."""
+    return {
         "ocrResult": ocr_result,
-        "tokens": tokens,
+        "tableResult": table_result if table_result is not None else [],
         "ocr_text": ocr_text,
-        "ocr_json": {"ocrResult": ocr_result},
     }
-    if table_result is not None:
-        body["tableResult"] = table_result
-        body["ocr_json"]["tableResult"] = table_result
-    return body
+
+
+def _reply_payload(body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ocrResult": body.get("ocrResult") or [],
+        "tableResult": body.get("tableResult") or [],
+        "ocr_text": body.get("ocr_text") or "",
+    }

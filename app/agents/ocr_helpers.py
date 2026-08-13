@@ -126,16 +126,53 @@ def resolve_instruction(instruction: Optional[str]) -> str:
     return text or DEFAULT_OCR_INSTRUCTION
 
 
+# Types used in Name,TYPE parameter strings. Used to recover when Swagger
+# users paste several fields into one row: "Invoice No,SHORT_TEXT,Due Date,DATE".
+_KNOWN_PARAM_TYPES = (
+    "SHORT_TEXT",
+    "LONG_TEXT",
+    "DATE",
+    "NUMBER",
+    "AMOUNT",
+    "CURRENCY",
+    "BOOLEAN",
+    "EMAIL",
+    "PHONE",
+)
+_TYPE_BOUNDARY = re.compile(
+    r",\s*(" + "|".join(_KNOWN_PARAM_TYPES) + r")(?=,|$)",
+    re.IGNORECASE,
+)
+
+
 def parse_parameter_entries(entries: list[str]) -> list[tuple[str, str]]:
-    """Split 'Name,TYPE' entries into (name, type)."""
+    """Split 'Name,TYPE' entries into (name, type).
+
+    Also expands a single concatenated chain of Name,TYPE pairs.
+    """
     parsed: list[tuple[str, str]] = []
     for entry in entries:
         raw = (entry or "").strip()
         if not raw:
             continue
+        parsed.extend(_split_name_type_chain(raw))
+    return parsed
+
+
+def _split_name_type_chain(raw: str) -> list[tuple[str, str]]:
+    matches = list(_TYPE_BOUNDARY.finditer(raw))
+    if not matches:
         if "," in raw:
             name, typ = raw.rsplit(",", 1)
-            parsed.append((name.strip(), typ.strip() or "SHORT_TEXT"))
-        else:
-            parsed.append((raw, "SHORT_TEXT"))
-    return parsed
+            return [(name.strip(), typ.strip() or "SHORT_TEXT")]
+        return [(raw, "SHORT_TEXT")]
+
+    result: list[tuple[str, str]] = []
+    start = 0
+    for match in matches:
+        name = raw[start : match.start()].lstrip(" ,\t").rstrip()
+        typ = match.group(1).strip().upper()
+        if name:
+            result.append((name, typ))
+        start = match.end()
+    return result

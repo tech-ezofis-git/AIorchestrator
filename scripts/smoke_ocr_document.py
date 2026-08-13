@@ -86,8 +86,10 @@ def main() -> int:
         else:
             reply = json.loads(r1.json()["reply"])
             print("  ocrResult fields:", len(reply.get("ocrResult", [])))
+            print("  has tableResult:", "tableResult" in reply)
             print("  has ocr_json:", "ocr_json" in reply)
-            if not reply.get("ocrResult"):
+            print("  has nested tokens:", "tokens" in reply)
+            if not reply.get("ocrResult") or "ocr_json" in reply or "tokens" in reply:
                 failures += 1
 
         # 2) multipart file upload

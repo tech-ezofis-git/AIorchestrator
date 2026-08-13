@@ -76,8 +76,8 @@ class ChatResponse(BaseModel):
     ocr_result: Optional[dict[str, Any]] = Field(
         default=None,
         description=(
-            "OCR intent output — locked ocrResult/tokens/ocr_text/ocr_json shape "
-            "(plus optional internal source_reference / ocr_status)."
+            "OCR intent output — ocrResult + tableResult + ocr_text "
+            "(plus optional source_reference / ocr_status). Token counts live in token_usage."
         ),
     )
     forecast_result: Optional[dict] = Field(
