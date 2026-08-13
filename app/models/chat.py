@@ -15,6 +15,13 @@ class DocumentPayload(BaseModel):
         default=None,
         description="Page selector: omit/1..max for one page; -1 for pages 1..max.",
     )
+    ocr_text: Optional[str] = Field(
+        default=None,
+        description=(
+            "Pre-extracted OCR text. When set on intent=summary, blob download and "
+            "Paddle extract are skipped. Wins over file/filepath."
+        ),
+    )
     parameters: list[str] = Field(default_factory=list)
     tableparameters: list[str] = Field(default_factory=list)
     model: Optional[str] = None
@@ -48,7 +55,7 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Client-supplied session identifier.")
     message: Optional[str] = Field(
         default=None,
-        description="Free-text chat message. Optional when intent=ocr|ap with file/filepath/invoice_json.",
+        description="Free-text chat message. Optional when intent=ocr/summary/ap with file, filepath, ocr_text, or invoice_json.",
     )
     intent: Optional[str] = Field(
         default=None,
@@ -64,6 +71,7 @@ class ChatRequest(BaseModel):
     def _require_message_or_document(self) -> "ChatRequest":
         payload = self.payload
         has_filepath = bool(payload and (payload.filepath or "").strip())
+        has_ocr_text = bool(payload and (payload.ocr_text or "").strip())
         has_ap_doc = bool(
             payload
             and (
@@ -72,12 +80,14 @@ class ChatRequest(BaseModel):
             )
         )
         msg = (self.message or "").strip()
-        if not msg and not has_filepath and not has_ap_doc:
+        if not msg and not has_filepath and not has_ocr_text and not has_ap_doc:
             # Multipart uploads attach file bytes outside this model; main.py
-            # validates file-or-filepath for intent=ocr|ap after parsing.
-            if (self.intent or "").strip().lower() in ("ocr", "ap"):
+            # validates file/filepath/ocr_text for intent=ocr/summary/ap after parsing.
+            if (self.intent or "").strip().lower() in {"ocr", "summary", "ap"}:
                 return self
-            raise ValueError("Either message or payload.filepath is required.")
+            raise ValueError(
+                "Either message, payload.filepath, payload.ocr_text, or payload.invoice_json is required."
+            )
         return self
 
 
@@ -110,6 +120,15 @@ class ChatResponse(BaseModel):
         description=(
             "OCR intent output — ocrResult + tableResult + ocr_text "
             "(plus optional source_reference / ocr_status). Token counts live in token_usage."
+        ),
+    )
+    summary_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Summary document-job output — confidence_score, document_type, "
+            "document_title, document_language, document_summary, "
+            "key_facts_extracted, ocr_text (plus optional source_reference). "
+            "`reply` is a short status line. Token counts live in token_usage."
         ),
     )
     forecast_result: Optional[dict] = Field(

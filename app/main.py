@@ -280,7 +280,13 @@ async def lifespan(app: FastAPI):
     dispatcher.register_tool(SEND_EMAIL_SCHEMA, make_send_email_handler(email_client))
     dispatcher.register_tool(STORE_MEMORY_SCHEMA, make_store_memory_handler(memory_store))
     dispatcher.register_tool(FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler(memory_store))
-    summary_agent = SummaryAgent(dispatcher, response_composer)
+    summary_agent = SummaryAgent(
+        dispatcher,
+        response_composer,
+        settings,
+        llm_adapter=llm_adapter,
+        runtime_models=runtime_models,
+    )
     insight_agent = InsightAgent(dispatcher, response_composer)
     ocr_agent = OcrAgent(
         dispatcher,
@@ -509,7 +515,7 @@ _CHAT_MULTIPART_SCHEMA = {
     "type": "object",
     "properties": {
         "session_id": {"type": "string", "description": "Required session id."},
-        "message": {"type": "string", "description": "Chat text (optional for intent=ocr|ap with file/filepath/invoice_json)."},
+        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/ap with file/filepath/ocr_text/invoice_json)."},
         "intent": {
             "type": "string",
             "description": "Explicit agent (ocr, ap, chat, …). Omit to use keyword routing.",
@@ -525,6 +531,10 @@ _CHAT_MULTIPART_SCHEMA = {
         "pageno": {
             "type": "string",
             "description": "Page: omit/1..5 = one page; -1 = up to 5 pages.",
+        },
+        "ocr_text": {
+            "type": "string",
+            "description": "Pre-extracted OCR text (summary only). Skips blob download and Paddle. Wins over file/filepath.",
         },
         "parameters": {
             "type": "array",
@@ -558,7 +568,7 @@ _CHAT_MULTIPART_SCHEMA = {
         "file": {
             "type": "string",
             "format": "binary",
-            "description": "Upload any OCR-supported file (pdf/png/jpg/…). Wins over filepath.",
+            "description": "Upload PDF, image, .docx, or txt. .docx text is extracted locally (no Paddle). Wins over filepath.",
         },
     },
     "required": ["session_id"],
@@ -617,6 +627,29 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "summary_blob": {
+                            "summary": "Summarize from blob path",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "summary",
+                                "payload": {
+                                    "filepath": "ezts2e3b7b3738a34f94878ea006dad93230/INV26-27002140.pdf",
+                                    "pageno": "1",
+                                    "model": "qwen3.5-9b",
+                                },
+                            },
+                        },
+                        "summary_ocr_text": {
+                            "summary": "Summarize from OCR text (no blob / Paddle)",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "summary",
+                                "payload": {
+                                    "ocr_text": "Niss Internet Services Private Limited\nInvoice Number: INV/26-27/002140\nTotal: 1770.00",
+                                    "model": "qwen3.5-9b",
+                                },
+                            },
+                        },
                     },
                 },
                 # File browser in Swagger (select multipart/form-data).
@@ -641,11 +674,15 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     # Build a filterable / history message for document jobs.
     has_upload = parsed.file_bytes is not None  # empty bytes still count as an upload attempt
     has_filepath = bool(payload.payload and (payload.payload.filepath or "").strip())
+    has_ocr_text = bool(payload.payload and (payload.payload.ocr_text or "").strip())
     message = (payload.message or "").strip()
     explicit = (payload.intent or "").strip().lower()
     if not message:
-        if has_filepath or has_upload or explicit in ("ocr", "ap"):
-            message = (payload.instruction or "").strip() or "Process the document and generate structured JSON."
+        if has_filepath or has_upload or has_ocr_text or explicit in {"ocr", "summary", "ap"}:
+            if explicit == "summary":
+                message = "Summarize the document."
+            else:
+                message = (payload.instruction or "").strip() or "Process the document and generate structured JSON."
         else:
             raise HTTPException(status_code=422, detail="message is required.")
 
@@ -694,9 +731,24 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     request.state.intent = intent.value
 
     document_job = None
+    has_document = has_filepath or (parsed.file_bytes is not None)
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
-    if intent == Intent.OCR and (has_filepath or (parsed.file_bytes is not None)):
+    if intent == Intent.SUMMARY and has_ocr_text:
+        # Direct OCR text: skip blob download and Paddle. Wins over file/filepath.
+        document_job = {
+            "instruction": payload.instruction,
+            "ocr_text": (payload.payload.ocr_text or "").strip() if payload.payload else "",
+            "filepath": None,
+            "file_bytes": None,
+            "filename": None,
+            "content_type": None,
+            "pageno": None,
+            "parameters": [],
+            "tableparameters": [],
+            "model": payload.payload.model if payload.payload else None,
+        }
+    elif intent in {Intent.OCR, Intent.SUMMARY} and has_document:
         if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
         # Prefer upload over filepath when both are present.
@@ -709,6 +761,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         document_job = {
             "instruction": payload.instruction,
+            "ocr_text": None,
             "filepath": None if parsed.file_bytes is not None else (payload.payload.filepath if payload.payload else None),
             "file_bytes": parsed.file_bytes,
             "filename": parsed.filename if parsed.file_bytes is not None else None,
@@ -718,8 +771,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "tableparameters": list(payload.payload.tableparameters) if payload.payload else [],
             "model": payload.payload.model if payload.payload else None,
         }
-    elif intent == Intent.OCR and explicit == "ocr" and not (has_filepath or parsed.file_bytes is not None):
+    elif intent == Intent.OCR and explicit == "ocr" and not has_document:
         # Explicit OCR without a document still allows legacy "run ocr on SCN-.." messages.
+        pass
+    elif intent == Intent.SUMMARY and explicit == "summary" and not (has_document or has_ocr_text):
+        # Explicit summary without a file still allows legacy "summarize DOC-123".
         pass
     elif intent == Intent.AP and explicit == "ap" and (
         has_filepath or parsed.file_bytes is not None or has_invoice_json or has_item_id
@@ -821,6 +877,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         document_id=result.get("document_id"),
         cited_data_points=result.get("cited_data_points"),
         ocr_result=result.get("ocr_result"),
+        summary_result=result.get("summary_result"),
         forecast_result=result.get("forecast_result"),
         invoice_reference=result.get("invoice_reference"),
         mail_draft=result.get("mail_draft"),

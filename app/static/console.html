@@ -99,18 +99,20 @@
 
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .chip {
-    font-size: 11px; padding: 5px 9px; background: var(--surface-secondary);
-    color: var(--text-secondary); border-radius: 999px; cursor: pointer; border: 1px solid var(--border-default);
+    font-size: 11px; padding: 6px 12px; background: #e6fbfe;
+    color: var(--accent-primary); border-radius: 999px; cursor: pointer; border: 1px solid var(--accent-primary);
   }
-  .chip:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+  .chip:hover { background: var(--accent-primary); color: white; }
+  .chip.active { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
 
-  .main { display: flex; flex-direction: column; height: calc(100vh - 120px); min-height: 500px; }
-  .transcript { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .main { display: flex; flex-direction: column; height: calc(100vh - 120px); min-height: 500px; overflow: hidden; }
+  .transcript { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-height: 120px; }
   .empty-state { margin: auto; text-align: center; color: var(--text-muted); font-size: 13px; }
 
   .msg { max-width: 78%; }
   .msg.user { align-self: flex-end; }
   .msg.assistant { align-self: flex-start; }
+  .msg.assistant.has-summary { max-width: 100%; width: 100%; }
   .msg.system { align-self: center; max-width: 90%; }
   .bubble {
     padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap;
@@ -118,6 +120,7 @@
   .msg.user .bubble { background: var(--accent-primary); color: white; border-bottom-right-radius: 4px; }
   .msg.assistant .bubble { background: var(--surface-secondary); color: var(--text-primary); border-bottom-left-radius: 4px; }
   .msg.system .bubble { background: #fff1f0; color: var(--error-main); border: 1px solid #ffd7d5; font-size: 12.5px; }
+  .msg.processing .bubble { background: #e6f4fe; color: var(--info-main); border: 1px solid #b5d8f6; }
   .msg-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 4px; padding: 0 4px; }
 
   .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -143,26 +146,35 @@
 
   .composer { border-top: 1px solid var(--border-default); padding: 14px 20px; background: var(--surface); border-radius: 0 0 var(--radius-md) var(--radius-md); }
   .composer form { display: flex; gap: 10px; }
-  .composer textarea {
-    flex: 1; resize: none; font-family: inherit; font-size: 13.5px; padding: 10px 12px;
-    border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-secondary);
-    color: var(--text-primary); min-height: 42px; max-height: 120px;
-  }
-  .composer textarea:focus, .sidebar input:focus, .sidebar textarea:focus, .sidebar select:focus {
-    outline: 2px solid var(--accent-primary); outline-offset: -1px;
-  }
-  .ocr-panel {
+  .doc-panel {
+    display: none;
     border-top: 1px solid var(--border-default);
-    padding: 12px 20px 0;
     background: var(--surface-secondary);
   }
-  .ocr-panel summary {
-    cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--text-secondary);
-    padding-bottom: 10px; list-style: none;
+  .doc-panel.visible { display: block; }
+  .ocr-panel {
+    border-top: 1px solid var(--border-default);
+    background: var(--surface-secondary);
   }
-  .ocr-panel summary::-webkit-details-marker { display: none; }
-  .ocr-panel[open] summary { color: var(--accent-primary); }
-  .ocr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-bottom: 12px; }
+  .ocr-panel > summary {
+    padding: 12px 20px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    list-style: none;
+  }
+  .ocr-panel > summary::-webkit-details-marker { display: none; }
+  .ocr-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 0 20px 14px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+  }
   @media (max-width: 700px) { .ocr-grid { grid-template-columns: 1fr; } }
   .ocr-grid label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
   .ocr-grid input[type=text], .ocr-grid input[type=file], .ocr-grid textarea {
@@ -171,7 +183,39 @@
     background: var(--surface); color: var(--text-primary);
   }
   .ocr-grid textarea { min-height: 54px; resize: vertical; }
-  .ocr-actions { display: flex; gap: 8px; align-items: center; grid-column: 1 / -1; }
+  .ocr-actions { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .doc-banner {
+    padding: 12px 20px;
+    font-size: 12.5px; font-weight: 600; color: var(--text-primary);
+  }
+  .doc-panel .mode-fields {
+    margin: 0 20px 14px;
+    background: var(--surface);
+  }
+  .composer textarea {
+    flex: 1; resize: none; font-family: inherit; font-size: 13.5px; padding: 10px 12px;
+    border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-secondary);
+    color: var(--text-primary); min-height: 42px; max-height: 120px;
+  }
+  .composer textarea:focus, .sidebar input:focus, .sidebar textarea:focus, .sidebar select:focus,
+  .mode-fields input:focus, .mode-fields textarea:focus, .mode-fields select:focus {
+    outline: 2px solid var(--accent-primary); outline-offset: -1px;
+  }
+  .mode-fields {
+    display: none;
+    grid-template-columns: 1fr 1fr; gap: 10px;
+    padding: 10px 12px; background: var(--surface-secondary);
+    border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  }
+  .mode-fields:not([hidden]) { display: grid; }
+  @media (max-width: 700px) { .mode-fields:not([hidden]) { grid-template-columns: 1fr; } }
+  .mode-fields label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 3px; }
+  .mode-fields input[type=text], .mode-fields input[type=file], .mode-fields textarea, .mode-fields select {
+    width: 100%; padding: 7px 9px; font-size: 12.5px; font-family: inherit;
+    border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text-primary);
+  }
+  .mode-fields textarea { min-height: 54px; resize: vertical; }
   .ocr-fields-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .ocr-fields-table th {
     text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em;
@@ -183,9 +227,92 @@
     color: var(--text-secondary); margin-top: 6px; padding: 8px; background: var(--surface-secondary);
     border-radius: var(--radius-sm);
   }
+  .summary-card {
+    margin-top: 10px;
+    border: 1px solid var(--border-default);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .summary-card-header {
+    padding: 16px 18px 14px;
+    background: linear-gradient(180deg, #eefbfd 0%, #ffffff 72%);
+    border-bottom: 1px solid var(--border-default);
+  }
+  .summary-card-kicker {
+    font-size: 11px; font-weight: 650; color: var(--accent-primary);
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  .summary-card-title {
+    font-size: 17px; font-weight: 650; margin: 6px 0 10px; color: var(--text-primary); line-height: 1.3;
+  }
+  .summary-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .summary-chip {
+    font-size: 11px; padding: 4px 10px; border-radius: 999px; font-weight: 500;
+    background: #e6fbfe; color: var(--accent-primary); border: 1px solid #b7eef4;
+  }
+  .summary-chip.lang { background: var(--accent-soft); color: var(--accent-secondary); border-color: #ddd6fe; }
+  .summary-chip.source { background: var(--surface-secondary); color: var(--text-secondary); border-color: var(--border-default); }
+  .summary-conf { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .summary-conf-label { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .summary-conf-bar { flex: 1; height: 7px; background: var(--surface-secondary); border-radius: 99px; overflow: hidden; }
+  .summary-conf-bar > span { display: block; height: 100%; border-radius: 99px; background: var(--success-main); }
+  .summary-conf-bar.mid > span { background: var(--warning-main); }
+  .summary-conf-bar.low > span { background: var(--error-main); }
+  .summary-conf-score { font-size: 12px; font-weight: 650; color: var(--text-secondary); min-width: 36px; text-align: right; }
+  .summary-card-body { padding: 16px 18px 18px; }
+  .summary-prose { font-size: 14px; line-height: 1.65; color: var(--text-primary); }
+  .summary-section-label {
+    font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--text-muted); margin: 16px 0 8px;
+  }
+  .summary-facts { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+  .summary-facts li {
+    padding: 9px 12px; background: var(--surface-secondary); border-radius: 8px;
+    font-size: 13px; line-height: 1.45; color: var(--text-primary);
+    border-left: 3px solid var(--accent-primary);
+  }
+  .summary-ocr { margin-top: 14px; }
+  .summary-ocr summary {
+    cursor: pointer; font-size: 12px; color: var(--text-secondary); font-weight: 500;
+  }
+  .summary-ocr .ocr-text-preview { max-height: 180px; }
+  .summary-code {
+    margin-top: 16px;
+    border: 1px solid #1f2937;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #1f2937;
+  }
+  .summary-code-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 6px 8px 0; background: #111827; border-bottom: 1px solid #374151;
+  }
+  .summary-code-tabs { display: flex; gap: 2px; }
+  .summary-code-tab {
+    font-size: 11px; font-weight: 600; padding: 7px 12px;
+    background: transparent; color: #9ca3af; border-radius: 6px 6px 0 0;
+  }
+  .summary-code-tab:hover { color: #e5e7eb; }
+  .summary-code-tab.active { color: #fff; background: #1f2937; }
+  .summary-code-copy {
+    font-size: 11px; font-weight: 600; padding: 5px 10px; margin: 0 4px 6px 0;
+    background: #374151; color: #e5e7eb; border-radius: 6px;
+  }
+  .summary-code-copy:hover { background: var(--accent-primary); color: #fff; }
+  .summary-code-copy.copied { background: var(--success-main); color: #fff; }
+  .summary-code-pre {
+    margin: 0; padding: 12px 14px; font-size: 11.5px; line-height: 1.5;
+    color: #e5e7eb; max-height: 240px; overflow: auto; white-space: pre-wrap;
+    word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
   .spinner {
     width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.4); border-top-color: white;
     border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; vertical-align: -1px;
+  }
+  .spinner.dark {
+    border-color: rgba(0,144,255,.25); border-top-color: var(--info-main);
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -216,9 +343,9 @@
     <select id="llmDefaultPreset"></select>
     <div class="field-hint" id="llmDefaultHint"></div>
 
-    <label for="llmFallbackPreset">Fallback model <span style="font-weight:400">(OCR)</span></label>
+    <label for="llmFallbackPreset">Fallback model <span style="font-weight:400">(OCR / Summary)</span></label>
     <select id="llmFallbackPreset"></select>
-    <div class="field-hint">Used if the default model fails during OCR structuring. Keys stay in <code>.env</code>. Selection is saved to Redis and survives restarts.</div>
+    <div class="field-hint">Used if the default model fails during OCR structuring or document summary. Keys stay in <code>.env</code>. Selection is saved to Redis and survives restarts.</div>
     <div class="field-hint" id="llmKeyHint" style="margin-top:6px"></div>
 
     <div class="row" style="margin-top:10px">
@@ -242,14 +369,36 @@
 
   <section class="card main">
     <div class="transcript" id="transcript">
-      <div class="empty-state">Send a message below, open <strong>OCR document</strong> or <strong>AP document</strong>, or click a capability chip.</div>
+      <div class="empty-state">Send a message below, or open <strong>OCR document</strong>, <strong>Summarize document</strong>, or <strong>AP document</strong>.</div>
     </div>
-    <details class="ocr-panel" id="ocrPanel">
-      <summary>OCR document — upload file or blob path</summary>
-      <div class="ocr-grid">
+    <div class="doc-panel" id="docPanel">
+      <div class="doc-banner" id="docBanner">OCR document — upload file or blob path</div>
+      <div class="mode-fields" id="summaryFields" hidden>
         <div>
-          <label for="ocrFile">File (wins over filepath)</label>
-          <input type="file" id="ocrFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
+          <label for="summaryFile">File</label>
+          <input type="file" id="summaryFile" accept=".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
+        </div>
+        <div>
+          <label for="summaryFilepath">Blob filepath</label>
+          <input type="text" id="summaryFilepath" placeholder="container/blob.pdf" />
+        </div>
+        <div>
+          <label for="summaryPageno">pageno</label>
+          <input type="text" id="summaryPageno" value="1" placeholder="1 or -1" />
+        </div>
+        <div>
+          <label for="summaryModel">model (optional)</label>
+          <select id="summaryModel"></select>
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="summaryOcrText">OCR text (optional — skips file / blob / Paddle)</label>
+          <textarea id="summaryOcrText" placeholder="Paste extracted text here…"></textarea>
+        </div>
+      </div>
+      <div class="mode-fields" id="ocrFields" hidden>
+        <div>
+          <label for="ocrFile">File</label>
+          <input type="file" id="ocrFile" accept=".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
         </div>
         <div>
           <label for="ocrFilepath">Blob filepath</label>
@@ -268,12 +417,8 @@
           <textarea id="ocrParameters" placeholder="Invoice No,SHORT_TEXT&#10;Due Date,DATE">Invoice No,SHORT_TEXT
 Due Date,DATE</textarea>
         </div>
-        <div class="ocr-actions">
-          <button type="button" class="btn-primary" id="ocrSendBtn">Run OCR</button>
-          <span class="field-hint">POST /chat with intent=ocr (multipart if file is set)</span>
-        </div>
       </div>
-    </details>
+    </div>
     <details class="ocr-panel" id="apPanel">
       <summary>AP document — upload file, blob path, or invoice JSON</summary>
       <div class="ocr-grid">
@@ -348,6 +493,7 @@ const composerForm = document.getElementById('composerForm');
 const sendBtn = document.getElementById('sendBtn');
 const healthDot = document.getElementById('healthDot');
 const healthLabel = document.getElementById('healthLabel');
+const summaryModelSelect = document.getElementById('summaryModel');
 
 function newSessionId() {
   return 'console-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
@@ -419,6 +565,10 @@ async function loadLlmPresetsAndConfig() {
     const fallbackId = data.fallback_preset_id || '';
     fillPresetSelect(llmDefaultSelect, llmPresets, defaultId);
     fillPresetSelect(llmFallbackSelect, llmPresets, fallbackId, { includeNone: true });
+    fillPresetSelect(summaryModelSelect, llmPresets, '', { includeNone: true });
+    if (summaryModelSelect.options.length && summaryModelSelect.options[0].value === '') {
+      summaryModelSelect.options[0].textContent = 'Console default';
+    }
     updateDefaultHint(defaultId);
     llmKeyHint.textContent = data.has_api_key
       ? 'API key loaded from .env for the selected default preset.'
@@ -482,9 +632,9 @@ llmTestBtn.addEventListener('click', testLlmConnection);
 
 const QUICK_PROMPTS = [
   { label: 'OCR document', ocr: true },
+  { label: 'Summarize document', summary: true },
   { label: 'AP document', ap: true },
   { label: 'search for the PTO policy', message: 'search for the PTO policy' },
-  { label: 'summarize document DOC-123', message: 'summarize document DOC-123' },
   { label: 'give me insights on report RPT-456', message: 'give me insights on report RPT-456' },
   { label: 'forecast revenue for next quarter', message: 'forecast revenue for next quarter' },
   { label: 'what is the status of invoice INV-1234', message: 'what is the status of invoice INV-1234' },
@@ -493,26 +643,55 @@ const QUICK_PROMPTS = [
   { label: 'hello there', message: 'hello there' },
 ];
 const chipsEl = document.getElementById('quickPrompts');
-const ocrPanel = document.getElementById('ocrPanel');
 const apPanel = document.getElementById('apPanel');
+let composerMode = 'chat';
+
+function setComposerMode(mode) {
+  if (mode === composerMode && (mode === 'ocr' || mode === 'summary' || mode === 'ap')) {
+    mode = 'chat';
+  }
+  composerMode = mode;
+  const panel = document.getElementById('docPanel');
+  const banner = document.getElementById('docBanner');
+  const showDoc = mode === 'summary' || mode === 'ocr';
+  panel.classList.toggle('visible', showDoc);
+  if (apPanel) apPanel.open = mode === 'ap';
+  document.getElementById('summaryFields').hidden = mode !== 'summary';
+  document.getElementById('ocrFields').hidden = mode !== 'ocr';
+  document.querySelectorAll('#quickPrompts .chip').forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.mode === mode);
+  });
+  sendBtn.textContent = 'Send';
+  if (mode === 'summary') {
+    banner.textContent = 'Summarize document — upload file, blob path, or OCR text';
+    messageInput.placeholder = 'Optional — file, blob path, or OCR text is enough';
+    document.getElementById('summaryFilepath').focus();
+  } else if (mode === 'ocr') {
+    banner.textContent = 'OCR document — upload file or blob path';
+    messageInput.placeholder = 'Optional — file or blob path is enough';
+    document.getElementById('ocrFilepath').focus();
+  } else if (mode === 'ap') {
+    messageInput.placeholder = 'Optional — use Run AP in the panel';
+    apPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else {
+    messageInput.placeholder = 'Type a message… (e.g. "search for the PTO policy")';
+  }
+}
+
+
 QUICK_PROMPTS.forEach(p => {
   const chip = document.createElement('span');
   chip.className = 'chip';
   chip.textContent = p.label.length > 28 ? p.label.slice(0, 26) + '…' : p.label;
   chip.title = p.message || p.label;
+  if (p.ocr) chip.dataset.mode = 'ocr';
+  if (p.summary) chip.dataset.mode = 'summary';
+  if (p.ap) chip.dataset.mode = 'ap';
   chip.addEventListener('click', () => {
-    if (p.ocr) {
-      apPanel.open = false;
-      ocrPanel.open = true;
-      ocrPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      return;
-    }
-    if (p.ap) {
-      ocrPanel.open = false;
-      apPanel.open = true;
-      apPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      return;
-    }
+    if (p.ocr) { setComposerMode('ocr'); return; }
+    if (p.summary) { setComposerMode('summary'); return; }
+    if (p.ap) { setComposerMode('ap'); return; }
+    setComposerMode('chat');
     messageInput.value = p.message;
     sendMessage();
   });
@@ -555,6 +734,31 @@ function addSystemMessage(text) {
   div.querySelector('.bubble').textContent = text;
   transcript.appendChild(div);
   transcript.scrollTop = transcript.scrollHeight;
+}
+
+function addProcessingMessage(text) {
+  clearEmptyState();
+  const div = document.createElement('div');
+  div.className = 'msg assistant processing';
+  div.innerHTML = `<div class="bubble"><span class="spinner dark"></span> <span class="processing-text"></span></div>`;
+  div.querySelector('.processing-text').textContent = text;
+  transcript.appendChild(div);
+  transcript.scrollTop = transcript.scrollHeight;
+  return div;
+}
+
+function removeProcessingMessage(el) {
+  if (el && el.parentNode) el.parentNode.removeChild(el);
+}
+
+async function readResponseJson(res) {
+  const raw = await res.text();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    throw new Error(raw.slice(0, 240) || ('HTTP ' + res.status));
+  }
 }
 
 function fieldRow(label, value) {
@@ -601,12 +805,28 @@ function renderMailDraft(draft, sessionId) {
     </div>`;
 }
 
-function renderOcrResult(ocr) {
+function codePanelHtml() {
+  return `<div class="summary-code">
+    <div class="summary-code-bar">
+      <div class="summary-code-tabs">
+        <button type="button" class="summary-code-tab active" data-tab="result">Result</button>
+        <button type="button" class="summary-code-tab" data-tab="curl">cURL</button>
+      </div>
+      <button type="button" class="summary-code-copy">Copy</button>
+    </div>
+    <pre class="summary-code-pre" data-pane="result"></pre>
+    <pre class="summary-code-pre" data-pane="curl" hidden></pre>
+  </div>`;
+}
+
+function renderOcrResult(ocr, request) {
   const fields = Array.isArray(ocr.ocrResult) ? ocr.ocrResult : [];
   const tables = Array.isArray(ocr.tableResult) ? ocr.tableResult : [];
   const fieldRows = fields.map(f =>
     `<tr><td>${escapeHtml(f.name ?? '')}</td><td>${escapeHtml(String(f.value ?? 'null'))}</td><td>${escapeHtml(f.type ?? '')}</td></tr>`
   ).join('');
+  const resultJson = JSON.stringify(ocr, null, 2);
+  const curlText = buildChatCurl(request, 'ocr');
   let html = `<div class="detail-block"><div class="dt-title">OCR result</div>`;
   html += `<table>${fieldRow('Status', ocr.ocr_status)}${fieldRow('Source', ocr.source_reference)}</table>`;
   if (fields.length) {
@@ -619,11 +839,12 @@ function renderOcrResult(ocr) {
   if (ocr.ocr_text) {
     html += `<div style="margin-top:8px;color:var(--text-muted)">ocr_text</div><div class="ocr-text-preview">${escapeHtml(ocr.ocr_text)}</div>`;
   }
+  html += codePanelHtml();
   html += `</div>`;
-  return html;
+  return { html, resultJson, curlText };
 }
 
-function renderApResult(ap) {
+function renderApResult(ap, request) {
   const skills = Array.isArray(ap.skills_run) ? ap.skills_run : [];
   const artifacts = ap.artifacts && typeof ap.artifacts === 'object' ? ap.artifacts : {};
   const skillRows = skills.map(id => {
@@ -632,6 +853,8 @@ function renderApResult(ap) {
     const reason = art.reason || art.message || '';
     return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(String(status || '—'))}</td><td>${escapeHtml(String(reason || ''))}</td></tr>`;
   }).join('');
+  const resultJson = JSON.stringify(ap, null, 2);
+  const curlText = buildChatCurl(request, 'ap');
 
   let html = `<div class="detail-block"><div class="dt-title">AP result</div>`;
   html += `<table>${fieldRow('Decision', ap.decision)}${fieldRow('Credits', ap.credits_charged)}${fieldRow('Item', ap.item_key)}${fieldRow('Run', ap.run_id)}</table>`;
@@ -652,8 +875,149 @@ function renderApResult(ap) {
     html += `<div style="margin-top:8px;color:var(--text-muted)">artifacts</div>`;
     html += `<pre class="ocr-text-preview">${escapeHtml(JSON.stringify(artifacts, null, 2))}</pre>`;
   }
+  html += codePanelHtml();
   html += `</div>`;
-  return html;
+  return { html, resultJson, curlText };
+}
+
+function shQuote(value) {
+  const text = String(value ?? '');
+  if (/^[A-Za-z0-9._/@+-]+$/.test(text)) return text;
+  return "'" + text.replace(/'/g, `'\\''`) + "'";
+}
+
+function buildChatCurl(request, fallbackIntent) {
+  const url = window.location.origin + '/chat';
+  const intent = (request && request.intent) || fallbackIntent || 'chat';
+  if (!request) {
+    return `curl -X POST ${shQuote(url)} \\\n  -H 'Content-Type: application/json' \\\n  -d '{"session_id":"demo","intent":"${intent}","payload":{}}'`;
+  }
+  if (request.kind === 'file') {
+    const lines = [
+      `curl -X POST ${shQuote(url)} \\`,
+      `  -F session_id=${shQuote(request.session_id)} \\`,
+      `  -F intent=${shQuote(intent)} \\`,
+    ];
+    const form = request.form || {};
+    Object.entries(form).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      lines.push(`  -F ${key}=${shQuote(String(value))} \\`);
+    });
+    const lists = request.formLists || {};
+    Object.entries(lists).forEach(([key, values]) => {
+      (values || []).forEach(value => {
+        lines.push(`  -F ${key}=${shQuote(String(value))} \\`);
+      });
+    });
+    lines.push(`  -F file=@${shQuote(request.filename)}`);
+    return lines.join('\n');
+  }
+  const body = request.body || {
+    session_id: request.session_id,
+    intent,
+    payload: request.payload || {},
+  };
+  if (request.instruction && body.instruction === undefined) body.instruction = request.instruction;
+  const pretty = JSON.stringify(body, null, 2).replace(/'/g, `'\\''`);
+  return `curl -X POST ${shQuote(url)} \\\n  -H 'Content-Type: application/json' \\\n  -d '${pretty}'`;
+}
+
+function buildSummaryCurl(request) {
+  return buildChatCurl(request && { ...request, intent: request.intent || 'summary' }, 'summary');
+}
+
+function bindCodePanel(panel, resultJson, curlText) {
+  if (!panel) return;
+  const tabs = panel.querySelectorAll('.summary-code-tab');
+  const panes = {
+    result: panel.querySelector('[data-pane="result"]'),
+    curl: panel.querySelector('[data-pane="curl"]'),
+  };
+  const copyBtn = panel.querySelector('.summary-code-copy');
+  if (panes.result) panes.result.textContent = resultJson;
+  if (panes.curl) panes.curl.textContent = curlText;
+  let active = 'result';
+  const texts = { result: resultJson, curl: curlText };
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      active = tab.dataset.tab;
+      tabs.forEach(t => t.classList.toggle('active', t === tab));
+      Object.entries(panes).forEach(([key, el]) => {
+        if (el) el.hidden = key !== active;
+      });
+    });
+  });
+
+  if (!copyBtn) return;
+  copyBtn.addEventListener('click', async () => {
+    const value = texts[active] || '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = value;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      copyBtn.textContent = 'Copied';
+      copyBtn.classList.add('copied');
+      setTimeout(() => {
+        copyBtn.textContent = 'Copy';
+        copyBtn.classList.remove('copied');
+      }, 1400);
+    } catch (e) {
+      copyBtn.textContent = 'Copy failed';
+      setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1400);
+    }
+  });
+}
+
+function renderSummaryResult(summary, request) {
+  const facts = Array.isArray(summary.key_facts_extracted) ? summary.key_facts_extracted : [];
+  const factItems = facts.map(f => `<li>${escapeHtml(String(f))}</li>`).join('');
+  const score = Number(summary.confidence_score);
+  const hasScore = Number.isFinite(score);
+  const confClass = !hasScore ? '' : (score >= 80 ? '' : score >= 50 ? 'mid' : 'low');
+  const width = hasScore ? Math.max(0, Math.min(100, score)) : 0;
+  const title = summary.document_title || summary.document_type || 'Document summary';
+  const chips = [
+    summary.document_type ? `<span class="summary-chip">${escapeHtml(summary.document_type)}</span>` : '',
+    summary.document_language ? `<span class="summary-chip lang">${escapeHtml(summary.document_language)}</span>` : '',
+    summary.source_reference ? `<span class="summary-chip source">${escapeHtml(summary.source_reference)}</span>` : '',
+  ].join('');
+  const resultJson = JSON.stringify(summary, null, 2);
+  const curlText = buildSummaryCurl(request);
+
+  let html = `<div class="summary-card">
+    <div class="summary-card-header">
+      <div class="summary-card-kicker">Document summary</div>
+      <div class="summary-card-title">${escapeHtml(title)}</div>
+      <div class="summary-meta">${chips}</div>`;
+  if (hasScore) {
+    html += `<div class="summary-conf">
+      <span class="summary-conf-label">Confidence</span>
+      <div class="summary-conf-bar ${confClass}"><span style="width:${width}%"></span></div>
+      <span class="summary-conf-score">${escapeHtml(String(summary.confidence_score))}</span>
+    </div>`;
+  }
+  html += `</div><div class="summary-card-body">`;
+  if (summary.document_summary) {
+    html += `<div class="summary-prose">${escapeHtml(summary.document_summary)}</div>`;
+  }
+  if (factItems) {
+    html += `<div class="summary-section-label">Key facts</div><ul class="summary-facts">${factItems}</ul>`;
+  }
+  if (summary.ocr_text) {
+    html += `<details class="summary-ocr"><summary>Show extracted text</summary>
+      <div class="ocr-text-preview">${escapeHtml(summary.ocr_text)}</div></details>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson, curlText };
 }
 
 function escapeHtml(s) {
@@ -664,10 +1028,10 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function renderAssistantMessage(body, sessionId) {
+function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = 'msg assistant';
+  div.className = body.summary_result ? 'msg assistant has-summary' : 'msg assistant';
 
   const badges = [];
   if (body.latency_ms != null) badges.push(`<span class="badge info">${body.latency_ms} ms</span>`);
@@ -677,17 +1041,27 @@ function renderAssistantMessage(body, sessionId) {
   if (body.chunk_ids && body.chunk_ids.length) {
     details += `<div class="detail-block"><div class="dt-title">Search citations</div>chunk_ids: ${body.chunk_ids.join(', ')}</div>`;
   }
-  if (body.document_id) {
-    details += `<div class="detail-block"><div class="dt-title">Summary</div>document_id: ${body.document_id}</div>`;
+  if (body.document_id && !body.summary_result) {
+    details += `<div class="detail-block"><div class="dt-title">Source document</div>document_id: ${escapeHtml(body.document_id)}</div>`;
   }
   if (body.cited_data_points && body.cited_data_points.length) {
     details += `<div class="detail-block"><div class="dt-title">Cited data points</div>${body.cited_data_points.join(', ')}</div>`;
   }
+  const codeBlocks = [];
   if (body.ocr_result) {
-    details += renderOcrResult(body.ocr_result);
+    const ocrCode = renderOcrResult(body.ocr_result, request);
+    details += ocrCode.html;
+    codeBlocks.push(ocrCode);
   }
   if (body.ap_result) {
-    details += renderApResult(body.ap_result);
+    const apCode = renderApResult(body.ap_result, request);
+    details += apCode.html;
+    codeBlocks.push(apCode);
+  }
+  if (body.summary_result) {
+    const summaryCode = renderSummaryResult(body.summary_result, request);
+    details += summaryCode.html;
+    codeBlocks.push(summaryCode);
   }
   if (body.forecast_result) {
     const f = body.forecast_result;
@@ -714,6 +1088,10 @@ function renderAssistantMessage(body, sessionId) {
     const ap = body.ap_result;
     bubbleText = `AP ${ap.decision || 'complete'} · ${(ap.skills_run || []).length} skill(s) · ${ap.credits_charged ?? 0} credit(s).`;
   }
+  if (body.summary_result) {
+    const kind = body.summary_result.document_type || 'document';
+    bubbleText = body.reply || `Summary ready — ${kind}.`;
+  }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
   div.innerHTML = `
@@ -728,6 +1106,10 @@ function renderAssistantMessage(body, sessionId) {
   div.querySelector('.raw-toggle').addEventListener('click', (e) => {
     const pre = document.getElementById(e.target.dataset.target);
     pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
+  });
+  div.querySelectorAll('.summary-code').forEach((panel, i) => {
+    const block = codeBlocks[i];
+    if (block) bindCodePanel(panel, block.resultJson, block.curlText);
   });
 
   transcript.appendChild(div);
@@ -758,15 +1140,22 @@ async function sendOcrJob() {
 
   const label = file ? `OCR file: ${file.name}` : `OCR filepath: ${filepath}`;
   addUserMessage(label);
-
-  const ocrSendBtn = document.getElementById('ocrSendBtn');
-  ocrSendBtn.disabled = true;
-  ocrSendBtn.innerHTML = '<span class="spinner"></span> Running';
+  const processing = addProcessingMessage('Extracting text and structuring fields…');
   sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Running';
 
   try {
     let res;
+    let request;
     if (file) {
+      request = {
+        intent: 'ocr',
+        kind: 'file',
+        session_id: sessionId,
+        filename: file.name,
+        form: { pageno, instruction: instruction || undefined },
+        formLists: { parameters, tableparameters: ['[]'] },
+      };
       const form = new FormData();
       form.append('session_id', sessionId);
       form.append('intent', 'ocr');
@@ -777,39 +1166,129 @@ async function sendOcrJob() {
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
+      const body = {
+        session_id: sessionId,
+        intent: 'ocr',
+        instruction: instruction || null,
+        payload: {
+          filepath,
+          pageno,
+          parameters,
+          tableparameters: [],
+        },
+      };
+      request = { intent: 'ocr', kind: 'json', session_id: sessionId, body };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send';
+  }
+}
+
+async function sendSummaryJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const fileInput = document.getElementById('summaryFile');
+  const filepath = document.getElementById('summaryFilepath').value.trim();
+  const ocrText = (document.getElementById('summaryOcrText').value || '').trim();
+  const file = fileInput.files && fileInput.files[0];
+  const pageno = document.getElementById('summaryPageno').value.trim() || '1';
+  const model = (summaryModelSelect && summaryModelSelect.value) || '';
+
+  if (!file && !filepath && !ocrText) {
+    addSystemMessage('Summary needs a file upload, a blob filepath, or OCR text.');
+    return;
+  }
+
+  const label = ocrText
+    ? `Summarize OCR text (${ocrText.length} chars)`
+    : (file ? `Summarize file: ${file.name}` : `Summarize filepath: ${filepath}`);
+  addUserMessage(label);
+  const processing = addProcessingMessage(
+    ocrText
+      ? 'Writing the summary…'
+      : 'Extracting text and writing the summary… this can take a minute.'
+  );
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Summarizing';
+
+  try {
+    let res;
+    let request;
+    if (ocrText) {
+      const payload = { ocr_text: ocrText };
+      if (model) payload.model = model;
+      request = { intent: 'summary', kind: 'ocr_text', session_id: sessionId, payload };
       res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_id: sessionId,
-          intent: 'ocr',
-          instruction: instruction || null,
-          payload: {
-            filepath,
-            pageno,
-            parameters,
-            tableparameters: [],
-          },
+          intent: 'summary',
+          payload,
+        }),
+      });
+    } else if (file) {
+      request = {
+        intent: 'summary',
+        kind: 'file',
+        session_id: sessionId,
+        filename: file.name,
+        form: { pageno, model: model || undefined },
+      };
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'summary');
+      form.append('pageno', pageno);
+      if (model) form.append('model', model);
+      form.append('file', file, file.name);
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      const payload = { filepath, pageno };
+      if (model) payload.model = model;
+      request = { intent: 'summary', kind: 'filepath', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          intent: 'summary',
+          payload,
         }),
       });
     }
-    const data = await res.json();
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
     if (res.ok) {
-      renderAssistantMessage(data, sessionId);
+      renderAssistantMessage(data, sessionId, request);
     } else {
-      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
       addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
     }
   } catch (e) {
-    addSystemMessage('Network error — is the API reachable?');
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
   } finally {
-    ocrSendBtn.disabled = false;
-    ocrSendBtn.textContent = 'Run OCR';
     sendBtn.disabled = false;
+    sendBtn.textContent = 'Send';
   }
 }
-
-document.getElementById('ocrSendBtn').addEventListener('click', sendOcrJob);
 
 function parseSkillLines(raw) {
   return parseParameterLines(raw);
@@ -853,7 +1332,25 @@ async function sendApJob() {
 
   try {
     let res;
+    let request;
     if (file) {
+      request = {
+        intent: 'ap',
+        kind: 'file',
+        session_id: sessionId,
+        filename: file.name,
+        form: {
+          tenant_id: tenantId,
+          pageno,
+          item_id: itemId || undefined,
+          filepath: filepath || undefined,
+          resource: resource || undefined,
+          workflow_id: workflowId || undefined,
+          instance_id: instanceId || undefined,
+          skills: skills.length ? JSON.stringify(skills) : undefined,
+          invoice_json: invoiceJson ? JSON.stringify(invoiceJson) : undefined,
+        },
+      };
       const form = new FormData();
       form.append('session_id', sessionId);
       form.append('intent', 'ap');
@@ -869,29 +1366,31 @@ async function sendApJob() {
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
+      const body = {
+        session_id: sessionId,
+        intent: 'ap',
+        payload: {
+          filepath: filepath || null,
+          pageno,
+          tenant_id: tenantId,
+          item_id: itemId || null,
+          resource: resource || null,
+          workflow_id: workflowId || null,
+          instance_id: instanceId || null,
+          skills: skills.length ? skills : null,
+          invoice_json: invoiceJson,
+        },
+      };
+      request = { intent: 'ap', kind: 'json', session_id: sessionId, body };
       res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          intent: 'ap',
-          payload: {
-            filepath: filepath || null,
-            pageno,
-            tenant_id: tenantId,
-            item_id: itemId || null,
-            resource: resource || null,
-            workflow_id: workflowId || null,
-            instance_id: instanceId || null,
-            skills: skills.length ? skills : null,
-            invoice_json: invoiceJson,
-          },
-        }),
+        body: JSON.stringify(body),
       });
     }
-    const data = await res.json();
+    const data = await readResponseJson(res);
     if (res.ok) {
-      renderAssistantMessage(data, sessionId);
+      renderAssistantMessage(data, sessionId, request);
     } else {
       const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
       addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
@@ -911,13 +1410,20 @@ document.getElementById('apClearSkillsBtn').addEventListener('click', () => {
 });
 
 async function sendMessage() {
+  if (composerMode === 'summary') return sendSummaryJob();
+  if (composerMode === 'ocr') return sendOcrJob();
+  if (composerMode === 'ap') return sendApJob();
   const message = messageInput.value.trim();
-  if (!message) return;
+  if (!message) {
+    addSystemMessage('Type a message, or click OCR / Summarize / AP on the left to attach a document.');
+    return;
+  }
   const sessionId = sessionIdInput.value.trim() || newSessionId();
   sessionIdInput.value = sessionId;
 
   addUserMessage(message);
   messageInput.value = '';
+  const processing = addProcessingMessage('Working…');
   sendBtn.disabled = true;
   sendBtn.innerHTML = '<span class="spinner"></span> Sending';
 
@@ -927,14 +1433,16 @@ async function sendMessage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, message }),
     });
-    const data = await res.json();
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
     if (res.ok) {
       renderAssistantMessage(data, sessionId);
     } else {
       addSystemMessage(`${res.status}: ${data.detail || 'request failed'}`);
     }
   } catch (e) {
-    addSystemMessage('Network error — is the API reachable?');
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
   } finally {
     sendBtn.disabled = false;
     sendBtn.textContent = 'Send';

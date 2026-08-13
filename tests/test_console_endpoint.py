@@ -14,9 +14,21 @@ def test_console_serves_html(client):
     assert "/chat" in response.text  # the page's own fetch() call target
     assert "AP document" in response.text
     assert 'id="apPanel"' in response.text
-    assert 'id="ocrPanel"' in response.text
     assert "Run AP" in response.text
     assert "invoice_json" in response.text
+    assert 'id="summaryFields"' in response.text
+    assert 'id="docPanel"' in response.text
+    assert 'id="summaryOcrText"' in response.text
+    assert ".docx" in response.text
+    assert "summary-card" in response.text
+    assert "summary-code" in response.text
+    assert "cURL" in response.text
+    assert "intent: 'summary'" in response.text
+    assert "intent: 'ocr'" in response.text
+    assert "intent: 'ap'" in response.text
+    assert "buildChatCurl" in response.text
+    assert "function renderOcrResult" in response.text
+    assert "function renderApResult" in response.text
 
 
 def test_console_static_logo_is_served(client):
