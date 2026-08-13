@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class DocumentPayload(BaseModel):
-    """Document job fields for OCR (and later AP) when intent is set explicitly."""
+    """Document job fields for OCR and AP when intent is set explicitly."""
 
     filepath: Optional[str] = Field(
         default=None,
@@ -18,13 +18,29 @@ class DocumentPayload(BaseModel):
     parameters: list[str] = Field(default_factory=list)
     tableparameters: list[str] = Field(default_factory=list)
     model: Optional[str] = None
+    tenant_id: Optional[str] = Field(
+        default=None,
+        description="AP tenant id (intent=ap). Defaults to 'default' when omitted.",
+    )
+    skills: Optional[list[str]] = Field(
+        default=None,
+        description="AP skills to run. Omitted => tenant default plan. Re-run a subset using stored artifacts.",
+    )
+    invoice_json: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Pre-extracted invoice JSON (skips OCR when provided).",
+    )
+    item_id: Optional[str] = Field(
+        default=None,
+        description="Stable AP document key for artifact re-runs. Defaults to filepath/filename/hash.",
+    )
 
 
 class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Client-supplied session identifier.")
     message: Optional[str] = Field(
         default=None,
-        description="Free-text chat message. Optional when intent=ocr with file/filepath.",
+        description="Free-text chat message. Optional when intent=ocr|ap with file/filepath/invoice_json.",
     )
     intent: Optional[str] = Field(
         default=None,
@@ -38,12 +54,20 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def _require_message_or_document(self) -> "ChatRequest":
-        has_filepath = bool(self.payload and (self.payload.filepath or "").strip())
+        payload = self.payload
+        has_filepath = bool(payload and (payload.filepath or "").strip())
+        has_ap_doc = bool(
+            payload
+            and (
+                payload.invoice_json
+                or (payload.item_id or "").strip()
+            )
+        )
         msg = (self.message or "").strip()
-        if not msg and not has_filepath:
+        if not msg and not has_filepath and not has_ap_doc:
             # Multipart uploads attach file bytes outside this model; main.py
-            # validates file-or-filepath for intent=ocr after parsing.
-            if (self.intent or "").strip().lower() == "ocr":
+            # validates file-or-filepath for intent=ocr|ap after parsing.
+            if (self.intent or "").strip().lower() in ("ocr", "ap"):
                 return self
             raise ValueError("Either message or payload.filepath is required.")
         return self
@@ -100,5 +124,12 @@ class ChatResponse(BaseModel):
             "Full drafted email (action_id, recipient, subject, body) — Mail intent only; absent/None "
             "otherwise, and also None when Mail couldn't identify a valid recipient and returned a "
             "clarification instead. Nothing is sent until POST /actions/{action_id}/confirm is called."
+        ),
+    )
+    ap_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "AP document-job output (run_id, skills_run, credits_charged, decision, artifacts) — "
+            "intent=ap with file/filepath/invoice_json only; absent/None for legacy invoice-status Q&A."
         ),
     )

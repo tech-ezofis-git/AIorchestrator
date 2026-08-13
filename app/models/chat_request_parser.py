@@ -46,8 +46,13 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     filepath = _form_str(form.get("filepath"))
     pageno = _form_str(form.get("pageno"))
     model = _form_str(form.get("model"))
+    tenant_id = _form_str(form.get("tenant_id"))
+    item_id = _form_str(form.get("item_id"))
     parameters = _parse_form_string_list(form, "parameters")
     tableparameters = _parse_form_string_list(form, "tableparameters")
+    skills_raw = _form_str(form.get("skills"))
+    skills = _parse_optional_string_list(form, "skills")
+    invoice_json = _parse_optional_json_object(_form_str(form.get("invoice_json")), field="invoice_json")
 
     upload = form.get("file")
     file_bytes = None
@@ -62,13 +67,18 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             content_type = getattr(upload, "content_type", None)
 
     payload = None
-    if filepath or pageno or parameters or tableparameters or model or file_bytes is not None:
+    has_ap_fields = bool(tenant_id or item_id or skills_raw is not None or skills or invoice_json)
+    if filepath or pageno or parameters or tableparameters or model or file_bytes is not None or has_ap_fields:
         payload = DocumentPayload(
             filepath=filepath,
             pageno=pageno,
             parameters=parameters,
             tableparameters=tableparameters,
             model=model,
+            tenant_id=tenant_id,
+            skills=skills if skills_raw is not None or skills else None,
+            invoice_json=invoice_json,
+            item_id=item_id,
         )
 
     try:
@@ -97,6 +107,31 @@ def _form_str(value: Any) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _parse_optional_string_list(form: Any, field: str) -> Optional[list[str]]:
+    """Like `_parse_form_string_list` but None when the field is omitted."""
+    values = form.getlist(field) if hasattr(form, "getlist") else [form.get(field)]
+    values = [v for v in values if v is not None and not isinstance(v, UploadFile)]
+    if not values:
+        return None
+    parsed = _parse_form_string_list(form, field)
+    return parsed
+
+
+def _parse_optional_json_object(raw: Optional[str], *, field: str) -> Optional[dict[str, Any]]:
+    if raw is None or raw == "":
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field} must be a JSON object string.",
+        ) from exc
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail=f"{field} must be a JSON object string.")
+    return data
 
 
 def _parse_form_string_list(form: Any, field: str) -> list[str]:
@@ -132,6 +167,9 @@ def _parse_json_list(raw: Optional[str], *, field: str) -> list[str]:
     except json.JSONDecodeError:
         # Single Name,TYPE entry pasted without JSON brackets.
         if "," in text and not text.startswith("["):
+            return [text]
+        # Bare skill id (intent=ap), e.g. vendor_validate
+        if field == "skills":
             return [text]
         raise HTTPException(
             status_code=422,

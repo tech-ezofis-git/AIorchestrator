@@ -32,6 +32,7 @@ def test_ap_intent_with_well_formed_reference_returns_synthesized_status(client,
     assert body["document_id"] is None
     assert body["ocr_result"] is None
     assert body["forecast_result"] is None
+    assert body["ap_result"] is None
 
 
 def test_ap_intent_with_ambiguous_reference_fails_closed_with_no_tool_call(client, monkeypatch):
