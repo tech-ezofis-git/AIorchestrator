@@ -2,17 +2,17 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 pydantic-settings==2.5.2
-litellm==1.93.0
+litellm==1.48.0
 openai==1.51.0
-aiohttp==3.14.3
+aiohttp==3.10.10
 redis==5.0.8
-python-multipart==0.0.31
+python-multipart==0.0.9
 azure-storage-blob==12.23.1
 
 # Testing
-pytest==9.0.3
+pytest==8.3.3
 pytest-asyncio==0.24.0
-httpx==0.28.1
+httpx==0.27.2
 fakeredis==2.24.1
 
 # Future phases (provisioned, not used in Phase 1 code):
