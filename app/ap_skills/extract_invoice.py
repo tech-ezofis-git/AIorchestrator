@@ -50,6 +50,10 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
             data, "vendor", "supplier", "vendor_name", "supplier_name", "Vendor Name"
         ),
         "po_number": field_text(data, "po_number", "poNumber", "po", "PO Number"),
+        "grn_number": field_text(data, "grn_number", "grn", "GRN Number", "receipt_number"),
+        "matter_id": field_text(
+            data, "matter_id", "matterId", "Matter ID", "MatterId", "matter_no", "Matter No"
+        ),
         "total": data.get("total") if data.get("total") is not None else data.get("amount"),
         "currency": field_text(data, "currency") or "USD",
         "line_items": normalized_lines,

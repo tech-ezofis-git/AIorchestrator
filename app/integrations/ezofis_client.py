@@ -260,6 +260,200 @@ class EzofisClient:
                 return live["items"]
         return []
 
+    async def lookup_gl_accounts(self, *, tenant_id: str) -> dict[str, Any]:
+        if self._live_enabled():
+            live = await self._get_master("/masters/gl", tenant_id=tenant_id, params={})
+            if isinstance(live, dict):
+                return live
+            if isinstance(live, list):
+                return {"accounts": live}
+        return {
+            "accounts": [
+                {"gl_account": "6100", "category": "Widget", "name": "Office Supplies"},
+                {"gl_account": "6200", "category": "Travel", "name": "Travel Expense"},
+            ],
+            "mock": True,
+        }
+
+    async def lookup_grn(
+        self,
+        *,
+        tenant_id: str,
+        grn_number: Optional[str] = None,
+        po_number: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        params: dict[str, Any] = {}
+        if grn_number:
+            params["grn_number"] = grn_number
+        if po_number:
+            params["po_number"] = po_number
+        if self._live_enabled() and params:
+            live = await self._get_master("/masters/grn", tenant_id=tenant_id, params=params)
+            if isinstance(live, dict):
+                return live
+        if not po_number and not grn_number:
+            return None
+        return {
+            "grn_number": grn_number or f"GRN-{po_number}",
+            "po_number": po_number,
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "lines": [{"id": "1", "description": "Widget", "qty": 10, "received_qty": 10}],
+            "mock": True,
+        }
+
+    async def lookup_matter(
+        self,
+        *,
+        tenant_id: str,
+        matter_id: str,
+        matter_master_id: Any = None,
+    ) -> Optional[dict[str, Any]]:
+        if not matter_id:
+            return None
+        params: dict[str, Any] = {"matter_id": matter_id}
+        if matter_master_id is not None:
+            params["matter_master_id"] = matter_master_id
+        if self._live_enabled():
+            live = await self._get_master("/masters/matter", tenant_id=tenant_id, params=params)
+            if isinstance(live, dict):
+                return live
+        # Deterministic mock fallback list (same spirit as apagentv6).
+        fallback = {
+            "M-001": {"matter_id": "M-001", "client_name": "Acme Corp", "mock": True},
+            "M-002": {"matter_id": "M-002", "client_name": "Beta Holdings", "mock": True},
+            "610882": {"matter_id": "610882", "client_name": "Test Client", "mock": True},
+        }
+        return fallback.get(matter_id.strip().upper()) or fallback.get(matter_id.strip())
+
+    async def lookup_po_quickbooks(
+        self, *, tenant_id: str, po_number: str, connector_id: str
+    ) -> Optional[dict[str, Any]]:
+        if not po_number:
+            return None
+        if self._live_enabled():
+            live = await self._post_json(
+                f"/connector/{connector_id}/quickbooks/purchase-orders/lookup",
+                tenant_id=tenant_id,
+                body={"poNumber": po_number},
+            )
+            if isinstance(live, dict):
+                items = live.get("items") or live.get("purchaseOrders") or []
+                if isinstance(items, list) and items:
+                    item = items[0] if isinstance(items[0], dict) else {}
+                    return {
+                        "po_number": po_number,
+                        "vendor": (item.get("VendorRef") or {}).get("name")
+                        if isinstance(item.get("VendorRef"), dict)
+                        else item.get("vendorName"),
+                        "total": item.get("TotalAmt") or item.get("total"),
+                        "lines": item.get("Line") or item.get("lines") or [],
+                        "source": "quickbooks",
+                    }
+                if live.get("po_number") or live.get("vendor"):
+                    return live
+        return {
+            "po_number": po_number,
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "currency": "USD",
+            "lines": [{"id": "1", "description": "Widget", "qty": 10, "amount": 1234.56}],
+            "source": "quickbooks",
+            "mock": True,
+        }
+
+    async def lookup_po_sage(
+        self, *, tenant_id: str, po_number: str, connector_id: str
+    ) -> Optional[dict[str, Any]]:
+        if not po_number:
+            return None
+        if self._live_enabled():
+            live = await self._get_master(
+                f"/connector/{connector_id}/sage/purchase-orders",
+                tenant_id=tenant_id,
+                params={"po_number": po_number},
+            )
+            if isinstance(live, dict):
+                return live
+        return {
+            "po_number": po_number,
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "currency": "USD",
+            "lines": [{"id": "1", "description": "Widget", "qty": 10, "amount": 1234.56}],
+            "source": "sage",
+            "mock": True,
+        }
+
+    async def report_ap_progress(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: str,
+        instance_id: str,
+        stage: str,
+        message: str,
+        percent: Optional[int] = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"stage": stage, "message": message}
+        if percent is not None:
+            body["percent"] = max(0, min(100, int(percent)))
+        if not self._live_enabled():
+            return {"ok": True, "mock": True, **body}
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/Workflows/{workflow_id}/instances/{instance_id}/ap-agent/progress"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.patch(url, headers=headers, json=body)
+                if response.status_code not in (200, 204):
+                    logger.warning("ezofis_progress_failed", extra={"status_code": response.status_code})
+                    return {"ok": False, "status_code": response.status_code}
+                return {"ok": True}
+        except Exception:
+            logger.warning("ezofis_progress_error")
+            return {"ok": False}
+
+    async def workflow_move_next(
+        self, *, tenant_id: str, instance_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        if not self._live_enabled():
+            return {"ok": True, "mock": True, "instance_id": instance_id, "payload": payload}
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/Workflows/instances/{instance_id}/move-next"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, json=payload)
+                if response.status_code not in (200, 201, 204):
+                    logger.warning("ezofis_move_next_failed", extra={"status_code": response.status_code})
+                    return {"ok": False, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        body = response.json()
+                        if isinstance(body, dict):
+                            body.setdefault("ok", True)
+                            return body
+                    except Exception:
+                        pass
+                return {"ok": True}
+        except Exception:
+            logger.warning("ezofis_move_next_error")
+            return {"ok": False}
+
+    async def _post_json(self, path: str, *, tenant_id: str, body: dict[str, Any]) -> Any:
+        try:
+            headers = await self._auth_headers(tenant_id)
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(f"{self._base()}{path}", headers=headers, json=body)
+                if response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                if not response.content:
+                    return None
+                return response.json()
+        except Exception:
+            logger.warning("ezofis_post_failed", extra={"path": path})
+            return None
+
     async def _get_master(self, path: str, *, tenant_id: str, params: dict[str, Any]) -> Any:
         try:
             headers = await self._auth_headers(tenant_id)

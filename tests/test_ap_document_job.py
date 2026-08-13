@@ -206,3 +206,249 @@ def test_multipart_ap_file_happy_path(client, monkeypatch):
     result = response.json()["ap_result"]
     assert result["credits_charged"] == 6
     assert len(charges) == 6
+
+
+PHASE2_MATCH_ENABLED = [
+    "extract_invoice",
+    "po_lookup_quickbooks",
+    "po_match",
+    "gl_match",
+    "grn_match",
+    "duplicate_detect",
+    "vendor_validate",
+    "matter_validate",
+    "backorder_detect",
+    "finalize_decision",
+]
+
+PHASE2_ENABLED = PHASE2_MATCH_ENABLED + [
+    "workflow_progress",
+    "workflow_move_next",
+]
+
+
+def test_phase2_gl_and_grn_run_when_tenant_enables_them(client, monkeypatch):
+    client.fake_db_pool.ap_tenant_plans["t-ap"] = {
+        "enabled_skills": PHASE2_MATCH_ENABLED,
+        "thresholds": {},
+    }
+    charges = []
+
+    async def tracking_charge(self, **kwargs):
+        charges.append(kwargs["skill_id"])
+        return {"status": "mocked"}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    invoice = dict(SAMPLE_INVOICE)
+    invoice["matter_id"] = "M-001"
+    invoice["line_items"] = [{"description": "Widget", "qty": 10, "amount": 1234.56, "gl_account": "6100"}]
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-p2",
+            "intent": "ap",
+            "payload": _ap_payload(item_id="doc-p2", invoice_json=invoice),
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()["ap_result"]
+    assert "gl_match" in result["skills_run"]
+    assert "grn_match" in result["skills_run"]
+    assert "matter_validate" in result["skills_run"]
+    assert "gl_match" in charges
+    assert result["artifacts"]["gl_match"]["decision"] in ("MATCHED", "PARTIALLY_MATCHED")
+    assert result["artifacts"]["matter_validate"]["status"] == "MATCHED"
+
+
+def test_tenant_without_grn_never_runs_or_charges_grn(client, monkeypatch):
+    client.fake_db_pool.ap_tenant_plans["t-ap"] = {
+        "enabled_skills": [s for s in PHASE2_MATCH_ENABLED if s != "grn_match"],
+        "thresholds": {},
+    }
+    charges = []
+
+    async def tracking_charge(self, **kwargs):
+        charges.append(kwargs["skill_id"])
+        return {"status": "mocked"}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s-ap-no-grn", "intent": "ap", "payload": _ap_payload(item_id="doc-no-grn")},
+    )
+    assert response.status_code == 200, response.text
+    skills = response.json()["ap_result"]["skills_run"]
+    assert "grn_match" not in skills
+    assert "grn_match" not in charges
+    assert "gl_match" in skills
+
+
+def test_gl_only_rerun_uses_stored_extract_artifact(client, monkeypatch):
+    client.fake_db_pool.ap_tenant_plans["t-ap"] = {
+        "enabled_skills": PHASE2_MATCH_ENABLED,
+        "thresholds": {},
+    }
+    charges = []
+
+    async def tracking_charge(self, **kwargs):
+        charges.append(kwargs["skill_id"])
+        return {"status": "mocked"}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    first = client.post(
+        "/chat",
+        json={"session_id": "s-ap-gl1", "intent": "ap", "payload": _ap_payload(item_id="doc-gl")},
+    )
+    assert first.status_code == 200, first.text
+    charges.clear()
+
+    second = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-gl2",
+            "intent": "ap",
+            "payload": {
+                "tenant_id": "t-ap",
+                "item_id": "doc-gl",
+                "skills": ["gl_match"],
+            },
+        },
+    )
+    assert second.status_code == 200, second.text
+    result = second.json()["ap_result"]
+    assert result["skills_run"] == ["gl_match"]
+    assert result["credits_charged"] == 1
+    assert charges == ["gl_match"]
+
+
+def test_workflow_move_next_mocked_after_finalize(client, monkeypatch):
+    client.fake_db_pool.ap_tenant_plans["t-ap"] = {
+        "enabled_skills": PHASE2_ENABLED,
+        "thresholds": {},
+    }
+    move_calls = []
+
+    async def tracking_move(self, **kwargs):
+        move_calls.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.workflow_move_next",
+        tracking_move,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-wf",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-wf",
+                workflow_id="wf-1",
+                instance_id="inst-1",
+                skills=[
+                    "extract_invoice",
+                    "po_match",
+                    "finalize_decision",
+                    "workflow_progress",
+                    "workflow_move_next",
+                ],
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()["ap_result"]
+    assert result["skills_run"][-1] == "workflow_move_next"
+    assert len(move_calls) == 1
+    assert move_calls[0]["instance_id"] == "inst-1"
+    assert move_calls[0]["payload"]["review"] in ("MATCHED", "PARTIALLY_MATCHED", "NOT_MATCHED")
+
+
+def test_non_invoice_path_skips_match_skills_when_requested(client, monkeypatch):
+    client.fake_db_pool.ap_tenant_plans["t-ap"] = {
+        "enabled_skills": PHASE2_ENABLED,
+        "thresholds": {},
+    }
+    charges = []
+
+    async def tracking_charge(self, **kwargs):
+        charges.append(kwargs["skill_id"])
+        return {"status": "mocked"}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-non",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-non",
+                invoice_json={"doc_type": "other", "invoice_number": "X-1"},
+                instance_id="inst-non",
+                skills=["extract_invoice", "finalize_decision", "workflow_move_next"],
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()["ap_result"]
+    assert result["decision"] == "NON_INVOICE"
+    assert "po_match" not in result["skills_run"]
+    assert "gl_match" not in charges
+    assert result["artifacts"]["workflow_move_next"]["review"] == "Non-Invoice"
+
+
+def test_quickbooks_connector_lookup_feeds_po_match(client, monkeypatch):
+    client.fake_db_pool.ap_tenant_plans["t-ap"] = {
+        "enabled_skills": PHASE2_MATCH_ENABLED,
+        "thresholds": {},
+    }
+
+    async def fake_qb(self, **kwargs):
+        return {
+            "po_number": kwargs["po_number"],
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "lines": [{"id": "1", "description": "Widget", "qty": 10, "amount": 1234.56}],
+            "source": "quickbooks",
+            "mock": True,
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po_quickbooks",
+        fake_qb,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-qb",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-qb",
+                resource="QUICKBOOKS",
+                connector_id="conn-1",
+                skills=["extract_invoice", "po_lookup_quickbooks", "po_match", "finalize_decision"],
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["ap_result"]["artifacts"]
+    assert artifacts["po_lookup_quickbooks"]["po"]["source"] == "quickbooks"
+    assert artifacts["po_match"]["decision"] == "MATCHED"

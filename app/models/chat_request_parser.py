@@ -48,6 +48,11 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     model = _form_str(form.get("model"))
     tenant_id = _form_str(form.get("tenant_id"))
     item_id = _form_str(form.get("item_id"))
+    workflow_id = _form_str(form.get("workflow_id"))
+    instance_id = _form_str(form.get("instance_id"))
+    connector_id = _form_str(form.get("connector_id"))
+    resource = _form_str(form.get("resource"))
+    matter_master_id = _form_str(form.get("matter_master_id"))
     parameters = _parse_form_string_list(form, "parameters")
     tableparameters = _parse_form_string_list(form, "tableparameters")
     skills_raw = _form_str(form.get("skills"))
@@ -67,7 +72,18 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             content_type = getattr(upload, "content_type", None)
 
     payload = None
-    has_ap_fields = bool(tenant_id or item_id or skills_raw is not None or skills or invoice_json)
+    has_ap_fields = bool(
+        tenant_id
+        or item_id
+        or skills_raw is not None
+        or skills
+        or invoice_json
+        or workflow_id
+        or instance_id
+        or connector_id
+        or resource
+        or matter_master_id
+    )
     if filepath or pageno or parameters or tableparameters or model or file_bytes is not None or has_ap_fields:
         payload = DocumentPayload(
             filepath=filepath,
@@ -79,6 +95,11 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             skills=skills if skills_raw is not None or skills else None,
             invoice_json=invoice_json,
             item_id=item_id,
+            workflow_id=workflow_id,
+            instance_id=instance_id,
+            connector_id=connector_id,
+            resource=resource,
+            matter_master_id=matter_master_id,
         )
 
     try:

@@ -471,7 +471,11 @@ const QUICK_PROMPTS = [
 const chipsEl = document.getElementById('quickPrompts');
 const ocrPanel = document.getElementById('ocrPanel');
 const apPanel = document.getElementById('apPanel');
-const AP_SKILLS = ['extract_invoice','po_match','duplicate_detect','vendor_validate','backorder_detect','finalize_decision'];
+const AP_SKILLS = [
+  'extract_invoice','po_lookup_quickbooks','po_lookup_sage','po_match','gl_match','grn_match',
+  'duplicate_detect','vendor_validate','matter_validate','backorder_detect','finalize_decision',
+  'workflow_progress','workflow_move_next'
+];
 const apSkillBoxes = document.getElementById('apSkillBoxes');
 AP_SKILLS.forEach(id => {
   const label = document.createElement('label');

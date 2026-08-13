@@ -5,14 +5,15 @@ import json
 import logging
 from typing import Any, Optional
 
-from app.ap_skills.types import PHASE1_SKILL_ORDER, PHASE1_SKILLS, ApSkillError
+from app.ap_skills.types import ALL_SKILL_ORDER, ALL_SKILLS, ApSkillError
 
 logger = logging.getLogger("orchestrator.ap_planner")
 
 _PLANNER_PROMPT = (
     "You order AP invoice-processing skills. Reply with JSON only: "
     '{"skills": ["extract_invoice", "..."]}. Use only the allowed skill ids, '
-    "keep extract_invoice first if present, and finalize_decision last if present."
+    "keep extract_invoice first if present, finalize_decision before workflow_* "
+    "if present, and workflow_move_next last if present."
 )
 
 
@@ -21,12 +22,12 @@ def resolve_skills(
     requested: Optional[list[str]],
     enabled: list[str],
 ) -> list[str]:
-    enabled_list = [s for s in enabled if s in PHASE1_SKILLS]
+    enabled_list = [s for s in enabled if s in ALL_SKILLS]
     enabled_set = set(enabled_list)
     if requested is None:
-        return [s for s in PHASE1_SKILL_ORDER if s in enabled_set]
+        return [s for s in ALL_SKILL_ORDER if s in enabled_set]
 
-    unknown = [s for s in requested if s not in PHASE1_SKILLS]
+    unknown = [s for s in requested if s not in ALL_SKILLS]
     if unknown:
         raise ApSkillError(f"Unknown skill(s): {', '.join(unknown)}")
     blocked = [s for s in requested if s not in enabled_set]

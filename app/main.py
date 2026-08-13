@@ -525,6 +525,11 @@ _CHAT_MULTIPART_SCHEMA = {
         "model": {"type": "string", "description": "Optional LLM model override."},
         "tenant_id": {"type": "string", "description": "AP tenant id (intent=ap)."},
         "item_id": {"type": "string", "description": "Stable AP document key for skill re-runs."},
+        "workflow_id": {"type": "string", "description": "AP workflow id (progress)."},
+        "instance_id": {"type": "string", "description": "AP workflow instance id (progress/move-next)."},
+        "connector_id": {"type": "string", "description": "QB/Sage connector id."},
+        "resource": {"type": "string", "description": "PO resource: QUICKBOOKS or SAGE."},
+        "matter_master_id": {"type": "string", "description": "Matter master id."},
         "skills": {
             "type": "array",
             "items": {"type": "string"},
@@ -716,6 +721,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "skills": payload.payload.skills if payload.payload else None,
             "invoice_json": payload.payload.invoice_json if payload.payload else None,
             "item_id": payload.payload.item_id if payload.payload else None,
+            "workflow_id": payload.payload.workflow_id if payload.payload else None,
+            "instance_id": payload.payload.instance_id if payload.payload else None,
+            "connector_id": payload.payload.connector_id if payload.payload else None,
+            "resource": payload.payload.resource if payload.payload else None,
+            "matter_master_id": payload.payload.matter_master_id if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,
         }
 

@@ -1,4 +1,4 @@
-"""Phase 1 AP skill registry and runner."""
+"""AP skill registry and runner (Phase 1 + Phase 2)."""
 from __future__ import annotations
 
 import hashlib
@@ -6,11 +6,25 @@ import json
 import logging
 from typing import Any, Awaitable, Callable, Optional
 
-from app.ap_skills import backorder_detect, duplicate_detect, extract_invoice, finalize_decision, po_match, vendor_validate
+from app.ap_skills import (
+    backorder_detect,
+    duplicate_detect,
+    extract_invoice,
+    finalize_decision,
+    gl_match,
+    grn_match,
+    matter_validate,
+    po_lookup_quickbooks,
+    po_lookup_sage,
+    po_match,
+    vendor_validate,
+    workflow_move_next,
+    workflow_progress,
+)
 from app.ap_skills.planner import maybe_reorder, resolve_skills
 from app.ap_skills.store import ApStore
 from app.ap_skills.types import (
-    PHASE1_SKILL_ORDER,
+    DEFAULT_SKILL_ORDER,
     ApContext,
     ApSkillError,
     ApSkillResult,
@@ -22,11 +36,18 @@ SkillFn = Callable[[ApContext], Awaitable[ApSkillResult]]
 
 REGISTRY: dict[str, SkillFn] = {
     extract_invoice.SKILL_ID: extract_invoice.run,
+    po_lookup_quickbooks.SKILL_ID: po_lookup_quickbooks.run,
+    po_lookup_sage.SKILL_ID: po_lookup_sage.run,
     po_match.SKILL_ID: po_match.run,
+    gl_match.SKILL_ID: gl_match.run,
+    grn_match.SKILL_ID: grn_match.run,
     duplicate_detect.SKILL_ID: duplicate_detect.run,
     vendor_validate.SKILL_ID: vendor_validate.run,
+    matter_validate.SKILL_ID: matter_validate.run,
     backorder_detect.SKILL_ID: backorder_detect.run,
     finalize_decision.SKILL_ID: finalize_decision.run,
+    workflow_progress.SKILL_ID: workflow_progress.run,
+    workflow_move_next.SKILL_ID: workflow_move_next.run,
 }
 
 
@@ -68,7 +89,7 @@ class ApSkillRunner:
         tenant_id = str(document_job.get("tenant_id") or "default").strip() or "default"
         item_key = resolve_item_key(document_job)
         plan = await self._store.get_plan(tenant_id)
-        enabled = list((plan or {}).get("enabled_skills") or PHASE1_SKILL_ORDER)
+        enabled = list((plan or {}).get("enabled_skills") or DEFAULT_SKILL_ORDER)
         thresholds = dict((plan or {}).get("thresholds") or {})
         requested = document_job.get("skills")
         if requested is not None and not isinstance(requested, list):
