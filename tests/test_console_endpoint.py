@@ -12,6 +12,11 @@ def test_console_serves_html(client):
     assert "text/html" in response.headers["content-type"]
     assert "AI Orchestrator" in response.text
     assert "/chat" in response.text  # the page's own fetch() call target
+    assert "AP document" in response.text
+    assert 'id="apPanel"' in response.text
+    assert 'id="ocrPanel"' in response.text
+    assert "Run AP" in response.text
+    assert "invoice_json" in response.text
 
 
 def test_console_static_logo_is_served(client):
