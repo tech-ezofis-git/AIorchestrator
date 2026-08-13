@@ -33,6 +33,7 @@ class ApAgent:
         ezofis_client: Any = None,
         llm_adapter: Any = None,
         db_pool: Any = None,
+        tenant_pools: Any = None,
     ):
         self._dispatcher = dispatcher
         self._response_composer = response_composer
@@ -40,6 +41,7 @@ class ApAgent:
         self._ezofis = ezofis_client
         self._llm = llm_adapter
         self._db_pool = db_pool
+        self._tenant_pools = tenant_pools
         self._runner: Optional[ApSkillRunner] = None
 
     def _cfg(self) -> Settings:
@@ -54,7 +56,7 @@ class ApAgent:
             if self._db_pool is None or self._ezofis is None:
                 raise RuntimeError("AP document jobs require a database pool and Ezofis client.")
             self._runner = ApSkillRunner(
-                store=ApStore(self._db_pool),
+                store=ApStore(self._db_pool, tenant_pools=self._tenant_pools),
                 ezofis=self._ezofis,
                 settings=self._cfg(),
                 dispatcher=self._dispatcher,

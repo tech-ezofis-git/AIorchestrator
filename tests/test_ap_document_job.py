@@ -57,6 +57,29 @@ def test_ap_document_job_happy_path_returns_ap_result(client, monkeypatch):
     assert len(client.fake_db_pool.ap_credit_ledger) == 6
 
 
+def test_uuid_tenant_document_job_uses_same_store_and_succeeds(client, monkeypatch):
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-uuid",
+            "intent": "ap",
+            "payload": _ap_payload(
+                tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+                item_id="doc-uuid-1",
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["ap_result"]["tenant_id"] == "2e3b7b37-38a3-4f94-878e-a006dad93230"
+
+
 def test_ap_backorder_disabled_by_tenant_plan_never_runs_or_charges(client, monkeypatch):
     client.fake_db_pool.ap_tenant_plans["t-ap"] = {
         "enabled_skills": [

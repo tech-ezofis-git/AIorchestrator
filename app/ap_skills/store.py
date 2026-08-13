@@ -45,8 +45,23 @@ def _row_get(row: Any, key: str) -> Any:
 
 
 class ApStore:
-    def __init__(self, db: DBExecutor):
-        self._db = db
+    def __init__(self, db: DBExecutor, *, tenant_pools: Any = None):
+        self._fallback = db
+        self._tenant_pools = tenant_pools
+
+    async def _db(self, tenant_id: str) -> DBExecutor:
+        try:
+            if self._tenant_pools is not None:
+                return await self._tenant_pools.acquire(tenant_id)
+            return self._fallback
+        except ApStoreUnavailableError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "ap_tenant_db_acquire_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
+            raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
 
     async def create_run(
         self,
@@ -58,7 +73,8 @@ class ApStore:
     ) -> str:
         run_id = str(uuid.uuid4())
         try:
-            await self._db.fetchrow(
+            db = await self._db(tenant_id)
+            await db.fetchrow(
                 "INSERT INTO ap_runs (id, session_id, tenant_id, item_key, requested_skills, status) "
                 "VALUES ($1, $2, $3, $4, $5::jsonb, $6) RETURNING id",
                 run_id,
@@ -80,12 +96,14 @@ class ApStore:
         self,
         *,
         run_id: str,
+        tenant_id: str,
         status: str,
         decision: Optional[str],
         credits_charged: int,
     ) -> None:
         try:
-            await self._db.execute(
+            db = await self._db(tenant_id)
+            await db.execute(
                 "UPDATE ap_runs SET status = $2, decision = $3, credits_charged = $4, "
                 "finished_at = now() WHERE id = $1",
                 run_id,
@@ -110,7 +128,8 @@ class ApStore:
         result: dict[str, Any],
     ) -> None:
         try:
-            await self._db.execute(
+            db = await self._db(tenant_id)
+            await db.execute(
                 "INSERT INTO ap_skill_artifacts (run_id, tenant_id, item_key, skill_id, result_json) "
                 "VALUES ($1, $2, $3, $4, $5::jsonb)",
                 run_id,
@@ -128,7 +147,8 @@ class ApStore:
 
     async def load_artifacts(self, *, tenant_id: str, item_key: str) -> dict[str, dict[str, Any]]:
         try:
-            rows = await self._db.fetch(
+            db = await self._db(tenant_id)
+            rows = await db.fetch(
                 "SELECT skill_id, result_json, created_at FROM ap_skill_artifacts "
                 "WHERE tenant_id = $1 AND item_key = $2",
                 tenant_id,
@@ -157,7 +177,8 @@ class ApStore:
         self, *, tenant_id: str, skill_id: str
     ) -> list[dict[str, Any]]:
         try:
-            rows = await self._db.fetch(
+            db = await self._db(tenant_id)
+            rows = await db.fetch(
                 "SELECT item_key, result_json FROM ap_skill_artifacts "
                 "WHERE tenant_id = $1 AND skill_id = $2",
                 tenant_id,
@@ -175,7 +196,8 @@ class ApStore:
 
     async def get_plan(self, tenant_id: str) -> Optional[dict[str, Any]]:
         try:
-            row = await self._db.fetchrow(
+            db = await self._db(tenant_id)
+            row = await db.fetchrow(
                 "SELECT enabled_skills, thresholds FROM ap_tenant_plans WHERE tenant_id = $1",
                 tenant_id,
             )
@@ -210,7 +232,8 @@ class ApStore:
         status: str,
     ) -> None:
         try:
-            await self._db.execute(
+            db = await self._db(tenant_id)
+            await db.execute(
                 "INSERT INTO ap_credit_ledger (run_id, tenant_id, skill_id, credits, identify, status) "
                 "VALUES ($1, $2, $3, $4, $5, $6)",
                 run_id,
