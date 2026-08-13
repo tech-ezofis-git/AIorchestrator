@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     # --- Infra ---------------------------------------------------------
     redis_url: str = "redis://localhost:6379/0"
     database_url: str = "postgresql://orchestrator:orchestrator@localhost:5432/orchestrator"
+    # Keep the asyncpg pool tiny on shared Azure Flexible Server SKUs
+    # (B1ms ≈ 50 max_connections server-wide). asyncpg's default min_size=10
+    # exhausts the server when agents crash-restarts, taking the whole
+    # multi-container App Service down with it.
+    database_pool_min_size: int = 1
+    database_pool_max_size: int = 3
 
     # --- App -----------------------------------------------------------
     app_name: str = "ai-orchestrator"

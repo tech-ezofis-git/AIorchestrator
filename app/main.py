@@ -216,7 +216,11 @@ async def lifespan(app: FastAPI):
     configure_app_logging(settings.log_level)
 
     redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
-    db_pool = await asyncpg.create_pool(settings.database_url)
+    db_pool = await asyncpg.create_pool(
+        settings.database_url,
+        min_size=settings.database_pool_min_size,
+        max_size=settings.database_pool_max_size,
+    )
 
     llm_adapter = LLMAdapter(settings)
     # Prefer a hardcoded Azure preset when .env has no custom endpoint —
