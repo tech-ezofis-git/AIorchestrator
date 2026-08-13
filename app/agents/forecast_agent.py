@@ -49,7 +49,7 @@ class ForecastAgent:
         self._llm_model = llm_model
         self._narration_cache_ttl_seconds = narration_cache_ttl_seconds
 
-    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]]) -> dict:
+    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]], **_: object) -> dict:
         """Returns {"reply": str, "usage": dict | None, "forecast_result": dict}.
 
         `reply` is the narrated explanation (cache hit or miss, transparent

@@ -14,7 +14,7 @@ class InsightAgent:
         self._dispatcher = dispatcher
         self._response_composer = response_composer
 
-    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]]) -> dict:
+    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]], **_: object) -> dict:
         """Returns {"reply": str, "usage": dict | None, "cited_data_points": list[str]}.
 
         `cited_data_points` is every data point label the LLM was shown —

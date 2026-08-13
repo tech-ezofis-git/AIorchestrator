@@ -55,7 +55,7 @@ class MailAgent:
         self._pending_actions = pending_action_store
         self._response_composer = response_composer
 
-    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]]) -> dict:
+    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]], **_: object) -> dict:
         """Returns {"reply": str, "usage": dict | None, "mail_draft": dict | None}.
 
         If no valid recipient is found: returns the clarification reply

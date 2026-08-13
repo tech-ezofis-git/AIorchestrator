@@ -146,7 +146,9 @@ from app.llm.model_presets import (
     list_presets_public,
 )
 from app.models.chat import ChatRequest, ChatResponse
+from app.models.chat_request_parser import parse_chat_request
 from app.models.pending_action import ConfirmActionResponse
+from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
 from app.tools.fetch_document import FETCH_DOCUMENT_SCHEMA, make_fetch_document_handler
 from app.tools.fetch_invoice_status import FETCH_INVOICE_STATUS_SCHEMA, make_fetch_invoice_status_handler
 from app.tools.fetch_memories import FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler
@@ -241,7 +243,7 @@ async def lifespan(app: FastAPI):
         result_cache_ttl_seconds=settings.search_result_cache_ttl_seconds,
     )
 
-    ocr_engine_client = OcrEngineClient()
+    ocr_engine_client = OcrEngineClient(settings)
     forecast_model_client = ForecastModelClient()
     email_client = EmailClient()
     memory_store = MemoryStore(db_pool)
@@ -259,7 +261,7 @@ async def lifespan(app: FastAPI):
     dispatcher.register_tool(FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler(memory_store))
     summary_agent = SummaryAgent(dispatcher, response_composer)
     insight_agent = InsightAgent(dispatcher, response_composer)
-    ocr_agent = OcrAgent(dispatcher)
+    ocr_agent = OcrAgent(dispatcher, response_composer, settings)
     forecast_agent = ForecastAgent(
         dispatcher,
         response_composer,
@@ -434,8 +436,10 @@ async def metrics() -> Response:
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest, request: Request, background_tasks: BackgroundTasks) -> ChatResponse:
+async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatResponse:
     started_at = time.perf_counter()
+    parsed = await parse_chat_request(request)
+    payload = parsed.chat
 
     context_manager: ContextManager = request.app.state.context_manager
     intent_router: IntentRouter = request.app.state.intent_router
@@ -445,15 +449,24 @@ async def chat(payload: ChatRequest, request: Request, background_tasks: Backgro
     permission_provider: MockPermissionProvider = request.app.state.permission_provider
     audit_store: AuditStore = request.app.state.audit_store
 
+    # Build a filterable / history message for document jobs.
+    has_upload = parsed.file_bytes is not None  # empty bytes still count as an upload attempt
+    has_filepath = bool(payload.payload and (payload.payload.filepath or "").strip())
+    message = (payload.message or "").strip()
+    explicit = (payload.intent or "").strip().lower()
+    if not message:
+        if has_filepath or has_upload or explicit == "ocr":
+            message = (payload.instruction or "").strip() or "Process the document and generate structured JSON."
+        else:
+            raise HTTPException(status_code=422, detail="message is required.")
+
     request.state.session_id = payload.session_id
-    # Read by the HTTPException audit handler below for any rejection
-    # path; overwritten with the real Intent once classification runs.
-    request.state.raw_message = payload.message
+    request.state.raw_message = message
     request.state.intent = None
 
     # Gate 1: content filter — cheapest, stateless, no I/O.
     try:
-        check_content(payload.message)
+        check_content(message)
     except ContentFilterRejectedError as exc:
         raise HTTPException(status_code=400, detail="Message rejected by content filter.") from exc
 
@@ -478,8 +491,45 @@ async def chat(payload: ChatRequest, request: Request, background_tasks: Backgro
             status_code=503, detail="Session store is currently unavailable, please try again."
         ) from exc
 
-    intent = await intent_router.classify(payload.message)
+    # Explicit intent overrides keyword router. Empty/omitted intent keeps
+    # legacy keyword classification (chat/search/...) so existing clients
+    # keep working. Document OCR requires intent=ocr (filepath alone never
+    # forces OCR / AP).
+    if explicit:
+        try:
+            intent = Intent(explicit)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Unknown intent '{payload.intent}'.") from exc
+    else:
+        intent = await intent_router.classify(message)
     request.state.intent = intent.value
+
+    document_job = None
+    if intent == Intent.OCR and (has_filepath or (parsed.file_bytes is not None)):
+        if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        # Prefer upload over filepath when both are present.
+        try:
+            resolve_pageno(
+                payload.payload.pageno if payload.payload else None,
+                max_pages=get_settings().ocr_max_pages,
+            )
+        except InvalidOcrPageError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        document_job = {
+            "instruction": payload.instruction,
+            "filepath": None if parsed.file_bytes is not None else (payload.payload.filepath if payload.payload else None),
+            "file_bytes": parsed.file_bytes,
+            "filename": parsed.filename if parsed.file_bytes is not None else None,
+            "content_type": parsed.content_type if parsed.file_bytes is not None else None,
+            "pageno": payload.payload.pageno if payload.payload else None,
+            "parameters": list(payload.payload.parameters) if payload.payload else [],
+            "tableparameters": list(payload.payload.tableparameters) if payload.payload else [],
+            "model": payload.payload.model if payload.payload else None,
+        }
+    elif intent == Intent.OCR and explicit == "ocr" and not (has_filepath or parsed.file_bytes is not None):
+        # Explicit OCR without a document still allows legacy "run ocr on SCN-.." messages.
+        pass
 
     # Gate 3: permission check — needs the classified intent, so it can
     # only run here, not earlier. The Dispatcher/agent must never be
@@ -492,8 +542,14 @@ async def chat(payload: ChatRequest, request: Request, background_tasks: Backgro
 
     try:
         result = await agent_router.route(
-            intent, session_id=payload.session_id, message=payload.message, history=history
+            intent,
+            session_id=payload.session_id,
+            message=message,
+            history=history,
+            document_job=document_job,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMAdapterError as exc:
         raise HTTPException(
             status_code=502, detail="Upstream LLM provider error, please try again."
@@ -503,19 +559,10 @@ async def chat(payload: ChatRequest, request: Request, background_tasks: Backgro
             status_code=502, detail="Upstream embedding provider error, please try again."
         ) from exc
     except VectorStoreUnavailableError as exc:
-        # Same discipline as SessionStoreUnavailableError below: a
-        # pgvector/Postgres outage must be an explicit error, never a
-        # silent empty-result search.
         raise HTTPException(
             status_code=503, detail="Document store is currently unavailable, please try again."
         ) from exc
     except ToolExecutionError as exc:
-        # A registered tool's handler failed (fetch_document/
-        # fetch_report_data/fetch_invoice_status -> mocked EZOFIS; run_ocr
-        # -> mocked OCR engine; run_forecast -> mocked forecast model).
-        # Same "external dependency down" class as LLM/embedding provider
-        # failures. The message below is generic on purpose — it covers
-        # all five (see tests/test_tool_error_no_leak.py).
         raise HTTPException(
             status_code=502, detail="Upstream service error, please try again."
         ) from exc
@@ -523,18 +570,13 @@ async def chat(payload: ChatRequest, request: Request, background_tasks: Backgro
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
     try:
-        await context_manager.append_turn(payload.session_id, "user", payload.message)
+        await context_manager.append_turn(payload.session_id, "user", message)
         await context_manager.append_turn(payload.session_id, "assistant", result["reply"])
     except SessionStoreUnavailableError as exc:
-        # The LLM reply was already generated but can't be persisted — per
-        # spec, history must never be silently dropped while still
-        # returning success, so this is a 503, not a 200 with a gap.
         raise HTTPException(
             status_code=503, detail="Session store is currently unavailable, please try again."
         ) from exc
 
-    # Enrich the audit record the middleware logs after this handler
-    # returns (session_id was already set at the top of this handler).
     request.state.token_usage = result.get("usage")
 
     latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
@@ -547,7 +589,7 @@ async def chat(payload: ChatRequest, request: Request, background_tasks: Backgro
         event_type="request_completed",
         status="success",
         latency_ms=latency_ms,
-        redacted_request_snippet=_snippet_for_audit(intent.value, payload.message),
+        redacted_request_snippet=_snippet_for_audit(intent.value, message),
         redacted_response_snippet=_snippet_for_audit(intent.value, result["reply"]),
     )
 

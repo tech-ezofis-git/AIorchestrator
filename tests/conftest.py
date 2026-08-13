@@ -43,6 +43,9 @@ def client(monkeypatch):
     # Azure preset keys for Test Console — never real secrets in tests.
     monkeypatch.setenv("AZURE_SOUTH_INDIA_API_KEY", "test-south-india-key")
     monkeypatch.setenv("AZURE_EAST_US_API_KEY", "test-east-us-key")
+    # Use local mock OCR (no remote extract_text) unless a test overrides.
+    monkeypatch.setenv("OCR_EXTRACT_URL", "")
+    monkeypatch.delenv("AZURE_STORAGE_CONNECTION_STRING", raising=False)
     from app.config import get_settings
 
     get_settings.cache_clear()

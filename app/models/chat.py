@@ -1,12 +1,52 @@
 """Pydantic models for the /chat endpoint."""
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+class DocumentPayload(BaseModel):
+    """Document job fields for OCR (and later AP) when intent is set explicitly."""
+
+    filepath: Optional[str] = Field(
+        default=None,
+        description="Blob URL or container/blob path (\\ or /). Ignored when a multipart file is uploaded.",
+    )
+    pageno: Optional[str] = Field(
+        default=None,
+        description="Page selector: omit/1..max for one page; -1 for pages 1..max.",
+    )
+    parameters: list[str] = Field(default_factory=list)
+    tableparameters: list[str] = Field(default_factory=list)
+    model: Optional[str] = None
 
 
 class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Client-supplied session identifier.")
-    message: str = Field(..., min_length=1, description="The user's chat message.")
+    message: Optional[str] = Field(
+        default=None,
+        description="Free-text chat message. Optional when intent=ocr with file/filepath.",
+    )
+    intent: Optional[str] = Field(
+        default=None,
+        description="Explicit agent. Empty/omitted => chat. Unknown values rejected by the route.",
+    )
+    instruction: Optional[str] = Field(
+        default=None,
+        description="OCR structuring hints (region/date format). Optional.",
+    )
+    payload: Optional[DocumentPayload] = None
+
+    @model_validator(mode="after")
+    def _require_message_or_document(self) -> "ChatRequest":
+        has_filepath = bool(self.payload and (self.payload.filepath or "").strip())
+        msg = (self.message or "").strip()
+        if not msg and not has_filepath:
+            # Multipart uploads attach file bytes outside this model; main.py
+            # validates file-or-filepath for intent=ocr after parsing.
+            if (self.intent or "").strip().lower() == "ocr":
+                return self
+            raise ValueError("Either message or payload.filepath is required.")
+        return self
 
 
 class TokenUsage(BaseModel):
@@ -33,11 +73,11 @@ class ChatResponse(BaseModel):
         default=None,
         description="Report data point labels the reply was synthesized from (Insight intent only; absent/None otherwise).",
     )
-    ocr_result: Optional[dict] = Field(
+    ocr_result: Optional[dict[str, Any]] = Field(
         default=None,
         description=(
-            "Full structured OCR tool output (text, confidence, source_reference) — "
-            "OCR intent only; absent/None otherwise. `reply` also carries the extracted text."
+            "OCR intent output — locked ocrResult/tokens/ocr_text/ocr_json shape "
+            "(plus optional internal source_reference / ocr_status)."
         ),
     )
     forecast_result: Optional[dict] = Field(

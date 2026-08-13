@@ -59,7 +59,7 @@ class SearchAgent:
         self._embedding_cache_ttl_seconds = embedding_cache_ttl_seconds
         self._result_cache_ttl_seconds = result_cache_ttl_seconds
 
-    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]]) -> dict:
+    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]], **_: object) -> dict:
         """Returns {"reply": str, "usage": dict | None, "chunk_ids": list[str]}.
 
         `history` isn't used yet — Phase 2 search is single-turn (retrieve

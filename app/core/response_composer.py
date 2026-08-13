@@ -94,6 +94,21 @@ _MEMORY_EXTRACTION_SYSTEM_PROMPT = (
     "phone calls.\"). Respond with ONLY the extracted fact, nothing else."
 )
 
+_OCR_JSON_SYSTEM_PROMPT = (
+    "You are the AI assistant for EZOFIS document field extraction. "
+    "Given OCR text and optional field definitions, return ONLY valid JSON "
+    "with this shape: "
+    '{"ocrResult":[{"name":"...","value":"...","type":"..."}],'
+    '"tableResult":[]} '
+    "Rules: (1) If parameters are provided, emit exactly those fields "
+    "(name/type from the parameter; value from OCR text or null if missing — "
+    "never invent). (2) If parameters are empty, infer document type from "
+    "the OCR text (invoice, agreement, CV, PO, etc.) and recommend at most "
+    "N useful fields with sensible types. (3) DATE values as YYYY-MM-DD when "
+    "possible. (4) Honor region/date hints in the instruction. "
+    "(5) No markdown fences, no commentary — JSON only."
+)
+
 
 class ResponseComposer:
     def __init__(self, llm_adapter: LLMAdapter):
@@ -288,6 +303,145 @@ class ResponseComposer:
             system_prompt=_MEMORY_EXTRACTION_SYSTEM_PROMPT,
             user_content=instruction,
         )
+
+    async def synthesize_ocr_json(
+        self,
+        *,
+        instruction: str,
+        ocr_text: str,
+        parameters: list[str],
+        tableparameters: list[str],
+        page_label: str,
+        model: Optional[str] = None,
+        max_recommended_fields: int = 15,
+    ) -> dict:
+        """OCR text + field defs -> ocrResult (+ optional tableResult).
+
+        Returns {"ocrResult": list, "tableResult": list|None, "usage": dict|None}.
+        Temporarily switches LLMAdapter model when `model` is provided, then
+        restores the previous model.
+        """
+        import json as _json
+
+        from app.agents.ocr_helpers import parse_parameter_entries
+
+        previous_model = getattr(self._llm, "_model", None)
+        if model:
+            self._llm.configure(model=model)
+
+        try:
+            parsed_params = parse_parameter_entries(parameters)
+            param_lines = (
+                "\n".join(f"- {n} ({t})" for n, t in parsed_params)
+                if parsed_params
+                else f"(none — recommend up to {max_recommended_fields} fields)"
+            )
+            table_lines = (
+                "\n".join(f"- {p}" for p in tableparameters)
+                if tableparameters
+                else "(none)"
+            )
+            system = _OCR_JSON_SYSTEM_PROMPT.replace("at most N ", f"at most {max_recommended_fields} ")
+            user_content = (
+                f"Instruction:\n{instruction}\n\n"
+                f"Page focus: {page_label}\n\n"
+                f"Parameters:\n{param_lines}\n\n"
+                f"Table parameters:\n{table_lines}\n\n"
+                f"OCR text:\n{ocr_text}"
+            )
+            result = await self._llm.chat_completion(
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user_content},
+                ]
+            )
+        finally:
+            if model and previous_model:
+                self._llm.configure(model=previous_model)
+
+        fields, table_result = _parse_ocr_json_content(
+            result["content"],
+            expected=parsed_params,
+            max_recommended_fields=max_recommended_fields,
+        )
+        return {
+            "ocrResult": fields,
+            "tableResult": table_result,
+            "usage": result.get("usage"),
+        }
+
+
+def _parse_ocr_json_content(
+    content: str,
+    *,
+    expected: list[tuple[str, str]],
+    max_recommended_fields: int,
+) -> tuple[list[dict], Optional[list]]:
+    import json as _json
+    import re as _re
+
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = _re.sub(r"^```(?:json)?\s*", "", text)
+        text = _re.sub(r"\s*```$", "", text)
+    try:
+        data = _json.loads(text)
+    except _json.JSONDecodeError:
+        # Best-effort: extract first {...} block
+        match = _re.search(r"\{.*\}", text, _re.DOTALL)
+        if not match:
+            if expected:
+                return (
+                    [{"name": n, "value": None, "type": t} for n, t in expected],
+                    None,
+                )
+            return [], None
+        try:
+            data = _json.loads(match.group(0))
+        except _json.JSONDecodeError:
+            if expected:
+                return (
+                    [{"name": n, "value": None, "type": t} for n, t in expected],
+                    None,
+                )
+            return [], None
+
+    raw_fields = data.get("ocrResult") if isinstance(data, dict) else None
+    if not isinstance(raw_fields, list):
+        raw_fields = []
+
+    normalized: list[dict] = []
+    for item in raw_fields:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        typ = str(item.get("type") or "SHORT_TEXT").strip() or "SHORT_TEXT"
+        value = item.get("value")
+        if value is not None:
+            value = str(value).strip()
+            if value == "":
+                value = None
+        if name:
+            normalized.append({"name": name, "value": value, "type": typ})
+
+    if expected:
+        by_name = {f["name"].lower(): f for f in normalized}
+        ordered = []
+        for name, typ in expected:
+            found = by_name.get(name.lower())
+            if found:
+                ordered.append({"name": name, "value": found.get("value"), "type": typ})
+            else:
+                ordered.append({"name": name, "value": None, "type": typ})
+        normalized = ordered
+    else:
+        normalized = normalized[:max_recommended_fields]
+
+    table_result = data.get("tableResult") if isinstance(data, dict) else None
+    if table_result is not None and not isinstance(table_result, list):
+        table_result = None
+
+    return normalized, table_result
 
 
 def _parse_mail_draft(content: str, *, fallback_subject: str) -> tuple[str, str]:

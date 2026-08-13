@@ -70,6 +70,20 @@ class Settings(BaseSettings):
     search_result_cache_ttl_seconds: int = 60 * 5  # 5 minutes
     forecast_narration_cache_ttl_seconds: int = 60 * 5  # 5 minutes
 
+    # --- OCR document extraction (blob / upload → extract_text → JSON) ---
+    ocr_extract_url: Optional[str] = (
+        "https://ez-container-app.calmsmoke-6661997a.southindia.azurecontainerapps.io/api/extract_text"
+    )
+    ocr_engine: str = "paddle"
+    ocr_default_model: Optional[str] = None
+    ocr_fallback_model: Optional[str] = None
+    ocr_max_pages: int = 5
+    ocr_max_recommended_fields: int = 15
+    ocr_allowed_host_suffixes: str = ".blob.core.windows.net"
+    ocr_download_timeout_seconds: float = 60.0
+    ocr_max_file_bytes: int = 25 * 1024 * 1024  # 25 MiB
+    azure_storage_connection_string: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
