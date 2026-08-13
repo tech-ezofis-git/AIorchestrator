@@ -69,7 +69,10 @@ class ApStore:
                 "running",
             )
         except Exception as exc:
-            logger.warning("ap_run_insert_failed", extra={"error_type": type(exc).__name__})
+            logger.warning(
+                "ap_run_insert_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
             raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
         return run_id
 
@@ -91,7 +94,10 @@ class ApStore:
                 credits_charged,
             )
         except Exception as exc:
-            logger.warning("ap_run_update_failed", extra={"error_type": type(exc).__name__})
+            logger.warning(
+                "ap_run_update_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
             raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
 
     async def save_artifact(
@@ -114,7 +120,10 @@ class ApStore:
                 _json_dump(result),
             )
         except Exception as exc:
-            logger.warning("ap_artifact_insert_failed", extra={"error_type": type(exc).__name__})
+            logger.warning(
+                "ap_artifact_insert_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
             raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
 
     async def load_artifacts(self, *, tenant_id: str, item_key: str) -> dict[str, dict[str, Any]]:
@@ -126,7 +135,10 @@ class ApStore:
                 item_key,
             )
         except Exception as exc:
-            logger.warning("ap_artifact_read_failed", extra={"error_type": type(exc).__name__})
+            logger.warning(
+                "ap_artifact_read_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
             raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
 
         latest: dict[str, tuple[datetime, dict[str, Any]]] = {}
@@ -168,7 +180,10 @@ class ApStore:
                 tenant_id,
             )
         except Exception as exc:
-            logger.warning("ap_plan_read_failed", extra={"error_type": type(exc).__name__})
+            logger.warning(
+                "ap_plan_read_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
             raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
         if row is None:
             return None
@@ -206,5 +221,8 @@ class ApStore:
                 status,
             )
         except Exception as exc:
-            logger.warning("ap_credit_ledger_failed", extra={"error_type": type(exc).__name__})
+            logger.warning(
+                "ap_credit_ledger_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
             raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
