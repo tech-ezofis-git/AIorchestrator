@@ -211,26 +211,15 @@
       <button class="btn-ghost" id="newSessionBtn" title="New random session id">New</button>
     </div>
 
-    <h2 style="margin-top:20px">Model &amp; Connection</h2>
-    <label for="llmPreset">Model</label>
-    <select id="llmPreset"></select>
-    <div class="field-hint" id="llmPresetHint"></div>
+    <h2 style="margin-top:20px">Model</h2>
+    <label for="llmDefaultPreset">Default model</label>
+    <select id="llmDefaultPreset"></select>
+    <div class="field-hint" id="llmDefaultHint"></div>
 
-    <details style="margin-top:12px">
-      <summary style="cursor:pointer;font-size:13px;color:var(--text-secondary)">Advanced (manual override)</summary>
-      <label for="llmModel" style="margin-top:10px">Model string</label>
-      <input type="text" id="llmModel" placeholder="azure/gpt-4.1-mini" />
-
-      <label for="llmApiBase">API base</label>
-      <input type="text" id="llmApiBase" placeholder="https://your-resource.openai.azure.com" />
-
-      <label for="llmApiVersion">API version</label>
-      <input type="text" id="llmApiVersion" placeholder="2025-01-01-preview" />
-
-      <label for="llmApiKey">API key <span style="font-weight:400">(optional)</span></label>
-      <input type="password" id="llmApiKey" placeholder="leave blank to keep current" />
-      <div class="field-hint" id="llmKeyHint"></div>
-    </details>
+    <label for="llmFallbackPreset">Fallback model <span style="font-weight:400">(OCR)</span></label>
+    <select id="llmFallbackPreset"></select>
+    <div class="field-hint">Used if the default model fails during OCR structuring. Keys stay in <code>.env</code>.</div>
+    <div class="field-hint" id="llmKeyHint" style="margin-top:6px"></div>
 
     <div class="row" style="margin-top:10px">
       <button class="btn-primary" id="llmSaveBtn" style="flex:1">Save</button>
@@ -247,7 +236,8 @@
       <code>/actions/&#123;id&#125;/confirm</code> directly — no separate
       backend config needed. EZOFIS integrations are mocked
       (see <code>app/integrations/</code>), so replies are deterministic
-      placeholder data unless a real LLM key is configured in <code>.env</code>.
+      placeholder data unless a real LLM key is configured in <code>.env</code>
+      (choose default / fallback models above — no key in the UI).
     </div>
   </aside>
 
@@ -312,13 +302,10 @@ document.getElementById('newSessionBtn').addEventListener('click', () => {
   addSystemMessage('Started a new session: ' + sessionIdInput.value);
 });
 
-// --- Model & Connection panel -------------------------------------------
-const llmPresetSelect = document.getElementById('llmPreset');
-const llmPresetHint = document.getElementById('llmPresetHint');
-const llmModelInput = document.getElementById('llmModel');
-const llmApiBaseInput = document.getElementById('llmApiBase');
-const llmApiVersionInput = document.getElementById('llmApiVersion');
-const llmApiKeyInput = document.getElementById('llmApiKey');
+// --- Model panel (default + OCR fallback presets) -----------------------
+const llmDefaultSelect = document.getElementById('llmDefaultPreset');
+const llmFallbackSelect = document.getElementById('llmFallbackPreset');
+const llmDefaultHint = document.getElementById('llmDefaultHint');
 const llmKeyHint = document.getElementById('llmKeyHint');
 const llmStatus = document.getElementById('llmStatus');
 const llmSaveBtn = document.getElementById('llmSaveBtn');
@@ -331,24 +318,32 @@ function setLlmStatus(kind, text) {
   llmStatus.textContent = text;
 }
 
-function fillPresetSelect(presets, selectedId) {
-  llmPresetSelect.innerHTML = '';
+function fillPresetSelect(selectEl, presets, selectedId, { includeNone } = {}) {
+  selectEl.innerHTML = '';
+  if (includeNone) {
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'None';
+    selectEl.appendChild(none);
+  }
   presets.forEach(p => {
     const opt = document.createElement('option');
     opt.value = p.id;
     opt.textContent = p.region ? `${p.label} — ${p.region}` : p.label;
-    llmPresetSelect.appendChild(opt);
+    selectEl.appendChild(opt);
   });
-  if (selectedId) llmPresetSelect.value = selectedId;
+  if (selectedId != null && selectedId !== undefined) {
+    selectEl.value = selectedId;
+  }
 }
 
-function updatePresetHint(presetId) {
+function updateDefaultHint(presetId) {
   const p = llmPresets.find(x => x.id === presetId);
   if (!p) {
-    llmPresetHint.textContent = '';
+    llmDefaultHint.textContent = '';
     return;
   }
-  llmPresetHint.textContent = [
+  llmDefaultHint.textContent = [
     p.model_version ? `version ${p.model_version}` : null,
     p.api_version ? `api ${p.api_version}` : null,
     p.api_base || null,
@@ -364,44 +359,28 @@ async function loadLlmPresetsAndConfig() {
     const presetsData = await presetsRes.json();
     const data = await configRes.json();
     llmPresets = presetsData.presets || [];
-    const selected = data.preset_id || presetsData.default_preset_id || (llmPresets[0] && llmPresets[0].id);
-    fillPresetSelect(llmPresets, selected);
-    updatePresetHint(selected);
-    llmModelInput.value = data.model || '';
-    llmApiBaseInput.value = data.api_base || '';
-    llmApiVersionInput.value = data.api_version || '';
+    const defaultId = data.default_preset_id || data.preset_id || presetsData.default_preset_id || (llmPresets[0] && llmPresets[0].id);
+    const fallbackId = data.fallback_preset_id || '';
+    fillPresetSelect(llmDefaultSelect, llmPresets, defaultId);
+    fillPresetSelect(llmFallbackSelect, llmPresets, fallbackId, { includeNone: true });
+    updateDefaultHint(defaultId);
     llmKeyHint.textContent = data.has_api_key
-      ? 'A key is currently set server-side (from the selected preset).'
-      : 'No key set — relying on a provider env var in .env.';
+      ? 'API key loaded from .env for the selected default preset.'
+      : 'No key in .env for this preset — set QWEN_MAC_API_KEY, AZURE_SOUTH_INDIA_API_KEY, or AZURE_EAST_US_API_KEY.';
   } catch (e) {
-    llmPresetHint.textContent = 'Could not load model presets.';
+    llmDefaultHint.textContent = 'Could not load model presets.';
     llmKeyHint.textContent = 'Could not load current config.';
   }
 }
 loadLlmPresetsAndConfig();
 
-llmPresetSelect.addEventListener('change', () => {
-  updatePresetHint(llmPresetSelect.value);
-  const p = llmPresets.find(x => x.id === llmPresetSelect.value);
-  if (p) {
-    llmModelInput.value = p.model || '';
-    llmApiBaseInput.value = p.api_base || '';
-    llmApiVersionInput.value = p.api_version || '';
-  }
-});
+llmDefaultSelect.addEventListener('change', () => updateDefaultHint(llmDefaultSelect.value));
 
 async function saveLlmConfig() {
-  // Prefer preset switch — applies model/base/key/version server-side.
-  const payload = llmPresetSelect.value
-    ? { preset_id: llmPresetSelect.value }
-    : {
-        model: llmModelInput.value.trim(),
-        api_base: llmApiBaseInput.value.trim(),
-        api_version: llmApiVersionInput.value.trim(),
-      };
-  if (!payload.preset_id && llmApiKeyInput.value.trim()) {
-    payload.api_key = llmApiKeyInput.value.trim();
-  }
+  const payload = {
+    default_preset_id: llmDefaultSelect.value,
+    fallback_preset_id: llmFallbackSelect.value,
+  };
   llmSaveBtn.disabled = true;
   try {
     const res = await fetch('/console/llm-config', {
@@ -409,8 +388,8 @@ async function saveLlmConfig() {
     });
     const data = await res.json();
     if (res.ok) {
-      setLlmStatus('ok', `Saved — model "${data.model}"${data.api_base ? ' @ ' + data.api_base : ''}.`);
-      llmApiKeyInput.value = '';
+      const fb = data.fallback_preset_id ? `; fallback ${data.fallback_preset_id}` : '';
+      setLlmStatus('ok', `Saved — default ${data.default_preset_id || data.preset_id}${fb}.`);
       await loadLlmPresetsAndConfig();
     } else {
       setLlmStatus('fail', 'Save failed: ' + (data.detail || res.status));

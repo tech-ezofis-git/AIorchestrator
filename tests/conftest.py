@@ -40,9 +40,10 @@ class _IsolatedFakeRedis:
 def client(monkeypatch):
     monkeypatch.setattr(main_module, "Redis", _IsolatedFakeRedis)
 
-    # Azure preset keys for Test Console — never real secrets in tests.
+    # Azure / Qwen preset keys for Test Console — never real secrets in tests.
     monkeypatch.setenv("AZURE_SOUTH_INDIA_API_KEY", "test-south-india-key")
     monkeypatch.setenv("AZURE_EAST_US_API_KEY", "test-east-us-key")
+    monkeypatch.setenv("QWEN_MAC_API_KEY", "test-qwen-mac-key")
     # Use local mock OCR (no remote extract_text) unless a test overrides.
     monkeypatch.setenv("OCR_EXTRACT_URL", "")
     monkeypatch.delenv("AZURE_STORAGE_CONNECTION_STRING", raising=False)

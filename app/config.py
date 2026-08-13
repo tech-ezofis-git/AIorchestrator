@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # (app/llm/model_presets.py). Kept out of git via .env — see .env.example.
     azure_south_india_api_key: Optional[str] = None
     azure_east_us_api_key: Optional[str] = None
+    # OpenAI-compatible Qwen host (ezqwenmac ACI) — default console preset.
+    qwen_mac_api_key: Optional[str] = None
     # Eval harness (Phase 5c) LLM-judge scoring — see app/evals/scoring.py.
     # Defaults to `llm_model` when unset (rule 4), so a stronger/different
     # model can judge than the one under test without requiring a second

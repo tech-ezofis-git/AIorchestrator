@@ -11,11 +11,13 @@ def test_get_llm_config_reflects_startup_settings(client):
 
     assert response.status_code == 200
     body = response.json()
-    # Lifespan applies the default Azure preset when LLM_API_BASE is unset.
-    assert body["model"] == "azure/gpt-4.1-mini"
-    assert body["api_base"] == "https://ezazopenai.openai.azure.com"
-    assert body["api_version"] == "2025-01-01-preview"
-    assert body["preset_id"] == "gpt-4.1-mini"
+    # Lifespan applies the default Qwen ACI preset when LLM_API_BASE is unset.
+    assert body["model"] == "openai/qwen3.5-9b"
+    assert body["api_base"] == "http://ezqwenmac-aci.canadacentral.azurecontainer.io:8080/v1"
+    assert body["api_version"] is None
+    assert body["preset_id"] == "ezofis-gpu-box"
+    assert body["default_preset_id"] == "ezofis-gpu-box"
+    assert body["fallback_preset_id"] is None
     assert body["has_api_key"] is True
 
 
@@ -25,11 +27,12 @@ def test_get_llm_presets_lists_hardcoded_models_without_keys(client):
     assert response.status_code == 200
     body = response.json()
     ids = [p["id"] for p in body["presets"]]
-    assert ids == ["gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini"]
-    assert body["default_preset_id"] == "gpt-4.1-mini"
+    assert ids == ["ezofis-gpu-box", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini"]
+    assert body["default_preset_id"] == "ezofis-gpu-box"
     assert all("api_key" not in p for p in body["presets"])
     assert "test-south-india-key" not in response.text
     assert "test-east-us-key" not in response.text
+    assert "test-qwen-mac-key" not in response.text
 
 
 def test_post_llm_config_applies_preset(client):
@@ -41,8 +44,28 @@ def test_post_llm_config_applies_preset(client):
     assert body["api_base"] == "https://api-4omin-ez.openai.azure.com"
     assert body["api_version"] == "2025-01-01-preview"
     assert body["preset_id"] == "gpt-4o-mini"
+    assert body["default_preset_id"] == "gpt-4o-mini"
     assert body["has_api_key"] is True
     assert "test-east-us-key" not in response.text
+
+
+def test_post_llm_config_sets_default_and_fallback_presets(client):
+    response = client.post(
+        "/console/llm-config",
+        json={"default_preset_id": "gpt-4.1-nano", "fallback_preset_id": "gpt-4o-mini"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["default_preset_id"] == "gpt-4.1-nano"
+    assert body["fallback_preset_id"] == "gpt-4o-mini"
+    assert body["preset_id"] == "gpt-4.1-nano"
+    assert body["model"] == "azure/gpt-4.1-nano"
+
+    cleared = client.post("/console/llm-config", json={"fallback_preset_id": ""})
+    assert cleared.status_code == 200
+    assert cleared.json()["fallback_preset_id"] is None
+    assert cleared.json()["default_preset_id"] == "gpt-4.1-nano"
 
 
 def test_post_llm_config_unknown_preset_returns_400(client):
