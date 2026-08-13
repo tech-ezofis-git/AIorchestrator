@@ -68,6 +68,26 @@ def test_post_llm_config_sets_default_and_fallback_presets(client):
     assert cleared.json()["default_preset_id"] == "gpt-4.1-nano"
 
 
+def test_llm_config_selection_persists_in_redis_across_reload(client):
+    """Console Save writes Redis; a fresh RuntimeModelSelection reloads it
+    (same as agents process restart with the same Redis)."""
+    import asyncio
+
+    from app.llm.runtime_models import RuntimeModelSelection
+    import app.main as main_module
+
+    client.post(
+        "/console/llm-config",
+        json={"default_preset_id": "gpt-4.1-mini", "fallback_preset_id": "gpt-4o-mini"},
+    )
+
+    reloaded = RuntimeModelSelection()
+    loaded = asyncio.run(reloaded.load_from_redis(main_module.app.state.redis_client))
+    assert loaded is True
+    assert reloaded.default_preset_id == "gpt-4.1-mini"
+    assert reloaded.fallback_preset_id == "gpt-4o-mini"
+
+
 def test_post_llm_config_unknown_preset_returns_400(client):
     response = client.post("/console/llm-config", json={"preset_id": "no-such-model"})
 

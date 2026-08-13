@@ -223,12 +223,14 @@ async def lifespan(app: FastAPI):
     )
 
     llm_adapter = LLMAdapter(settings)
-    # Prefer a hardcoded Azure preset when .env has no custom endpoint —
-    # the Test Console can switch presets at runtime via /console/llm-config.
+    # Console can switch default/fallback at runtime; selection is persisted
+    # in Redis so hosting restarts keep the last manual Save.
     runtime_models = RuntimeModelSelection(default_preset_id=DEFAULT_PRESET_ID)
-    env_fallback = (settings.ocr_fallback_model or "").strip()
-    if env_fallback and get_preset(env_fallback):
-        runtime_models.fallback_preset_id = env_fallback
+    loaded_selection = await runtime_models.load_from_redis(redis_client)
+    if not loaded_selection and runtime_models.fallback_preset_id is None:
+        env_fallback = (settings.ocr_fallback_model or "").strip()
+        if env_fallback and get_preset(env_fallback):
+            runtime_models.fallback_preset_id = env_fallback
     if not settings.llm_api_base:
         apply_preset(llm_adapter, runtime_models.default_preset_id)
     embedding_adapter = EmbeddingAdapter(settings)
@@ -406,10 +408,12 @@ async def get_llm_config(request: Request) -> dict:
 @app.post("/console/llm-config")
 async def update_llm_config(payload: LLMConfigUpdate, request: Request) -> dict:
     """Runtime model selection from the Test Console. Preset switches
-    apply Azure model/base/key from .env — no key needed in the UI.
-    In-memory only: a restart reverts to the default preset."""
+    apply model/base/key from .env — no key needed in the UI.
+    Selection is written to Redis so it survives hosting restarts; it only
+    changes again when an operator Saves a new choice."""
     llm_adapter: LLMAdapter = request.app.state.llm_adapter
     runtime: RuntimeModelSelection = request.app.state.runtime_models
+    redis_client = request.app.state.redis_client
 
     default_id = payload.default_preset_id if payload.default_preset_id is not None else payload.preset_id
     if default_id is not None and default_id != "":
@@ -436,6 +440,16 @@ async def update_llm_config(payload: LLMConfigUpdate, request: Request) -> dict:
                 api_key=payload.api_key,
                 api_version=payload.api_version,
             )
+
+    # Persist whenever a preset selection field was part of the request.
+    if (default_id is not None and default_id != "") or payload.fallback_preset_id is not None:
+        try:
+            await runtime.save_to_redis(redis_client)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Model selection could not be saved; please try again.",
+            ) from exc
 
     return _llm_config_response(request)
 
