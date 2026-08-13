@@ -105,6 +105,7 @@ from starlette.background import BackgroundTask
 from app.agents.ap_agent import ApAgent
 from app.agents.chat_agent import ChatAgent
 from app.ap_skills.store import ApStoreUnavailableError
+from app.ap_skills.tenant_db import ApTenantDbPools
 from app.agents.forecast_agent import ForecastAgent
 from app.agents.insight_agent import InsightAgent
 from app.agents.mail_agent import MailAgent
@@ -218,6 +219,12 @@ async def lifespan(app: FastAPI):
 
     redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
     db_pool = await asyncpg.create_pool(settings.database_url)
+    tenant_pools = ApTenantDbPools(
+        settings.database_url,
+        fallback_pool=db_pool,
+        create_pool=asyncpg.create_pool,
+        prefix=settings.ap_tenant_db_prefix,
+    )
 
     llm_adapter = LLMAdapter(settings)
     # Console can switch default/fallback at runtime; selection is persisted
@@ -290,6 +297,7 @@ async def lifespan(app: FastAPI):
         ezofis_client=ezofis_client,
         llm_adapter=llm_adapter,
         db_pool=db_pool,
+        tenant_pools=tenant_pools,
     )
 
     # Constructed only after dispatcher (needs store_memory/fetch_memories
@@ -319,6 +327,7 @@ async def lifespan(app: FastAPI):
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
+    app.state.ap_tenant_pools = tenant_pools
     app.state.context_manager = context_manager
     app.state.intent_router = intent_router
     app.state.agent_router = agent_router
@@ -341,6 +350,7 @@ async def lifespan(app: FastAPI):
     yield
 
     await redis_client.aclose()
+    await tenant_pools.close()
     await db_pool.close()
 
 

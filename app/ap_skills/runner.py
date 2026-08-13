@@ -174,6 +174,7 @@ class ApSkillRunner:
             decision = finalize.get("decision") or (ctx.artifacts.get("po_match") or {}).get("decision")
             await self._store.finish_run(
                 run_id=run_id,
+                tenant_id=tenant_id,
                 status="completed",
                 decision=decision,
                 credits_charged=credits_charged,
@@ -191,6 +192,7 @@ class ApSkillRunner:
             try:
                 await self._store.finish_run(
                     run_id=run_id,
+                    tenant_id=tenant_id,
                     status="failed",
                     decision=None,
                     credits_charged=credits_charged,

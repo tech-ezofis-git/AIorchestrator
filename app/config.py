@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     ap_amount_tolerance: float = 0.02
     ap_approved_threshold: int = 80
     ap_partial_threshold: int = 50
+    # AP tables live in ezofis_Tenant_{first 8 of tenant_id} on the same
+    # server as DATABASE_URL. Empty prefix disables routing (main DB only).
+    ap_tenant_db_prefix: str = "ezofis_Tenant_"
 
     model_config = SettingsConfigDict(
         env_file=".env",
