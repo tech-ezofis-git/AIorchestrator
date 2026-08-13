@@ -12,7 +12,7 @@ azure-storage-blob==12.23.1
 # Testing
 pytest==9.0.3
 pytest-asyncio==0.24.0
-httpx==0.27.2
+httpx==0.28.1
 fakeredis==2.24.1
 
 # Future phases (provisioned, not used in Phase 1 code):
