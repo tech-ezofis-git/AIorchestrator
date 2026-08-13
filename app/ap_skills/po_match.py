@@ -29,7 +29,14 @@ async def run(ctx: ApContext) -> ApSkillResult:
             },
         )
 
-    po = await ctx.ezofis.lookup_po(tenant_id=ctx.tenant_id, po_number=po_number)
+    po = None
+    for connector_skill in ("po_lookup_quickbooks", "po_lookup_sage"):
+        artifact = ctx.artifacts.get(connector_skill) or {}
+        if isinstance(artifact, dict) and isinstance(artifact.get("po"), dict):
+            po = artifact["po"]
+            break
+    if not po:
+        po = await ctx.ezofis.lookup_po(tenant_id=ctx.tenant_id, po_number=po_number)
     if not po:
         return ApSkillResult(
             skill_id=SKILL_ID,

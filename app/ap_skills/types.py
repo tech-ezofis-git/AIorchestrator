@@ -13,7 +13,28 @@ PHASE1_SKILL_ORDER: tuple[str, ...] = (
     "finalize_decision",
 )
 
+# Deterministic order for all known skills. Default tenant plan stays Phase 1;
+# Phase 2 skills run only when enabled on the tenant plan or explicitly requested.
+ALL_SKILL_ORDER: tuple[str, ...] = (
+    "extract_invoice",
+    "po_lookup_quickbooks",
+    "po_lookup_sage",
+    "po_match",
+    "gl_match",
+    "grn_match",
+    "duplicate_detect",
+    "vendor_validate",
+    "matter_validate",
+    "backorder_detect",
+    "finalize_decision",
+    "workflow_progress",
+    "workflow_move_next",
+)
+
 PHASE1_SKILLS = set(PHASE1_SKILL_ORDER)
+ALL_SKILLS = set(ALL_SKILL_ORDER)
+# Back-compat alias used by runner default plan.
+DEFAULT_SKILL_ORDER = PHASE1_SKILL_ORDER
 
 
 class ApSkillError(ValueError):

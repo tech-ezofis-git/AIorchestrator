@@ -34,6 +34,14 @@ class DocumentPayload(BaseModel):
         default=None,
         description="Stable AP document key for artifact re-runs. Defaults to filepath/filename/hash.",
     )
+    workflow_id: Optional[str] = Field(default=None, description="AP workflow id (progress skill).")
+    instance_id: Optional[str] = Field(default=None, description="AP workflow instance id (progress/move-next).")
+    connector_id: Optional[str] = Field(default=None, description="QB/Sage connector id for PO lookup skills.")
+    resource: Optional[str] = Field(
+        default=None,
+        description="PO resource hint: QUICKBOOKS or SAGE.",
+    )
+    matter_master_id: Optional[str] = Field(default=None, description="Matter master id for matter_validate.")
 
 
 class ChatRequest(BaseModel):

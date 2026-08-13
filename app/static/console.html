@@ -242,7 +242,7 @@
 
   <section class="card main">
     <div class="transcript" id="transcript">
-      <div class="empty-state">Send a message below, open <strong>OCR</strong> or <strong>AP invoice</strong> to upload a file, or click a capability chip.</div>
+      <div class="empty-state">Send a message below, open <strong>OCR document</strong> or <strong>AP document</strong>, or click a capability chip.</div>
     </div>
     <details class="ocr-panel" id="ocrPanel">
       <summary>OCR document — upload file or blob path</summary>
@@ -275,7 +275,7 @@ Due Date,DATE</textarea>
       </div>
     </details>
     <details class="ocr-panel" id="apPanel">
-      <summary>AP invoice — skills, file, or invoice JSON</summary>
+      <summary>AP document — upload file, blob path, or invoice JSON</summary>
       <div class="ocr-grid">
         <div>
           <label for="apFile">File (wins over filepath)</label>
@@ -286,6 +286,10 @@ Due Date,DATE</textarea>
           <input type="text" id="apFilepath" placeholder="container/invoice.pdf" />
         </div>
         <div>
+          <label for="apPageno">pageno</label>
+          <input type="text" id="apPageno" value="1" placeholder="1 or -1" />
+        </div>
+        <div>
           <label for="apTenant">tenant_id</label>
           <input type="text" id="apTenant" value="default" />
         </div>
@@ -293,16 +297,36 @@ Due Date,DATE</textarea>
           <label for="apItemId">item_id (re-runs)</label>
           <input type="text" id="apItemId" placeholder="optional stable key" />
         </div>
-        <div style="grid-column:1/-1">
-          <label>skills (empty = tenant default plan)</label>
-          <div id="apSkillBoxes" style="display:flex;flex-wrap:wrap;gap:10px 16px;font-size:12.5px;color:var(--text-secondary);padding-top:4px"></div>
+        <div>
+          <label for="apResource">resource (QB/Sage)</label>
+          <input type="text" id="apResource" placeholder="QUICKBOOKS or SAGE" />
         </div>
         <div style="grid-column:1/-1">
-          <label for="apInvoiceJson">invoice_json (optional; skips OCR)</label>
-          <textarea id="apInvoiceJson" placeholder='{"invoice_number":"INV-100","vendor":"ACME Supplies","po_number":"PO-1","total":1234.56}'></textarea>
+          <label for="apSkills">skills (one per line; empty = tenant default plan)</label>
+          <textarea id="apSkills" placeholder="extract_invoice&#10;po_match&#10;finalize_decision"></textarea>
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="apInvoiceJson">invoice_json (optional; skips OCR extract)</label>
+          <textarea id="apInvoiceJson" placeholder='{"invoice_number":"INV-100",...}'>{
+  "invoice_number": "INV-100",
+  "vendor": "ACME Supplies",
+  "po_number": "PO-1",
+  "total": 1234.56,
+  "currency": "USD",
+  "line_items": [{"description": "Widget", "qty": 10, "amount": 1234.56}]
+}</textarea>
+        </div>
+        <div>
+          <label for="apWorkflowId">workflow_id</label>
+          <input type="text" id="apWorkflowId" placeholder="optional" />
+        </div>
+        <div>
+          <label for="apInstanceId">instance_id</label>
+          <input type="text" id="apInstanceId" placeholder="optional (move-next)" />
         </div>
         <div class="ocr-actions">
           <button type="button" class="btn-primary" id="apSendBtn">Run AP</button>
+          <button type="button" class="btn-ghost" id="apClearSkillsBtn">Clear skills</button>
           <span class="field-hint">POST /chat with intent=ap (multipart if file is set)</span>
         </div>
       </div>
@@ -458,7 +482,7 @@ llmTestBtn.addEventListener('click', testLlmConnection);
 
 const QUICK_PROMPTS = [
   { label: 'OCR document', ocr: true },
-  { label: 'AP invoice skills', ap: true },
+  { label: 'AP document', ap: true },
   { label: 'search for the PTO policy', message: 'search for the PTO policy' },
   { label: 'summarize document DOC-123', message: 'summarize document DOC-123' },
   { label: 'give me insights on report RPT-456', message: 'give me insights on report RPT-456' },
@@ -471,16 +495,6 @@ const QUICK_PROMPTS = [
 const chipsEl = document.getElementById('quickPrompts');
 const ocrPanel = document.getElementById('ocrPanel');
 const apPanel = document.getElementById('apPanel');
-const AP_SKILLS = ['extract_invoice','po_match','duplicate_detect','vendor_validate','backorder_detect','finalize_decision'];
-const apSkillBoxes = document.getElementById('apSkillBoxes');
-AP_SKILLS.forEach(id => {
-  const label = document.createElement('label');
-  label.style.display = 'flex';
-  label.style.alignItems = 'center';
-  label.style.gap = '6px';
-  label.innerHTML = `<input type="checkbox" value="${id}"> ${id}`;
-  apSkillBoxes.appendChild(label);
-});
 QUICK_PROMPTS.forEach(p => {
   const chip = document.createElement('span');
   chip.className = 'chip';
@@ -488,11 +502,13 @@ QUICK_PROMPTS.forEach(p => {
   chip.title = p.message || p.label;
   chip.addEventListener('click', () => {
     if (p.ocr) {
+      apPanel.open = false;
       ocrPanel.open = true;
       ocrPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       return;
     }
     if (p.ap) {
+      ocrPanel.open = false;
       apPanel.open = true;
       apPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       return;
@@ -608,11 +624,33 @@ function renderOcrResult(ocr) {
 }
 
 function renderApResult(ap) {
-  const skills = Array.isArray(ap.skills_run) ? ap.skills_run.join(', ') : '';
+  const skills = Array.isArray(ap.skills_run) ? ap.skills_run : [];
+  const artifacts = ap.artifacts && typeof ap.artifacts === 'object' ? ap.artifacts : {};
+  const skillRows = skills.map(id => {
+    const art = artifacts[id] || {};
+    const status = art.decision || art.status || art.review || (art.detected === true ? 'detected' : (art.detected === false ? 'clear' : ''));
+    const reason = art.reason || art.message || '';
+    return `<tr><td>${escapeHtml(id)}</td><td>${escapeHtml(String(status || '—'))}</td><td>${escapeHtml(String(reason || ''))}</td></tr>`;
+  }).join('');
+
   let html = `<div class="detail-block"><div class="dt-title">AP result</div>`;
-  html += `<table>${fieldRow('Decision', ap.decision)}${fieldRow('Credits', ap.credits_charged)}${fieldRow('Skills', skills)}${fieldRow('Run', ap.run_id)}</table>`;
-  if (ap.artifacts) {
-    html += `<pre class="ocr-text-preview">${escapeHtml(JSON.stringify(ap.artifacts, null, 2))}</pre>`;
+  html += `<table>${fieldRow('Decision', ap.decision)}${fieldRow('Credits', ap.credits_charged)}${fieldRow('Item', ap.item_key)}${fieldRow('Run', ap.run_id)}</table>`;
+  if (skillRows) {
+    html += `<table class="ocr-fields-table" style="margin-top:8px"><thead><tr><th>Skill</th><th>Status</th><th>Reason</th></tr></thead><tbody>${skillRows}</tbody></table>`;
+  }
+  const invoice = (artifacts.extract_invoice && artifacts.extract_invoice.invoice) || null;
+  if (invoice) {
+    html += `<div style="margin-top:8px;color:var(--text-muted)">invoice</div>`;
+    html += `<table class="ocr-fields-table"><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody>
+      <tr><td>invoice_number</td><td>${escapeHtml(String(invoice.invoice_number ?? ''))}</td></tr>
+      <tr><td>vendor</td><td>${escapeHtml(String(invoice.vendor ?? ''))}</td></tr>
+      <tr><td>po_number</td><td>${escapeHtml(String(invoice.po_number ?? ''))}</td></tr>
+      <tr><td>total</td><td>${escapeHtml(String(invoice.total ?? ''))}</td></tr>
+    </tbody></table>`;
+  }
+  if (Object.keys(artifacts).length) {
+    html += `<div style="margin-top:8px;color:var(--text-muted)">artifacts</div>`;
+    html += `<pre class="ocr-text-preview">${escapeHtml(JSON.stringify(artifacts, null, 2))}</pre>`;
   }
   html += `</div>`;
   return html;
@@ -773,8 +811,8 @@ async function sendOcrJob() {
 
 document.getElementById('ocrSendBtn').addEventListener('click', sendOcrJob);
 
-function selectedApSkills() {
-  return Array.from(document.querySelectorAll('#apSkillBoxes input[type=checkbox]:checked')).map(el => el.value);
+function parseSkillLines(raw) {
+  return parseParameterLines(raw);
 }
 
 async function sendApJob() {
@@ -783,25 +821,36 @@ async function sendApJob() {
   const fileInput = document.getElementById('apFile');
   const filepath = document.getElementById('apFilepath').value.trim();
   const file = fileInput.files && fileInput.files[0];
+  const pageno = document.getElementById('apPageno').value.trim() || '1';
   const tenantId = document.getElementById('apTenant').value.trim() || 'default';
   const itemId = document.getElementById('apItemId').value.trim();
-  const skills = selectedApSkills();
+  const resource = document.getElementById('apResource').value.trim();
+  const workflowId = document.getElementById('apWorkflowId').value.trim();
+  const instanceId = document.getElementById('apInstanceId').value.trim();
+  const skills = parseSkillLines(document.getElementById('apSkills').value);
+
   let invoiceJson = null;
   const invoiceRaw = document.getElementById('apInvoiceJson').value.trim();
   if (invoiceRaw) {
     try { invoiceJson = JSON.parse(invoiceRaw); }
     catch (e) { addSystemMessage('invoice_json is not valid JSON.'); return; }
   }
+
   if (!file && !filepath && !invoiceJson && !itemId) {
-    addSystemMessage('AP needs a file, filepath, invoice_json, or item_id (for re-runs).');
+    addSystemMessage('AP needs a file upload, blob filepath, invoice_json, or item_id (for re-runs).');
     return;
   }
-  const label = file ? `AP file: ${file.name}` : (filepath ? `AP filepath: ${filepath}` : `AP job (${itemId || tenantId})`);
+
+  const label = file
+    ? `AP file: ${file.name}`
+    : (filepath ? `AP filepath: ${filepath}` : `AP invoice_json / item ${itemId || tenantId}`);
   addUserMessage(label);
+
   const apSendBtn = document.getElementById('apSendBtn');
   apSendBtn.disabled = true;
   apSendBtn.innerHTML = '<span class="spinner"></span> Running';
   sendBtn.disabled = true;
+
   try {
     let res;
     if (file) {
@@ -809,8 +858,12 @@ async function sendApJob() {
       form.append('session_id', sessionId);
       form.append('intent', 'ap');
       form.append('tenant_id', tenantId);
+      form.append('pageno', pageno);
       if (itemId) form.append('item_id', itemId);
       if (filepath) form.append('filepath', filepath);
+      if (resource) form.append('resource', resource);
+      if (workflowId) form.append('workflow_id', workflowId);
+      if (instanceId) form.append('instance_id', instanceId);
       if (skills.length) form.append('skills', JSON.stringify(skills));
       if (invoiceJson) form.append('invoice_json', JSON.stringify(invoiceJson));
       form.append('file', file, file.name);
@@ -824,8 +877,12 @@ async function sendApJob() {
           intent: 'ap',
           payload: {
             filepath: filepath || null,
+            pageno,
             tenant_id: tenantId,
             item_id: itemId || null,
+            resource: resource || null,
+            workflow_id: workflowId || null,
+            instance_id: instanceId || null,
             skills: skills.length ? skills : null,
             invoice_json: invoiceJson,
           },
@@ -849,6 +906,9 @@ async function sendApJob() {
 }
 
 document.getElementById('apSendBtn').addEventListener('click', sendApJob);
+document.getElementById('apClearSkillsBtn').addEventListener('click', () => {
+  document.getElementById('apSkills').value = '';
+});
 
 async function sendMessage() {
   const message = messageInput.value.trim();
