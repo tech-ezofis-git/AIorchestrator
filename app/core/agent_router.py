@@ -30,10 +30,18 @@ class AgentRouter:
         self._handlers[intent] = handler
 
     async def route(
-        self, intent: Intent, *, session_id: str, message: str, history: list[dict]
+        self,
+        intent: Intent,
+        *,
+        session_id: str,
+        message: str,
+        history: list[dict],
+        **kwargs,
     ) -> dict[str, Any]:
         handler = self._handlers.get(intent)
         if handler is None:
             # TODO(phase-3): implement agents for the remaining capabilities.
             raise NotImplementedError(f"No agent registered for intent '{intent.value}' yet.")
-        return await handler(session_id=session_id, message=message, history=history)
+        return await handler(
+            session_id=session_id, message=message, history=history, **kwargs
+        )

@@ -13,7 +13,7 @@ class SummaryAgent:
         self._dispatcher = dispatcher
         self._response_composer = response_composer
 
-    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]]) -> dict:
+    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]], **_: object) -> dict:
         """Returns {"reply": str, "usage": dict | None, "document_id": str}.
 
         `history` isn't used — Phase 3a Summary is single-turn (summarize

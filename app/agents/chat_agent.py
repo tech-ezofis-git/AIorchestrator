@@ -81,7 +81,7 @@ class ChatAgent:
         self._response_composer = response_composer
         self._user_context_provider = user_context_provider
 
-    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]]) -> dict:
+    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]], **_: object) -> dict:
         """Returns {"reply": str, "usage": dict | None}."""
         user_context = await self._user_context_provider.get_user_context(session_id)
         user_id = user_context.user_id
