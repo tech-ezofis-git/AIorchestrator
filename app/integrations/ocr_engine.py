@@ -19,6 +19,12 @@ from app.agents.ocr_helpers import (
     parse_blob_filepath,
 )
 from app.config import Settings
+from app.integrations.docx_text import (
+    DocxExtractError,
+    extract_docx_text,
+    looks_like_docx,
+    looks_like_legacy_doc,
+)
 
 logger = logging.getLogger("orchestrator.ocr")
 
@@ -57,6 +63,32 @@ class OcrEngineClient:
         pages = page_selection or PageSelection(start=1, end=1, raw="1")
         source = filepath or reference or filename or "document"
         extract_url = (settings.ocr_extract_url or "").strip()
+
+        if looks_like_legacy_doc(filename, content_type, filepath):
+            raise OcrEngineError(
+                "Legacy .doc is not supported. Upload a .docx or PDF, or paste OCR text."
+            )
+
+        if looks_like_docx(filename, content_type, filepath):
+            data, name, _ctype = await self._resolve_bytes(
+                filepath=filepath,
+                file_bytes=file_bytes,
+                filename=filename,
+                content_type=content_type,
+                reference=reference,
+            )
+            try:
+                text = extract_docx_text(data)
+            except DocxExtractError as exc:
+                raise OcrEngineError(str(exc)) from exc
+            return {
+                "source_reference": source,
+                "text": text,
+                "confidence": None,
+                "mock": False,
+                "filename": name,
+                "pages": "docx",
+            }
 
         # Offline / unit-test mock: no remote OCR URL configured.
         if not extract_url:
