@@ -498,6 +498,10 @@ Due Date,DATE</textarea>
           <input type="text" id="apTenant" value="default" />
         </div>
         <div>
+          <label for="apFormId">formid</label>
+          <input type="text" id="apFormId" placeholder="GUID or numeric PO/document form" />
+        </div>
+        <div>
           <label for="apItemId">item_id (re-runs)</label>
           <input type="text" id="apItemId" placeholder="optional stable key" />
         </div>
@@ -1388,6 +1392,7 @@ async function sendApJob() {
   const file = fileInput.files && fileInput.files[0];
   const pageno = document.getElementById('apPageno').value.trim() || '1';
   const tenantId = document.getElementById('apTenant').value.trim() || 'default';
+  const formId = (document.getElementById('apFormId') && document.getElementById('apFormId').value.trim()) || '';
   const itemId = document.getElementById('apItemId').value.trim();
   const resource = document.getElementById('apResource').value.trim();
   const workflowId = document.getElementById('apWorkflowId').value.trim();
@@ -1427,6 +1432,7 @@ async function sendApJob() {
         filename: file.name,
         form: {
           tenant_id: tenantId,
+          formid: formId || undefined,
           pageno,
           item_id: itemId || undefined,
           filepath: filepath || undefined,
@@ -1441,6 +1447,7 @@ async function sendApJob() {
       form.append('session_id', sessionId);
       form.append('intent', 'ap');
       form.append('tenant_id', tenantId);
+      if (formId) form.append('formid', formId);
       form.append('pageno', pageno);
       if (itemId) form.append('item_id', itemId);
       if (filepath) form.append('filepath', filepath);
@@ -1459,6 +1466,7 @@ async function sendApJob() {
           filepath: filepath || null,
           pageno,
           tenant_id: tenantId,
+          formid: formId || null,
           item_id: itemId || null,
           resource: resource || null,
           workflow_id: workflowId || null,

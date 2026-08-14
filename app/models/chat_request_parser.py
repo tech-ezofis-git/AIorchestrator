@@ -48,6 +48,11 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     ocr_text = _form_str(form.get("ocr_text"))
     model = _form_str(form.get("model"))
     tenant_id = _form_str(form.get("tenant_id"))
+    form_id = (
+        _form_str(form.get("form_id"))
+        or _form_str(form.get("formid"))
+        or _form_str(form.get("formId"))
+    )
     item_id = _form_str(form.get("item_id"))
     workflow_id = _form_str(form.get("workflow_id"))
     instance_id = _form_str(form.get("instance_id"))
@@ -84,6 +89,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or connector_id
         or resource
         or matter_master_id
+        or form_id
     )
     if filepath or pageno or ocr_text or parameters or tableparameters or model or file_bytes is not None or has_ap_fields:
         payload = DocumentPayload(
@@ -102,6 +108,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             connector_id=connector_id,
             resource=resource,
             matter_master_id=matter_master_id,
+            form_id=form_id,
         )
 
     try:

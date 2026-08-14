@@ -1,6 +1,8 @@
 """po_match — invoice ↔ purchase order (masters via Ezofis client)."""
 from __future__ import annotations
 
+from typing import Any
+
 from app.ap_skills.types import (
     ApContext,
     ApSkillResult,
@@ -36,7 +38,12 @@ async def run(ctx: ApContext) -> ApSkillResult:
             po = artifact["po"]
             break
     if not po:
-        po = await ctx.ezofis.lookup_po(tenant_id=ctx.tenant_id, po_number=po_number)
+        form_id = (ctx.form_id or str(ctx.document_job.get("form_id") or "").strip() or None)
+        po = await ctx.ezofis.lookup_po(
+            tenant_id=ctx.tenant_id,
+            po_number=po_number,
+            form_id=form_id,
+        )
     if not po:
         return ApSkillResult(
             skill_id=SKILL_ID,
@@ -77,14 +84,19 @@ async def run(ctx: ApContext) -> ApSkillResult:
         reasons.append("Missing total on invoice or PO.")
 
     score = min(100.0, round(score, 2))
+    data: dict[str, Any] = {
+        "po_number": po_number,
+        "po": po,
+        "score": score,
+        "decision": decision_from_score(score, approved=approved, partial=partial),
+        "vendor_similarity": sim,
+        "reason": " ".join(reasons),
+    }
+    if isinstance(po, dict) and po.get("form_id"):
+        data["form_id"] = po.get("form_id")
+    if isinstance(po, dict) and po.get("ezfb_table"):
+        data["ezfb_table"] = po.get("ezfb_table")
     return ApSkillResult(
         skill_id=SKILL_ID,
-        data={
-            "po_number": po_number,
-            "po": po,
-            "score": score,
-            "decision": decision_from_score(score, approved=approved, partial=partial),
-            "vendor_similarity": sim,
-            "reason": " ".join(reasons),
-        },
+        data=data,
     )

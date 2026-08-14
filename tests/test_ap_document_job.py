@@ -80,6 +80,51 @@ def test_uuid_tenant_document_job_uses_same_store_and_succeeds(client, monkeypat
     assert response.json()["ap_result"]["tenant_id"] == "2e3b7b37-38a3-4f94-878e-a006dad93230"
 
 
+def test_ap_formid_alias_is_passed_to_po_lookup(client, monkeypatch):
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+    guid = "29171de4-e210-466e-9e90-40fa9fa4354d"
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-formid",
+            "intent": "ap",
+            "payload": _ap_payload(formid=guid),
+        },
+    )
+    assert response.status_code == 200, response.text
+    po = response.json()["ap_result"]["artifacts"]["po_match"]["po"]
+    assert po["form_id"] == guid
+    assert po["ezfb_table"] == "ezfb_29171de4_items"
+
+
+def test_ap_numeric_form_id_selects_ezfb_table(client, monkeypatch):
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-form-num",
+            "intent": "ap",
+            "payload": _ap_payload(form_id="98"),
+        },
+    )
+    assert response.status_code == 200, response.text
+    po = response.json()["ap_result"]["artifacts"]["po_match"]["po"]
+    assert po["form_id"] == "98"
+    assert po["ezfb_table"] == "ezfb_98_items"
+
+
 def test_ap_backorder_disabled_by_tenant_plan_never_runs_or_charges(client, monkeypatch):
     client.fake_db_pool.ap_tenant_plans["t-ap"] = {
         "enabled_skills": [

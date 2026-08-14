@@ -3,6 +3,7 @@ import asyncio
 
 from app.ap_skills.tenant_db import (
     ApTenantDbPools,
+    ezfb_items_table,
     replace_database_name,
     tenant_database_name,
 )
@@ -14,6 +15,16 @@ def test_uuid_tenant_maps_to_ezofis_tenant_db():
         tenant_database_name("2e3b7b37-38a3-4f94-878e-a006dad93230")
         == "ezofis_Tenant_2e3b7b37"
     )
+
+
+def test_ezfb_items_table_from_guid_and_numeric():
+    assert (
+        ezfb_items_table("29171de4-e210-466e-9e90-40fa9fa4354d")
+        == "ezfb_29171de4_items"
+    )
+    assert ezfb_items_table("98") == "ezfb_98_items"
+    assert ezfb_items_table("  ") is None
+    assert ezfb_items_table(None) is None
 
 
 def test_short_hex_prefix_maps_to_tenant_db():

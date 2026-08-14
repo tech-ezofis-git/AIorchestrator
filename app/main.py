@@ -556,6 +556,10 @@ _CHAT_MULTIPART_SCHEMA = {
         "connector_id": {"type": "string", "description": "QB/Sage connector id."},
         "resource": {"type": "string", "description": "PO resource: QUICKBOOKS or SAGE."},
         "matter_master_id": {"type": "string", "description": "Matter master id."},
+        "formid": {
+            "type": "string",
+            "description": "PO/document form id (GUID or numeric). Alias: form_id, formId. Selects ezfb_{token}_items.",
+        },
         "skills": {
             "type": "array",
             "items": {"type": "string"},
@@ -614,6 +618,7 @@ _CHAT_MULTIPART_SCHEMA = {
                                 "intent": "ap",
                                 "payload": {
                                     "tenant_id": "demo-tenant",
+                                    "formid": "29171de4-e210-466e-9e90-40fa9fa4354d",
                                     "item_id": "inv-100",
                                     "invoice_json": {
                                         "invoice_number": "INV-100",
@@ -802,6 +807,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "connector_id": payload.payload.connector_id if payload.payload else None,
             "resource": payload.payload.resource if payload.payload else None,
             "matter_master_id": payload.payload.matter_master_id if payload.payload else None,
+            "form_id": payload.payload.form_id if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,
         }
 

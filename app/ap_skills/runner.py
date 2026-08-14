@@ -130,6 +130,7 @@ class ApSkillRunner:
             store=self._store,
             document_job=document_job,
             thresholds=thresholds,
+            form_id=(str(document_job.get("form_id") or "").strip() or None),
         )
 
         skills_run: list[str] = []
