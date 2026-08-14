@@ -70,12 +70,34 @@ def normalize_filepath(filepath: str) -> str:
     return (filepath or "").strip().replace("\\", "/")
 
 
+DEFAULT_BLOB_CONTAINER_PREFIX = "ezts"
+
+
+def tenant_blob_container(
+    tenant_id: str,
+    *,
+    prefix: str = DEFAULT_BLOB_CONTAINER_PREFIX,
+) -> str:
+    """Azure container: ezts + tenant UUID with hyphens stripped, lowercased."""
+    tid = (tenant_id or "").strip().replace("-", "").lower()
+    head = (prefix or DEFAULT_BLOB_CONTAINER_PREFIX).strip() or DEFAULT_BLOB_CONTAINER_PREFIX
+    if not tid:
+        raise InvalidBlobPathError("tenant_id is required for blob filepath.")
+    return f"{head}{tid}"
+
+
 def parse_blob_filepath(
     filepath: str,
     *,
     allowed_host_suffixes: list[str],
+    tenant_id: Optional[str] = None,
+    container_prefix: str = DEFAULT_BLOB_CONTAINER_PREFIX,
 ) -> BlobRef:
-    """Parse full blob URL or container/blob relative path."""
+    """Parse a full blob URL, or tenant-scoped folder/file path.
+
+    Relative `filepath` is folder + file inside container `ezts{tenantid}`
+    (hyphens stripped). Full https URLs still carry their own container.
+    """
     path = normalize_filepath(filepath)
     if not path:
         raise InvalidBlobPathError("filepath is empty.")
@@ -93,15 +115,10 @@ def parse_blob_filepath(
             raise InvalidBlobPathError("Blob URL missing container or blob name.")
         return BlobRef(container=container, blob_name=blob_name, account_url_host=host)
 
-    # Relative container/blob (optional leading slash)
-    path = path.lstrip("/")
-    if "/" not in path:
-        raise InvalidBlobPathError("Relative filepath must be container/blob.")
-    container, blob_name = path.split("/", 1)
-    container = unquote(container)
-    blob_name = unquote(blob_name)
-    if not container or not blob_name:
-        raise InvalidBlobPathError("Relative filepath must be container/blob.")
+    blob_name = unquote(path.lstrip("/"))
+    if not blob_name:
+        raise InvalidBlobPathError("filepath is empty.")
+    container = tenant_blob_container(tenant_id or "", prefix=container_prefix)
     return BlobRef(container=container, blob_name=blob_name, account_url_host=None)
 
 

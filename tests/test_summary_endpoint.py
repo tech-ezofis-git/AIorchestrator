@@ -115,7 +115,8 @@ def test_summary_document_job_from_filepath(client, monkeypatch):
             "session_id": "s-sum-doc",
             "intent": "summary",
             "payload": {
-                "filepath": "container/invoice.pdf",
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "invoice.pdf",
                 "pageno": "1",
                 "model": "qwen3.5-9b",
             },
@@ -129,10 +130,10 @@ def test_summary_document_job_from_filepath(client, monkeypatch):
     _assert_locked_summary_shape(result)
     assert result["document_summary"] == "This document covers the PTO policy in brief."
     assert "Placeholder OCR text" in result["ocr_text"]
-    assert body["document_id"] == "container/invoice.pdf"
+    assert body["document_id"] == "invoice.pdf"
     assert body["token_usage"]["total_tokens"] == 15
     assert body["ocr_result"] is None
-    assert result["source_reference"] == "container/invoice.pdf"
+    assert result["source_reference"] == "invoice.pdf"
 
 
 def _minimal_docx_bytes(paragraphs: list[str]) -> bytes:
@@ -213,7 +214,10 @@ def test_summary_extract_failure_does_not_hallucinate(client, monkeypatch):
         json={
             "session_id": "s-sum-fail-ocr",
             "intent": "summary",
-            "payload": {"filepath": "container/missing.pdf"},
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "missing.pdf",
+            },
         },
     )
 
@@ -226,7 +230,7 @@ def test_summary_extract_failure_does_not_hallucinate(client, monkeypatch):
     assert result["key_facts_extracted"] == []
     assert result["confidence_score"] == 0.0
     assert llm_calls == []
-    assert body["document_id"] == "container/missing.pdf"
+    assert body["document_id"] == "missing.pdf"
 
 
 def test_summary_document_job_locked_json_from_llm(client, monkeypatch):
@@ -237,7 +241,11 @@ def test_summary_document_job_locked_json_from_llm(client, monkeypatch):
         json={
             "session_id": "s-sum-json",
             "intent": "summary",
-            "payload": {"filepath": "container/letter.pdf", "pageno": "1"},
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "letter.pdf",
+                "pageno": "1",
+            },
         },
     )
 
@@ -254,7 +262,7 @@ def test_summary_document_job_locked_json_from_llm(client, monkeypatch):
     assert result["key_facts_extracted"] == _STRUCTURED_SUMMARY["key_facts_extracted"]
     assert "Placeholder OCR text" in result["ocr_text"]
     assert "THIS SHOULD BE REPLACED" not in result["ocr_text"]
-    assert result["source_reference"] == "container/letter.pdf"
+    assert result["source_reference"] == "letter.pdf"
 
 
 def test_summary_unwraps_truncated_model_json_missing_brace():
@@ -347,7 +355,11 @@ def test_summary_unwraps_json_stuffed_in_document_summary(client, monkeypatch):
         json={
             "session_id": "s-sum-stuffed",
             "intent": "summary",
-            "payload": {"filepath": "container/invoice.pdf", "pageno": "1"},
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "invoice.pdf",
+                "pageno": "1",
+            },
         },
     )
 
@@ -373,7 +385,11 @@ def test_summary_unwraps_double_encoded_llm_json(client, monkeypatch):
         json={
             "session_id": "s-sum-double",
             "intent": "summary",
-            "payload": {"filepath": "container/letter.pdf", "pageno": "1"},
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "letter.pdf",
+                "pageno": "1",
+            },
         },
     )
 
@@ -449,7 +465,11 @@ def test_summary_invalid_pageno_rejected(client):
         json={
             "session_id": "s-sum-page",
             "intent": "summary",
-            "payload": {"filepath": "container/file.pdf", "pageno": "9"},
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "file.pdf",
+                "pageno": "9",
+            },
         },
     )
     assert response.status_code == 400
@@ -505,7 +525,8 @@ def test_summary_ocr_text_wins_over_filepath(client, monkeypatch):
             "session_id": "s-sum-ocr-wins",
             "intent": "summary",
             "payload": {
-                "filepath": "container/invoice.pdf",
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "invoice.pdf",
                 "pageno": "1",
                 "ocr_text": supplied,
             },

@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     ocr_download_timeout_seconds: float = 60.0
     ocr_max_file_bytes: int = 25 * 1024 * 1024  # 25 MiB
     azure_storage_connection_string: Optional[str] = None
+    azure_blob_container_prefix: str = "ezts"
 
     # --- Ezofis cloud API (AP skills: auth, credits, PO/vendor masters) ---
     ezofis_api_base: str = "https://cloud.ezofis.com/api"

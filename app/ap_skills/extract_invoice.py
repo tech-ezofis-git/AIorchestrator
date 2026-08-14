@@ -137,6 +137,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
             {
                 "reference": source,
                 "filepath": filepath,
+                "tenant_id": job.get("tenant_id") or ctx.tenant_id,
                 "filename": job.get("filename"),
                 "content_type": job.get("content_type"),
                 "file_bytes": file_bytes,

@@ -73,7 +73,8 @@ def main() -> int:
                 "intent": "ocr",
                 "instruction": "Region: India. Normalize DATE fields to YYYY-MM-DD.",
                 "payload": {
-                    "filepath": r"ezts2e3b7b3738a34f94878ea006dad93230\INV26-27002140.pdf",
+                    "filepath": r"INV26-27002140.pdf",
+                    "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
                     "pageno": "1",
                     "parameters": ["Invoice No,SHORT_TEXT", "Due Date,DATE"],
                     "tableparameters": [],

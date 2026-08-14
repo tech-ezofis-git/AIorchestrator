@@ -96,6 +96,7 @@ class SummaryAgent:
                     {
                         "reference": source,
                         "filepath": filepath,
+                        "tenant_id": job.get("tenant_id"),
                         "filename": filename,
                         "content_type": content_type,
                         "file_bytes": file_bytes,

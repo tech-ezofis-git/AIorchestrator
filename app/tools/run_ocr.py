@@ -12,7 +12,8 @@ RUN_OCR_SCHEMA = ToolSchema(
         "type": "object",
         "properties": {
             "reference": {"type": "string", "description": "Legacy reference or display label."},
-            "filepath": {"type": "string", "description": "Blob URL or container/blob path."},
+            "filepath": {"type": "string", "description": "Blob URL or folder/file path (container ezts{tenantid})."},
+            "tenant_id": {"type": "string", "description": "Tenant UUID; required for relative blob filepath."},
             "filename": {"type": "string"},
             "content_type": {"type": "string"},
             "page_start": {"type": "integer"},
@@ -30,6 +31,7 @@ def make_run_ocr_handler(ocr_engine_client: OcrEngineClient):
         *,
         reference: str = "",
         filepath: Optional[str] = None,
+        tenant_id: Optional[str] = None,
         filename: Optional[str] = None,
         content_type: Optional[str] = None,
         file_bytes: Optional[bytes] = None,
@@ -46,6 +48,7 @@ def make_run_ocr_handler(ocr_engine_client: OcrEngineClient):
             filename=filename,
             content_type=content_type,
             page_selection=pages,
+            tenant_id=tenant_id,
         )
 
     return handler

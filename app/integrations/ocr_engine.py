@@ -53,6 +53,7 @@ class OcrEngineClient:
         filename: Optional[str] = None,
         content_type: Optional[str] = None,
         page_selection: Optional[PageSelection] = None,
+        tenant_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Extract text for a document job or legacy reference string.
 
@@ -76,6 +77,7 @@ class OcrEngineClient:
                 filename=filename,
                 content_type=content_type,
                 reference=reference,
+                tenant_id=tenant_id,
             )
             try:
                 text = extract_docx_text(data)
@@ -107,6 +109,7 @@ class OcrEngineClient:
             filename=filename,
             content_type=content_type,
             reference=reference,
+            tenant_id=tenant_id,
         )
 
         if not data:
@@ -145,6 +148,7 @@ class OcrEngineClient:
         filename: Optional[str],
         content_type: Optional[str],
         reference: str,
+        tenant_id: Optional[str] = None,
     ) -> tuple[bytes, str, str]:
         settings = self._cfg()
         max_bytes = settings.ocr_max_file_bytes
@@ -169,7 +173,12 @@ class OcrEngineClient:
 
         suffixes = [s.strip() for s in (settings.ocr_allowed_host_suffixes or "").split(",") if s.strip()]
         try:
-            blob_ref = parse_blob_filepath(path, allowed_host_suffixes=suffixes or [".blob.core.windows.net"])
+            blob_ref = parse_blob_filepath(
+                path,
+                allowed_host_suffixes=suffixes or [".blob.core.windows.net"],
+                tenant_id=tenant_id,
+                container_prefix=settings.azure_blob_container_prefix,
+            )
         except InvalidBlobPathError as exc:
             raise OcrEngineError(str(exc)) from exc
 
