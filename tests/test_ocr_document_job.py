@@ -66,7 +66,8 @@ def test_explicit_ocr_document_job_locked_json_shape(client, monkeypatch):
             "intent": "ocr",
             "instruction": "Region: India. Normalize DATE fields to YYYY-MM-DD.",
             "payload": {
-                "filepath": r"ezts2e3b7b3738a34f94878ea006dad93230\INV26-27002140.pdf",
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": r"INV26-27002140.pdf",
                 "pageno": "1",
                 "parameters": ["Invoice No,SHORT_TEXT", "Due Date,DATE"],
                 "tableparameters": [],
@@ -113,7 +114,8 @@ def test_ocr_fail_returns_null_fields_no_hallucination(client, monkeypatch):
             "session_id": "s-fail",
             "intent": "ocr",
             "payload": {
-                "filepath": "container/file.pdf",
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "file.pdf",
                 "parameters": ["Invoice No,SHORT_TEXT", "Due Date,DATE"],
             },
         },
@@ -135,7 +137,11 @@ def test_invalid_pageno_rejected(client):
         json={
             "session_id": "s-page",
             "intent": "ocr",
-            "payload": {"filepath": "container/file.pdf", "pageno": "9"},
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "file.pdf",
+                "pageno": "9",
+            },
         },
     )
     assert response.status_code == 400
@@ -195,7 +201,10 @@ def test_filepath_alone_without_ocr_intent_does_not_force_ocr(client, monkeypatc
         json={
             "session_id": "s-noforce",
             "message": "Hello there",
-            "payload": {"filepath": "container/file.pdf"},
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": "file.pdf",
+            },
         },
     )
 
@@ -206,7 +215,7 @@ def test_filepath_alone_without_ocr_intent_does_not_force_ocr(client, monkeypatc
 
 
 def test_resolve_pageno_helpers():
-    from app.agents.ocr_helpers import InvalidOcrPageError, parse_blob_filepath, resolve_pageno
+    from app.agents.ocr_helpers import InvalidBlobPathError, InvalidOcrPageError, parse_blob_filepath, resolve_pageno
 
     assert resolve_pageno(None).start == 1
     assert resolve_pageno("-1", max_pages=5).end == 5
@@ -214,8 +223,20 @@ def test_resolve_pageno_helpers():
         resolve_pageno("0")
 
     ref = parse_blob_filepath(
-        r"ezts2e3b7b3738a34f94878ea006dad93230\INV26-27002140.pdf",
+        r"INV26-27002140.pdf",
         allowed_host_suffixes=[".blob.core.windows.net"],
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
     )
     assert ref.container == "ezts2e3b7b3738a34f94878ea006dad93230"
     assert ref.blob_name == "INV26-27002140.pdf"
+
+    nested = parse_blob_filepath(
+        r"ac40db26306b4d138aebf80a056d9a73\b4df8469e49743379c40609a5690053a.pdf",
+        allowed_host_suffixes=[".blob.core.windows.net"],
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+    )
+    assert nested.container == "ezts2e3b7b3738a34f94878ea006dad93230"
+    assert nested.blob_name == "ac40db26306b4d138aebf80a056d9a73/b4df8469e49743379c40609a5690053a.pdf"
+
+    with pytest.raises(InvalidBlobPathError, match="tenant_id"):
+        parse_blob_filepath("INV26-27002140.pdf", allowed_host_suffixes=[".blob.core.windows.net"])

@@ -85,7 +85,8 @@ Always the same `/chat` body. `message` is optional when `intent=summary` and a 
   "message": "optional free text",
   "instruction": "ignored for summary (OCR-only hint)",
   "payload": {
-    "filepath": "container/blob.pdf  OR  https://….blob.core.windows.net/…",
+    "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+    "filepath": "folder/file.pdf  OR  https://….blob.core.windows.net/…",
     "pageno": "1  |  -1  |  omit",
     "ocr_text": "pre-extracted text (optional)",
     "model": "optional LLM override, e.g. qwen3.5-9b",
@@ -100,7 +101,8 @@ Always the same `/chat` body. `message` is optional when `intent=summary` and a 
 | `session_id` | yes | Session key for rate limit + history |
 | `intent` | yes for document jobs | Must be `"summary"`. Unknown values → 400 |
 | `message` | no if file / filepath / `ocr_text` | Used only for legacy `summarize DOC-123` |
-| `payload.filepath` | one of three sources | Azure blob path or URL. `\` or `/` |
+| `payload.tenant_id` | yes for relative blob | Tenant UUID. Container is `ezts` + id without hyphens |
+| `payload.filepath` | one of three sources | Folder+file inside that container, or a full blob URL |
 | `payload.ocr_text` | one of three sources | Skips blob + Paddle. Wins over file/filepath |
 | multipart `file` | one of three sources | Upload wins over filepath (loses to `ocr_text`) |
 | `payload.pageno` | no | `"1"` = one page; `"-1"` = pages 1–`OCR_MAX_PAGES` (default 5). Ignored when `ocr_text` is used |
@@ -109,7 +111,7 @@ Always the same `/chat` body. `message` is optional when `intent=summary` and a 
 | `instruction` | no | OCR-only; unused by Summary |
 
 **Multipart form fields** (same names, plus `file`):  
-`session_id`, `intent`, `filepath`, `pageno`, `ocr_text`, `model`, `file`.
+`session_id`, `intent`, `tenant_id`, `filepath`, `pageno`, `ocr_text`, `model`, `file`.
 
 ---
 
@@ -140,8 +142,9 @@ If `ocr_text` and a file/blob are both sent, **text wins**. No download, no OCR.
 {
   "session_id": "demo",
   "intent": "summary",
-  "payload": {
-    "filepath": "ezts2e3b7b3738a34f94878ea006dad93230/INV26-27002140.pdf",
+    "payload": {
+    "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+    "filepath": "INV26-27002140.pdf",
     "pageno": "1",
     "model": "qwen3.5-9b"
   }
@@ -354,7 +357,7 @@ Same envelope for every intent. Summary fills `reply`, `document_id`, `token_usa
     "completion_tokens": 605,
     "total_tokens": 1564
   },
-  "document_id": "ezts2e3b7b3738a34f94878ea006dad93230/INV26-27002140.pdf",
+  "document_id": "INV26-27002140.pdf",
   "chunk_ids": null,
   "cited_data_points": null,
   "ocr_result": null,

@@ -380,7 +380,11 @@
         </div>
         <div>
           <label for="summaryFilepath">Blob filepath</label>
-          <input type="text" id="summaryFilepath" placeholder="container/blob.pdf" />
+          <input type="text" id="summaryFilepath" placeholder="folder/file.pdf" />
+        </div>
+        <div>
+          <label for="summaryTenant">tenant_id</label>
+          <input type="text" id="summaryTenant" placeholder="required for blob path" />
         </div>
         <div>
           <label for="summaryPageno">pageno</label>
@@ -402,7 +406,11 @@
         </div>
         <div>
           <label for="ocrFilepath">Blob filepath</label>
-          <input type="text" id="ocrFilepath" placeholder="container/blob.pdf" />
+          <input type="text" id="ocrFilepath" placeholder="folder/file.pdf" />
+        </div>
+        <div>
+          <label for="ocrTenant">tenant_id</label>
+          <input type="text" id="ocrTenant" placeholder="required for blob path" />
         </div>
         <div>
           <label for="ocrPageno">pageno</label>
@@ -428,7 +436,7 @@ Due Date,DATE</textarea>
         </div>
         <div>
           <label for="apFilepath">Blob filepath</label>
-          <input type="text" id="apFilepath" placeholder="container/invoice.pdf" />
+          <input type="text" id="apFilepath" placeholder="folder/file.pdf" />
         </div>
         <div>
           <label for="apPageno">pageno</label>
@@ -1128,6 +1136,7 @@ async function sendOcrJob() {
   sessionIdInput.value = sessionId;
   const fileInput = document.getElementById('ocrFile');
   const filepath = document.getElementById('ocrFilepath').value.trim();
+  const tenantId = document.getElementById('ocrTenant').value.trim();
   const file = fileInput.files && fileInput.files[0];
   const parameters = parseParameterLines(document.getElementById('ocrParameters').value);
   const pageno = document.getElementById('ocrPageno').value.trim() || '1';
@@ -1135,6 +1144,10 @@ async function sendOcrJob() {
 
   if (!file && !filepath) {
     addSystemMessage('OCR needs a file upload or a blob filepath.');
+    return;
+  }
+  if (!file && filepath && !tenantId) {
+    addSystemMessage('OCR blob filepath needs tenant_id (container ezts{tenantid}).');
     return;
   }
 
@@ -1163,6 +1176,7 @@ async function sendOcrJob() {
       if (instruction) form.append('instruction', instruction);
       parameters.forEach(p => form.append('parameters', p));
       form.append('tableparameters', '[]');
+      if (tenantId) form.append('tenant_id', tenantId);
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
@@ -1173,6 +1187,7 @@ async function sendOcrJob() {
         payload: {
           filepath,
           pageno,
+          tenant_id: tenantId || null,
           parameters,
           tableparameters: [],
         },
@@ -1206,6 +1221,7 @@ async function sendSummaryJob() {
   sessionIdInput.value = sessionId;
   const fileInput = document.getElementById('summaryFile');
   const filepath = document.getElementById('summaryFilepath').value.trim();
+  const tenantId = document.getElementById('summaryTenant').value.trim();
   const ocrText = (document.getElementById('summaryOcrText').value || '').trim();
   const file = fileInput.files && fileInput.files[0];
   const pageno = document.getElementById('summaryPageno').value.trim() || '1';
@@ -1213,6 +1229,10 @@ async function sendSummaryJob() {
 
   if (!file && !filepath && !ocrText) {
     addSystemMessage('Summary needs a file upload, a blob filepath, or OCR text.');
+    return;
+  }
+  if (!file && !ocrText && filepath && !tenantId) {
+    addSystemMessage('Summary blob filepath needs tenant_id (container ezts{tenantid}).');
     return;
   }
 
@@ -1257,10 +1277,11 @@ async function sendSummaryJob() {
       form.append('intent', 'summary');
       form.append('pageno', pageno);
       if (model) form.append('model', model);
+      if (tenantId) form.append('tenant_id', tenantId);
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
-      const payload = { filepath, pageno };
+      const payload = { filepath, pageno, tenant_id: tenantId || null };
       if (model) payload.model = model;
       request = { intent: 'summary', kind: 'filepath', session_id: sessionId, payload };
       res = await fetch('/chat', {

@@ -9,7 +9,7 @@ class DocumentPayload(BaseModel):
 
     filepath: Optional[str] = Field(
         default=None,
-        description="Blob URL or container/blob path (\\ or /). Ignored when a multipart file is uploaded.",
+        description="Blob URL, or folder/file path inside container ezts{tenantid}. Ignored when a multipart file is uploaded.",
     )
     pageno: Optional[str] = Field(
         default=None,
@@ -27,7 +27,7 @@ class DocumentPayload(BaseModel):
     model: Optional[str] = None
     tenant_id: Optional[str] = Field(
         default=None,
-        description="AP tenant id (intent=ap). Defaults to 'default' when omitted.",
+        description="Tenant UUID. Required for relative blob filepath (container ezts{tenantid}).",
     )
     skills: Optional[list[str]] = Field(
         default=None,

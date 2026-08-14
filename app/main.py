@@ -526,7 +526,7 @@ _CHAT_MULTIPART_SCHEMA = {
         },
         "filepath": {
             "type": "string",
-            "description": "Blob URL or container/blob path.",
+            "description": "Blob URL, or folder/file path inside container ezts{tenantid}.",
         },
         "pageno": {
             "type": "string",
@@ -549,7 +549,7 @@ _CHAT_MULTIPART_SCHEMA = {
             "example": [],
         },
         "model": {"type": "string", "description": "Optional LLM model override."},
-        "tenant_id": {"type": "string", "description": "AP tenant id (intent=ap)."},
+        "tenant_id": {"type": "string", "description": "Tenant UUID. Required for relative blob filepath (ocr/summary/ap/chat)."},
         "item_id": {"type": "string", "description": "Stable AP document key for skill re-runs."},
         "workflow_id": {"type": "string", "description": "AP workflow id (progress)."},
         "instance_id": {"type": "string", "description": "AP workflow instance id (progress/move-next)."},
@@ -599,7 +599,8 @@ _CHAT_MULTIPART_SCHEMA = {
                                 "intent": "ocr",
                                 "instruction": "Region: India. Normalize DATE fields to YYYY-MM-DD.",
                                 "payload": {
-                                    "filepath": "ezts2e3b7b3738a34f94878ea006dad93230/INV26-27002140.pdf",
+                                    "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                                    "filepath": "INV26-27002140.pdf",
                                     "pageno": "1",
                                     "parameters": ["Invoice No,SHORT_TEXT", "Due Date,DATE"],
                                     "tableparameters": [],
@@ -633,7 +634,8 @@ _CHAT_MULTIPART_SCHEMA = {
                                 "session_id": "demo",
                                 "intent": "summary",
                                 "payload": {
-                                    "filepath": "ezts2e3b7b3738a34f94878ea006dad93230/INV26-27002140.pdf",
+                                    "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                                    "filepath": "INV26-27002140.pdf",
                                     "pageno": "1",
                                     "model": "qwen3.5-9b",
                                 },
@@ -747,6 +749,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "parameters": [],
             "tableparameters": [],
             "model": payload.payload.model if payload.payload else None,
+            "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
     elif intent in {Intent.OCR, Intent.SUMMARY} and has_document:
         if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
@@ -770,6 +773,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "parameters": list(payload.payload.parameters) if payload.payload else [],
             "tableparameters": list(payload.payload.tableparameters) if payload.payload else [],
             "model": payload.payload.model if payload.payload else None,
+            "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
     elif intent == Intent.OCR and explicit == "ocr" and not has_document:
         # Explicit OCR without a document still allows legacy "run ocr on SCN-.." messages.
