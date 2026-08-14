@@ -58,8 +58,8 @@
 
   .layout {
     display: grid;
-    grid-template-columns: 260px 1fr;
-    max-width: 1200px;
+    grid-template-columns: 288px 1fr;
+    max-width: 1240px;
     margin: 24px auto;
     gap: 20px;
     padding: 0 20px;
@@ -105,9 +105,38 @@
   .chip:hover { background: var(--accent-primary); color: white; }
   .chip.active { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
 
+  /* Structured document actions — visually distinct from freeform example prompts */
+  .cap-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .cap-btn {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; text-align: left; font-size: 12.5px; font-weight: 500;
+    padding: 8px 10px; border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text-primary);
+    border: 1px solid var(--border-default);
+  }
+  .cap-btn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); flex-shrink: 0; }
+  .cap-btn:hover { border-color: var(--accent-primary); background: var(--accent-soft); }
+  .cap-btn.active { background: var(--accent-primary); color: #fff; border-color: var(--accent-primary); }
+  .cap-btn.active .dot { background: #fff; }
+
+  .prompt-list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+  .prompt-chip {
+    font-size: 12px; text-align: left; padding: 6px 8px; border-radius: 6px;
+    color: var(--text-secondary); background: transparent; border: 1px solid transparent;
+    line-height: 1.4; white-space: normal; word-break: break-word;
+  }
+  .prompt-chip:hover { background: var(--surface-secondary); color: var(--text-primary); }
+
   .main { display: flex; flex-direction: column; height: calc(100vh - 120px); min-height: 500px; overflow: hidden; }
-  .transcript { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-height: 120px; }
-  .empty-state { margin: auto; text-align: center; color: var(--text-muted); font-size: 13px; }
+  .transcript { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; min-height: 280px; }
+  .empty-state { margin: auto; text-align: center; color: var(--text-muted); font-size: 13px; max-width: 340px; }
+  .empty-state .empty-icon {
+    width: 44px; height: 44px; margin: 0 auto 14px; border-radius: 12px;
+    background: var(--accent-soft); display: flex; align-items: center; justify-content: center;
+  }
+  .empty-state .empty-icon svg { width: 22px; height: 22px; stroke: var(--accent-secondary); }
+  .empty-state .empty-title { font-size: 14.5px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+  .empty-state .empty-sub { color: var(--text-muted); line-height: 1.6; }
 
   .msg { max-width: 78%; }
   .msg.user { align-self: flex-end; }
@@ -150,11 +179,17 @@
     display: none;
     border-top: 1px solid var(--border-default);
     background: var(--surface-secondary);
+    max-height: 260px;
+    overflow-y: auto;
+    flex-shrink: 0;
   }
   .doc-panel.visible { display: block; }
   .ocr-panel {
     border-top: 1px solid var(--border-default);
     background: var(--surface-secondary);
+    max-height: 320px;
+    overflow-y: auto;
+    flex-shrink: 0;
   }
   .ocr-panel > summary {
     padding: 12px 20px;
@@ -183,6 +218,15 @@
     background: var(--surface); color: var(--text-primary);
   }
   .ocr-grid textarea { min-height: 54px; resize: vertical; }
+  input[type=file] {
+    cursor: pointer; border-style: dashed !important; background: var(--surface-secondary) !important;
+  }
+  input[type=file]::file-selector-button {
+    font-family: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer;
+    padding: 5px 10px; margin-right: 8px; border: none; border-radius: 5px;
+    background: var(--accent-primary); color: #fff;
+  }
+  input[type=file]::file-selector-button:hover { background: var(--accent-primary-hover); }
   .ocr-actions { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .doc-banner {
     padding: 12px 20px;
@@ -354,8 +398,11 @@
     </div>
     <div class="llm-status" id="llmStatus"></div>
 
-    <h2 style="margin-top:20px">Try a capability</h2>
-    <div class="chips" id="quickPrompts"></div>
+    <h2 style="margin-top:20px">Document actions</h2>
+    <div class="cap-actions" id="capActions"></div>
+
+    <h2 style="margin-top:20px">Example prompts</h2>
+    <div class="prompt-list" id="quickPrompts"></div>
 
     <h2 style="margin-top:20px">About</h2>
     <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
@@ -369,7 +416,11 @@
 
   <section class="card main">
     <div class="transcript" id="transcript">
-      <div class="empty-state">Send a message below, or open <strong>OCR document</strong>, <strong>Summarize document</strong>, or <strong>AP document</strong>.</div>
+      <div class="empty-state">
+        <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 16h5M9 3h6l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/></svg></div>
+        <div class="empty-title">Ready when you are</div>
+        <div class="empty-sub">Send a message below, or run <strong>OCR document</strong>, <strong>Summarize document</strong>, or <strong>AP document</strong> from the sidebar.</div>
+      </div>
     </div>
     <div class="doc-panel" id="docPanel">
       <div class="doc-banner" id="docBanner">OCR document — upload file or blob path</div>
@@ -638,18 +689,21 @@ async function testLlmConnection() {
 }
 llmTestBtn.addEventListener('click', testLlmConnection);
 
-const QUICK_PROMPTS = [
+const CAP_ACTIONS = [
   { label: 'OCR document', ocr: true },
   { label: 'Summarize document', summary: true },
   { label: 'AP document', ap: true },
+];
+const QUICK_PROMPTS = [
   { label: 'search for the PTO policy', message: 'search for the PTO policy' },
   { label: 'give me insights on report RPT-456', message: 'give me insights on report RPT-456' },
   { label: 'forecast revenue for next quarter', message: 'forecast revenue for next quarter' },
   { label: 'what is the status of invoice INV-1234', message: 'what is the status of invoice INV-1234' },
-  { label: 'send an email to jane@example.com…', message: 'send an email to jane@example.com about the quarterly report' },
-  { label: 'remember that I prefer email…', message: 'remember that I prefer email over phone calls' },
+  { label: 'send an email to jane@example.com about the quarterly report', message: 'send an email to jane@example.com about the quarterly report' },
+  { label: 'remember that I prefer email over phone calls', message: 'remember that I prefer email over phone calls' },
   { label: 'hello there', message: 'hello there' },
 ];
+const capActionsEl = document.getElementById('capActions');
 const chipsEl = document.getElementById('quickPrompts');
 const apPanel = document.getElementById('apPanel');
 let composerMode = 'chat';
@@ -666,8 +720,8 @@ function setComposerMode(mode) {
   if (apPanel) apPanel.open = mode === 'ap';
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
-  document.querySelectorAll('#quickPrompts .chip').forEach(chip => {
-    chip.classList.toggle('active', chip.dataset.mode === mode);
+  document.querySelectorAll('#capActions .cap-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
   });
   sendBtn.textContent = 'Send';
   if (mode === 'summary') {
@@ -687,18 +741,29 @@ function setComposerMode(mode) {
 }
 
 
-QUICK_PROMPTS.forEach(p => {
-  const chip = document.createElement('span');
-  chip.className = 'chip';
-  chip.textContent = p.label.length > 28 ? p.label.slice(0, 26) + '…' : p.label;
-  chip.title = p.message || p.label;
-  if (p.ocr) chip.dataset.mode = 'ocr';
-  if (p.summary) chip.dataset.mode = 'summary';
-  if (p.ap) chip.dataset.mode = 'ap';
-  chip.addEventListener('click', () => {
+CAP_ACTIONS.forEach(p => {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'cap-btn';
+  btn.innerHTML = '<span class="dot"></span><span>' + p.label + '</span>';
+  if (p.ocr) btn.dataset.mode = 'ocr';
+  if (p.summary) btn.dataset.mode = 'summary';
+  if (p.ap) btn.dataset.mode = 'ap';
+  btn.addEventListener('click', () => {
     if (p.ocr) { setComposerMode('ocr'); return; }
     if (p.summary) { setComposerMode('summary'); return; }
     if (p.ap) { setComposerMode('ap'); return; }
+  });
+  capActionsEl.appendChild(btn);
+});
+
+QUICK_PROMPTS.forEach(p => {
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'prompt-chip';
+  chip.textContent = p.label;
+  chip.title = p.message || p.label;
+  chip.addEventListener('click', () => {
     setComposerMode('chat');
     messageInput.value = p.message;
     sendMessage();
