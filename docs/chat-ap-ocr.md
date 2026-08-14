@@ -63,7 +63,7 @@ Success: HTTP 200 with `ocr_result` (extracted fields). Failure examples: `400` 
 
 ## AP agent
 
-Set `intent` to `ap` plus one of: `invoice_json`, blob `filepath`, uploaded `file`, or `item_id` (re-run from stored artifacts).
+Set `intent` to `ap` plus one of: `invoice_json`, blob `filepath`, uploaded `file`, or `item_id` (re-run from stored artifacts). Optional `formid` (aliases `form_id` / `formId`) selects PO master table `ezfb_{token}_items` — numeric id, or the first 8 hex chars of a GUID (`29171de4-…` → `ezfb_29171de4_items`). The console AP panel has the same field.
 
 `tenant_id` should be the full tenant UUID. The app keeps App Settings `DATABASE_URL` and opens database `ezofis_Tenant_{first 8}` (example: `2e3b7b37-38a3-4f94-878e-a006dad93230` → `ezofis_Tenant_2e3b7b37`).
 
@@ -89,6 +89,7 @@ curl.exe -sS -X POST "https://cloud.ezofis.com/chat" ^
   "intent": "ap",
   "payload": {
     "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+    "formid": "29171de4-e210-466e-9e90-40fa9fa4354d",
     "item_id": "inv-100",
     "invoice_json": {
       "invoice_number": "INV-100",

@@ -1,7 +1,7 @@
 """Pydantic models for the /chat endpoint."""
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, model_validator
 
 
 class DocumentPayload(BaseModel):
@@ -49,6 +49,11 @@ class DocumentPayload(BaseModel):
         description="PO resource hint: QUICKBOOKS or SAGE.",
     )
     matter_master_id: Optional[str] = Field(default=None, description="Matter master id for matter_validate.")
+    form_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("form_id", "formid", "formId"),
+        description="PO/document form id (GUID or numeric). Selects ezfb_{token}_items on the tenant DB.",
+    )
 
 
 class ChatRequest(BaseModel):

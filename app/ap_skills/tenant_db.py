@@ -18,6 +18,19 @@ logger = logging.getLogger("orchestrator.ap_store")
 _HEX8 = re.compile(r"^[0-9a-fA-F]{8}$")
 DEFAULT_TENANT_DB_PREFIX = "ezofis_Tenant_"
 
+
+def ezfb_items_table(form_id: Optional[str]) -> Optional[str]:
+    """Map payload formid to ezfb_{token}_items (numeric id or first 8 of GUID)."""
+    raw = str(form_id or "").strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        return f"ezfb_{int(raw)}_items"
+    compact = raw.replace("-", "").lower()
+    if len(compact) >= 8 and all(c in "0123456789abcdef" for c in compact[:8]):
+        return f"ezfb_{compact[:8]}_items"
+    return None
+
 CreatePool = Callable[..., Awaitable[Any]]
 
 

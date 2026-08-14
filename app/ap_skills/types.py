@@ -63,6 +63,7 @@ class ApContext:
     store: Any = None
     document_job: dict[str, Any] = field(default_factory=dict)
     thresholds: dict[str, Any] = field(default_factory=dict)
+    form_id: Optional[str] = None
 
 
 class ApSkill(Protocol):

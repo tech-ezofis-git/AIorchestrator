@@ -216,14 +216,24 @@ class EzofisClient:
             logger.warning("ezofis_credit_error", extra={"skill_id": skill_id})
             return {"status": "failed"}
 
-    async def lookup_po(self, *, tenant_id: str, po_number: str) -> Optional[dict[str, Any]]:
+    async def lookup_po(
+        self, *, tenant_id: str, po_number: str, form_id: Optional[str] = None
+    ) -> Optional[dict[str, Any]]:
         if not po_number:
             return None
+        from app.ap_skills.tenant_db import ezfb_items_table
+
+        table = ezfb_items_table(form_id)
+        params: dict[str, Any] = {"po_number": po_number}
+        if form_id:
+            params["form_id"] = str(form_id).strip()
+        if table:
+            params["table"] = table
         if self._live_enabled():
-            live = await self._get_master("/masters/po", tenant_id=tenant_id, params={"po_number": po_number})
+            live = await self._get_master("/masters/po", tenant_id=tenant_id, params=params)
             if live:
                 return live
-        return {
+        mock: dict[str, Any] = {
             "po_number": po_number,
             "vendor": "ACME Supplies",
             "total": 1234.56,
@@ -233,6 +243,11 @@ class EzofisClient:
             ],
             "mock": True,
         }
+        if form_id:
+            mock["form_id"] = str(form_id).strip()
+        if table:
+            mock["ezfb_table"] = table
+        return mock
 
     async def lookup_vendor(self, *, tenant_id: str, vendor_name: str) -> Optional[dict[str, Any]]:
         if not vendor_name:
