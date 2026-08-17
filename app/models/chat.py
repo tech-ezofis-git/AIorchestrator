@@ -18,8 +18,16 @@ class DocumentPayload(BaseModel):
     ocr_text: Optional[str] = Field(
         default=None,
         description=(
-            "Pre-extracted OCR text. When set on intent=summary, blob download and "
-            "Paddle extract are skipped. Wins over file/filepath."
+            "Pre-extracted OCR text. When set on intent=summary or insight, blob "
+            "download and Paddle extract are skipped. Wins over file/filepath "
+            "(insight_json still wins over ocr_text for insight)."
+        ),
+    )
+    insight_json: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Arbitrary structured JSON for intent=insight (dashboard, report, "
+            "metrics). Skips OCR. Wins over ocr_text / file / filepath."
         ),
     )
     parameters: list[str] = Field(default_factory=list)
@@ -93,7 +101,10 @@ class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Client-supplied session identifier.")
     message: Optional[str] = Field(
         default=None,
-        description="Free-text chat message. Optional when intent=ocr/summary/ap with file, filepath, ocr_text, or invoice_json.",
+        description=(
+            "Free-text chat message. Optional when intent=ocr/summary/insight/ap "
+            "with file, filepath, ocr_text, insight_json, or invoice_json."
+        ),
     )
     intent: Optional[str] = Field(
         default=None,
@@ -110,6 +121,7 @@ class ChatRequest(BaseModel):
         payload = self.payload
         has_filepath = bool(payload and (payload.filepath or "").strip())
         has_ocr_text = bool(payload and (payload.ocr_text or "").strip())
+        has_insight_json = bool(payload and payload.insight_json)
         has_ap_doc = bool(
             payload
             and (
@@ -118,13 +130,20 @@ class ChatRequest(BaseModel):
             )
         )
         msg = (self.message or "").strip()
-        if not msg and not has_filepath and not has_ocr_text and not has_ap_doc:
+        if (
+            not msg
+            and not has_filepath
+            and not has_ocr_text
+            and not has_insight_json
+            and not has_ap_doc
+        ):
             # Multipart uploads attach file bytes outside this model; main.py
-            # validates file/filepath/ocr_text for intent=ocr/summary/ap after parsing.
-            if (self.intent or "").strip().lower() in {"ocr", "summary", "ap"}:
+            # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap after parsing.
+            if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap"}:
                 return self
             raise ValueError(
-                "Either message, payload.filepath, payload.ocr_text, or payload.invoice_json is required."
+                "Either message, payload.filepath, payload.ocr_text, "
+                "payload.insight_json, or payload.invoice_json is required."
             )
         return self
 
@@ -167,6 +186,14 @@ class ChatResponse(BaseModel):
             "document_title, document_language, document_summary, "
             "key_facts_extracted, ocr_text (plus optional source_reference). "
             "`reply` is a short status line. Token counts live in token_usage."
+        ),
+    )
+    insight_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Insight document-job output — locked {insights: [str, ...]} "
+            "(plus optional source_reference). `reply` is a short status line. "
+            "Legacy report-id insights still use reply + cited_data_points."
         ),
     )
     forecast_result: Optional[dict] = Field(

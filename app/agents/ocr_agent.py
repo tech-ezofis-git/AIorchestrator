@@ -19,6 +19,7 @@ from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import apply_preset, get_preset
 from app.llm.runtime_models import RuntimeModelSelection
+from app.ocr_skills.extract_fields import run as extract_fields_skill
 
 logger = logging.getLogger("orchestrator.ocr_agent")
 
@@ -38,6 +39,13 @@ class OcrAgent:
         self._settings = settings
         self._llm = llm_adapter
         self._runtime_models = runtime_models
+
+    def _llm_for_skill(self) -> LLMAdapter:
+        if self._llm is not None:
+            return self._llm
+        if self._composer is None:
+            raise RuntimeError("LLM adapter is required for OCR document jobs.")
+        return self._composer._llm
 
     def _cfg(self) -> Settings:
         if self._settings is None:
@@ -131,8 +139,8 @@ class OcrAgent:
                 "ocr_result": body,
             }
 
-        if self._composer is None:
-            raise RuntimeError("ResponseComposer is required for OCR document jobs.")
+        if self._composer is None and self._llm is None:
+            raise RuntimeError("ResponseComposer or LLM adapter is required for OCR document jobs.")
 
         model = (job.get("model") or "").strip() or None
         # Prefer explicit payload.model; otherwise keep the shared adapter
@@ -140,7 +148,8 @@ class OcrAgent:
         primary = model
 
         try:
-            synthesized = await self._composer.synthesize_ocr_json(
+            synthesized = await extract_fields_skill(
+                llm=self._llm_for_skill(),
                 instruction=instruction,
                 ocr_text=ocr_text,
                 parameters=parameters,
@@ -198,7 +207,6 @@ class OcrAgent:
         error: Exception,
     ) -> dict[str, Any]:
         """Retry OCR structuring on the console/env fallback model."""
-        assert self._composer is not None
         settings = self._cfg()
         fallback_preset = (
             self._runtime_models.fallback_preset_id if self._runtime_models else None
@@ -217,7 +225,8 @@ class OcrAgent:
             )
             apply_preset(self._llm, fallback_preset)
             try:
-                return await self._composer.synthesize_ocr_json(
+                return await extract_fields_skill(
+                    llm=self._llm_for_skill(),
                     instruction=instruction,
                     ocr_text=ocr_text,
                     parameters=parameters,
@@ -235,7 +244,8 @@ class OcrAgent:
                 "ocr_structuring_fallback_model",
                 extra={"model": env_fallback},
             )
-            return await self._composer.synthesize_ocr_json(
+            return await extract_fields_skill(
+                llm=self._llm_for_skill(),
                 instruction=instruction,
                 ocr_text=ocr_text,
                 parameters=parameters,

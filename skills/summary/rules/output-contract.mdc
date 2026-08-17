@@ -1,0 +1,13 @@
+---
+description: Locked summary JSON keys and forbidden extra fields
+alwaysApply: true
+---
+
+# Output contract
+
+- `document_type` is a short label matching the inferred type (Invoice, Insurance Policy, Purchase Order, Letter, …).
+- `document_title` is a short human title supported by the text — do not invent a title the text does not support.
+- `document_language` is the language of the OCR text (English, Arabic, Hindi, mixed, …).
+- `confidence_score` is 0–100 reflecting how complete and clear the text is.
+- JSON keys stay exactly: `confidence_score`, `document_type`, `document_title`, `document_language`, `document_summary`, `key_facts_extracted`.
+- Do not add `compliance_and_risk_assessment`, `ai_recommendations`, `supplier_trend_insight`, or any other extra fields.

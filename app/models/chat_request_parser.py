@@ -93,6 +93,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     skills_raw = _form_str(form.get("skills"))
     skills = _parse_optional_string_list(form, "skills")
     invoice_json = _parse_optional_json_object(_form_str(form.get("invoice_json")), field="invoice_json")
+    insight_json = _parse_optional_json_object(_form_str(form.get("insight_json")), field="insight_json")
 
     upload = form.get("file")
     file_bytes = None
@@ -125,11 +126,22 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or matter_master_id
         or form_id
     )
-    if filepath or pageno or ocr_text or parameters or tableparameters or model or file_bytes is not None or has_ap_fields:
+    if (
+        filepath
+        or pageno
+        or ocr_text
+        or parameters
+        or tableparameters
+        or model
+        or file_bytes is not None
+        or has_ap_fields
+        or insight_json
+    ):
         payload = DocumentPayload(
             filepath=filepath,
             pageno=pageno,
             ocr_text=ocr_text,
+            insight_json=insight_json,
             parameters=parameters,
             tableparameters=tableparameters,
             model=model,

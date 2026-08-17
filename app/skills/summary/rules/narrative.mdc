@@ -1,0 +1,14 @@
+---
+description: Narrative summary and key-fact sentence style
+alwaysApply: true
+---
+
+# Narrative and key facts
+
+- `document_summary` is 2–3 concise sentences naming the actual type, main parties, and purpose only — high-level overview, not a list of every ID or amount. Do not repeat the same idea across sentences.
+- `key_facts_extracted` is a short list of plain full sentences (not `Label: value`, not JSON-style keys). Each sentence states one concrete fact for THAT type.
+  - Insurance: who issued it, who is covered, policy/claim number, coverage, premium, period.
+  - Invoice: who issued it, invoice number, dates, amounts.
+  - Other types: identifiers and dates that appear.
+- Example style: `The invoice was issued by <mark>Niss Internet Services</mark>.` not `Issuer: Niss`.
+- Do not duplicate: facts must add detail not already said in `document_summary`; never restate the same party, ID, date, or amount in both places or across two facts.

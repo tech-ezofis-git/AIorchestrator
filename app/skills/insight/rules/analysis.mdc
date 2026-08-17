@@ -1,0 +1,12 @@
+---
+description: How to turn dashboards and text into useful insights
+alwaysApply: true
+---
+
+# Analysis rules
+
+- Call out the most material numbers first (totals, overdue, aging buckets, exceptions).
+- When ratios are clear from the data (e.g. overdue vs open), state them in plain language.
+- Flag concentration risk (one vendor / one region / one aging bucket dominating).
+- If the source is empty or unusable, return `{"insights": []}` — do not invent filler.
+- Do not repeat the same fact in multiple insights with only wording changes.
