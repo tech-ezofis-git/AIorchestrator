@@ -7,6 +7,27 @@ from app.ap_skills.types import ApContext, ApSkillResult, invoice_from
 
 SKILL_ID = "workflow_move_next"
 
+# Workflow UI / .NET move-next review strings (apagentv6 utils.py).
+_REVIEW_LABELS = {
+    "MATCHED": "Matched",
+    "PARTIALLY_MATCHED": "Partially Matched",
+    "NOT_MATCHED": "Not Matched",
+    "NON_INVOICE": "Non-Invoice",
+    "DUPLICATE": "Not Matched",
+}
+
+
+def _review_label(decision: str, *, doc_type: str = "") -> str:
+    if decision == "NON_INVOICE" or str(doc_type or "").lower() == "other":
+        return "Non-Invoice"
+    mapped = _REVIEW_LABELS.get(str(decision or "").strip().upper())
+    if mapped:
+        return mapped
+    raw = str(decision or "").strip()
+    if raw in ("Matched", "Partially Matched", "Not Matched", "Non-Invoice"):
+        return raw
+    return "Not Matched"
+
 
 def _job_str(job: dict[str, Any], *keys: str) -> Optional[str]:
     for key in keys:
@@ -76,7 +97,10 @@ async def run(ctx: ApContext) -> ApSkillResult:
     except Exception:
         invoice = {}
     doc_type = str(invoice.get("doc_type") or "invoice").lower()
-    review = "Non-Invoice" if decision == "NON_INVOICE" or doc_type == "other" else decision
+    review = _review_label(decision, doc_type=doc_type)
+    comments = str(finalize.get("reason") or "").strip() or (
+        f"Classified as {doc_type}" if review == "Non-Invoice" else review
+    )
 
     repository_id = _job_str(job, "repository_id")
     transaction_id = _job_str(job, "transaction_id")
@@ -101,16 +125,23 @@ async def run(ctx: ApContext) -> ApSkillResult:
     payload = {
         "activityid": activity_id,
         "review": review,
-        "decision": decision,
-        "invoice_number": finalize.get("invoice_number"),
-        "item_key": ctx.item_key,
-        "run_id": ctx.run_id,
+        "comments": comments,
         "workflowId": workflow_id,
-        "instanceId": instance_id,
         "transactionId": transaction_id,
+        "instanceId": instance_id,
         "processId": process_id,
-        "repositoryId": repository_id,
+        "AIAGENTResponse": {
+            "decision": review,
+            "reason": finalize.get("reason"),
+            "invoice_number": finalize.get("invoice_number"),
+            "po_number": finalize.get("po_number"),
+            "duplicate": finalize.get("duplicate"),
+            "backorder": finalize.get("backorder"),
+            "run_id": ctx.run_id,
+            "item_key": ctx.item_key,
+        },
         "itemId": item_id,
+        "repositoryId": repository_id,
         "formId": form_id,
         "formEntryId": form_entry_id,
         "isItemTable": True,

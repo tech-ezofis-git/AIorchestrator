@@ -489,6 +489,12 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
     assert body["processId"] == "200"
     assert body["activityid"] == "DR97uPaylMtwahvi3XYr_"
     assert body["isItemTable"] is True
+    assert body["review"] in ("Matched", "Partially Matched", "Not Matched", "Non-Invoice")
+    assert "comments" in body
+    assert body["AIAGENTResponse"]["decision"] == body["review"]
+    assert "decision" not in body
+    assert "item_key" not in body
+    assert "run_id" not in body
 
 
 def test_move_next_looks_up_activityid_from_workflow_steps(client, monkeypatch):
@@ -628,7 +634,7 @@ def test_workflow_move_next_mocked_after_finalize(client, monkeypatch):
     assert result["skills_run"][-1] == "workflow_move_next"
     assert len(move_calls) == 1
     assert move_calls[0]["instance_id"] == "inst-1"
-    assert move_calls[0]["payload"]["review"] in ("MATCHED", "PARTIALLY_MATCHED", "NOT_MATCHED")
+    assert move_calls[0]["payload"]["review"] in ("Matched", "Partially Matched", "Not Matched")
 
 
 def test_non_invoice_path_skips_match_skills_when_requested(client, monkeypatch):

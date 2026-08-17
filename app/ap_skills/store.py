@@ -206,7 +206,7 @@ class ApStore:
                 "ap_plan_read_failed",
                 extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
             )
-            raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
+            return None
         if row is None:
             return None
         enabled = _json_load(_row_get(row, "enabled_skills")) or []

@@ -73,6 +73,8 @@ If `skills` is omitted / null, the **default pipeline** runs:
 
 `workflow_move_next` posts to Ezofis when `instance_id` is set **and** `activityid` is known. `activityid` is the workflow step's `WorkflowSteps.ActivityId` (for example `DR97uPaylMtwahvi3XYr_`), not a random value. Python looks it up from the tenant DB (`workflow.WorkflowSteps` where `Name = AP AGENT 1`, optional `WorkflowId` filter). The app does not need to send it on `/chat`; it may send `activityid` to override. If it cannot be resolved, move-next is skipped (no credit) so .NET does not receive an invalid AP Agent move-next.
 
+`review` on move-next is the workflow label, not the internal code: `Matched`, `Partially Matched`, `Not Matched`, or `Non-Invoice`. The body also includes `comments`, `AIAGENTResponse`, `itemId`, `repositoryId`, `formId`, `formEntryId`, `isItemTable` — same shape as apagentv6.
+
 If `skills` is a list, **only those skills** run (in that order). Unknown ids → 400. Opt-in skills (QB/Sage, GL, GRN, matter, `workflow_progress`) must be listed explicitly.
 
 Each skill that actually runs (not skipped) charges 1 credit (mocked if `EZOFIS_LOGIN_EMAIL` / `PASSWORD` are empty).
