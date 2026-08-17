@@ -119,6 +119,11 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("process_id", "processId"),
         description="Workflow process id for move-next.",
     )
+    activity_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("activity_id", "activityid", "activityId", "ActivityId"),
+        description="Workflow step ActivityId for move-next. Omitted => lookup workflow.WorkflowSteps by name AP AGENT 1.",
+    )
     connector_id: Optional[str] = Field(default=None, description="QB/Sage connector id for PO lookup skills.")
     resource: Optional[str] = Field(
         default=None,

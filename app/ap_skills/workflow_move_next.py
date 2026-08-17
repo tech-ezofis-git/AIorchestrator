@@ -28,6 +28,21 @@ def _form_entry_id(raw: Optional[str]) -> Any:
         return raw
 
 
+async def _resolve_activity_id(ctx: ApContext, job: dict[str, Any], workflow_id: Optional[str]) -> Optional[str]:
+    explicit = _job_str(job, "activity_id")
+    if explicit:
+        return explicit
+    store = ctx.store
+    if store is None or not hasattr(store, "fetch_workflow_activity_id"):
+        return None
+    step_name = str(getattr(ctx.settings, "ap_agent_workflow_step_name", None) or "AP AGENT 1").strip()
+    return await store.fetch_workflow_activity_id(
+        tenant_id=ctx.tenant_id,
+        workflow_id=workflow_id,
+        step_name=step_name or "AP AGENT 1",
+    )
+
+
 async def run(ctx: ApContext) -> ApSkillResult:
     job = ctx.document_job or {}
     instance_id = _job_str(job, "instance_id")
@@ -70,8 +85,21 @@ async def run(ctx: ApContext) -> ApSkillResult:
     workflow_id = _job_str(job, "workflow_id")
     form_id = _job_str(job, "form_id")
     item_id = _job_str(job, "repository_item_id", "item_id") or ctx.item_key
+    activity_id = await _resolve_activity_id(ctx, job, workflow_id)
+    if not activity_id:
+        return ApSkillResult(
+            skill_id=SKILL_ID,
+            credits=0,
+            data={
+                "skipped": True,
+                "reason": "no activityid",
+                "instance_id": instance_id,
+                "ok": True,
+            },
+        )
 
     payload = {
+        "activityid": activity_id,
         "review": review,
         "decision": decision,
         "invoice_number": finalize.get("invoice_number"),
@@ -97,6 +125,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
         skill_id=SKILL_ID,
         data={
             "instance_id": instance_id,
+            "activityid": activity_id,
             "review": review,
             "decision": decision,
             "ok": bool(result.get("ok", True)) if isinstance(result, dict) else True,
