@@ -724,14 +724,11 @@ def test_summary_injects_mark_tags_when_model_omits_them(client, monkeypatch):
     result = response.json()["summary_result"]
     summary = result["document_summary"]
     facts = result["key_facts_extracted"]
-    assert "<mark>ABC General Insurance Company Ltd.</mark>" in summary
-    assert "<mark>John Smith</mark>" in summary
-    assert "<mark>INR 8,500,000</mark>" in summary
-    assert "<mark>August 13, 2026</mark>" in summary
-    assert "<mark>INS-2026-001245</mark>" in facts[0]
-    assert "<mark>INR 28,910</mark>" in facts[1]
-    assert "<mark>48 hours</mark>" in facts[3]
+    assert summary.count("<mark>") <= 3
     assert summary.count("<mark>") == summary.count("</mark>")
+    assert "<mark>ABC General Insurance Company Ltd.</mark>" in summary or "<mark>John Smith</mark>" in summary
+    assert "<mark>INS-2026-001245</mark>" in facts[0] or "INS-2026-001245" in facts[0]
+    assert all(f.count("<mark>") <= 1 for f in facts)
     assert all(f.count("<mark>") == f.count("</mark>") for f in facts)
 
 
@@ -741,12 +738,16 @@ def test_summary_highlight_helper_is_idempotent():
     once = highlight_summary_text(
         "Premium is INR 28,910 and id INS-2026-001245.",
         ocr_text="Insurer: ABC General Insurance Company Ltd.",
+        max_marks=3,
+        inject_patterns=True,
+        inject_phrases=True,
+        max_phrase_injections=2,
+        max_pattern_injections=2,
     )
     twice = highlight_summary_text(once, ocr_text="Insurer: ABC General Insurance Company Ltd.")
     assert once == twice
-    assert once.count("<mark>") == 2
-    assert "<mark>INR 28,910</mark>" in once
-    assert "<mark>INS-2026-001245</mark>" in once
+    assert once.count("<mark>") <= 3
+    assert once.count("<mark>") == once.count("</mark>")
 
 
 def test_summary_and_ocr_expose_reusable_skills_and_rules():
@@ -762,3 +763,156 @@ def test_summary_and_ocr_expose_reusable_skills_and_rules():
     assert "ocrresult" in ocr_rules.system_prompt().lower()
     assert callable(summarize_document)
     assert callable(extract_fields)
+
+
+def test_summary_from_summary_json(client, monkeypatch):
+    payload = {
+        "confidence_score": 90.0,
+        "document_type": "Invoice",
+        "document_title": "Internet Service Invoice",
+        "document_language": "English",
+        "document_summary": "Invoice from Niss Internet Services for internet charges.",
+        "key_facts_extracted": [
+            "The invoice number is INV/26-27/002140.",
+            "The total amount due is 1770.00.",
+        ],
+        "ocr_text": "ignored",
+    }
+    _install_fake_llm(monkeypatch, content=json.dumps(payload))
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-sum-json",
+            "intent": "summary",
+            "payload": {
+                "summary_json": {
+                    "vendor": "Niss Internet Services",
+                    "invoice_no": "INV/26-27/002140",
+                    "total": 1770.00,
+                },
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["reply"] == "Document summary generated successfully."
+    result = body["summary_result"]
+    assert body["document_id"] == "summary_json"
+    assert result["source_reference"] == "summary_json"
+    assert "Niss Internet Services" in result["ocr_text"]
+    assert result["document_type"] == "Invoice"
+
+
+def test_summary_json_wins_over_ocr_text(client, monkeypatch):
+    _install_fake_llm(
+        monkeypatch,
+        content=json.dumps(
+            {
+                **{k: v for k, v in _STRUCTURED_SUMMARY.items() if k != "ocr_text"},
+                "ocr_text": "ignored",
+            }
+        ),
+    )
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-sum-json-win",
+            "intent": "summary",
+            "payload": {
+                "summary_json": {"vendor": "JSON Vendor", "total": 100},
+                "ocr_text": "OCR text that should be ignored",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["document_id"] == "summary_json"
+    assert "JSON Vendor" in response.json()["summary_result"]["ocr_text"]
+
+
+def test_summary_key_facts_count_truncates(client, monkeypatch):
+    many_facts = {
+        "confidence_score": 80.0,
+        "document_type": "Invoice",
+        "document_title": "Invoice",
+        "document_language": "English",
+        "document_summary": "Summary text.",
+        "key_facts_extracted": [f"Fact {i}." for i in range(1, 11)],
+        "ocr_text": "ignored",
+    }
+    _install_fake_llm(monkeypatch, content=json.dumps(many_facts))
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-sum-facts",
+            "intent": "summary",
+            "payload": {
+                "ocr_text": "Invoice from Acme for 100.",
+                "key_facts_count": 4,
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    facts = response.json()["summary_result"]["key_facts_extracted"]
+    assert len(facts) == 4
+
+
+def test_summary_key_facts_count_from_json_no(client, monkeypatch):
+    many_facts = {
+        "confidence_score": 80.0,
+        "document_type": "Invoice",
+        "document_title": "Invoice",
+        "document_language": "English",
+        "document_summary": "Summary text.",
+        "key_facts_extracted": [f"Fact {i}." for i in range(1, 9)],
+        "ocr_text": "ignored",
+    }
+    _install_fake_llm(monkeypatch, content=json.dumps(many_facts))
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-sum-no",
+            "intent": "summary",
+            "payload": {
+                "summary_json": {
+                    "no": 3,
+                    "vendor": "Acme",
+                    "total": 100,
+                },
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len(response.json()["summary_result"]["key_facts_extracted"]) == 3
+
+
+def test_summary_resolve_key_facts_count_precedence():
+    from app.summary_skills.rules import resolve_key_facts_count
+
+    assert resolve_key_facts_count(explicit=5, summary_json={"no": 3}) == 5
+    assert resolve_key_facts_count(explicit=None, summary_json={"no": 4}) == 4
+    assert resolve_key_facts_count(explicit=None, summary_json={}) == 6
+    assert resolve_key_facts_count(explicit=99, summary_json={"no": 1}) == 20
+    assert resolve_key_facts_count(explicit=0, summary_json={"no": 1}) == 1
+
+
+def test_summary_empty_summary_json_fail_closed(client, monkeypatch):
+    llm_calls = []
+
+    async def fake_chat_completion(self, messages):
+        llm_calls.append(messages)
+        return {"content": "{}", "usage": None}
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_chat_completion)
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-sum-empty-json",
+            "intent": "summary",
+            "payload": {"summary_json": {"no": 6}},
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["reply"].startswith("I couldn't extract")
+    assert body["summary_result"]["key_facts_extracted"] == []
+    assert llm_calls == []

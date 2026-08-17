@@ -1,4 +1,4 @@
-"""Reusable Insight skill: JSON or text → locked {insights: [...]}."""
+"""Reusable Insight skill: JSON or text → locked insight_result JSON."""
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -17,12 +17,23 @@ async def run(
     content_kind: str = "text",
     instruction: Optional[str] = None,
     model: Optional[str] = None,
+    insights_count: int = rules.DEFAULT_INSIGHTS_COUNT,
+    insight_area: Optional[str] = None,
+    source_text: str = "",
 ) -> dict[str, Any]:
     """Returns {"payload": dict, "usage": dict | None, "skill_id": str}."""
     body = (content or "").strip()
+    count = rules.resolve_insights_count(explicit=insights_count)
+    area = rules.resolve_insight_area(explicit=insight_area)
+    stored_source = (source_text or body).strip()
     if not body:
         return {
-            "payload": locked_insight_payload(insights=[]),
+            "payload": locked_insight_payload(
+                insights=[],
+                insights_count=count,
+                insight_area=area,
+                source_text=stored_source,
+            ),
             "usage": None,
             "skill_id": SKILL_ID,
         }
@@ -52,6 +63,8 @@ async def run(
                         content=body,
                         content_kind=content_kind,
                         instruction=instruction,
+                        insights_count=count,
+                        insight_area=area,
                     ),
                 },
             ]
@@ -66,7 +79,12 @@ async def run(
                 preset_id=previous["preset_id"] if previous["preset_id"] is not None else "",
             )
 
-    payload = parse_insight_json_content(result["content"])
+    payload = parse_insight_json_content(
+        result["content"],
+        insights_count=count,
+        insight_area=area,
+        source_text=stored_source,
+    )
     return {
         "payload": payload,
         "usage": result.get("usage"),

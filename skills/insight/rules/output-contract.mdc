@@ -1,12 +1,13 @@
 ---
-description: Locked insight JSON — only the insights array
+description: Locked insight JSON — insights array plus echoed request metadata
 alwaysApply: true
 ---
 
 # Output contract
 
-- Top-level key must be exactly `insights`.
+- Top-level key must be exactly `insights` in the model response (server adds `insights_count` and optional `insight_area`).
 - `insights` is a JSON array of strings.
 - Each string is one complete sentence.
+- Return at most the requested number of insights (default 4).
 - Do not emit `summary`, `key_facts`, `reply`, `cited_data_points`, or any other keys.
 - Do not wrap the JSON in markdown code fences.

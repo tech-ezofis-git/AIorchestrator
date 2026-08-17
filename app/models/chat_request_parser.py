@@ -94,6 +94,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     skills = _parse_optional_string_list(form, "skills")
     invoice_json = _parse_optional_json_object(_form_str(form.get("invoice_json")), field="invoice_json")
     insight_json = _parse_optional_json_object(_form_str(form.get("insight_json")), field="insight_json")
+    summary_json = _parse_optional_json_object(_form_str(form.get("summary_json")), field="summary_json")
+    key_facts_count = _parse_optional_int(_form_str(form.get("key_facts_count")), field="key_facts_count")
+    insights_count = _parse_optional_int(_form_str(form.get("insights_count")), field="insights_count")
+    insight_area = _form_str(form.get("insight_area"))
 
     upload = form.get("file")
     file_bytes = None
@@ -136,12 +140,20 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or file_bytes is not None
         or has_ap_fields
         or insight_json
+        or summary_json
+        or key_facts_count is not None
+        or insights_count is not None
+        or insight_area
     ):
         payload = DocumentPayload(
             filepath=filepath,
             pageno=pageno,
             ocr_text=ocr_text,
+            summary_json=summary_json,
+            key_facts_count=key_facts_count,
             insight_json=insight_json,
+            insights_count=insights_count,
+            insight_area=insight_area,
             parameters=parameters,
             tableparameters=tableparameters,
             model=model,
@@ -213,6 +225,24 @@ def _parse_optional_json_object(raw: Optional[str], *, field: str) -> Optional[d
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail=f"{field} must be a JSON object string.")
     return data
+
+
+def _parse_optional_int(raw: Optional[str], *, field: str) -> Optional[int]:
+    if raw is None or raw == "":
+        return None
+    try:
+        value = int(str(raw).strip())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field} must be an integer between 1 and 20.",
+        ) from exc
+    if value < 1 or value > 20:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field} must be an integer between 1 and 20.",
+        )
+    return value
 
 
 def _parse_form_string_list(form: Any, field: str) -> list[str]:

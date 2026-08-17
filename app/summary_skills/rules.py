@@ -5,7 +5,9 @@ AGENT_SKILLS_ROOT). Deterministic <mark> injection stays here in code.
 """
 from __future__ import annotations
 
+import json
 import re
+from typing import Any, Optional
 
 from app.agent_skills.loader import get_skill
 
@@ -26,9 +28,15 @@ FORBIDDEN_SUMMARY_KEYS: tuple[str, ...] = (
     "supplier_trend_insight",
 )
 
+SUMMARY_JSON_CONTROL_KEYS: frozenset[str] = frozenset({"no", "key_facts_count"})
+
 EMPTY_SUMMARY_TEXT = (
     "I couldn't extract any text from that document, so I can't summarize it."
 )
+
+DEFAULT_KEY_FACTS_COUNT = 6
+MIN_KEY_FACTS_COUNT = 1
+MAX_KEY_FACTS_COUNT = 20
 
 SUMMARY_MAX_SENTENCES = 3
 FACTS_MUST_BE_SENTENCES = True
@@ -36,9 +44,18 @@ FACTS_FORBID_LABEL_VALUE = True
 NO_DUPLICATE_FACTS_VS_SUMMARY = True
 REQUIRE_MARK_HIGHLIGHTS = True
 
+MAX_MARKS_IN_SUMMARY = 3
+MAX_MARKS_PER_FACT = 1
+MAX_OCR_PHRASES_FOR_SUMMARY = 2
+
 USER_PROMPT_PREFIX = (
-    "Infer the document type from the OCR text, then summarize "
+    "Infer the document type from the source data, then summarize "
     "using facts that match that type. Do not assume it is an invoice."
+)
+
+USER_PROMPT_PREFIX_JSON = (
+    "Infer the document type from the JSON fields, then summarize "
+    "using values present in the JSON only. Do not invent parties, dates, IDs, or amounts."
 )
 
 
@@ -54,12 +71,59 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def build_user_prompt(*, source: str, page_label: str, ocr_text: str) -> str:
+def resolve_key_facts_count(
+    *,
+    explicit: Optional[int] = None,
+    summary_json: Optional[dict[str, Any]] = None,
+) -> int:
+    """Resolve max key facts: payload.key_facts_count > summary_json.no > default 6."""
+    raw: Any = explicit
+    if raw is None and summary_json:
+        raw = summary_json.get("key_facts_count")
+        if raw is None:
+            raw = summary_json.get("no")
+    if raw is None:
+        return DEFAULT_KEY_FACTS_COUNT
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_KEY_FACTS_COUNT
+    return max(MIN_KEY_FACTS_COUNT, min(MAX_KEY_FACTS_COUNT, count))
+
+
+def strip_summary_control_keys(data: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in data.items() if k not in SUMMARY_JSON_CONTROL_KEYS}
+
+
+def format_structured_payload(data: Any) -> str:
+    """Pretty-print arbitrary JSON for the LLM user message."""
+    try:
+        return json.dumps(data, ensure_ascii=False, indent=2, default=str)
+    except TypeError:
+        return str(data)
+
+
+def build_user_prompt(
+    *,
+    source: str,
+    page_label: str = "",
+    content: str,
+    content_kind: str = "text",
+    key_facts_count: int = DEFAULT_KEY_FACTS_COUNT,
+) -> str:
+    kind = (content_kind or "text").strip().lower()
+    prefix = USER_PROMPT_PREFIX_JSON if kind == "json" else USER_PROMPT_PREFIX
+    label = "JSON data" if kind == "json" else "OCR text"
     page_bit = f" ({page_label})" if page_label else ""
+    facts_line = (
+        f"Return at most {key_facts_count} items in key_facts_extracted "
+        f"(fewer if the source has less material)."
+    )
     return (
         f"Document: {source}{page_bit}\n\n"
-        f"{USER_PROMPT_PREFIX}\n\n"
-        f"OCR text:\n{ocr_text}"
+        f"{prefix}\n\n"
+        f"{facts_line}\n\n"
+        f"{label}:\n{content}"
     )
 
 
@@ -94,7 +158,30 @@ def _is_mark_segment(part: str) -> bool:
     return lowered.startswith("<mark>") and lowered.endswith("</mark>")
 
 
-def ocr_highlight_phrases(ocr_text: str) -> list[str]:
+def _count_marks(text: str) -> int:
+    return len(_MARK_SEGMENT_RE.findall(text or ""))
+
+
+def _strip_mark_tags(text: str) -> str:
+    return _MARK_SEGMENT_RE.sub(lambda m: m.group(1)[6:-7], text)
+
+
+def _cap_marks(text: str, max_marks: int) -> str:
+    if max_marks < 0 or _count_marks(text) <= max_marks:
+        return text
+    kept = 0
+
+    def repl(match: re.Match[str]) -> str:
+        nonlocal kept
+        if kept < max_marks:
+            kept += 1
+            return match.group(0)
+        return _strip_mark_tags(match.group(0))
+
+    return _MARK_SEGMENT_RE.sub(repl, text)
+
+
+def ocr_highlight_phrases(ocr_text: str, *, limit: Optional[int] = None) -> list[str]:
     phrases: list[str] = []
     seen: set[str] = set()
     for match in _OCR_LABEL_VALUE_RE.finditer(ocr_text or ""):
@@ -107,14 +194,24 @@ def ocr_highlight_phrases(ocr_text: str) -> list[str]:
             continue
         seen.add(key)
         phrases.append(value)
+        if limit is not None and len(phrases) >= limit:
+            break
     return phrases
 
 
-def _wrap_literal_phrases(segment: str, phrases: list[str]) -> str:
+def _wrap_literal_phrases(
+    segment: str,
+    phrases: list[str],
+    *,
+    max_injections: Optional[int] = None,
+) -> str:
     if not segment or not phrases:
         return segment
+    injections = 0
     out = segment
     for phrase in sorted({p for p in phrases if p}, key=len, reverse=True):
+        if max_injections is not None and injections >= max_injections:
+            break
         pieces: list[str] = []
         for part in _MARK_SEGMENT_RE.split(out):
             if not part:
@@ -123,18 +220,22 @@ def _wrap_literal_phrases(segment: str, phrases: list[str]) -> str:
                 pieces.append(part)
                 continue
             pattern = re.compile(re.escape(phrase), re.IGNORECASE)
-            pieces.append(
-                pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", part, count=1)
-            )
+            new_part = pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", part, count=1)
+            if new_part != part:
+                injections += 1
+            pieces.append(new_part)
         out = "".join(pieces)
     return out
 
 
-def _wrap_highlight_patterns(segment: str) -> str:
+def _wrap_highlight_patterns(segment: str, *, max_injections: Optional[int] = None) -> str:
     if not segment:
         return segment
+    injections = 0
     out = segment
     for pattern in _HIGHLIGHT_PATTERNS:
+        if max_injections is not None and injections >= max_injections:
+            break
         pieces: list[str] = []
         for part in _MARK_SEGMENT_RE.split(out):
             if not part:
@@ -142,35 +243,74 @@ def _wrap_highlight_patterns(segment: str) -> str:
             if _is_mark_segment(part):
                 pieces.append(part)
                 continue
-            pieces.append(pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", part))
+
+            def sub_once(match: re.Match[str]) -> str:
+                nonlocal injections
+                if max_injections is not None and injections >= max_injections:
+                    return match.group(0)
+                injections += 1
+                return f"<mark>{match.group(0)}</mark>"
+
+            pieces.append(pattern.sub(sub_once, part))
         out = "".join(pieces)
     return out
 
 
-def highlight_summary_text(text: str, *, ocr_text: str = "") -> str:
-    """Code rule: important spans must be wrapped in <mark>…</mark>."""
+def highlight_summary_text(
+    text: str,
+    *,
+    ocr_text: str = "",
+    max_marks: int = MAX_MARKS_IN_SUMMARY,
+    inject_patterns: bool = False,
+    inject_phrases: bool = True,
+    max_phrase_injections: Optional[int] = None,
+    max_pattern_injections: Optional[int] = None,
+) -> str:
+    """Code rule: lightly wrap important spans in <mark>…</mark>."""
     if not REQUIRE_MARK_HIGHLIGHTS:
         return str(text or "")
     raw = str(text or "")
     if not raw.strip() or raw.strip() == EMPTY_SUMMARY_TEXT:
         return raw
-    phrases = ocr_highlight_phrases(ocr_text)
+
+    # Keep model-provided marks, trimmed to the cap.
+    capped = _cap_marks(raw, max_marks)
+    if _count_marks(capped) >= max_marks:
+        return capped
+
+    remaining = max_marks - _count_marks(capped)
+    phrases = ocr_highlight_phrases(ocr_text, limit=max_phrase_injections)
     rebuilt: list[str] = []
-    for part in _MARK_SEGMENT_RE.split(raw):
+    for part in _MARK_SEGMENT_RE.split(capped):
         if not part:
             continue
         if _is_mark_segment(part):
             rebuilt.append(part)
             continue
-        with_phrases = _wrap_literal_phrases(part, phrases)
-        for sub in _MARK_SEGMENT_RE.split(with_phrases):
-            if not sub:
-                continue
-            if _is_mark_segment(sub):
-                rebuilt.append(sub)
-            else:
-                rebuilt.append(_wrap_highlight_patterns(sub))
-    return "".join(rebuilt)
+        segment = part
+        if inject_phrases and phrases and remaining > 0:
+            segment = _wrap_literal_phrases(
+                segment,
+                phrases,
+                max_injections=min(remaining, max_phrase_injections or remaining),
+            )
+            remaining = max_marks - _count_marks("".join(rebuilt) + segment)
+        if inject_patterns and remaining > 0:
+            for sub in _MARK_SEGMENT_RE.split(segment):
+                if not sub:
+                    continue
+                if _is_mark_segment(sub):
+                    rebuilt.append(sub)
+                else:
+                    rebuilt.append(
+                        _wrap_highlight_patterns(
+                            sub,
+                            max_injections=min(remaining, max_pattern_injections or remaining),
+                        )
+                    )
+            continue
+        rebuilt.append(segment)
+    return _cap_marks("".join(rebuilt), max_marks)
 
 
 def apply_highlight_rules(
@@ -179,9 +319,24 @@ def apply_highlight_rules(
     key_facts_extracted: list,
     ocr_text: str,
 ) -> tuple[str, list[str]]:
-    summary = highlight_summary_text(document_summary, ocr_text=ocr_text)
+    summary = highlight_summary_text(
+        document_summary,
+        ocr_text=ocr_text,
+        max_marks=MAX_MARKS_IN_SUMMARY,
+        inject_patterns=False,
+        inject_phrases=True,
+        max_phrase_injections=MAX_OCR_PHRASES_FOR_SUMMARY,
+    )
     facts = [
-        highlight_summary_text(str(fact), ocr_text=ocr_text)
+        highlight_summary_text(
+            str(fact),
+            ocr_text=ocr_text,
+            max_marks=MAX_MARKS_PER_FACT,
+            inject_patterns=True,
+            inject_phrases=True,
+            max_phrase_injections=1,
+            max_pattern_injections=1,
+        )
         for fact in (key_facts_extracted or [])
         if str(fact).strip()
     ]

@@ -1,0 +1,10 @@
+---
+description: Light mark highlights on key numbers and IDs in insights
+alwaysApply: true
+---
+
+# Highlights
+
+- You may use `<mark>...</mark>` on at most **one** important number, ID, or amount per insight sentence.
+- Do not wrap whole sentences.
+- Do not use any other HTML or markdown tags.

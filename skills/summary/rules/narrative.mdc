@@ -9,6 +9,8 @@ alwaysApply: true
 - `key_facts_extracted` is a short list of plain full sentences (not `Label: value`, not JSON-style keys). Each sentence states one concrete fact for THAT type.
   - Insurance: who issued it, who is covered, policy/claim number, coverage, premium, period.
   - Invoice: who issued it, invoice number, dates, amounts.
+  - JSON input: only facts supported by fields present in the JSON.
   - Other types: identifiers and dates that appear.
+- Return **at most** the requested number of key facts (default 6). Use fewer if the source has less material — never pad with filler.
 - Example style: `The invoice was issued by <mark>Niss Internet Services</mark>.` not `Issuer: Niss`.
 - Do not duplicate: facts must add detail not already said in `document_summary`; never restate the same party, ID, date, or amount in both places or across two facts.

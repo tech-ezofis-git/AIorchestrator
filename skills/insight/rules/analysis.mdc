@@ -5,8 +5,10 @@ alwaysApply: true
 
 # Analysis rules
 
+- When a business area / dashboard context is provided, tailor insights to that domain (AP Aging, Cash Flow, vendor risk, etc.).
 - Call out the most material numbers first (totals, overdue, aging buckets, exceptions).
 - When ratios are clear from the data (e.g. overdue vs open), state them in plain language.
 - Flag concentration risk (one vendor / one region / one aging bucket dominating).
+- Return at most the requested number of insights (default 4); use fewer if the source is thin.
 - If the source is empty or unusable, return `{"insights": []}` — do not invent filler.
 - Do not repeat the same fact in multiple insights with only wording changes.

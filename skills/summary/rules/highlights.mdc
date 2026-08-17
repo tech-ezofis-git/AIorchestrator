@@ -5,6 +5,8 @@ alwaysApply: true
 
 # Highlights
 
-- Highlight important spans with `<mark>...</mark>` only — party names, IDs/numbers, dates, and amounts inside `document_summary` and `key_facts_extracted`.
-- Do not wrap whole sentences.
+- Use `<mark>...</mark>` sparingly — only the most important party name, ID/number, date, or amount in each sentence.
+- In `document_summary`, use **at most 3** `<mark>` spans total across the whole summary.
+- In each `key_facts_extracted` sentence, use **at most 1** `<mark>` span.
+- Do not wrap whole sentences or entire amounts lists.
 - Do not use any other HTML or markdown tags.
