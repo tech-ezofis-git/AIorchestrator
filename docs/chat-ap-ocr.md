@@ -67,11 +67,15 @@ Set `intent` to `ap` plus one of: `invoice_json`, blob `filepath`, uploaded `fil
 
 `tenant_id` should be the full tenant UUID. The app keeps App Settings `DATABASE_URL` and opens database `ezofis_Tenant_{first 8}` (example: `2e3b7b37-38a3-4f94-878e-a006dad93230` → `ezofis_Tenant_2e3b7b37`).
 
-If `skills` is omitted, the tenant default plan runs (Phase 1):
+If `skills` is omitted / null, the **default pipeline** runs:
 
-`extract_invoice` → `po_match` → `duplicate_detect` → `vendor_validate` → `backorder_detect` → `finalize_decision`
+`extract_invoice` → `po_match` → `duplicate_detect` → `vendor_validate` → `backorder_detect` → `finalize_decision` → `workflow_move_next`
 
-Each skill charges 1 credit (mocked if `EZOFIS_LOGIN_EMAIL` / `PASSWORD` are empty).
+`workflow_move_next` posts to Ezofis when `instance_id` is set; if `instance_id` is missing it is skipped (no credit, no HTTP 400).
+
+If `skills` is a list, **only those skills** run (in that order). Unknown ids → 400. Opt-in skills (QB/Sage, GL, GRN, matter, `workflow_progress`) must be listed explicitly.
+
+Each skill that actually runs (not skipped) charges 1 credit (mocked if `EZOFIS_LOGIN_EMAIL` / `PASSWORD` are empty).
 
 ### JSON — pre-extracted invoice (skips OCR)
 
@@ -147,9 +151,9 @@ curl.exe -sS -X POST "https://cloud.ezofis.com/chat" ^
   -F "file=@invoice.pdf"
 ```
 
-### Phase 2 (opt-in — not in the default plan)
+### Opt-in skills (pass in `payload.skills`)
 
-Enable on the tenant plan or pass them in `skills`. Extra payload fields as needed:
+Pass them in `skills`. Extra payload fields as needed:
 
 | Skills | Extra fields |
 |---|---|
@@ -172,7 +176,7 @@ Enable on the tenant plan or pass them in `skills`. Extra payload fields as need
       "currency": "USD",
       "line_items": [{"description": "Widget", "qty": 10, "amount": 1234.56}]
     },
-    "skills": ["extract_invoice", "po_match", "finalize_decision", "workflow_progress"],
+    "skills": ["extract_invoice", "po_match", "finalize_decision", "workflow_move_next"],
     "workflow_id": "967f9423-ac93-4c70-93cb-df500f0d4cc9",
     "instance_id": "a96efa0d-28f1-4b48-afc2-c9791a346ce9"
   }

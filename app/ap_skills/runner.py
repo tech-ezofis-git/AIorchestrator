@@ -24,7 +24,6 @@ from app.ap_skills import (
 from app.ap_skills.planner import maybe_reorder, resolve_skills
 from app.ap_skills.store import ApStore
 from app.ap_skills.types import (
-    DEFAULT_SKILL_ORDER,
     ApContext,
     ApSkillError,
     ApSkillResult,
@@ -89,20 +88,20 @@ class ApSkillRunner:
         tenant_id = str(document_job.get("tenant_id") or "default").strip() or "default"
         item_key = resolve_item_key(document_job)
         plan = await self._store.get_plan(tenant_id)
-        enabled = list((plan or {}).get("enabled_skills") or DEFAULT_SKILL_ORDER)
         thresholds = dict((plan or {}).get("thresholds") or {})
         requested = document_job.get("skills")
         if requested is not None and not isinstance(requested, list):
             raise ApSkillError("payload.skills must be a list of skill ids.")
 
-        skills = resolve_skills(requested=requested, enabled=enabled)
+        # null skills → DEFAULT_SKILL_ORDER; list → exactly those ids.
+        skills = resolve_skills(requested=requested)
         skills = await maybe_reorder(
             skills,
             llm=self._llm,
             use_planner=bool(getattr(self._settings, "ap_llm_planner", False)) and requested is None,
         )
         if not skills:
-            raise ApSkillError("No enabled skills to run for this tenant.")
+            raise ApSkillError("No skills to run.")
 
         run_id = await self._store.create_run(
             session_id=session_id,
@@ -154,22 +153,23 @@ class ApSkillRunner:
                     skill_id=skill_id,
                     result=artifact,
                 )
-                charge_status = await self._charge(
-                    tenant_id=tenant_id,
-                    skill_id=skill_id,
-                    identify=str(identify),
-                    credits=result.credits,
-                )
-                await self._store.record_credit(
-                    run_id=run_id,
-                    tenant_id=tenant_id,
-                    skill_id=skill_id,
-                    credits=result.credits,
-                    identify=str(identify),
-                    status=charge_status,
-                )
+                if result.credits > 0:
+                    charge_status = await self._charge(
+                        tenant_id=tenant_id,
+                        skill_id=skill_id,
+                        identify=str(identify),
+                        credits=result.credits,
+                    )
+                    await self._store.record_credit(
+                        run_id=run_id,
+                        tenant_id=tenant_id,
+                        skill_id=skill_id,
+                        credits=result.credits,
+                        identify=str(identify),
+                        status=charge_status,
+                    )
+                    credits_charged += result.credits
                 skills_run.append(skill_id)
-                credits_charged += result.credits
 
             finalize = ctx.artifacts.get("finalize_decision") or {}
             decision = finalize.get("decision") or (ctx.artifacts.get("po_match") or {}).get("decision")
