@@ -71,7 +71,7 @@ If `skills` is omitted / null, the **default pipeline** runs:
 
 `extract_invoice` → `po_match` → `duplicate_detect` → `vendor_validate` → `backorder_detect` → `finalize_decision` → `workflow_move_next`
 
-`workflow_move_next` posts to Ezofis when `instance_id` is set; if `instance_id` is missing it is skipped (no credit, no HTTP 400).
+`workflow_move_next` posts to Ezofis when `instance_id` is set; if `instance_id` is missing it is skipped (no credit, no HTTP 400). Pass the same workflow ids as apagentv6: `repositoryId` (alias `repository`), `transactionId`, `formentryId`, `repositoryItemId`, and optional `processId`. These are forwarded on the move-next body as `repositoryId`, `transactionId`, `formEntryId`, `itemId`, `processId`.
 
 If `skills` is a list, **only those skills** run (in that order). Unknown ids → 400. Opt-in skills (QB/Sage, GL, GRN, matter, `workflow_progress`) must be listed explicitly.
 
@@ -95,6 +95,12 @@ curl.exe -sS -X POST "https://cloud.ezofis.com/chat" ^
     "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
     "formid": "29171de4-e210-466e-9e90-40fa9fa4354d",
     "item_id": "inv-100",
+    "instance_id": "a96efa0d-28f1-4b48-afc2-c9791a346ce9",
+    "repositoryId": "ef178e9c-e44b-4a88-b827-05268b54264e",
+    "repositoryItemId": "00000000-0000-0000-0000-000000000003",
+    "transactionId": "100",
+    "formentryId": "42",
+    "processId": "200",
     "invoice_json": {
       "invoice_number": "INV-100",
       "vendor": "ACME Supplies",
@@ -159,7 +165,7 @@ Pass them in `skills`. Extra payload fields as needed:
 |---|---|
 | `po_lookup_quickbooks`, `po_lookup_sage` | `connector_id`, `resource` (`QUICKBOOKS` or `SAGE`) |
 | `gl_match`, `grn_match`, `matter_validate` | `matter_master_id` for matter |
-| `workflow_progress`, `workflow_move_next` | `workflow_id`, `instance_id` |
+| `workflow_progress`, `workflow_move_next` | `workflow_id`, `instance_id`, plus `repositoryId`, `transactionId`, `formentryId`, `repositoryItemId`, `processId` for move-next |
 
 ```json
 {

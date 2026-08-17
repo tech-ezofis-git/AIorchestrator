@@ -41,8 +41,41 @@ class DocumentPayload(BaseModel):
         default=None,
         description="Stable AP document key for artifact re-runs. Defaults to filepath/filename/hash.",
     )
-    workflow_id: Optional[str] = Field(default=None, description="AP workflow id (progress skill).")
-    instance_id: Optional[str] = Field(default=None, description="AP workflow instance id (progress/move-next).")
+    repository_item_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("repository_item_id", "repositoryItemId", "repositoryItemID"),
+        description="Repository item UUID (move-next itemId). Alias: repositoryItemId.",
+    )
+    workflow_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("workflow_id", "workflowId"),
+        description="AP workflow id (progress / move-next).",
+    )
+    instance_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("instance_id", "instanceId"),
+        description="AP workflow instance id (progress/move-next).",
+    )
+    repository_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("repository_id", "repositoryId", "repository"),
+        description="Repository UUID for workflow move-next. Alias: repository, repositoryId.",
+    )
+    transaction_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("transaction_id", "transactionId"),
+        description="Workflow transaction id for move-next.",
+    )
+    form_entry_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("form_entry_id", "formentryId", "formEntryId"),
+        description="Form entry id (numeric or string) for move-next and ezfb row write-back.",
+    )
+    process_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("process_id", "processId"),
+        description="Workflow process id for move-next.",
+    )
     connector_id: Optional[str] = Field(default=None, description="QB/Sage connector id for PO lookup skills.")
     resource: Optional[str] = Field(
         default=None,
