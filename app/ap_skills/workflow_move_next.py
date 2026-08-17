@@ -86,6 +86,17 @@ async def run(ctx: ApContext) -> ApSkillResult:
     form_id = _job_str(job, "form_id")
     item_id = _job_str(job, "repository_item_id", "item_id") or ctx.item_key
     activity_id = await _resolve_activity_id(ctx, job, workflow_id)
+    if not activity_id:
+        return ApSkillResult(
+            skill_id=SKILL_ID,
+            credits=0,
+            data={
+                "skipped": True,
+                "reason": "no activityid",
+                "instance_id": instance_id,
+                "ok": True,
+            },
+        )
 
     payload = {
         "activityid": activity_id,

@@ -430,7 +430,11 @@ def test_default_pipeline_calls_move_next_when_instance_id_set(client, monkeypat
         json={
             "session_id": "s-ap-default-move",
             "intent": "ap",
-            "payload": _ap_payload(item_id="doc-default-move", instance_id="inst-1"),
+            "payload": _ap_payload(
+                item_id="doc-default-move",
+                instance_id="inst-1",
+                activityid="DR97uPaylMtwahvi3XYr_",
+            ),
         },
     )
     assert response.status_code == 200, response.text
@@ -439,6 +443,7 @@ def test_default_pipeline_calls_move_next_when_instance_id_set(client, monkeypat
     assert result["credits_charged"] == 7
     assert len(move_calls) == 1
     assert move_calls[0]["instance_id"] == "inst-1"
+    assert move_calls[0]["payload"]["activityid"] == "DR97uPaylMtwahvi3XYr_"
     assert "skipped" not in result["artifacts"]["workflow_move_next"]
 
 
@@ -468,6 +473,7 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
                 formentryId="42",
                 repositoryItemId="item-guid",
                 processId="200",
+                activityid="DR97uPaylMtwahvi3XYr_",
             ),
         },
     )
@@ -481,6 +487,7 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
     assert body["formEntryId"] == 42
     assert body["itemId"] == "item-guid"
     assert body["processId"] == "200"
+    assert body["activityid"] == "DR97uPaylMtwahvi3XYr_"
     assert body["isItemTable"] is True
 
 
@@ -489,7 +496,7 @@ def test_move_next_looks_up_activityid_from_workflow_steps(client, monkeypatch):
         {
             "name": "AP AGENT 1",
             "workflow_id": "wf-guid",
-            "activity_id": "act-from-db",
+            "activity_id": "DR97uPaylMtwahvi3XYr_",
             "order": 1,
         }
     )
@@ -517,7 +524,7 @@ def test_move_next_looks_up_activityid_from_workflow_steps(client, monkeypatch):
         },
     )
     assert response.status_code == 200, response.text
-    assert move_calls[0]["payload"]["activityid"] == "act-from-db"
+    assert move_calls[0]["payload"]["activityid"] == "DR97uPaylMtwahvi3XYr_"
 
 
 def test_move_next_payload_activityid_overrides_db_lookup(client, monkeypatch):
@@ -557,6 +564,33 @@ def test_move_next_payload_activityid_overrides_db_lookup(client, monkeypatch):
     assert move_calls[0]["payload"]["activityid"] == "act-from-payload"
 
 
+def test_move_next_skips_http_when_activityid_missing(client, monkeypatch):
+    move_calls = []
+
+    async def tracking_move(self, **kwargs):
+        move_calls.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.workflow_move_next",
+        tracking_move,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-no-activity",
+            "intent": "ap",
+            "payload": _ap_payload(item_id="doc-no-act", instance_id="inst-1"),
+        },
+    )
+    assert response.status_code == 200, response.text
+    artifact = response.json()["ap_result"]["artifacts"]["workflow_move_next"]
+    assert artifact["skipped"] is True
+    assert artifact["reason"] == "no activityid"
+    assert move_calls == []
+
+
 def test_workflow_move_next_mocked_after_finalize(client, monkeypatch):
     move_calls = []
 
@@ -578,6 +612,7 @@ def test_workflow_move_next_mocked_after_finalize(client, monkeypatch):
                 item_id="doc-wf",
                 workflow_id="wf-1",
                 instance_id="inst-1",
+                activityid="DR97uPaylMtwahvi3XYr_",
                 skills=[
                     "extract_invoice",
                     "po_match",
@@ -617,6 +652,7 @@ def test_non_invoice_path_skips_match_skills_when_requested(client, monkeypatch)
                 item_id="doc-non",
                 invoice_json={"doc_type": "other", "invoice_number": "X-1"},
                 instance_id="inst-non",
+                activityid="DR97uPaylMtwahvi3XYr_",
                 skills=["extract_invoice", "finalize_decision", "workflow_move_next"],
             ),
         },
