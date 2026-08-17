@@ -1,11 +1,11 @@
-"""Tenant plan gating + optional LLM reorder. LLM cannot enable extra skills."""
+"""Skill resolution + optional LLM reorder. LLM cannot enable extra skills."""
 from __future__ import annotations
 
 import json
 import logging
 from typing import Any, Optional
 
-from app.ap_skills.types import ALL_SKILL_ORDER, ALL_SKILLS, ApSkillError
+from app.ap_skills.types import ALL_SKILLS, DEFAULT_SKILL_ORDER, ApSkillError
 
 logger = logging.getLogger("orchestrator.ap_planner")
 
@@ -20,19 +20,21 @@ _PLANNER_PROMPT = (
 def resolve_skills(
     *,
     requested: Optional[list[str]],
-    enabled: list[str],
+    enabled: Optional[list[str]] = None,
 ) -> list[str]:
-    enabled_list = [s for s in enabled if s in ALL_SKILLS]
-    enabled_set = set(enabled_list)
+    """Resolve which skills to run.
+
+    - ``requested is None`` → always ``DEFAULT_SKILL_ORDER`` (includes
+      finalize_decision + workflow_move_next). ``enabled`` is ignored.
+    - ``requested`` is a list → run exactly those ids (must be known).
+    """
+    del enabled  # retained for call-site compat; gating is payload-driven now
     if requested is None:
-        return [s for s in ALL_SKILL_ORDER if s in enabled_set]
+        return list(DEFAULT_SKILL_ORDER)
 
     unknown = [s for s in requested if s not in ALL_SKILLS]
     if unknown:
         raise ApSkillError(f"Unknown skill(s): {', '.join(unknown)}")
-    blocked = [s for s in requested if s not in enabled_set]
-    if blocked:
-        raise ApSkillError(f"Skill(s) not enabled for this tenant: {', '.join(blocked)}")
     if not requested:
         raise ApSkillError("No skills requested.")
     return list(requested)

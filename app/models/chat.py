@@ -31,7 +31,7 @@ class DocumentPayload(BaseModel):
     )
     skills: Optional[list[str]] = Field(
         default=None,
-        description="AP skills to run. Omitted => tenant default plan. Re-run a subset using stored artifacts.",
+        description="AP skills to run. Omitted/null => default pipeline (includes finalize_decision + workflow_move_next). List => only those ids.",
     )
     invoice_json: Optional[dict[str, Any]] = Field(
         default=None,

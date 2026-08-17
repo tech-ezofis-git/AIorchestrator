@@ -563,7 +563,7 @@ _CHAT_MULTIPART_SCHEMA = {
         "skills": {
             "type": "array",
             "items": {"type": "string"},
-            "description": 'AP skill ids, e.g. ["vendor_validate"]. Omit for tenant default plan.',
+            "description": 'AP skill ids. Omit/null = default pipeline (ends with finalize_decision + workflow_move_next). List = run only those ids.',
         },
         "invoice_json": {
             "type": "string",

@@ -1,7 +1,7 @@
 """workflow_move_next — complete workflow step / Non-Invoice route."""
 from __future__ import annotations
 
-from app.ap_skills.types import ApContext, ApSkillError, ApSkillResult, invoice_from
+from app.ap_skills.types import ApContext, ApSkillResult, invoice_from
 
 SKILL_ID = "workflow_move_next"
 
@@ -10,13 +10,27 @@ async def run(ctx: ApContext) -> ApSkillResult:
     job = ctx.document_job or {}
     instance_id = str(job.get("instance_id") or "").strip()
     if not instance_id:
-        raise ApSkillError("workflow_move_next requires payload.instance_id.")
+        return ApSkillResult(
+            skill_id=SKILL_ID,
+            credits=0,
+            data={
+                "skipped": True,
+                "reason": "no instance_id",
+                "ok": True,
+            },
+        )
 
     finalize = ctx.artifacts.get("finalize_decision")
     if not isinstance(finalize, dict) or not finalize:
-        raise ApSkillError(
-            "workflow_move_next requires a stored finalize_decision artifact. "
-            "Run finalize_decision first."
+        return ApSkillResult(
+            skill_id=SKILL_ID,
+            credits=0,
+            data={
+                "skipped": True,
+                "reason": "no finalize_decision artifact",
+                "instance_id": instance_id,
+                "ok": True,
+            },
         )
 
     decision = str(finalize.get("decision") or "")

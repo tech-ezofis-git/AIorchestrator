@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol
 
+# Default pipeline when payload.skills is omitted/null.
+# Always ends with finalize_decision then workflow_move_next.
 PHASE1_SKILL_ORDER: tuple[str, ...] = (
     "extract_invoice",
     "po_match",
@@ -11,10 +13,11 @@ PHASE1_SKILL_ORDER: tuple[str, ...] = (
     "vendor_validate",
     "backorder_detect",
     "finalize_decision",
+    "workflow_move_next",
 )
 
-# Deterministic order for all known skills. Default tenant plan stays Phase 1;
-# Phase 2 skills run only when enabled on the tenant plan or explicitly requested.
+# Deterministic order for all known skills. Opt-in skills (QB/Sage/GL/GRN/…)
+# run only when listed in payload.skills.
 ALL_SKILL_ORDER: tuple[str, ...] = (
     "extract_invoice",
     "po_lookup_quickbooks",
