@@ -138,10 +138,13 @@
     padding: 0 20px;
     height: calc(100vh - 96px);
     min-height: 560px;
+    align-items: stretch;
   }
   @media (max-width: 920px) {
-    .layout { grid-template-columns: 1fr; height: auto; min-height: 0; }
+    .layout { grid-template-columns: 1fr; height: calc(100vh - 88px); min-height: 480px; }
     header { margin: 8px 12px 0; }
+    .transcript { min-height: 160px; }
+    .main-controls { max-height: min(42vh, 280px); }
   }
 
   .panel {
@@ -261,12 +264,20 @@
 
   /* —— Main chat —— */
   .main {
-    display: flex; flex-direction: column;
-    min-height: 0; overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
   }
   .transcript {
-    flex: 1; overflow-y: auto; padding: 28px 28px 20px;
-    display: flex; flex-direction: column; gap: 20px; min-height: 240px;
+    flex: 1 1 0;
+    min-height: 220px;
+    overflow-y: auto;
+    padding: 28px 28px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
     scroll-behavior: smooth;
   }
   .transcript::-webkit-scrollbar { width: 6px; }
@@ -347,13 +358,16 @@
   }
 
   .composer {
+    flex: 0 0 auto;
     margin: 0 16px 16px;
     padding: 8px 8px 8px 16px;
-    background: rgba(255, 255, 255, 0.88);
+    background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(20px) saturate(180%);
     border: 1px solid var(--glass-border);
     border-radius: 20px;
     box-shadow: var(--shadow-lg);
+    position: relative;
+    z-index: 10;
   }
   .composer form { display: flex; gap: 10px; align-items: flex-end; }
   .composer textarea {
@@ -364,30 +378,72 @@
     min-width: 88px; height: 48px; border-radius: 14px; flex-shrink: 0;
   }
 
+  .main-controls {
+    flex: 0 1 auto;
+    max-height: min(36vh, 320px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    border-top: 1px solid var(--line);
+    background: rgba(248, 246, 252, 0.92);
+    scrollbar-width: thin;
+  }
+  .main-controls[hidden] { display: none !important; }
+  .main-controls::-webkit-scrollbar { width: 6px; }
+  .main-controls::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.2); border-radius: 99px; }
+
   .doc-panel {
     display: none;
-    margin: 0 16px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: rgba(255,255,255,0.65);
-    backdrop-filter: blur(12px);
-    max-height: 300px;
-    overflow-y: auto;
-    flex-shrink: 0;
-    box-shadow: var(--shadow-sm);
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
   }
-  .doc-panel.visible { display: block; margin-bottom: 8px; }
+  .doc-panel.visible { display: block; }
+  .doc-panel > summary {
+    padding: 12px 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--periwinkle);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: rgba(248, 246, 252, 0.98);
+    border-bottom: 1px solid var(--line);
+  }
+  .doc-panel > summary::-webkit-details-marker { display: none; }
+  .doc-panel > summary::before {
+    content: '▸';
+    display: inline-block;
+    margin-right: 8px;
+    transition: transform .15s;
+    color: var(--ink-4);
+  }
+  .doc-panel[open] > summary::before { transform: rotate(90deg); }
+  .doc-panel-inner {
+    padding: 8px 16px 14px;
+  }
+  .doc-panel .mode-fields {
+    margin: 0;
+  }
   .ocr-panel {
-    margin: 0 16px 8px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    background: rgba(255,255,255,0.65);
-    max-height: 340px;
-    overflow-y: auto;
-    flex-shrink: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    max-height: none;
+    overflow: visible;
+    border-top: 1px solid var(--line);
   }
   .ocr-panel > summary {
-    padding: 14px 20px;
+    padding: 12px 20px;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -396,6 +452,10 @@
     cursor: pointer;
     list-style: none;
     transition: color .15s;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: rgba(248, 246, 252, 0.98);
   }
   .ocr-panel > summary:hover { color: var(--violet-deep); }
   .ocr-panel > summary::-webkit-details-marker { display: none; }
@@ -423,14 +483,9 @@
   }
   input[type=file]::file-selector-button:hover { background: var(--gradient-brand-hover); }
   .ocr-actions { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .doc-banner {
-    padding: 16px 20px 6px;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--periwinkle);
-  }
+  .doc-banner { display: none; }
   .doc-panel .mode-fields {
-    margin: 8px 16px 16px;
-    background: rgba(255,255,255,0.85);
+    margin: 0;
   }
   .composer textarea:focus, .sidebar input:focus, .sidebar textarea:focus, .sidebar select:focus,
   .mode-fields input:focus, .mode-fields textarea:focus, .mode-fields select:focus,
@@ -688,8 +743,10 @@
         <div class="empty-sub">Pick an action on the left — <strong>OCR</strong>, <strong>Summary</strong>, <strong>Insight</strong>, or <strong>AP</strong> — or type a message below.</div>
       </div>
     </div>
-    <div class="doc-panel" id="docPanel">
-      <div class="doc-banner" id="docBanner">OCR document — upload file or blob path</div>
+    <div class="main-controls" id="mainControls">
+    <details class="doc-panel" id="docPanel">
+      <summary class="doc-banner" id="docBanner">OCR document — upload file or blob path</summary>
+      <div class="doc-panel-inner">
       <div class="mode-fields" id="summaryFields" hidden>
         <div>
           <label for="summaryFile">File</label>
@@ -711,9 +768,17 @@
           <label for="summaryModel">model (optional)</label>
           <select id="summaryModel"></select>
         </div>
+        <div>
+          <label for="summaryKeyFactsCount">Key facts (max)</label>
+          <input type="text" id="summaryKeyFactsCount" value="6" placeholder="6 (default)" />
+        </div>
         <div style="grid-column:1/-1">
           <label for="summaryOcrText">OCR text (optional — skips file / blob / Paddle)</label>
           <textarea id="summaryOcrText" placeholder="Paste extracted text here…"></textarea>
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="summaryJson">JSON data (optional — wins over file / blob / OCR text)</label>
+          <textarea id="summaryJson" placeholder='{"no": 4, "vendor": "Acme Corp", "invoice_no": "INV-001", "total": 1770.00}'></textarea>
         </div>
       </div>
       <div class="mode-fields" id="insightFields" hidden>
@@ -736,6 +801,14 @@
         <div>
           <label for="insightModel">model (optional)</label>
           <select id="insightModel"></select>
+        </div>
+        <div>
+          <label for="insightInsightsCount">Insights (max)</label>
+          <input type="text" id="insightInsightsCount" value="4" placeholder="4 (default)" />
+        </div>
+        <div style="grid-column:1/-1">
+          <label for="insightArea">Business area / dashboard (optional)</label>
+          <input type="text" id="insightArea" placeholder="e.g. AP Aging, Cash Flow, Vendor Risk" />
         </div>
         <div style="grid-column:1/-1">
           <label for="insightOcrText">OCR text (optional — skips file / blob / Paddle)</label>
@@ -773,7 +846,8 @@
 Due Date,DATE</textarea>
         </div>
       </div>
-    </div>
+      </div>
+    </details>
     <details class="ocr-panel" id="apPanel">
       <summary>AP document — upload file, blob path, or invoice JSON</summary>
       <div class="ocr-grid">
@@ -855,6 +929,7 @@ Due Date,DATE</textarea>
         </div>
       </div>
     </details>
+    </div>
     <div class="composer">
       <form id="composerForm">
         <textarea id="messageInput" placeholder="Type a message… (e.g. &quot;search for the PTO policy&quot;)" rows="1"></textarea>
@@ -1036,6 +1111,25 @@ const chipsEl = document.getElementById('quickPrompts');
 const apPanel = document.getElementById('apPanel');
 let composerMode = 'chat';
 
+function syncMainControls() {
+  const mc = document.getElementById('mainControls');
+  const panel = document.getElementById('docPanel');
+  if (!mc || !panel) return;
+  const active = panel.classList.contains('visible') || (apPanel && apPanel.open);
+  mc.hidden = !active;
+}
+
+function collapseFormsAfterResult(body) {
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result)) return;
+  const panel = document.getElementById('docPanel');
+  if (panel) panel.open = false;
+  if (apPanel) apPanel.open = false;
+  syncMainControls();
+  requestAnimationFrame(() => {
+    transcript.scrollTop = transcript.scrollHeight;
+  });
+}
+
 function setComposerMode(mode) {
   if (mode === composerMode && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap')) {
     mode = 'chat';
@@ -1045,7 +1139,9 @@ function setComposerMode(mode) {
   const banner = document.getElementById('docBanner');
   const showDoc = mode === 'summary' || mode === 'ocr' || mode === 'insight';
   panel.classList.toggle('visible', showDoc);
+  panel.open = showDoc;
   if (apPanel) apPanel.open = mode === 'ap';
+  syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
@@ -1054,9 +1150,9 @@ function setComposerMode(mode) {
   });
   sendBtn.textContent = 'Send';
   if (mode === 'summary') {
-    banner.textContent = 'Summarize document — upload file, blob path, or OCR text';
-    messageInput.placeholder = 'Optional — file, blob path, or OCR text is enough';
-    document.getElementById('summaryFilepath').focus();
+    banner.textContent = 'Summarize document — JSON, OCR text, upload file, or blob path';
+    messageInput.placeholder = 'Optional — JSON / file / blob / OCR text is enough';
+    document.getElementById('summaryJson').focus();
   } else if (mode === 'insight') {
     banner.textContent = 'Insight — paste JSON, OCR text, upload file, or blob path';
     messageInput.placeholder = 'Optional — JSON / file / blob / OCR text is enough';
@@ -1067,7 +1163,6 @@ function setComposerMode(mode) {
     document.getElementById('ocrFilepath').focus();
   } else if (mode === 'ap') {
     messageInput.placeholder = 'Optional — use Run AP in the panel';
-    apPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } else {
     messageInput.placeholder = 'Type a message… (e.g. "search for the PTO policy")';
   }
@@ -1118,6 +1213,12 @@ async function checkHealth() {
 }
 checkHealth();
 setInterval(checkHealth, 15000);
+(function initMainControls() {
+  const docPanel = document.getElementById('docPanel');
+  if (docPanel) docPanel.addEventListener('toggle', syncMainControls);
+  if (apPanel) apPanel.addEventListener('toggle', syncMainControls);
+  syncMainControls();
+})();
 
 function clearEmptyState() {
   const empty = transcript.querySelector('.empty-state');
@@ -1445,11 +1546,13 @@ function insightSourceLabel(source) {
 
 function renderInsightResult(insight, request) {
   const items = Array.isArray(insight.insights) ? insight.insights : [];
-  const list = items.map(i => `<li>${escapeHtml(String(i))}</li>`).join('');
+  const list = items.map(i => `<li>${renderHighlightedText(String(i))}</li>`).join('');
   const sourceLabel = insightSourceLabel(insight.source_reference);
+  const maxCount = insight.insights_count != null ? insight.insights_count : 4;
   const chips = [
     sourceLabel ? `<span class="summary-chip source">${escapeHtml(sourceLabel)}</span>` : '',
-    `<span class="summary-chip">${items.length} insight${items.length === 1 ? '' : 's'}</span>`,
+    insight.insight_area ? `<span class="summary-chip lang">${escapeHtml(insight.insight_area)}</span>` : '',
+    `<span class="summary-chip">${items.length} / ${maxCount} insights</span>`,
   ].join('');
   const resultJson = JSON.stringify(insight, null, 2);
   const curlText = buildInsightCurl(request);
@@ -1579,6 +1682,7 @@ function renderAssistantMessage(body, sessionId, request) {
   });
 
   transcript.appendChild(div);
+  collapseFormsAfterResult(body);
   transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -1681,25 +1785,53 @@ async function sendSummaryJob() {
   const filepath = document.getElementById('summaryFilepath').value.trim();
   const tenantId = document.getElementById('summaryTenant').value.trim();
   const ocrText = (document.getElementById('summaryOcrText').value || '').trim();
+  const jsonRaw = (document.getElementById('summaryJson').value || '').trim();
+  const keyFactsRaw = (document.getElementById('summaryKeyFactsCount').value || '').trim();
   const file = fileInput.files && fileInput.files[0];
   const pageno = document.getElementById('summaryPageno').value.trim() || '1';
   const model = (summaryModelSelect && summaryModelSelect.value) || '';
 
-  if (!file && !filepath && !ocrText) {
-    addSystemMessage('Summary needs a file upload, a blob filepath, or OCR text.');
+  let summaryJson = null;
+  if (jsonRaw) {
+    try {
+      summaryJson = JSON.parse(jsonRaw);
+    } catch (e) {
+      addSystemMessage('Summary JSON must be valid JSON.');
+      return;
+    }
+    if (!summaryJson || typeof summaryJson !== 'object' || Array.isArray(summaryJson)) {
+      addSystemMessage('Summary JSON must be a JSON object.');
+      return;
+    }
+  }
+
+  let keyFactsCount = null;
+  if (keyFactsRaw) {
+    const parsed = Number.parseInt(keyFactsRaw, 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 20) {
+      addSystemMessage('Key facts count must be an integer between 1 and 20.');
+      return;
+    }
+    keyFactsCount = parsed;
+  }
+
+  if (!file && !filepath && !ocrText && !summaryJson) {
+    addSystemMessage('Summary needs JSON data, a file upload, a blob filepath, or OCR text.');
     return;
   }
-  if (!file && !ocrText && filepath && !tenantId) {
+  if (!summaryJson && !file && !ocrText && filepath && !tenantId) {
     addSystemMessage('Summary blob filepath needs tenant_id (container ezts{tenantid}).');
     return;
   }
 
-  const label = ocrText
-    ? `Summarize OCR text (${ocrText.length} chars)`
-    : (file ? `Summarize file: ${file.name}` : `Summarize filepath: ${filepath}`);
+  const label = summaryJson
+    ? `Summarize JSON (${Object.keys(summaryJson).length} keys)`
+    : (ocrText
+      ? `Summarize OCR text (${ocrText.length} chars)`
+      : (file ? `Summarize file: ${file.name}` : `Summarize filepath: ${filepath}`));
   addUserMessage(label);
   const processing = addProcessingMessage(
-    ocrText
+    summaryJson || ocrText
       ? 'Writing the summary…'
       : 'Extracting text and writing the summary… this can take a minute.'
   );
@@ -1709,9 +1841,24 @@ async function sendSummaryJob() {
   try {
     let res;
     let request;
-    if (ocrText) {
-      const payload = { ocr_text: ocrText };
-      if (model) payload.model = model;
+    const payloadExtras = {};
+    if (model) payloadExtras.model = model;
+    if (keyFactsCount != null) payloadExtras.key_facts_count = keyFactsCount;
+
+    if (summaryJson) {
+      const payload = { summary_json: summaryJson, ...payloadExtras };
+      request = { intent: 'summary', kind: 'summary_json', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          intent: 'summary',
+          payload,
+        }),
+      });
+    } else if (ocrText) {
+      const payload = { ocr_text: ocrText, ...payloadExtras };
       request = { intent: 'summary', kind: 'ocr_text', session_id: sessionId, payload };
       res = await fetch('/chat', {
         method: 'POST',
@@ -1728,19 +1875,19 @@ async function sendSummaryJob() {
         kind: 'file',
         session_id: sessionId,
         filename: file.name,
-        form: { pageno, model: model || undefined },
+        form: { pageno, model: model || undefined, key_facts_count: keyFactsCount || undefined },
       };
       const form = new FormData();
       form.append('session_id', sessionId);
       form.append('intent', 'summary');
       form.append('pageno', pageno);
       if (model) form.append('model', model);
+      if (keyFactsCount != null) form.append('key_facts_count', String(keyFactsCount));
       if (tenantId) form.append('tenant_id', tenantId);
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
-      const payload = { filepath, pageno, tenant_id: tenantId || null };
-      if (model) payload.model = model;
+      const payload = { filepath, pageno, tenant_id: tenantId || null, ...payloadExtras };
       request = { intent: 'summary', kind: 'filepath', session_id: sessionId, payload };
       res = await fetch('/chat', {
         method: 'POST',
@@ -1777,6 +1924,8 @@ async function sendInsightJob() {
   const tenantId = document.getElementById('insightTenant').value.trim();
   const ocrText = (document.getElementById('insightOcrText').value || '').trim();
   const jsonRaw = (document.getElementById('insightJson').value || '').trim();
+  const insightsCountRaw = (document.getElementById('insightInsightsCount').value || '').trim();
+  const insightArea = (document.getElementById('insightArea').value || '').trim();
   const file = fileInput.files && fileInput.files[0];
   const pageno = document.getElementById('insightPageno').value.trim() || '1';
   const model = (insightModelSelect && insightModelSelect.value) || '';
@@ -1793,6 +1942,16 @@ async function sendInsightJob() {
       addSystemMessage('Insight JSON must be a JSON object.');
       return;
     }
+  }
+
+  let insightsCount = null;
+  if (insightsCountRaw) {
+    const parsed = Number.parseInt(insightsCountRaw, 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 20) {
+      addSystemMessage('Insights count must be an integer between 1 and 20.');
+      return;
+    }
+    insightsCount = parsed;
   }
 
   if (!file && !filepath && !ocrText && !insightJson) {
@@ -1821,9 +1980,13 @@ async function sendInsightJob() {
   try {
     let res;
     let request;
+    const payloadExtras = {};
+    if (model) payloadExtras.model = model;
+    if (insightsCount != null) payloadExtras.insights_count = insightsCount;
+    if (insightArea) payloadExtras.insight_area = insightArea;
+
     if (insightJson) {
-      const payload = { insight_json: insightJson };
-      if (model) payload.model = model;
+      const payload = { insight_json: insightJson, ...payloadExtras };
       request = { intent: 'insight', kind: 'insight_json', session_id: sessionId, payload };
       res = await fetch('/chat', {
         method: 'POST',
@@ -1835,8 +1998,7 @@ async function sendInsightJob() {
         }),
       });
     } else if (ocrText) {
-      const payload = { ocr_text: ocrText };
-      if (model) payload.model = model;
+      const payload = { ocr_text: ocrText, ...payloadExtras };
       request = { intent: 'insight', kind: 'ocr_text', session_id: sessionId, payload };
       res = await fetch('/chat', {
         method: 'POST',
@@ -1853,19 +2015,25 @@ async function sendInsightJob() {
         kind: 'file',
         session_id: sessionId,
         filename: file.name,
-        form: { pageno, model: model || undefined },
+        form: {
+          pageno,
+          model: model || undefined,
+          insights_count: insightsCount || undefined,
+          insight_area: insightArea || undefined,
+        },
       };
       const form = new FormData();
       form.append('session_id', sessionId);
       form.append('intent', 'insight');
       form.append('pageno', pageno);
       if (model) form.append('model', model);
+      if (insightsCount != null) form.append('insights_count', String(insightsCount));
+      if (insightArea) form.append('insight_area', insightArea);
       if (tenantId) form.append('tenant_id', tenantId);
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
-      const payload = { filepath, pageno, tenant_id: tenantId || null };
-      if (model) payload.model = model;
+      const payload = { filepath, pageno, tenant_id: tenantId || null, ...payloadExtras };
       request = { intent: 'insight', kind: 'filepath', session_id: sessionId, payload };
       res = await fetch('/chat', {
         method: 'POST',

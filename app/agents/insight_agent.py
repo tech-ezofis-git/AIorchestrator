@@ -1,4 +1,4 @@
-"""Insight agent — flexible inputs → locked {insights: [...]} via skill pack.
+"""Insight agent — flexible inputs → locked insight_result via skill pack.
 
 Sources (document job), in precedence order:
   1. payload.insight_json  — arbitrary dashboard / report JSON
@@ -18,9 +18,9 @@ from app.agents.reference_extraction import extract_reference
 from app.config import Settings
 from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
+from app.insight_skills import rules
 from app.insight_skills.generate_insights import run as generate_insights_skill
 from app.insight_skills.lock import locked_insight_payload
-from app.insight_skills.rules import format_structured_payload
 from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import apply_preset, get_preset
@@ -86,16 +86,34 @@ class InsightAgent:
 
     async def _handle_document_job(self, job: dict[str, Any]) -> dict:
         insight_json = job.get("insight_json")
+        insights_count = rules.resolve_insights_count(
+            explicit=job.get("insights_count"),
+            insight_json=insight_json if isinstance(insight_json, dict) else None,
+        )
+        insight_area = rules.resolve_insight_area(
+            explicit=job.get("insight_area"),
+            insight_json=insight_json if isinstance(insight_json, dict) else None,
+        )
+        source_text = ""
+
         if isinstance(insight_json, dict) and insight_json:
-            content = format_structured_payload(insight_json)
-            source = "insight_json"
-            content_kind = "json"
+            data = rules.strip_insight_control_keys(insight_json)
+            if data:
+                content = rules.format_structured_payload(data)
+                source = "insight_json"
+                content_kind = "json"
+                source_text = content
+            else:
+                content = ""
+                source = "insight_json"
+                content_kind = "json"
         else:
             direct_text = (job.get("ocr_text") or "").strip()
             if direct_text:
                 content = direct_text
                 source = "ocr_text"
                 content_kind = "text"
+                source_text = direct_text
             else:
                 settings = self._cfg()
                 try:
@@ -125,16 +143,23 @@ class InsightAgent:
                         },
                     )
                     content = (ocr_tool.get("text") or "").strip()
+                    source_text = content
                 except (ToolExecutionError, OcrEngineError, Exception) as exc:
                     logger.warning(
                         "insight_document_extract_failed",
                         extra={"error_type": type(exc).__name__},
                     )
                     content = ""
+                    source_text = ""
                 content_kind = "text"
 
         if not (content or "").strip():
-            empty = locked_insight_payload(insights=[])
+            empty = locked_insight_payload(
+                insights=[],
+                insights_count=insights_count,
+                insight_area=insight_area,
+                source_text=source_text,
+            )
             return _job_result(empty, source=source, usage=None)
 
         model = (job.get("model") or "").strip() or None
@@ -147,6 +172,9 @@ class InsightAgent:
                 content_kind=content_kind,
                 instruction=instruction,
                 model=model,
+                insights_count=insights_count,
+                insight_area=insight_area,
+                source_text=source_text,
             )
         except Exception as exc:
             logger.warning("insight_primary_failed", extra={"model": model or "default"})
@@ -155,6 +183,9 @@ class InsightAgent:
                 source=source,
                 content_kind=content_kind,
                 instruction=instruction,
+                insights_count=insights_count,
+                insight_area=insight_area,
+                source_text=source_text,
                 primary=model,
                 error=exc,
             )
@@ -177,6 +208,9 @@ class InsightAgent:
         source: str,
         content_kind: str,
         instruction: Optional[str],
+        insights_count: int,
+        insight_area: Optional[str],
+        source_text: str,
         primary: Optional[str],
         error: Exception,
     ) -> dict[str, Any]:
@@ -203,6 +237,9 @@ class InsightAgent:
                     content_kind=content_kind,
                     instruction=instruction,
                     model=None,
+                    insights_count=insights_count,
+                    insight_area=insight_area,
+                    source_text=source_text,
                 )
             finally:
                 if default_preset and get_preset(default_preset):
@@ -217,6 +254,9 @@ class InsightAgent:
                 content_kind=content_kind,
                 instruction=instruction,
                 model=env_fallback,
+                insights_count=insights_count,
+                insight_area=insight_area,
+                source_text=source_text,
             )
 
         raise error

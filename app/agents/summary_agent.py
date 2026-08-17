@@ -1,6 +1,5 @@
-"""The Summary agent — legacy EZOFIS fetch, or document job (blob/upload
-→ Paddle extract_text, or caller-supplied ocr_text) → locked summary JSON.
-Same 3-model chain as OCR: payload.model → console/startup default → fallback.
+"""The Summary agent — legacy EZOFIS fetch, or document job (JSON blob / OCR text /
+file / filepath → locked summary JSON). Same 3-model chain as OCR.
 """
 from __future__ import annotations
 
@@ -12,6 +11,7 @@ from app.agents.reference_extraction import extract_reference
 from app.config import Settings
 from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
+from app.summary_skills import rules
 from app.summary_skills.lock import (
     balance_json_text,
     loads_json_object,
@@ -82,10 +82,31 @@ class SummaryAgent:
 
     async def _handle_document_job(self, job: dict[str, Any]) -> dict:
         settings = self._cfg()
-        direct_text = (job.get("ocr_text") or "").strip()
-        if direct_text:
-            ocr_text = direct_text
+        summary_json = job.get("summary_json")
+        key_facts_count = rules.resolve_key_facts_count(
+            explicit=job.get("key_facts_count"),
+            summary_json=summary_json if isinstance(summary_json, dict) else None,
+        )
+        model = (job.get("model") or "").strip() or None
+
+        content = ""
+        source = "upload"
+        content_kind = "text"
+        source_text = ""
+        page_label = ""
+
+        if isinstance(summary_json, dict) and summary_json:
+            data = rules.strip_summary_control_keys(summary_json)
+            if data:
+                content = rules.format_structured_payload(data)
+                source = "summary_json"
+                content_kind = "json"
+                source_text = content
+        elif direct_text := (job.get("ocr_text") or "").strip():
+            content = direct_text
             source = "ocr_text"
+            content_kind = "text"
+            source_text = direct_text
             page_label = "supplied text"
         else:
             try:
@@ -100,7 +121,6 @@ class SummaryAgent:
             source = filepath or filename or "upload"
             page_label = pages.label()
 
-            ocr_text = ""
             try:
                 ocr_tool = await self._dispatcher.dispatch(
                     "run_ocr",
@@ -116,38 +136,46 @@ class SummaryAgent:
                         "page_raw": pages.raw,
                     },
                 )
-                ocr_text = (ocr_tool.get("text") or "").strip()
+                content = (ocr_tool.get("text") or "").strip()
+                source_text = content
             except (ToolExecutionError, OcrEngineError, Exception) as exc:
                 logger.warning(
                     "summary_document_extract_failed",
                     extra={"error_type": type(exc).__name__},
                 )
-                ocr_text = ""
+                content = ""
+                source_text = ""
 
-        if not ocr_text:
+        if not content:
             empty = await summarize_document_skill(
                 llm=self._llm_for_skill(),
                 text="",
                 source=source,
                 page_label=page_label,
+                key_facts_count=key_facts_count,
             )
             return _document_job_result(empty["payload"], source=source, usage=None)
 
-        model = (job.get("model") or "").strip() or None
         try:
             synthesis = await summarize_document_skill(
                 llm=self._llm_for_skill(),
-                text=ocr_text,
+                text=content,
                 source=source,
                 page_label=page_label,
                 model=model,
+                content_kind=content_kind,
+                source_text=source_text,
+                key_facts_count=key_facts_count,
             )
         except Exception as exc:
             logger.warning("summary_primary_failed", extra={"model": model or "default"})
             synthesis = await self._summarize_with_fallback(
-                text=ocr_text,
+                text=content,
                 source=source,
                 page_label=page_label,
+                content_kind=content_kind,
+                source_text=source_text,
+                key_facts_count=key_facts_count,
                 primary=model,
                 error=exc,
             )
@@ -169,6 +197,9 @@ class SummaryAgent:
         text: str,
         source: str,
         page_label: str,
+        content_kind: str,
+        source_text: str,
+        key_facts_count: int,
         primary: Optional[str],
         error: Exception,
     ) -> dict[str, Any]:
@@ -194,6 +225,9 @@ class SummaryAgent:
                     source=source,
                     page_label=page_label,
                     model=None,
+                    content_kind=content_kind,
+                    source_text=source_text,
+                    key_facts_count=key_facts_count,
                 )
             finally:
                 if default_preset and get_preset(default_preset):
@@ -207,6 +241,9 @@ class SummaryAgent:
                 source=source,
                 page_label=page_label,
                 model=env_fallback,
+                content_kind=content_kind,
+                source_text=source_text,
+                key_facts_count=key_facts_count,
             )
 
         raise error

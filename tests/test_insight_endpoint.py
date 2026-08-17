@@ -85,8 +85,9 @@ def test_insight_from_arbitrary_json_returns_locked_insights(client, monkeypatch
     body = response.json()
     assert body["reply"] == "Insights generated successfully."
     result = body["insight_result"]
-    assert set(result.keys()) >= {"insights", "source_reference"}
+    assert set(result.keys()) >= {"insights", "source_reference", "insights_count"}
     assert result["source_reference"] == "insight_json"
+    assert result["insights_count"] == 4
     assert result["insights"] == [
         "Overdue share is elevated.",
         "90+ aging needs attention.",
@@ -161,7 +162,86 @@ def test_parse_insight_json_content_locks_shape():
     locked = parse_insight_json_content(
         '```json\n{"insights":["One.","Two."],"extra":true}\n```'
     )
-    assert locked == {"insights": ["One.", "Two."]}
+    assert locked["insights"] == ["One.", "Two."]
+    assert locked["insights_count"] == 4
 
     locked_list = parse_insight_json_content('["Alpha","Beta"]')
-    assert locked_list == {"insights": ["Alpha", "Beta"]}
+    assert locked_list["insights"] == ["Alpha", "Beta"]
+    assert locked_list["insights_count"] == 4
+
+
+def test_insight_insights_count_truncates(client, monkeypatch):
+    _install_fake_llm(
+        monkeypatch,
+        content='{"insights":["One.","Two.","Three.","Four.","Five.","Six."]}',
+    )
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-insight-count",
+            "intent": "insight",
+            "payload": {
+                "insight_json": {"open_invoices": 10, "overdue": 2},
+                "insights_count": 3,
+            },
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()["insight_result"]
+    assert len(result["insights"]) == 3
+    assert result["insights_count"] == 3
+
+
+def test_insight_area_in_request_and_response(client, monkeypatch):
+    seen = {}
+
+    async def fake_chat_completion(self, messages):
+        seen["user"] = messages[1]["content"]
+        return {
+            "content": '{"insights":["AP aging is concentrated in 90+ days."]}',
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_chat_completion)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-insight-area",
+            "intent": "insight",
+            "payload": {
+                "insight_area": "AP Aging Dashboard",
+                "insight_json": {"open_invoices": 120, "overdue_invoices": 18},
+            },
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()["insight_result"]
+    assert result["insight_area"] == "AP Aging Dashboard"
+    assert "AP Aging Dashboard" in seen["user"]
+
+
+def test_insight_json_no_and_dashboard_aliases(client, monkeypatch):
+    _install_fake_llm(
+        monkeypatch,
+        content='{"insights":["A.","B.","C.","D.","E."]}',
+    )
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-insight-no",
+            "intent": "insight",
+            "payload": {
+                "insight_json": {
+                    "no": 2,
+                    "dashboard": "Cash Flow",
+                    "total": 50000,
+                },
+            },
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()["insight_result"]
+    assert len(result["insights"]) == 2
+    assert result["insights_count"] == 2
+    assert result["insight_area"] == "Cash Flow"

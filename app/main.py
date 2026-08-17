@@ -521,7 +521,7 @@ _CHAT_MULTIPART_SCHEMA = {
     "type": "object",
     "properties": {
         "session_id": {"type": "string", "description": "Required session id."},
-        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/insight/ap with file/filepath/ocr_text/insight_json/invoice_json)."},
+        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/insight/ap with file/filepath/ocr_text/summary_json/insight_json/invoice_json)."},
         "intent": {
             "type": "string",
             "description": "Explicit agent (ocr, ap, chat, …). Omit to use keyword routing.",
@@ -540,11 +540,27 @@ _CHAT_MULTIPART_SCHEMA = {
         },
         "ocr_text": {
             "type": "string",
-            "description": "Pre-extracted OCR text (summary/insight). Skips blob download and Paddle. Wins over file/filepath (insight_json still wins for insight).",
+            "description": "Pre-extracted OCR text (summary/insight). Skips blob download and Paddle. Wins over file/filepath (summary_json / insight_json still win).",
+        },
+        "summary_json": {
+            "type": "string",
+            "description": "Arbitrary JSON object string for intent=summary. Skips OCR. Optional key `no` sets key_facts count (default 6).",
+        },
+        "key_facts_count": {
+            "type": "integer",
+            "description": "Max key_facts_extracted for intent=summary (default 6, max 20). Wins over summary_json.no.",
         },
         "insight_json": {
             "type": "string",
-            "description": "Arbitrary JSON object string for intent=insight (dashboard/report). Skips OCR.",
+            "description": "Arbitrary JSON object string for intent=insight. Optional keys: no/insights_count (default 4), insight_area/area/dashboard.",
+        },
+        "insights_count": {
+            "type": "integer",
+            "description": "Max insights for intent=insight (default 4, max 20). Wins over insight_json.no.",
+        },
+        "insight_area": {
+            "type": "string",
+            "description": "Optional dashboard/business area hint for intent=insight (e.g. AP Aging).",
         },
         "parameters": {
             "type": "array",
@@ -677,6 +693,23 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "summary_json": {
+                            "summary": "Summarize from structured JSON (no blob / Paddle)",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "summary",
+                                "payload": {
+                                    "summary_json": {
+                                        "no": 4,
+                                        "vendor": "Niss Internet Services",
+                                        "invoice_no": "INV/26-27/002140",
+                                        "total": 1770.00,
+                                        "currency": "INR",
+                                    },
+                                    "model": "qwen3.5-9b",
+                                },
+                            },
+                        },
                         "insight_json": {
                             "summary": "Insights from arbitrary dashboard JSON",
                             "value": {
@@ -724,6 +757,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     has_upload = parsed.file_bytes is not None  # empty bytes still count as an upload attempt
     has_filepath = bool(payload.payload and (payload.payload.filepath or "").strip())
     has_ocr_text = bool(payload.payload and (payload.payload.ocr_text or "").strip())
+    has_summary_json = bool(payload.payload and payload.payload.summary_json)
     has_insight_json = bool(payload.payload and payload.payload.insight_json)
     message = (payload.message or "").strip()
     explicit = (payload.intent or "").strip().lower()
@@ -732,6 +766,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             has_filepath
             or has_upload
             or has_ocr_text
+            or has_summary_json
             or has_insight_json
             or explicit in {"ocr", "summary", "insight", "ap"}
         ):
@@ -796,6 +831,27 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         document_job = {
             "instruction": payload.instruction,
             "insight_json": payload.payload.insight_json if payload.payload else None,
+            "insights_count": payload.payload.insights_count if payload.payload else None,
+            "insight_area": payload.payload.insight_area if payload.payload else None,
+            "summary_json": None,
+            "key_facts_count": payload.payload.key_facts_count if payload.payload else None,
+            "ocr_text": None,
+            "filepath": None,
+            "file_bytes": None,
+            "filename": None,
+            "content_type": None,
+            "pageno": None,
+            "parameters": [],
+            "tableparameters": [],
+            "model": payload.payload.model if payload.payload else None,
+            "tenant_id": payload.payload.tenant_id if payload.payload else None,
+        }
+    elif intent == Intent.SUMMARY and has_summary_json:
+        document_job = {
+            "instruction": payload.instruction,
+            "insight_json": None,
+            "summary_json": payload.payload.summary_json if payload.payload else None,
+            "key_facts_count": payload.payload.key_facts_count if payload.payload else None,
             "ocr_text": None,
             "filepath": None,
             "file_bytes": None,
@@ -812,6 +868,10 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         document_job = {
             "instruction": payload.instruction,
             "insight_json": None,
+            "insights_count": payload.payload.insights_count if payload.payload else None,
+            "insight_area": payload.payload.insight_area if payload.payload else None,
+            "summary_json": None,
+            "key_facts_count": payload.payload.key_facts_count if payload.payload else None,
             "ocr_text": (payload.payload.ocr_text or "").strip() if payload.payload else "",
             "filepath": None,
             "file_bytes": None,
@@ -837,6 +897,10 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         document_job = {
             "instruction": payload.instruction,
             "insight_json": None,
+            "insights_count": payload.payload.insights_count if payload.payload else None,
+            "insight_area": payload.payload.insight_area if payload.payload else None,
+            "summary_json": None,
+            "key_facts_count": payload.payload.key_facts_count if payload.payload else None,
             "ocr_text": None,
             "filepath": None if parsed.file_bytes is not None else (payload.payload.filepath if payload.payload else None),
             "file_bytes": parsed.file_bytes,
@@ -851,7 +915,9 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     elif intent == Intent.OCR and explicit == "ocr" and not has_document:
         # Explicit OCR without a document still allows legacy "run ocr on SCN-.." messages.
         pass
-    elif intent == Intent.SUMMARY and explicit == "summary" and not (has_document or has_ocr_text):
+    elif intent == Intent.SUMMARY and explicit == "summary" and not (
+        has_document or has_ocr_text or has_summary_json
+    ):
         # Explicit summary without a file still allows legacy "summarize DOC-123".
         pass
     elif intent == Intent.INSIGHT and explicit == "insight" and not (

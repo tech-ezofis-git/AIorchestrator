@@ -3,7 +3,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from app.summary_skills.rules import EMPTY_SUMMARY_TEXT, apply_highlight_rules
+from app.summary_skills.rules import (
+    DEFAULT_KEY_FACTS_COUNT,
+    EMPTY_SUMMARY_TEXT,
+    apply_highlight_rules,
+    resolve_key_facts_count,
+)
 
 
 def locked_summary_payload(
@@ -15,17 +20,20 @@ def locked_summary_payload(
     document_language: str = "",
     document_summary: str = "",
     key_facts_extracted: Optional[list] = None,
+    key_facts_count: int = DEFAULT_KEY_FACTS_COUNT,
 ) -> dict:
     summary = (document_summary or "").strip()
     if not (ocr_text or "").strip() and not summary:
         summary = EMPTY_SUMMARY_TEXT
     facts = list(key_facts_extracted or [])
+    limit = resolve_key_facts_count(explicit=key_facts_count)
     if summary != EMPTY_SUMMARY_TEXT:
         summary, facts = apply_highlight_rules(
             document_summary=summary,
             key_facts_extracted=facts,
             ocr_text=ocr_text or "",
         )
+    facts = facts[:limit]
     return {
         "confidence_score": confidence_score,
         "document_type": (document_type or "").strip(),
@@ -205,7 +213,12 @@ def coerce_confidence(value) -> float:
     return round(score, 1)
 
 
-def payload_from_parsed(data: dict, *, ocr_text: str) -> dict:
+def payload_from_parsed(
+    data: dict,
+    *,
+    ocr_text: str,
+    key_facts_count: int = DEFAULT_KEY_FACTS_COUNT,
+) -> dict:
     nested = loads_json_object(data.get("document_summary"))
     if isinstance(nested, dict) and (
         "key_facts_extracted" in nested or "confidence_score" in nested
@@ -220,18 +233,25 @@ def payload_from_parsed(data: dict, *, ocr_text: str) -> dict:
         document_language=str(data.get("document_language") or ""),
         document_summary=str(data.get("document_summary") or ""),
         key_facts_extracted=facts_from(data.get("key_facts_extracted")),
+        key_facts_count=key_facts_count,
     )
 
 
-def parse_summary_json_content(content: str, *, ocr_text: str) -> dict:
+def parse_summary_json_content(
+    content: str,
+    *,
+    ocr_text: str,
+    key_facts_count: int = DEFAULT_KEY_FACTS_COUNT,
+) -> dict:
     text = normalize_json_text(content)
     data = loads_json_object(text)
     if isinstance(data, dict):
-        payload = payload_from_parsed(data, ocr_text=ocr_text)
+        payload = payload_from_parsed(data, ocr_text=ocr_text, key_facts_count=key_facts_count)
     else:
         payload = locked_summary_payload(
             ocr_text=ocr_text,
             document_summary=text,
+            key_facts_count=key_facts_count,
         )
 
     if (
@@ -241,5 +261,5 @@ def parse_summary_json_content(content: str, *, ocr_text: str) -> dict:
     ):
         nested = loads_json_object(payload["document_summary"])
         if isinstance(nested, dict):
-            return payload_from_parsed(nested, ocr_text=ocr_text)
+            return payload_from_parsed(nested, ocr_text=ocr_text, key_facts_count=key_facts_count)
     return payload
