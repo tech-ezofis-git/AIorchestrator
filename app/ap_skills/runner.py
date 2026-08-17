@@ -51,7 +51,7 @@ REGISTRY: dict[str, SkillFn] = {
 
 
 def resolve_item_key(job: dict[str, Any]) -> str:
-    item_id = str(job.get("item_id") or "").strip()
+    item_id = str(job.get("item_id") or job.get("repository_item_id") or "").strip()
     if item_id:
         return item_id
     filepath = str(job.get("filepath") or "").strip()

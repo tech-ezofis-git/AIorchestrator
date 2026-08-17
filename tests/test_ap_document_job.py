@@ -442,6 +442,48 @@ def test_default_pipeline_calls_move_next_when_instance_id_set(client, monkeypat
     assert "skipped" not in result["artifacts"]["workflow_move_next"]
 
 
+def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
+    move_calls = []
+
+    async def tracking_move(self, **kwargs):
+        move_calls.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.workflow_move_next",
+        tracking_move,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-wf-ids",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-wf-ids",
+                workflowId="wf-guid",
+                instanceId="inst-guid",
+                repository="repo-guid",
+                transactionId="100",
+                formentryId="42",
+                repositoryItemId="item-guid",
+                processId="200",
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len(move_calls) == 1
+    body = move_calls[0]["payload"]
+    assert body["workflowId"] == "wf-guid"
+    assert body["instanceId"] == "inst-guid"
+    assert body["repositoryId"] == "repo-guid"
+    assert body["transactionId"] == "100"
+    assert body["formEntryId"] == 42
+    assert body["itemId"] == "item-guid"
+    assert body["processId"] == "200"
+    assert body["isItemTable"] is True
+
+
 def test_workflow_move_next_mocked_after_finalize(client, monkeypatch):
     move_calls = []
 

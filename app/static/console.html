@@ -529,8 +529,28 @@ Due Date,DATE</textarea>
           <input type="text" id="apWorkflowId" placeholder="optional" />
         </div>
         <div>
-          <label for="apInstanceId">instance_id</label>
+          <label for="apInstanceId">instanceId</label>
           <input type="text" id="apInstanceId" placeholder="optional (move-next)" />
+        </div>
+        <div>
+          <label for="apRepositoryId">repositoryId</label>
+          <input type="text" id="apRepositoryId" placeholder="repository UUID" />
+        </div>
+        <div>
+          <label for="apTransactionId">transactionId</label>
+          <input type="text" id="apTransactionId" placeholder="workflow transaction" />
+        </div>
+        <div>
+          <label for="apFormEntryId">formentryId</label>
+          <input type="text" id="apFormEntryId" placeholder="form entry id" />
+        </div>
+        <div>
+          <label for="apRepositoryItemId">repositoryItemId</label>
+          <input type="text" id="apRepositoryItemId" placeholder="repository item UUID" />
+        </div>
+        <div>
+          <label for="apProcessId">processId</label>
+          <input type="text" id="apProcessId" placeholder="optional process id" />
         </div>
         <div class="ocr-actions">
           <button type="button" class="btn-primary" id="apSendBtn">Run AP</button>
@@ -1397,6 +1417,11 @@ async function sendApJob() {
   const resource = document.getElementById('apResource').value.trim();
   const workflowId = document.getElementById('apWorkflowId').value.trim();
   const instanceId = document.getElementById('apInstanceId').value.trim();
+  const repositoryId = (document.getElementById('apRepositoryId') && document.getElementById('apRepositoryId').value.trim()) || '';
+  const transactionId = (document.getElementById('apTransactionId') && document.getElementById('apTransactionId').value.trim()) || '';
+  const formEntryId = (document.getElementById('apFormEntryId') && document.getElementById('apFormEntryId').value.trim()) || '';
+  const repositoryItemId = (document.getElementById('apRepositoryItemId') && document.getElementById('apRepositoryItemId').value.trim()) || '';
+  const processId = (document.getElementById('apProcessId') && document.getElementById('apProcessId').value.trim()) || '';
   const skills = parseSkillLines(document.getElementById('apSkills').value);
 
   let invoiceJson = null;
@@ -1439,6 +1464,11 @@ async function sendApJob() {
           resource: resource || undefined,
           workflow_id: workflowId || undefined,
           instance_id: instanceId || undefined,
+          repositoryId: repositoryId || undefined,
+          transactionId: transactionId || undefined,
+          formentryId: formEntryId || undefined,
+          repositoryItemId: repositoryItemId || undefined,
+          processId: processId || undefined,
           skills: skills.length ? JSON.stringify(skills) : undefined,
           invoice_json: invoiceJson ? JSON.stringify(invoiceJson) : undefined,
         },
@@ -1454,6 +1484,11 @@ async function sendApJob() {
       if (resource) form.append('resource', resource);
       if (workflowId) form.append('workflow_id', workflowId);
       if (instanceId) form.append('instance_id', instanceId);
+      if (repositoryId) form.append('repositoryId', repositoryId);
+      if (transactionId) form.append('transactionId', transactionId);
+      if (formEntryId) form.append('formentryId', formEntryId);
+      if (repositoryItemId) form.append('repositoryItemId', repositoryItemId);
+      if (processId) form.append('processId', processId);
       if (skills.length) form.append('skills', JSON.stringify(skills));
       if (invoiceJson) form.append('invoice_json', JSON.stringify(invoiceJson));
       form.append('file', file, file.name);
@@ -1471,6 +1506,11 @@ async function sendApJob() {
           resource: resource || null,
           workflow_id: workflowId || null,
           instance_id: instanceId || null,
+          repositoryId: repositoryId || null,
+          transactionId: transactionId || null,
+          formentryId: formEntryId || null,
+          repositoryItemId: repositoryItemId || null,
+          processId: processId || null,
           skills: skills.length ? skills : null,
           invoice_json: invoiceJson,
         },

@@ -54,8 +54,37 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or _form_str(form.get("formId"))
     )
     item_id = _form_str(form.get("item_id"))
-    workflow_id = _form_str(form.get("workflow_id"))
-    instance_id = _form_str(form.get("instance_id"))
+    repository_item_id = (
+        _form_str(form.get("repository_item_id"))
+        or _form_str(form.get("repositoryItemId"))
+        or _form_str(form.get("repositoryItemID"))
+    )
+    workflow_id = (
+        _form_str(form.get("workflow_id"))
+        or _form_str(form.get("workflowId"))
+    )
+    instance_id = (
+        _form_str(form.get("instance_id"))
+        or _form_str(form.get("instanceId"))
+    )
+    repository_id = (
+        _form_str(form.get("repository_id"))
+        or _form_str(form.get("repositoryId"))
+        or _form_str(form.get("repository"))
+    )
+    transaction_id = (
+        _form_str(form.get("transaction_id"))
+        or _form_str(form.get("transactionId"))
+    )
+    form_entry_id = (
+        _form_str(form.get("form_entry_id"))
+        or _form_str(form.get("formentryId"))
+        or _form_str(form.get("formEntryId"))
+    )
+    process_id = (
+        _form_str(form.get("process_id"))
+        or _form_str(form.get("processId"))
+    )
     connector_id = _form_str(form.get("connector_id"))
     resource = _form_str(form.get("resource"))
     matter_master_id = _form_str(form.get("matter_master_id"))
@@ -86,6 +115,11 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or invoice_json
         or workflow_id
         or instance_id
+        or repository_id
+        or transaction_id
+        or form_entry_id
+        or process_id
+        or repository_item_id
         or connector_id
         or resource
         or matter_master_id
@@ -103,8 +137,13 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             skills=skills if skills_raw is not None or skills else None,
             invoice_json=invoice_json,
             item_id=item_id,
+            repository_item_id=repository_item_id,
             workflow_id=workflow_id,
             instance_id=instance_id,
+            repository_id=repository_id,
+            transaction_id=transaction_id,
+            form_entry_id=form_entry_id,
+            process_id=process_id,
             connector_id=connector_id,
             resource=resource,
             matter_master_id=matter_master_id,
