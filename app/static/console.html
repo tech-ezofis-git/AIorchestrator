@@ -922,6 +922,10 @@ Due Date,DATE</textarea>
           <label for="apProcessId">processId</label>
           <input type="text" id="apProcessId" placeholder="optional process id" />
         </div>
+        <div>
+          <label for="apActivityId">activityid</label>
+          <input type="text" id="apActivityId" placeholder="optional; else lookup AP AGENT 1" />
+        </div>
         <div class="ocr-actions">
           <button type="button" class="btn-primary" id="apSendBtn">Run AP</button>
           <button type="button" class="btn-ghost" id="apClearSkillsBtn">Clear skills</button>
@@ -2084,6 +2088,7 @@ async function sendApJob() {
   const formEntryId = (document.getElementById('apFormEntryId') && document.getElementById('apFormEntryId').value.trim()) || '';
   const repositoryItemId = (document.getElementById('apRepositoryItemId') && document.getElementById('apRepositoryItemId').value.trim()) || '';
   const processId = (document.getElementById('apProcessId') && document.getElementById('apProcessId').value.trim()) || '';
+  const activityId = (document.getElementById('apActivityId') && document.getElementById('apActivityId').value.trim()) || '';
   const skills = parseSkillLines(document.getElementById('apSkills').value);
 
   let invoiceJson = null;
@@ -2131,6 +2136,7 @@ async function sendApJob() {
           formentryId: formEntryId || undefined,
           repositoryItemId: repositoryItemId || undefined,
           processId: processId || undefined,
+          activityid: activityId || undefined,
           skills: skills.length ? JSON.stringify(skills) : undefined,
           invoice_json: invoiceJson ? JSON.stringify(invoiceJson) : undefined,
         },
@@ -2151,6 +2157,7 @@ async function sendApJob() {
       if (formEntryId) form.append('formentryId', formEntryId);
       if (repositoryItemId) form.append('repositoryItemId', repositoryItemId);
       if (processId) form.append('processId', processId);
+      if (activityId) form.append('activityid', activityId);
       if (skills.length) form.append('skills', JSON.stringify(skills));
       if (invoiceJson) form.append('invoice_json', JSON.stringify(invoiceJson));
       form.append('file', file, file.name);
@@ -2173,6 +2180,7 @@ async function sendApJob() {
           formentryId: formEntryId || null,
           repositoryItemId: repositoryItemId || null,
           processId: processId || null,
+          activityid: activityId || null,
           skills: skills.length ? skills : null,
           invoice_json: invoiceJson,
         },

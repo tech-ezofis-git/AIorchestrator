@@ -71,7 +71,7 @@ If `skills` is omitted / null, the **default pipeline** runs:
 
 `extract_invoice` → `po_match` → `duplicate_detect` → `vendor_validate` → `backorder_detect` → `finalize_decision` → `workflow_move_next`
 
-`workflow_move_next` posts to Ezofis when `instance_id` is set; if `instance_id` is missing it is skipped (no credit, no HTTP 400). Pass the same workflow ids as apagentv6: `repositoryId` (alias `repository`), `transactionId`, `formentryId`, `repositoryItemId`, and optional `processId`. These are forwarded on the move-next body as `repositoryId`, `transactionId`, `formEntryId`, `itemId`, `processId`.
+`workflow_move_next` posts to Ezofis when `instance_id` is set; if `instance_id` is missing it is skipped (no credit, no HTTP 400). Pass the same workflow ids as apagentv6: `repositoryId` (alias `repository`), `transactionId`, `formentryId`, `repositoryItemId`, and optional `processId`. `activityid` is looked up from tenant DB `workflow.WorkflowSteps` for step name `AP AGENT 1` (override with payload `activityid` / env `AP_AGENT_WORKFLOW_STEP_NAME`). These are forwarded on the move-next body as `activityid`, `repositoryId`, `transactionId`, `formEntryId`, `itemId`, `processId`.
 
 If `skills` is a list, **only those skills** run (in that order). Unknown ids → 400. Opt-in skills (QB/Sage, GL, GRN, matter, `workflow_progress`) must be listed explicitly.
 
@@ -165,7 +165,7 @@ Pass them in `skills`. Extra payload fields as needed:
 |---|---|
 | `po_lookup_quickbooks`, `po_lookup_sage` | `connector_id`, `resource` (`QUICKBOOKS` or `SAGE`) |
 | `gl_match`, `grn_match`, `matter_validate` | `matter_master_id` for matter |
-| `workflow_progress`, `workflow_move_next` | `workflow_id`, `instance_id`, plus `repositoryId`, `transactionId`, `formentryId`, `repositoryItemId`, `processId` for move-next |
+| `workflow_progress`, `workflow_move_next` | `workflow_id`, `instance_id`, plus `repositoryId`, `transactionId`, `formentryId`, `repositoryItemId`, `processId`; `activityid` looked up from `workflow.WorkflowSteps` unless sent |
 
 ```json
 {

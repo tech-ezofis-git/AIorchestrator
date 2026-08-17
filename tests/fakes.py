@@ -50,6 +50,7 @@ class FakeDBPool:
         self.ap_skill_artifacts: list[dict[str, Any]] = []
         self.ap_tenant_plans: dict[str, dict[str, Any]] = {}
         self.ap_credit_ledger: list[dict[str, Any]] = []
+        self.workflow_steps: list[dict[str, Any]] = []
 
     async def fetchrow(self, query: str, *args: Any):
         if "INSERT INTO documents" in query:
@@ -75,6 +76,19 @@ class FakeDBPool:
         if "FROM ap_tenant_plans" in query:
             tenant_id = args[0]
             return self.ap_tenant_plans.get(str(tenant_id))
+        if "WorkflowSteps" in query or "workflowsteps" in query:
+            step_name = str(args[0]) if args else ""
+            workflow_id = str(args[1]) if len(args) > 1 and args[1] is not None else None
+            matches = [
+                row
+                for row in self.workflow_steps
+                if row.get("name") == step_name
+                and (not workflow_id or str(row.get("workflow_id") or "") == workflow_id)
+            ]
+            matches.sort(key=lambda row: int(row.get("order") or 0))
+            if not matches:
+                return None
+            return {"activity_id": matches[0].get("activity_id")}
         raise AssertionError(f"FakeDBPool.fetchrow: unrecognized query: {query!r}")
 
     async def executemany(self, query: str, args_list: list[tuple]):

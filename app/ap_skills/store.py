@@ -221,6 +221,59 @@ class ApStore:
             "thresholds": thresholds,
         }
 
+    async def fetch_workflow_activity_id(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: Optional[str] = None,
+        step_name: str = "AP AGENT 1",
+    ) -> Optional[str]:
+        """Resolve ActivityId from workflow.WorkflowSteps (Postgres port of apagentv6)."""
+        name = (step_name or "AP AGENT 1").strip() or "AP AGENT 1"
+        wf = (workflow_id or "").strip() or None
+        queries = (
+            (
+                'SELECT "ActivityId" AS activity_id FROM workflow."WorkflowSteps" '
+                'WHERE "Name" = $1 AND ($2::text IS NULL OR CAST("WorkflowId" AS text) = $2) '
+                'ORDER BY "Order" LIMIT 1',
+                (name, wf),
+            ),
+            (
+                "SELECT activityid AS activity_id FROM workflow.workflowsteps "
+                "WHERE name = $1 AND ($2::text IS NULL OR workflowid::text = $2) "
+                'ORDER BY "order" LIMIT 1',
+                (name, wf),
+            ),
+        )
+        try:
+            db = await self._db(tenant_id)
+        except Exception as exc:
+            logger.warning(
+                "ap_activityid_db_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
+            return None
+        for sql, params in queries:
+            try:
+                row = await db.fetchrow(sql, *params)
+            except Exception as exc:
+                logger.warning(
+                    "ap_activityid_lookup_failed",
+                    extra={
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:200],
+                        "step_name": name,
+                    },
+                )
+                continue
+            if row is None:
+                continue
+            value = _row_get(row, "activity_id") or _row_get(row, "ActivityId") or _row_get(row, "activityid")
+            text = str(value).strip() if value not in (None, "") else ""
+            if text:
+                return text
+        return None
+
     async def record_credit(
         self,
         *,

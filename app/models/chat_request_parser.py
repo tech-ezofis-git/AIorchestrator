@@ -85,6 +85,12 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         _form_str(form.get("process_id"))
         or _form_str(form.get("processId"))
     )
+    activity_id = (
+        _form_str(form.get("activity_id"))
+        or _form_str(form.get("activityid"))
+        or _form_str(form.get("activityId"))
+        or _form_str(form.get("ActivityId"))
+    )
     connector_id = _form_str(form.get("connector_id"))
     resource = _form_str(form.get("resource"))
     matter_master_id = _form_str(form.get("matter_master_id"))
@@ -124,6 +130,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or transaction_id
         or form_entry_id
         or process_id
+        or activity_id
         or repository_item_id
         or connector_id
         or resource
@@ -168,6 +175,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             transaction_id=transaction_id,
             form_entry_id=form_entry_id,
             process_id=process_id,
+            activity_id=activity_id,
             connector_id=connector_id,
             resource=resource,
             matter_master_id=matter_master_id,

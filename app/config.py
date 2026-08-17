@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     # AP tables live in ezofis_Tenant_{first 8 of tenant_id} on the same
     # server as DATABASE_URL. Empty prefix disables routing (main DB only).
     ap_tenant_db_prefix: str = "ezofis_Tenant_"
+    # Workflow step name used to resolve ActivityId from workflow.WorkflowSteps
+    # (same default as apagentv6). Env: AP_AGENT_WORKFLOW_STEP_NAME.
+    ap_agent_workflow_step_name: str = "AP AGENT 1"
 
     model_config = SettingsConfigDict(
         env_file=".env",

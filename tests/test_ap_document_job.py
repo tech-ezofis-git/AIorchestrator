@@ -484,6 +484,79 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
     assert body["isItemTable"] is True
 
 
+def test_move_next_looks_up_activityid_from_workflow_steps(client, monkeypatch):
+    client.fake_db_pool.workflow_steps.append(
+        {
+            "name": "AP AGENT 1",
+            "workflow_id": "wf-guid",
+            "activity_id": "act-from-db",
+            "order": 1,
+        }
+    )
+    move_calls = []
+
+    async def tracking_move(self, **kwargs):
+        move_calls.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.workflow_move_next",
+        tracking_move,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-activity-db",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-act-db",
+                workflowId="wf-guid",
+                instanceId="inst-guid",
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert move_calls[0]["payload"]["activityid"] == "act-from-db"
+
+
+def test_move_next_payload_activityid_overrides_db_lookup(client, monkeypatch):
+    client.fake_db_pool.workflow_steps.append(
+        {
+            "name": "AP AGENT 1",
+            "workflow_id": "wf-guid",
+            "activity_id": "act-from-db",
+            "order": 1,
+        }
+    )
+    move_calls = []
+
+    async def tracking_move(self, **kwargs):
+        move_calls.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.workflow_move_next",
+        tracking_move,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-activity-override",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-act-override",
+                workflowId="wf-guid",
+                instanceId="inst-guid",
+                activityid="act-from-payload",
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert move_calls[0]["payload"]["activityid"] == "act-from-payload"
+
+
 def test_workflow_move_next_mocked_after_finalize(client, monkeypatch):
     move_calls = []
 
