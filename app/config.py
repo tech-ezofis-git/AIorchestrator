@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     azure_storage_connection_string: Optional[str] = None
     azure_blob_container_prefix: str = "ezts"
 
+    # --- Agent skill packs (SKILL.md + rules/*.mdc for Summary / OCR / Insight) ---
+    # Defaults to <repo>/skills. Override root or a single agent pack so
+    # customers can drop in their own instructions without code changes.
+    agent_skills_root: Optional[str] = None
+    summary_skill_dir: Optional[str] = None
+    ocr_skill_dir: Optional[str] = None
+    insight_skill_dir: Optional[str] = None
+
     # --- Ezofis cloud API (AP skills: auth, credits, PO/vendor masters) ---
     ezofis_api_base: str = "https://cloud.ezofis.com/api"
     ezofis_login_email: Optional[str] = None

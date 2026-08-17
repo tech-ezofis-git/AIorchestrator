@@ -316,8 +316,8 @@ The model is asked for **exactly** this JSON (no `ocr_text` from the model):
   "document_type": "Invoice",
   "document_title": "Internet Service Invoice",
   "document_language": "English",
-  "document_summary": "2–4 sentences naming the real document type, parties, purpose",
-  "key_facts_extracted": ["short fact", "…"]
+  "document_summary": "2–3 concise sentences naming the real document type, parties, purpose",
+  "key_facts_extracted": ["One plain sentence fact.", "…"]
 }
 ```
 
@@ -329,14 +329,16 @@ The agent then **locks** the object and injects:
 | `document_type` | string | Short label from the text: Invoice, Insurance Policy, Letter, … |
 | `document_title` | string | Short title supported by the text |
 | `document_language` | string | Language of the OCR text (English, Arabic, …) |
-| `document_summary` | string | Plain prose, **not** a JSON string. Names the **actual** type |
-| `key_facts_extracted` | string[] | Type-specific facts only from OCR |
+| `document_summary` | string | Plain prose with optional `<mark>` around key names/IDs/dates/amounts; high-level type/parties/purpose |
+| `key_facts_extracted` | string[] | Type-specific facts as **plain sentences** (not `Label: value`); may use `<mark>`; must not duplicate the summary |
 | `ocr_text` | string | Paddle extract **or** caller `ocr_text` — **never** the model’s copy |
 | `source_reference` | string | filepath, filename, or `"ocr_text"` |
 
 Removed (do not emit): `compliance_and_risk_assessment`, `ai_recommendations`, `supplier_trend_insight`.
 
 JSON **keys never change** by document type. Only the **values** change.
+
+`document_summary` and `key_facts_extracted` include `<mark>...</mark>` around important names, IDs, dates, and amounts so UIs can highlight them. The model is asked to emit these tags; the orchestrator also **injects them server-side** when the model omits them (using OCR label values plus amount/ID/date patterns). No other HTML/markdown tags are used.
 
 Qwen sometimes wraps the object as a string inside `document_summary` and/or drops a final `}`. The agent unwraps that and brace-closes truncated JSON before locking.
 
@@ -388,11 +390,11 @@ The model **infers type from the text first** (invoice, insurance policy/claim/c
   "document_type": "Invoice",
   "document_title": "Internet Service Invoice",
   "document_language": "English",
-  "document_summary": "This is an invoice from Niss Internet Services to EZOFIS for internet charges.",
+  "document_summary": "This is an invoice from <mark>Niss Internet Services</mark> to <mark>EZOFIS</mark> for internet charges.",
   "key_facts_extracted": [
-    "Issuer: Niss Internet Services Private Limited",
-    "Invoice Number: INV/26-27/002140",
-    "Total Amount: 1770.00"
+    "The invoice number is <mark>INV/26-27/002140</mark>.",
+    "The invoice date is <mark>2026-04-01</mark>.",
+    "The total amount due is <mark>1770.00</mark>."
   ]
 }
 ```
@@ -404,14 +406,40 @@ The model **infers type from the text first** (invoice, insurance policy/claim/c
   "document_type": "Insurance Policy",
   "document_title": "Motor Insurance Policy",
   "document_language": "English",
-  "document_summary": "This is a motor insurance policy issued by ABC General Insurance covering the insured vehicle.",
+  "document_summary": "This is a motor insurance policy issued by <mark>ABC General Insurance</mark> covering the insured vehicle.",
   "key_facts_extracted": [
-    "Insurer: ABC General Insurance",
-    "Policy Number: POL-77821",
-    "Coverage: Own damage and third party"
+    "The policy number is <mark>POL-77821</mark>.",
+    "Coverage includes <mark>own damage and third party</mark>.",
+    "The premium amount is stated on the schedule."
   ]
 }
 ```
+
+---
+
+## 9.5. Skills + rules (file packs for the LLM)
+
+After the hallway selects **Summary**, the agent runs Python orchestration, then a reusable skill that loads **external** instructions:
+
+```
+Summary Agent (Python)
+  └─ skill: summarize_document
+       ├─ skills/summary/SKILL.md      ← LLM skill text (replaceable)
+       ├─ skills/summary/rules/*.mdc   ← LLM rules (replaceable)
+       └─ lock.py / highlight code     ← deterministic enforcement (Python)
+```
+
+OCR mirrors this under `skills/ocr/`. Insight mirrors this under `skills/insight/`
+(locked output `{ "insights": [...] }` from JSON / OCR text / file / blob).
+
+| Env | Purpose |
+|---|---|
+| `AGENT_SKILLS_ROOT` | Root containing `summary/`, `ocr/`, and `insight/` packs |
+| `SUMMARY_SKILL_DIR` | Override only the Summary pack directory |
+| `OCR_SKILL_DIR` | Override only the OCR pack directory |
+| `INSIGHT_SKILL_DIR` | Override only the Insight pack directory |
+
+Defaults: `skills/` at the repo root (Docker mounts it to `/app/skills`). A copy also lives under `app/skills/` so local volume mounts of `./app` still work. Customers can mount their own pack without code changes.
 
 ---
 
@@ -449,11 +477,12 @@ http://localhost:8010/console  (Ctrl+F5 if the page looks stale)
 
 - Default: chat box + **Send** only.
 - Chip **Summarize document** → file (PDF, image, **.docx**), blob path, pageno, model, **OCR text**, then **Send**.
+- Chip **Insight** → paste **JSON**, OCR text, file, or blob path → locked `insight_result.insights`.
 - Chip **OCR document** → OCR fields only (**.docx** also accepted; text extracted locally).
 - `.docx` and pasted OCR text skip Paddle. PDF/image still run Paddle + LLM (~15–30s).
 - Legacy `.doc` is not supported.
 
-Swagger: http://localhost:8010/docs → `POST /chat` → examples `summary_blob` and `summary_ocr_text`.
+Swagger: http://localhost:8010/docs → `POST /chat` → examples `summary_blob`, `summary_ocr_text`, and `insight_json`.
 
 ---
 

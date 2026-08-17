@@ -1,0 +1,10 @@
+---
+description: Field extraction when parameters are provided or empty
+alwaysApply: true
+---
+
+# Field extraction
+
+- If parameters are provided, emit exactly those fields (name/type from the parameter; value from OCR text or null if missing — never invent).
+- If parameters are empty, infer document type from the OCR text (invoice, agreement, CV, PO, etc.) and recommend at most N useful fields with sensible types.
+- Honor region/date hints in the instruction.

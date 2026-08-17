@@ -12,13 +12,13 @@ _STRUCTURED_SUMMARY = {
     "document_title": "Broker Appointment Letter",
     "document_language": "English",
     "document_summary": (
-        "This is a broker appointment letter from EFG Hermes Oman notifying "
-        "Muscat Stock Exchange of two newly appointed brokers."
+        "This is a broker appointment letter from <mark>EFG Hermes Oman</mark> notifying "
+        "<mark>Muscat Stock Exchange</mark> of two newly appointed brokers."
     ),
     "key_facts_extracted": [
-        "Issuer: EFG Hermes Oman LLC",
-        "Date: 2023/08/27",
-        "Reference: EFG/10/2023",
+        "The letter is dated <mark>2023/08/27</mark>.",
+        "The reference number is <mark>EFG/10/2023</mark>.",
+        "Two newly appointed brokers are named in the letter.",
     ],
     "ocr_text": "THIS SHOULD BE REPLACED BY PADDLE TEXT",
 }
@@ -270,8 +270,8 @@ def test_summary_unwraps_truncated_model_json_missing_brace():
 
     truncated = (
         '{"confidence_score":95.0,"document_type":"Invoice","document_title":"Internet Service Invoice",'
-        '"document_language":"English","document_summary":"This is an invoice from Niss.",'
-        '"key_facts_extracted":["Issuer: Niss","Total Amount: 1770.00"]'
+        '"document_language":"English","document_summary":"This is an invoice from <mark>Niss</mark>.",'
+        '"key_facts_extracted":["The invoice was issued by <mark>Niss</mark>.","The total amount due is <mark>1770.00</mark>."]'
     )
     assert not truncated.endswith("}")
     result = _document_job_result(
@@ -289,8 +289,11 @@ def test_summary_unwraps_truncated_model_json_missing_brace():
     )
     body = result["summary_result"]
     assert body["confidence_score"] == 95.0
-    assert body["document_summary"] == "This is an invoice from Niss."
-    assert body["key_facts_extracted"] == ["Issuer: Niss", "Total Amount: 1770.00"]
+    assert body["document_summary"] == "This is an invoice from <mark>Niss</mark>."
+    assert body["key_facts_extracted"] == [
+        "The invoice was issued by <mark>Niss</mark>.",
+        "The total amount due is <mark>1770.00</mark>.",
+    ]
 
 
 def test_summary_agent_unwraps_stuffed_payload_string():
@@ -302,8 +305,11 @@ def test_summary_agent_unwraps_stuffed_payload_string():
             "document_type": "Invoice",
             "document_title": "Internet Service Invoice",
             "document_language": "English",
-            "document_summary": "This is an invoice from Niss Internet Services Private Limited.",
-            "key_facts_extracted": ["Issuer: Niss Internet Services Private Limited", "Total Amount: 1770.00"],
+            "document_summary": "This is an invoice from <mark>Niss Internet Services Private Limited</mark>.",
+            "key_facts_extracted": [
+                "The invoice was issued by <mark>Niss Internet Services Private Limited</mark>.",
+                "The total amount due is <mark>1770.00</mark>.",
+            ],
         }
     )
     result = _document_job_result(
@@ -323,7 +329,7 @@ def test_summary_agent_unwraps_stuffed_payload_string():
     body = result["summary_result"]
     assert body["confidence_score"] == 95.0
     assert body["document_summary"].startswith("This is an invoice")
-    assert body["key_facts_extracted"][0].startswith("Issuer:")
+    assert body["key_facts_extracted"][0].startswith("The invoice was issued")
     assert body["ocr_text"].startswith("Niss")
     assert body["source_reference"] == "container/invoice.pdf"
 
@@ -336,13 +342,12 @@ def test_summary_unwraps_json_stuffed_in_document_summary(client, monkeypatch):
             "document_title": "Internet Service Invoice",
             "document_language": "English",
             "document_summary": (
-                "This is an invoice from Niss Internet Services Private Limited "
-                "to EZOFIS SOFTWARE CONSULTANCY PRIVATE LIMITED for internet service charges."
+                "This is an invoice from <mark>Niss Internet Services Private Limited</mark> "
+                "to <mark>EZOFIS SOFTWARE CONSULTANCY PRIVATE LIMITED</mark> for internet service charges."
             ),
             "key_facts_extracted": [
-                "Issuer: Niss Internet Services Private Limited",
-                "Invoice Number: INV/26-27/002140",
-                "Total Amount: 1770.00",
+                "The invoice number is <mark>INV/26-27/002140</mark>.",
+                "The total amount due is <mark>1770.00</mark>.",
             ],
         },
         ensure_ascii=False,
@@ -370,7 +375,7 @@ def test_summary_unwraps_json_stuffed_in_document_summary(client, monkeypatch):
     assert result["confidence_score"] == 95.0
     assert result["document_summary"].startswith("This is an invoice")
     assert not result["document_summary"].lstrip().startswith("{")
-    assert "INV/26-27/002140" in result["key_facts_extracted"][1]
+    assert "INV/26-27/002140" in result["key_facts_extracted"][0]
     assert result["document_type"] == "Invoice"
     assert result["document_title"] == "Internet Service Invoice"
     assert result["document_language"] == "English"
@@ -407,15 +412,20 @@ def test_summary_prompt_is_type_dynamic_not_invoice_only():
     from app.core.response_composer import _FILE_SUMMARY_JSON_SYSTEM_PROMPT
 
     prompt = _FILE_SUMMARY_JSON_SYSTEM_PROMPT.lower()
-    assert "infer the document type" in prompt
-    assert "insurance" in prompt
     assert "never call it an invoice unless" in prompt
     assert "document_type" in prompt
     assert "document_title" in prompt
     assert "document_language" in prompt
-    assert "compliance_and_risk_assessment" not in prompt
-    assert "ai_recommendations" not in prompt
-    assert "supplier_trend_insight" not in prompt
+    assert "key_facts_extracted" in prompt
+    assert "insurance" in prompt
+    assert "<mark>" in prompt
+    assert "label: value" in prompt
+    assert "do not duplicate" in prompt
+    # Forbidden output fields are named only as "do not add …"
+    assert "do not add" in prompt
+    assert "compliance_and_risk_assessment" in prompt
+    assert "ai_recommendations" in prompt
+    assert "supplier_trend_insight" in prompt
 
 
 def test_summary_preserves_insurance_wording_from_model(client, monkeypatch):
@@ -425,13 +435,12 @@ def test_summary_preserves_insurance_wording_from_model(client, monkeypatch):
         "document_title": "Motor Insurance Policy",
         "document_language": "English",
         "document_summary": (
-            "This is a motor insurance policy issued by ABC General Insurance "
+            "This is a motor insurance policy issued by <mark>ABC General Insurance</mark> "
             "covering the insured vehicle for the stated period."
         ),
         "key_facts_extracted": [
-            "Insurer: ABC General Insurance",
-            "Policy Number: POL-77821",
-            "Coverage: Own damage and third party",
+            "The policy number is <mark>POL-77821</mark>.",
+            "Coverage includes <mark>own damage and third party</mark>.",
         ],
         "ocr_text": "SHOULD BE REPLACED",
     }
@@ -455,9 +464,9 @@ def test_summary_preserves_insurance_wording_from_model(client, monkeypatch):
     assert result["document_type"] == "Insurance Policy"
     assert result["document_title"] == "Motor Insurance Policy"
     assert result["document_language"] == "English"
-    assert result["key_facts_extracted"][0].startswith("Insurer:")
+    assert result["key_facts_extracted"][0].startswith("The policy number")
+    assert "<mark>POL-77821</mark>" in result["key_facts_extracted"][0]
     assert "POL-77821" in result["ocr_text"]
-
 
 def test_summary_invalid_pageno_rejected(client):
     response = client.post(
@@ -670,3 +679,86 @@ def test_summary_legacy_doc_is_not_supported(client, monkeypatch):
     body = response.json()
     assert body["summary_result"]["ocr_text"] == ""
     assert llm_calls == []
+
+
+def test_summary_injects_mark_tags_when_model_omits_them(client, monkeypatch):
+    plain = {
+        "confidence_score": 95.0,
+        "document_type": "Insurance Policy",
+        "document_title": "Insurance Agreement",
+        "document_language": "English",
+        "document_summary": (
+            "This document is an insurance policy issued by ABC General Insurance Company Ltd. "
+            "to John Smith, effective from August 13, 2026, covering fire, theft, flood, "
+            "earthquake, and accidental damage with a sum insured of INR 8,500,000."
+        ),
+        "key_facts_extracted": [
+            "The agreement number is INS-2026-001245.",
+            "The premium amount is INR 28,910 including GST.",
+            "The policy period runs from August 13, 2026 to August 12, 2027.",
+            "Claims must be notified within 48 hours.",
+            "The policy is governed by the laws of India.",
+        ],
+        "ocr_text": "SHOULD BE REPLACED",
+    }
+    _install_fake_llm(monkeypatch, content=json.dumps(plain))
+    ocr_text = (
+        "Insurance Agreement\nAgreement Number: INS-2026-001245\n"
+        "Effective Date: August 13, 2026\nPolicyholder: John Smith\n"
+        "Insurer: ABC General Insurance Company Ltd.\n"
+        "Sum Insured: INR 8,500,000\nPremium:INR 28,910 (incl.GST\n"
+        "Policy Period: Aug 13, 2026 to Aug 12, 2027.\n"
+        "Claim notification within 48 hours. Governed by laws of India."
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-sum-marks",
+            "intent": "summary",
+            "payload": {"ocr_text": ocr_text},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["summary_result"]
+    summary = result["document_summary"]
+    facts = result["key_facts_extracted"]
+    assert "<mark>ABC General Insurance Company Ltd.</mark>" in summary
+    assert "<mark>John Smith</mark>" in summary
+    assert "<mark>INR 8,500,000</mark>" in summary
+    assert "<mark>August 13, 2026</mark>" in summary
+    assert "<mark>INS-2026-001245</mark>" in facts[0]
+    assert "<mark>INR 28,910</mark>" in facts[1]
+    assert "<mark>48 hours</mark>" in facts[3]
+    assert summary.count("<mark>") == summary.count("</mark>")
+    assert all(f.count("<mark>") == f.count("</mark>") for f in facts)
+
+
+def test_summary_highlight_helper_is_idempotent():
+    from app.summary_skills.rules import highlight_summary_text
+
+    once = highlight_summary_text(
+        "Premium is INR 28,910 and id INS-2026-001245.",
+        ocr_text="Insurer: ABC General Insurance Company Ltd.",
+    )
+    twice = highlight_summary_text(once, ocr_text="Insurer: ABC General Insurance Company Ltd.")
+    assert once == twice
+    assert once.count("<mark>") == 2
+    assert "<mark>INR 28,910</mark>" in once
+    assert "<mark>INS-2026-001245</mark>" in once
+
+
+def test_summary_and_ocr_expose_reusable_skills_and_rules():
+    from app.ocr_skills import extract_fields, rules as ocr_rules
+    from app.ocr_skills.extract_fields import SKILL_ID as OCR_SKILL
+    from app.summary_skills import rules as summary_rules, summarize_document
+    from app.summary_skills.summarize_document import SKILL_ID as SUMMARY_SKILL
+
+    assert SUMMARY_SKILL == "summarize_document"
+    assert OCR_SKILL == "extract_fields"
+    assert "key_facts_extracted" in summary_rules.system_prompt().lower()
+    assert summary_rules.REQUIRE_MARK_HIGHLIGHTS is True
+    assert "ocrresult" in ocr_rules.system_prompt().lower()
+    assert callable(summarize_document)
+    assert callable(extract_fields)

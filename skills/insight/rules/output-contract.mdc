@@ -1,0 +1,12 @@
+---
+description: Locked insight JSON — only the insights array
+alwaysApply: true
+---
+
+# Output contract
+
+- Top-level key must be exactly `insights`.
+- `insights` is a JSON array of strings.
+- Each string is one complete sentence.
+- Do not emit `summary`, `key_facts`, `reply`, `cited_data_points`, or any other keys.
+- Do not wrap the JSON in markdown code fences.

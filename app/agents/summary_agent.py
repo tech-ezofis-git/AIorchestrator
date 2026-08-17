@@ -12,6 +12,12 @@ from app.agents.reference_extraction import extract_reference
 from app.config import Settings
 from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
+from app.summary_skills.lock import (
+    balance_json_text,
+    loads_json_object,
+    payload_from_parsed,
+)
+from app.summary_skills.summarize_document import run as summarize_document_skill
 from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import apply_preset, get_preset
@@ -38,6 +44,11 @@ class SummaryAgent:
         self._settings = settings
         self._llm = llm_adapter
         self._runtime_models = runtime_models
+
+    def _llm_for_skill(self) -> LLMAdapter:
+        if self._llm is not None:
+            return self._llm
+        return self._response_composer._llm
 
     def _cfg(self) -> Settings:
         if self._settings is None:
@@ -114,7 +125,8 @@ class SummaryAgent:
                 ocr_text = ""
 
         if not ocr_text:
-            empty = await self._response_composer.synthesize_file_summary(
+            empty = await summarize_document_skill(
+                llm=self._llm_for_skill(),
                 text="",
                 source=source,
                 page_label=page_label,
@@ -123,7 +135,8 @@ class SummaryAgent:
 
         model = (job.get("model") or "").strip() or None
         try:
-            synthesis = await self._response_composer.synthesize_file_summary(
+            synthesis = await summarize_document_skill(
+                llm=self._llm_for_skill(),
                 text=ocr_text,
                 source=source,
                 page_label=page_label,
@@ -175,7 +188,8 @@ class SummaryAgent:
             )
             apply_preset(self._llm, fallback_preset)
             try:
-                return await self._response_composer.synthesize_file_summary(
+                return await summarize_document_skill(
+                    llm=self._llm_for_skill(),
                     text=text,
                     source=source,
                     page_label=page_label,
@@ -187,7 +201,8 @@ class SummaryAgent:
 
         if env_fallback and env_fallback != primary:
             logger.warning("summary_fallback_model", extra={"model": env_fallback})
-            return await self._response_composer.synthesize_file_summary(
+            return await summarize_document_skill(
+                llm=self._llm_for_skill(),
                 text=text,
                 source=source,
                 page_label=page_label,
@@ -218,8 +233,6 @@ def _unwrap_summary_result(body: dict[str, Any]) -> dict[str, Any]:
     """If the model stuffed the whole JSON object into document_summary, unpack it."""
     import json
 
-    from app.core.response_composer import _payload_from_parsed
-
     summary = str(body.get("document_summary") or "").strip()
     facts = body.get("key_facts_extracted")
     already_unpacked = isinstance(facts, list) and len(facts) > 0
@@ -232,15 +245,13 @@ def _unwrap_summary_result(body: dict[str, Any]) -> dict[str, Any]:
     try:
         data = json.loads(summary)
     except json.JSONDecodeError:
-        from app.core.response_composer import _balance_json_text, _loads_json_object
-
-        data = _loads_json_object(_balance_json_text(summary))
+        data = loads_json_object(balance_json_text(summary))
         if not isinstance(data, dict):
             return body
     if not isinstance(data, dict) or not data.get("document_summary"):
         return body
 
-    fixed = _payload_from_parsed(data, ocr_text=str(body.get("ocr_text") or ""))
+    fixed = payload_from_parsed(data, ocr_text=str(body.get("ocr_text") or ""))
     if (fixed.get("document_summary") or "").strip().startswith("{"):
         return body
     return fixed

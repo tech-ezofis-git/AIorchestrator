@@ -287,7 +287,13 @@ async def lifespan(app: FastAPI):
         llm_adapter=llm_adapter,
         runtime_models=runtime_models,
     )
-    insight_agent = InsightAgent(dispatcher, response_composer)
+    insight_agent = InsightAgent(
+        dispatcher,
+        response_composer,
+        settings,
+        llm_adapter=llm_adapter,
+        runtime_models=runtime_models,
+    )
     ocr_agent = OcrAgent(
         dispatcher,
         response_composer,
@@ -515,7 +521,7 @@ _CHAT_MULTIPART_SCHEMA = {
     "type": "object",
     "properties": {
         "session_id": {"type": "string", "description": "Required session id."},
-        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/ap with file/filepath/ocr_text/invoice_json)."},
+        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/insight/ap with file/filepath/ocr_text/insight_json/invoice_json)."},
         "intent": {
             "type": "string",
             "description": "Explicit agent (ocr, ap, chat, …). Omit to use keyword routing.",
@@ -534,7 +540,11 @@ _CHAT_MULTIPART_SCHEMA = {
         },
         "ocr_text": {
             "type": "string",
-            "description": "Pre-extracted OCR text (summary only). Skips blob download and Paddle. Wins over file/filepath.",
+            "description": "Pre-extracted OCR text (summary/insight). Skips blob download and Paddle. Wins over file/filepath (insight_json still wins for insight).",
+        },
+        "insight_json": {
+            "type": "string",
+            "description": "Arbitrary JSON object string for intent=insight (dashboard/report). Skips OCR.",
         },
         "parameters": {
             "type": "array",
@@ -549,7 +559,7 @@ _CHAT_MULTIPART_SCHEMA = {
             "example": [],
         },
         "model": {"type": "string", "description": "Optional LLM model override."},
-        "tenant_id": {"type": "string", "description": "Tenant UUID. Required for relative blob filepath (ocr/summary/ap/chat)."},
+        "tenant_id": {"type": "string", "description": "Tenant UUID. Required for relative blob filepath (ocr/summary/insight/ap/chat)."},
         "item_id": {"type": "string", "description": "Stable AP document key for skill re-runs."},
         "repositoryItemId": {"type": "string", "description": "Repository item UUID (move-next itemId). Alias: repository_item_id."},
         "workflow_id": {"type": "string", "description": "AP workflow id (progress/move-next). Alias: workflowId."},
@@ -667,6 +677,28 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "insight_json": {
+                            "summary": "Insights from arbitrary dashboard JSON",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "insight",
+                                "payload": {
+                                    "insight_json": {
+                                        "title": "AP Aging",
+                                        "open_invoices": 120,
+                                        "overdue_invoices": 18,
+                                        "total_outstanding": 245000,
+                                        "buckets": {
+                                            "0_30": 80000,
+                                            "31_60": 90000,
+                                            "61_90": 45000,
+                                            "90_plus": 30000,
+                                        },
+                                    },
+                                    "model": "qwen3.5-9b",
+                                },
+                            },
+                        },
                     },
                 },
                 # File browser in Swagger (select multipart/form-data).
@@ -692,12 +724,21 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     has_upload = parsed.file_bytes is not None  # empty bytes still count as an upload attempt
     has_filepath = bool(payload.payload and (payload.payload.filepath or "").strip())
     has_ocr_text = bool(payload.payload and (payload.payload.ocr_text or "").strip())
+    has_insight_json = bool(payload.payload and payload.payload.insight_json)
     message = (payload.message or "").strip()
     explicit = (payload.intent or "").strip().lower()
     if not message:
-        if has_filepath or has_upload or has_ocr_text or explicit in {"ocr", "summary", "ap"}:
+        if (
+            has_filepath
+            or has_upload
+            or has_ocr_text
+            or has_insight_json
+            or explicit in {"ocr", "summary", "insight", "ap"}
+        ):
             if explicit == "summary":
                 message = "Summarize the document."
+            elif explicit == "insight":
+                message = "Generate insights from the supplied data."
             else:
                 message = (payload.instruction or "").strip() or "Process the document and generate structured JSON."
         else:
@@ -751,10 +792,26 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     has_document = has_filepath or (parsed.file_bytes is not None)
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
-    if intent == Intent.SUMMARY and has_ocr_text:
+    if intent == Intent.INSIGHT and has_insight_json:
+        document_job = {
+            "instruction": payload.instruction,
+            "insight_json": payload.payload.insight_json if payload.payload else None,
+            "ocr_text": None,
+            "filepath": None,
+            "file_bytes": None,
+            "filename": None,
+            "content_type": None,
+            "pageno": None,
+            "parameters": [],
+            "tableparameters": [],
+            "model": payload.payload.model if payload.payload else None,
+            "tenant_id": payload.payload.tenant_id if payload.payload else None,
+        }
+    elif intent in {Intent.SUMMARY, Intent.INSIGHT} and has_ocr_text:
         # Direct OCR text: skip blob download and Paddle. Wins over file/filepath.
         document_job = {
             "instruction": payload.instruction,
+            "insight_json": None,
             "ocr_text": (payload.payload.ocr_text or "").strip() if payload.payload else "",
             "filepath": None,
             "file_bytes": None,
@@ -766,7 +823,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "model": payload.payload.model if payload.payload else None,
             "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
-    elif intent in {Intent.OCR, Intent.SUMMARY} and has_document:
+    elif intent in {Intent.OCR, Intent.SUMMARY, Intent.INSIGHT} and has_document:
         if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
         # Prefer upload over filepath when both are present.
@@ -779,6 +836,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         document_job = {
             "instruction": payload.instruction,
+            "insight_json": None,
             "ocr_text": None,
             "filepath": None if parsed.file_bytes is not None else (payload.payload.filepath if payload.payload else None),
             "file_bytes": parsed.file_bytes,
@@ -795,6 +853,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         pass
     elif intent == Intent.SUMMARY and explicit == "summary" and not (has_document or has_ocr_text):
         # Explicit summary without a file still allows legacy "summarize DOC-123".
+        pass
+    elif intent == Intent.INSIGHT and explicit == "insight" and not (
+        has_document or has_ocr_text or has_insight_json
+    ):
+        # Explicit insight without data still allows legacy "insights on report RPT-…".
         pass
     elif intent == Intent.AP and explicit == "ap" and (
         has_filepath or parsed.file_bytes is not None or has_invoice_json or has_item_id
@@ -903,6 +966,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         cited_data_points=result.get("cited_data_points"),
         ocr_result=result.get("ocr_result"),
         summary_result=result.get("summary_result"),
+        insight_result=result.get("insight_result"),
         forecast_result=result.get("forecast_result"),
         invoice_reference=result.get("invoice_reference"),
         mail_draft=result.get("mail_draft"),

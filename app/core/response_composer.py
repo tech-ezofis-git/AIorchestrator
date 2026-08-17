@@ -9,7 +9,7 @@ they're pass-through, so they never reach this class's LLM path.
 `compose_chat_response` is the Phase 1 pass-through path — unchanged, still
 just formatting, no LLM call. Every intent uses it to build the final
 response envelope (correlation_id/latency/token_usage/chunk_ids/
-document_id/cited_data_points/ocr_result/summary_result/forecast_result/
+document_id/cited_data_points/ocr_result/summary_result/insight_result/forecast_result/
 invoice_reference/mail_draft/ap_result).
 
 `synthesize_search_answer` (Phase 2), `synthesize_summary`,
@@ -94,46 +94,28 @@ _MEMORY_EXTRACTION_SYSTEM_PROMPT = (
     "phone calls.\"). Respond with ONLY the extracted fact, nothing else."
 )
 
-_FILE_SUMMARY_JSON_SYSTEM_PROMPT = (
-    "You are the AI assistant for EZOFIS document summarization. "
-    "Given OCR text from a document, return ONLY valid JSON with this shape: "
-    '{"confidence_score":82.0,"document_type":"Invoice","document_title":"Internet Service Invoice",'
-    '"document_language":"English","document_summary":"...","key_facts_extracted":["..."]} '
-    "Rules: (1) Stick to the OCR text — never invent names, dates, IDs, or amounts. "
-    "(2) First infer the document type from the text (invoice, insurance policy/claim/"
-    "certificate, purchase order, contract, letter, report, ID, receipt, or other). "
-    "Never call it an invoice unless the text clearly supports that. "
-    "(3) document_type is a short label matching that inference (Invoice, Insurance Policy, "
-    "Purchase Order, Letter, …). "
-    "(4) document_title is a short human title from the text (e.g. Internet Service Invoice, "
-    "Motor Insurance Policy). Do not invent a title that is not supported by the text. "
-    "(5) document_language is the language of the OCR text (English, Arabic, Hindi, mixed, …). "
-    "(6) confidence_score is 0-100 reflecting how complete and clear the text is. "
-    "(7) document_summary is 2-4 sentences that name the actual type, parties, and purpose "
-    "(e.g. insurance: insurer, insured, policy/claim, coverage; invoice: seller, buyer, "
-    "what is billed). "
-    "(8) key_facts_extracted is a list of short facts that fit THAT type — insurance: "
-    "insurer, insured, policy/claim number, coverage, premium, period; invoice: issuer, "
-    "invoice number, dates, amounts; other types: the identifiers and dates that appear. "
-    "(9) JSON keys stay exactly as listed — do not add compliance, recommendations, or "
-    "supplier fields. "
-    "(10) No markdown fences, no commentary, no ocr_text field — JSON only."
+from app.ocr_skills import rules as _ocr_rules
+from app.summary_skills import rules as _summary_rules
+from app.summary_skills.lock import (
+    balance_json_text as _balance_json_text,
+    locked_summary_payload as _locked_summary_payload,
+    loads_json_object as _loads_json_object,
+    parse_summary_json_content as _parse_summary_json_content,
+    payload_from_parsed as _payload_from_parsed,
+)
+from app.summary_skills.rules import (
+    EMPTY_SUMMARY_TEXT as _EMPTY_SUMMARY_TEXT,
+    highlight_summary_text as _highlight_summary_text,
 )
 
-_OCR_JSON_SYSTEM_PROMPT = (
-    "You are the AI assistant for EZOFIS document field extraction. "
-    "Given OCR text and optional field definitions, return ONLY valid JSON "
-    "with this shape: "
-    '{"ocrResult":[{"name":"...","value":"...","type":"..."}],'
-    '"tableResult":[]} '
-    "Rules: (1) If parameters are provided, emit exactly those fields "
-    "(name/type from the parameter; value from OCR text or null if missing — "
-    "never invent). (2) If parameters are empty, infer document type from "
-    "the OCR text (invoice, agreement, CV, PO, etc.) and recommend at most "
-    "N useful fields with sensible types. (3) DATE values as YYYY-MM-DD when "
-    "possible. (4) Honor region/date hints in the instruction. "
-    "(5) No markdown fences, no commentary — JSON only."
-)
+
+def __getattr__(name: str):
+    """Lazy prompt exports so skill packs can be overridden at runtime."""
+    if name == "_FILE_SUMMARY_JSON_SYSTEM_PROMPT":
+        return _summary_rules.system_prompt()
+    if name == "_OCR_JSON_SYSTEM_PROMPT":
+        return _ocr_rules.system_prompt()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class ResponseComposer:
@@ -153,6 +135,7 @@ class ResponseComposer:
         cited_data_points: Optional[list[str]] = None,
         ocr_result: Optional[dict] = None,
         summary_result: Optional[dict] = None,
+        insight_result: Optional[dict] = None,
         forecast_result: Optional[dict] = None,
         invoice_reference: Optional[str] = None,
         mail_draft: Optional[dict] = None,
@@ -169,6 +152,7 @@ class ResponseComposer:
             cited_data_points=cited_data_points,
             ocr_result=ocr_result,
             summary_result=summary_result,
+            insight_result=insight_result,
             forecast_result=forecast_result,
             invoice_reference=invoice_reference,
             mail_draft=mail_draft,
@@ -233,61 +217,16 @@ class ResponseComposer:
         page_label: str = "",
         model: Optional[str] = None,
     ) -> dict:
-        """Paddle OCR text -> locked summary JSON. Same model-override
-        behavior as synthesize_ocr_json (payload.model, then restore adapter).
+        """Delegate to Summary skill (rules + LLM + lock)."""
+        from app.summary_skills.summarize_document import run as summarize_document
 
-        Returns {"payload": dict, "usage": dict | None}. `ocr_text` is always
-        the input text, never the model's copy.
-        """
-        body = (text or "").strip()
-        if not body:
-            return {
-                "payload": _locked_summary_payload(ocr_text=""),
-                "usage": None,
-            }
-
-        previous = {
-            "model": getattr(self._llm, "_model", None),
-            "api_base": getattr(self._llm, "_api_base", None),
-            "api_key": getattr(self._llm, "_api_key", None),
-            "api_version": getattr(self._llm, "_api_version", None),
-            "preset_id": getattr(self._llm, "_preset_id", None),
-        }
-        switched = False
-        if model and model != previous["model"] and not (
-            previous["model"] and previous["model"].endswith("/" + model)
-        ):
-            self._llm.configure(model=model)
-            switched = True
-
-        try:
-            page_bit = f" ({page_label})" if page_label else ""
-            result = await self._llm.chat_completion(
-                [
-                    {"role": "system", "content": _FILE_SUMMARY_JSON_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"Document: {source}{page_bit}\n\n"
-                            "Infer the document type from the OCR text, then summarize "
-                            "using facts that match that type. Do not assume it is an invoice.\n\n"
-                            f"OCR text:\n{body}"
-                        ),
-                    },
-                ]
-            )
-        finally:
-            if switched:
-                self._llm.configure(
-                    model=previous["model"] or model,
-                    api_base=previous["api_base"] if previous["api_base"] is not None else "",
-                    api_key=previous["api_key"] if previous["api_key"] is not None else "",
-                    api_version=previous["api_version"] if previous["api_version"] is not None else "",
-                    preset_id=previous["preset_id"] if previous["preset_id"] is not None else "",
-                )
-
-        payload = _parse_summary_json_content(result["content"], ocr_text=body)
-        return {"payload": payload, "usage": result.get("usage")}
+        return await summarize_document(
+            llm=self._llm,
+            text=text,
+            source=source,
+            page_label=page_label,
+            model=model,
+        )
 
     async def synthesize_insight(self, *, report: dict) -> dict:
         """One LLM call: fetched report data points -> cited insights.
@@ -409,79 +348,19 @@ class ResponseComposer:
         model: Optional[str] = None,
         max_recommended_fields: int = 15,
     ) -> dict:
-        """OCR text + field defs -> ocrResult (+ optional tableResult).
+        """Delegate to OCR extract_fields skill (rules + LLM + parse)."""
+        from app.ocr_skills.extract_fields import run as extract_fields
 
-        Returns {"ocrResult": list, "tableResult": list|None, "usage": dict|None}.
-        Temporarily switches LLMAdapter model when `model` is provided, then
-        restores the previous model.
-        """
-        import json as _json
-
-        from app.agents.ocr_helpers import parse_parameter_entries
-
-        previous = {
-            "model": getattr(self._llm, "_model", None),
-            "api_base": getattr(self._llm, "_api_base", None),
-            "api_key": getattr(self._llm, "_api_key", None),
-            "api_version": getattr(self._llm, "_api_version", None),
-            "preset_id": getattr(self._llm, "_preset_id", None),
-        }
-        switched = False
-        # Only switch when caller asks for a different model string than the
-        # adapter already has (avoid turning azure/gpt-4.1-mini into gpt-4.1-mini
-        # and dropping the Azure key/base mid-request).
-        if model and model != previous["model"] and not (
-            previous["model"] and previous["model"].endswith("/" + model)
-        ):
-            self._llm.configure(model=model)
-            switched = True
-
-        try:
-            parsed_params = parse_parameter_entries(parameters)
-            param_lines = (
-                "\n".join(f"- {n} ({t})" for n, t in parsed_params)
-                if parsed_params
-                else f"(none — recommend up to {max_recommended_fields} fields)"
-            )
-            table_lines = (
-                "\n".join(f"- {p}" for p in tableparameters)
-                if tableparameters
-                else "(none)"
-            )
-            system = _OCR_JSON_SYSTEM_PROMPT.replace("at most N ", f"at most {max_recommended_fields} ")
-            user_content = (
-                f"Instruction:\n{instruction}\n\n"
-                f"Page focus: {page_label}\n\n"
-                f"Parameters:\n{param_lines}\n\n"
-                f"Table parameters:\n{table_lines}\n\n"
-                f"OCR text:\n{ocr_text}"
-            )
-            result = await self._llm.chat_completion(
-                [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user_content},
-                ]
-            )
-        finally:
-            if switched:
-                self._llm.configure(
-                    model=previous["model"] or model,
-                    api_base=previous["api_base"] if previous["api_base"] is not None else "",
-                    api_key=previous["api_key"] if previous["api_key"] is not None else "",
-                    api_version=previous["api_version"] if previous["api_version"] is not None else "",
-                    preset_id=previous["preset_id"] if previous["preset_id"] is not None else "",
-                )
-
-        fields, table_result = _parse_ocr_json_content(
-            result["content"],
-            expected=parsed_params,
+        return await extract_fields(
+            llm=self._llm,
+            instruction=instruction,
+            ocr_text=ocr_text,
+            parameters=parameters,
+            tableparameters=tableparameters,
+            page_label=page_label,
+            model=model,
             max_recommended_fields=max_recommended_fields,
         )
-        return {
-            "ocrResult": fields,
-            "tableResult": table_result,
-            "usage": result.get("usage"),
-        }
 
 
 def _parse_ocr_json_content(
@@ -555,247 +434,6 @@ def _parse_ocr_json_content(
         table_result = None
 
     return normalized, table_result
-
-
-_EMPTY_SUMMARY_TEXT = (
-    "I couldn't extract any text from that document, so I can't summarize it."
-)
-
-
-def _locked_summary_payload(
-    *,
-    ocr_text: str,
-    confidence_score: float = 0.0,
-    document_type: str = "",
-    document_title: str = "",
-    document_language: str = "",
-    document_summary: str = "",
-    key_facts_extracted: Optional[list] = None,
-) -> dict:
-    summary = (document_summary or "").strip()
-    if not (ocr_text or "").strip() and not summary:
-        summary = _EMPTY_SUMMARY_TEXT
-    return {
-        "confidence_score": confidence_score,
-        "document_type": (document_type or "").strip(),
-        "document_title": (document_title or "").strip(),
-        "document_language": (document_language or "").strip(),
-        "document_summary": summary,
-        "key_facts_extracted": list(key_facts_extracted or []),
-        "ocr_text": ocr_text or "",
-    }
-
-
-def _normalize_json_text(content) -> str:
-    import json as _json
-    import re as _re
-
-    if isinstance(content, dict):
-        return _json.dumps(content, ensure_ascii=False)
-    if isinstance(content, (bytes, bytearray)):
-        content = content.decode("utf-8", "replace")
-    text = str(content or "").strip().lstrip("\ufeff")
-    if text.startswith("```"):
-        text = _re.sub(r"^```(?:json)?\s*", "", text)
-        text = _re.sub(r"\s*```$", "", text)
-        text = text.strip()
-    text = (
-        text.replace("\u201c", '"')
-        .replace("\u201d", '"')
-        .replace("\u2018", "'")
-        .replace("\u2019", "'")
-    )
-    return text
-
-
-def _brace_block(text: str) -> Optional[str]:
-    start = text.find("{")
-    if start < 0:
-        return None
-    depth = 0
-    in_str = False
-    escape = False
-    quote = ""
-    for i, ch in enumerate(text[start:], start):
-        if in_str:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == quote:
-                in_str = False
-            continue
-        if ch in ('"', "'"):
-            in_str = True
-            quote = ch
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
-    return text[start:]
-
-
-def _repair_json_text(text: str) -> str:
-    import re as _re
-
-    return _re.sub(r",\s*([}\]])", r"\1", text)
-
-
-def _balance_json_text(text: str) -> str:
-    """Close truncated model JSON (missing final } / ])."""
-    in_str = False
-    escape = False
-    quote = ""
-    stack: list[str] = []
-    for ch in text:
-        if in_str:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == quote:
-                in_str = False
-            continue
-        if ch in ('"', "'"):
-            in_str = True
-            quote = ch
-            continue
-        if ch in "{[":
-            stack.append("}" if ch == "{" else "]")
-        elif ch in "}]" and stack:
-            stack.pop()
-    if in_str:
-        text += quote
-    return text + "".join(reversed(stack))
-
-
-def _loads_json_object(content):
-    """Parse model JSON, including fenced / double-encoded / wrapped objects."""
-    import json as _json
-
-    if isinstance(content, dict):
-        return content
-
-    text = _normalize_json_text(content)
-    if not text:
-        return None
-
-    candidates = [text]
-    block = _brace_block(text)
-    if block and block not in candidates:
-        candidates.append(block)
-    repaired = _repair_json_text(text)
-    if repaired not in candidates:
-        candidates.append(repaired)
-    if block:
-        repaired_block = _repair_json_text(block)
-        if repaired_block not in candidates:
-            candidates.append(repaired_block)
-    for base in list(candidates):
-        balanced = _balance_json_text(base)
-        if balanced not in candidates:
-            candidates.append(balanced)
-        balanced_repaired = _balance_json_text(_repair_json_text(base))
-        if balanced_repaired not in candidates:
-            candidates.append(balanced_repaired)
-
-    for candidate in candidates:
-        current = candidate
-        for _ in range(4):
-            try:
-                data = _json.loads(current)
-            except _json.JSONDecodeError:
-                start = current.find("{")
-                if start < 0:
-                    break
-                try:
-                    data, _ = _json.JSONDecoder().raw_decode(current[start:])
-                except Exception:
-                    break
-            if isinstance(data, dict):
-                return data
-            if isinstance(data, str):
-                current = _normalize_json_text(data)
-                nested_block = _brace_block(current)
-                if nested_block:
-                    current = nested_block
-                continue
-            break
-    return None
-
-
-def _facts_from(value) -> list[str]:
-    facts: list[str] = []
-    if isinstance(value, list):
-        for item in value:
-            if item is None:
-                continue
-            fact = str(item).strip()
-            if fact:
-                facts.append(fact)
-    elif isinstance(value, str) and value.strip():
-        nested = _loads_json_object(value)
-        if isinstance(nested, list):
-            return _facts_from(nested)
-        facts = [value.strip()]
-    return facts
-
-
-def _payload_from_parsed(data: dict, *, ocr_text: str) -> dict:
-    nested = _loads_json_object(data.get("document_summary"))
-    if isinstance(nested, dict) and (
-        "key_facts_extracted" in nested or "confidence_score" in nested
-    ):
-        data = nested
-
-    return _locked_summary_payload(
-        ocr_text=ocr_text,
-        confidence_score=_coerce_confidence(data.get("confidence_score")),
-        document_type=str(data.get("document_type") or ""),
-        document_title=str(data.get("document_title") or ""),
-        document_language=str(data.get("document_language") or ""),
-        document_summary=str(data.get("document_summary") or ""),
-        key_facts_extracted=_facts_from(data.get("key_facts_extracted")),
-    )
-
-
-def _parse_summary_json_content(content: str, *, ocr_text: str) -> dict:
-    text = _normalize_json_text(content)
-    data = _loads_json_object(text)
-    if isinstance(data, dict):
-        payload = _payload_from_parsed(data, ocr_text=ocr_text)
-    else:
-        payload = _locked_summary_payload(
-            ocr_text=ocr_text,
-            document_summary=text,
-        )
-
-    # Model sometimes emits the whole object as a JSON string in
-    # document_summary (confidence 0 + empty facts). Unwrap that.
-    if (
-        payload["confidence_score"] == 0.0
-        and not payload["key_facts_extracted"]
-        and (payload["document_summary"] or "").lstrip().startswith("{")
-    ):
-        nested = _loads_json_object(payload["document_summary"])
-        if isinstance(nested, dict):
-            return _payload_from_parsed(nested, ocr_text=ocr_text)
-    return payload
-
-
-def _coerce_confidence(value) -> float:
-    try:
-        score = float(value)
-    except (TypeError, ValueError):
-        return 0.0
-    if score < 0:
-        return 0.0
-    if score > 100:
-        return 100.0
-    return round(score, 1)
 
 
 def _parse_mail_draft(content: str, *, fallback_subject: str) -> tuple[str, str]:

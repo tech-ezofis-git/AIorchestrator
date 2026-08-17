@@ -1,0 +1,8 @@
+---
+description: Normalize DATE values when possible
+alwaysApply: true
+---
+
+# Dates
+
+- DATE values as `YYYY-MM-DD` when possible.

@@ -1,0 +1,10 @@
+---
+description: Highlight important spans with mark tags for API consumers
+alwaysApply: true
+---
+
+# Highlights
+
+- Highlight important spans with `<mark>...</mark>` only — party names, IDs/numbers, dates, and amounts inside `document_summary` and `key_facts_extracted`.
+- Do not wrap whole sentences.
+- Do not use any other HTML or markdown tags.
