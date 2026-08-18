@@ -131,7 +131,7 @@
   /* —— Layout —— */
   .layout {
     display: grid;
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: 260px minmax(0, 1fr);
     gap: 16px;
     max-width: 1380px;
     margin: 16px auto 24px;
@@ -140,11 +140,23 @@
     min-height: 560px;
     align-items: stretch;
   }
+  .layout.pack-inspector-open {
+    grid-template-columns: 260px minmax(0, 1fr) minmax(340px, 400px);
+    max-width: 1720px;
+  }
+  @media (max-width: 1200px) {
+    .layout.pack-inspector-open {
+      grid-template-columns: 260px minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) minmax(280px, 38vh);
+    }
+    .pack-inspector.visible { grid-column: 1 / -1; }
+  }
   @media (max-width: 920px) {
-    .layout { grid-template-columns: 1fr; height: calc(100vh - 88px); min-height: 480px; }
+    .layout, .layout.pack-inspector-open { grid-template-columns: 1fr; height: calc(100vh - 88px); min-height: 480px; }
     header { margin: 8px 12px 0; }
     .transcript { min-height: 160px; }
     .main-controls { max-height: min(42vh, 280px); }
+    .pack-inspector.visible { grid-column: 1; max-height: 360px; }
   }
 
   .panel {
@@ -357,17 +369,18 @@
     border: 1px solid rgba(255,255,255,0.06);
   }
 
-  .composer {
-    flex: 0 0 auto;
-    margin: 0 16px 16px;
-    padding: 8px 8px 8px 16px;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    border-radius: 20px;
-    box-shadow: var(--shadow-lg);
-    position: relative;
-    z-index: 10;
+  .composer.prompt-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 12px;
+  }
+  .composer.prompt-mode textarea {
+    min-height: 120px;
+    max-height: 280px;
+  }
+  .composer #promptFields {
+    margin: 0 8px;
   }
   .composer form { display: flex; gap: 10px; align-items: flex-end; }
   .composer textarea {
@@ -668,6 +681,409 @@
     border-color: rgba(99, 102, 241, 0.25); border-top-color: var(--periwinkle);
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* —— Summary pack inspector (right panel) —— */
+  .pack-inspector {
+    display: none;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+    min-height: 0;
+  }
+  .pack-inspector.visible { display: flex; }
+  .pack-inspector-head {
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .pack-inspector-title h2 {
+    font-size: 13px; font-weight: 700; margin: 0 0 2px; color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .pack-inspector-sub {
+    font-size: 11px; color: var(--ink-3); margin: 0 0 12px; line-height: 1.4;
+  }
+  .pack-tabs {
+    display: flex; gap: 4px;
+    background: var(--surface-3);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+  }
+  .pack-tab {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-3);
+    background: transparent;
+    border-radius: 9px;
+  }
+  .pack-tab:hover { color: var(--ink-2); }
+  .pack-tab.active {
+    background: #fff;
+    color: var(--brand-deep);
+    box-shadow: var(--shadow-sm);
+  }
+  .pack-inspector-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .pack-tab-panel {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .pack-tab-panel.hidden { display: none; }
+  .pack-split {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .pack-asset-list {
+    flex: 0 0 auto;
+    max-height: 42%;
+    overflow-y: auto;
+    padding: 8px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .pack-asset-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+    gap: 2px 8px;
+    align-items: start;
+    text-align: left;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .pack-asset-item:hover { background: rgba(255,255,255,0.7); border-color: var(--line); }
+  .pack-asset-item.selected {
+    background: var(--brand-soft);
+    border-color: rgba(168, 85, 247, 0.25);
+  }
+  .pack-asset-type {
+    grid-row: 1 / 3;
+    align-self: center;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 4px 6px;
+    border-radius: 6px;
+    line-height: 1;
+  }
+  .pack-asset-type.skill { background: #ede9fe; color: #6d28d9; }
+  .pack-asset-type.rule { background: #e0f2fe; color: #0369a1; }
+  .pack-asset-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pack-asset-meta {
+    font-size: 10px;
+    color: var(--ink-4);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--mono);
+  }
+  .pack-empty {
+    font-size: 12px;
+    color: var(--ink-3);
+    padding: 12px 8px;
+    text-align: center;
+  }
+  .pack-viewer {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 14px 14px;
+    overflow: hidden;
+  }
+  .pack-viewer-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--ink-4);
+    text-align: center;
+    padding: 24px 12px;
+  }
+  .pack-viewer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+  }
+  .pack-viewer-head strong {
+    font-size: 13px;
+    color: var(--ink);
+    margin-left: 6px;
+  }
+  .pack-viewer-lock {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--ink-4);
+    padding: 3px 8px;
+    border-radius: var(--radius-pill);
+    background: var(--surface-3);
+    flex-shrink: 0;
+  }
+  .pack-viewer-source {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--ink-4);
+    margin-bottom: 8px;
+    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pack-viewer-body {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.55;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--mono);
+    color: var(--ink-2);
+    background: var(--surface-3);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+  }
+  .pack-tenant-banner {
+    margin: 12px 14px 0;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--ink-3);
+    background: var(--gradient-soft);
+    border: 1px dashed rgba(168, 85, 247, 0.25);
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+  }
+  .pack-tenant-banner.locked { opacity: 0.85; }
+  .pack-upload-zone {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .pack-upload-zone.locked { opacity: 0.5; pointer-events: none; }
+  .pack-upload-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-4);
+    margin-bottom: 8px;
+  }
+  .pack-custom-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .pack-log-details {
+    flex-shrink: 0;
+    margin: 0 14px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: rgba(255,255,255,0.5);
+    overflow: hidden;
+  }
+  .pack-log-details > summary {
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-3);
+    cursor: pointer;
+    list-style: none;
+  }
+  .pack-log-details > summary::-webkit-details-marker { display: none; }
+  .pack-log-details[hidden] { display: none; }
+  #packTabTenant .tenant-skills-status { margin: 10px 14px 0; }
+  .tenant-skills-status {
+    font-size: 12px; padding: 8px 10px; border-radius: var(--radius-sm);
+    margin-bottom: 10px; display: none;
+  }
+  .tenant-skills-status.error { display: block; background: #fff1f2; color: var(--danger); }
+  .tenant-skills-status.ok { display: block; background: #ecfdf5; color: var(--ok); }
+  .tenant-skills-hint {
+    font-size: 11px;
+    color: var(--ink-3);
+    line-height: 1.45;
+    margin: 0 0 10px;
+  }
+  .tenant-defaults {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .tenant-default-item {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-3);
+    padding: 8px 10px;
+  }
+  .tenant-default-item .meta {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-3);
+    margin-bottom: 6px;
+  }
+  .tenant-default-item pre {
+    margin: 0;
+    font-size: 10.5px;
+    line-height: 1.4;
+    max-height: 120px;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-family: var(--mono);
+    color: var(--ink-2);
+  }
+  .tenant-rule-preview {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    max-height: 120px;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-family: var(--mono);
+    color: var(--ink-2);
+    background: var(--surface-3);
+    border-radius: 8px;
+    padding: 10px;
+    border: 1px solid var(--line);
+  }
+  .tenant-rule-editor {
+    width: 100%;
+    min-height: 140px;
+    max-height: 220px;
+    margin: 0;
+    padding: 10px;
+    font-size: 11px;
+    line-height: 1.5;
+    font-family: var(--mono);
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--brand-mist);
+    border-radius: var(--radius-sm);
+    resize: vertical;
+    box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.08);
+  }
+  .tenant-custom-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    background: #fff;
+    box-shadow: var(--shadow-sm);
+  }
+  .tenant-custom-card.editing {
+    border-color: rgba(168, 85, 247, 0.35);
+    box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.08);
+  }
+  .tenant-custom-card.disabled { opacity: 0.72; background: var(--surface-3); }
+  .tenant-custom-head {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .tenant-custom-head .pack-asset-type.skill { flex-shrink: 0; }
+  .tenant-custom-head .pack-asset-type.rule { flex-shrink: 0; }
+  .tenant-custom-head .slug {
+    flex: 1;
+    min-width: 0;
+  }
+  .tenant-custom-head .badge {
+    margin-left: auto;
+  }
+  .tenant-custom-head .badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: var(--radius-pill);
+    background: #ecfdf5;
+    color: var(--ok);
+  }
+  .tenant-custom-head .badge.off {
+    background: #fff1f2;
+    color: var(--danger);
+  }
+  .tenant-custom-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .tenant-btn-edit, .tenant-btn-replace {
+    background: var(--surface-3);
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+  }
+  .tenant-btn-edit:hover, .tenant-btn-replace:hover {
+    border-color: var(--brand-mist);
+    color: var(--brand-deep);
+  }
+  .tenant-btn-active {
+    background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0;
+    padding: 7px 12px; font-size: 12px; font-weight: 600; border-radius: var(--radius-sm);
+  }
+  .tenant-btn-active:disabled { opacity: 0.45; cursor: default; }
+  .tenant-btn-disabled {
+    background: #fff1f2; color: #be123c; border: 1px solid #fecdd3;
+    padding: 7px 12px; font-size: 12px; font-weight: 600; border-radius: var(--radius-sm);
+  }
+  .tenant-btn-disabled:disabled { opacity: 0.45; cursor: default; }
+  .tenant-btn-delete {
+    background: #fff; color: #b91c1c; border: 1px solid #fca5a5;
+    padding: 7px 12px; font-size: 12px; font-weight: 600; border-radius: var(--radius-sm);
+  }
+  .tenant-btn-delete:hover { background: #fef2f2; border-color: #f87171; }
+  .tenant-upload-row {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;
+  }
+  .tenant-upload-row input[type=file] { flex: 1; min-width: 180px; font-size: 12px; }
+  .tenant-source-file { font-size: 10px; color: var(--ink-3); margin-top: 4px; }
+  .tenant-log {
+    margin-top: 12px;
+    font-size: 10.5px;
+    color: var(--ink-3);
+    max-height: 120px;
+    overflow: auto;
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+  .tenant-log div { margin-bottom: 4px; font-family: var(--mono); }
 </style>
 </head>
 <body>
@@ -740,7 +1156,7 @@
       <div class="empty-state">
         <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 16h5M9 3h6l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/></svg></div>
         <div class="empty-title">What would you like to run?</div>
-        <div class="empty-sub">Pick an action on the left — <strong>OCR</strong>, <strong>Summary</strong>, <strong>Insight</strong>, or <strong>AP</strong> — or type a message below.</div>
+        <div class="empty-sub">Pick an action on the left — <strong>OCR agent</strong>, <strong>Summary agent</strong>, <strong>Insight agent</strong>, <strong>AP agent</strong>, or <strong>Prompt agent</strong> — or type a message below.</div>
       </div>
     </div>
     <div class="main-controls" id="mainControls">
@@ -758,7 +1174,7 @@
         </div>
         <div>
           <label for="summaryTenant">tenant_id</label>
-          <input type="text" id="summaryTenant" placeholder="required for blob path" />
+          <input type="text" id="summaryTenant" placeholder="optional — blob path &amp; custom uploads" />
         </div>
         <div>
           <label for="summaryPageno">pageno</label>
@@ -849,7 +1265,7 @@ Due Date,DATE</textarea>
       </div>
     </details>
     <details class="ocr-panel" id="apPanel">
-      <summary>AP document — upload file, blob path, or invoice JSON</summary>
+      <summary>AP agent — upload file, blob path, or invoice JSON</summary>
       <div class="ocr-grid">
         <div>
           <label for="apFile">File (wins over filepath)</label>
@@ -934,13 +1350,65 @@ Due Date,DATE</textarea>
       </div>
     </details>
     </div>
-    <div class="composer">
+    <div class="composer" id="composerWrap">
+      <div class="mode-fields" id="promptFields" hidden>
+        <div>
+          <label for="promptModel">model (optional)</label>
+          <select id="promptModel"></select>
+        </div>
+        <div class="ocr-actions" style="align-self:end">
+          <button type="button" class="btn-ghost" id="promptSampleBtn">Load folder-config sample</button>
+        </div>
+        <div style="grid-column:1/-1" class="field-hint">Uses <code>skills/prompt/SKILL.md</code> and <code>skills/prompt/rules/*.mdc</code> (same pack pattern as OCR / Summary / Insight).</div>
+      </div>
       <form id="composerForm">
         <textarea id="messageInput" placeholder="Type a message… (e.g. &quot;search for the PTO policy&quot;)" rows="1"></textarea>
         <button type="submit" class="btn-primary" id="sendBtn">Send</button>
       </form>
     </div>
   </section>
+
+  <aside class="panel pack-inspector" id="summaryPackInspector">
+    <div class="pack-inspector-head">
+      <div class="pack-inspector-title">
+        <h2>Summary pack</h2>
+        <p class="pack-inspector-sub">Platform defaults (read-only) and tenant custom rules</p>
+      </div>
+      <div class="pack-tabs">
+        <button type="button" class="pack-tab active" data-pack-tab="platform">Platform</button>
+        <button type="button" class="pack-tab" data-pack-tab="tenant">Tenant</button>
+      </div>
+    </div>
+    <div class="pack-inspector-body">
+      <div id="packTabPlatform" class="pack-tab-panel">
+        <div class="pack-split">
+          <div class="pack-asset-list" id="packAssetList"></div>
+          <div class="pack-viewer" id="packViewer">
+            <div class="pack-viewer-empty">Select a skill or rule to preview</div>
+          </div>
+        </div>
+      </div>
+      <div id="packTabTenant" class="pack-tab-panel hidden">
+        <div class="pack-tenant-banner locked" id="summaryTenantZone">
+          <span id="summaryTenantUnlockHint">Set <strong>tenant_id</strong> in the form to upload and edit custom skills/rules.</span>
+        </div>
+        <div id="summarySkillsStatus" class="tenant-skills-status"></div>
+        <div class="pack-upload-zone locked" id="packUploadZone">
+          <label class="pack-upload-label" for="summaryRuleUploadFile">Add custom upload</label>
+          <div class="field-hint" style="margin-bottom:8px"><code>.md</code> → skill &nbsp;·&nbsp; <code>.mdc</code> → rule</div>
+          <div class="tenant-upload-row">
+            <input type="file" id="summaryRuleUploadFile" accept=".md,.mdc,text/markdown" />
+            <button type="button" class="btn-primary" id="summaryRuleSaveBtn">Upload</button>
+          </div>
+        </div>
+        <div class="pack-custom-list" id="summaryCustomRules"></div>
+        <details class="pack-log-details" id="summaryLogsWrap" hidden>
+          <summary>Change log</summary>
+          <div id="summarySkillLogs" class="tenant-log"></div>
+        </details>
+      </div>
+    </div>
+  </aside>
 </div>
 
 <script>
@@ -953,6 +1421,7 @@ const healthDot = document.getElementById('healthDot');
 const healthLabel = document.getElementById('healthLabel');
 const summaryModelSelect = document.getElementById('summaryModel');
 const insightModelSelect = document.getElementById('insightModel');
+const promptModelSelect = document.getElementById('promptModel');
 
 function newSessionId() {
   return 'console-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
@@ -1034,6 +1503,12 @@ async function loadLlmPresetsAndConfig() {
         insightModelSelect.options[0].textContent = 'Console default';
       }
     }
+    if (promptModelSelect) {
+      fillPresetSelect(promptModelSelect, llmPresets, '', { includeNone: true });
+      if (promptModelSelect.options.length && promptModelSelect.options[0].value === '') {
+        promptModelSelect.options[0].textContent = 'Console default';
+      }
+    }
     updateDefaultHint(defaultId);
     llmKeyHint.textContent = data.has_api_key
       ? 'API key loaded from .env for the selected default preset.'
@@ -1096,10 +1571,11 @@ async function testLlmConnection() {
 llmTestBtn.addEventListener('click', testLlmConnection);
 
 const CAP_ACTIONS = [
-  { label: 'OCR document', ocr: true },
-  { label: 'Summarize document', summary: true },
-  { label: 'Insight', insight: true },
-  { label: 'AP document', ap: true },
+  { label: 'OCR agent', ocr: true },
+  { label: 'Summary agent', summary: true },
+  { label: 'Insight agent', insight: true },
+  { label: 'AP agent', ap: true },
+  { label: 'Prompt agent', prompt: true },
 ];
 const QUICK_PROMPTS = [
   { label: 'search for the PTO policy', message: 'search for the PTO policy' },
@@ -1135,12 +1611,13 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap')) {
+  if (mode === composerMode && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt')) {
     mode = 'chat';
   }
   composerMode = mode;
   const panel = document.getElementById('docPanel');
   const banner = document.getElementById('docBanner');
+  const composerWrap = document.getElementById('composerWrap');
   const showDoc = mode === 'summary' || mode === 'ocr' || mode === 'insight';
   panel.classList.toggle('visible', showDoc);
   panel.open = showDoc;
@@ -1149,6 +1626,13 @@ function setComposerMode(mode) {
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
+  const promptFields = document.getElementById('promptFields');
+  if (promptFields) promptFields.hidden = mode !== 'prompt';
+  if (composerWrap) composerWrap.classList.toggle('prompt-mode', mode === 'prompt');
+  const layout = document.querySelector('.layout');
+  const packInspector = document.getElementById('summaryPackInspector');
+  if (layout) layout.classList.toggle('pack-inspector-open', mode === 'summary');
+  if (packInspector) packInspector.classList.toggle('visible', mode === 'summary');
   document.querySelectorAll('#capActions .cap-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
@@ -1156,7 +1640,7 @@ function setComposerMode(mode) {
   if (mode === 'summary') {
     banner.textContent = 'Summarize document — JSON, OCR text, upload file, or blob path';
     messageInput.placeholder = 'Optional — JSON / file / blob / OCR text is enough';
-    document.getElementById('summaryJson').focus();
+    loadSummarySkillsPack();
   } else if (mode === 'insight') {
     banner.textContent = 'Insight — paste JSON, OCR text, upload file, or blob path';
     messageInput.placeholder = 'Optional — JSON / file / blob / OCR text is enough';
@@ -1167,6 +1651,9 @@ function setComposerMode(mode) {
     document.getElementById('ocrFilepath').focus();
   } else if (mode === 'ap') {
     messageInput.placeholder = 'Optional — use Run AP in the panel';
+  } else if (mode === 'prompt') {
+    messageInput.placeholder = 'Paste the full prompt — raw model output comes back as-is';
+    messageInput.focus();
   } else {
     messageInput.placeholder = 'Type a message… (e.g. "search for the PTO policy")';
   }
@@ -1182,11 +1669,13 @@ CAP_ACTIONS.forEach(p => {
   if (p.summary) btn.dataset.mode = 'summary';
   if (p.insight) btn.dataset.mode = 'insight';
   if (p.ap) btn.dataset.mode = 'ap';
+  if (p.prompt) btn.dataset.mode = 'prompt';
   btn.addEventListener('click', () => {
     if (p.ocr) { setComposerMode('ocr'); return; }
     if (p.summary) { setComposerMode('summary'); return; }
     if (p.insight) { setComposerMode('insight'); return; }
     if (p.ap) { setComposerMode('ap'); return; }
+    if (p.prompt) { setComposerMode('prompt'); return; }
   });
   capActionsEl.appendChild(btn);
 });
@@ -1274,6 +1763,534 @@ async function readResponseJson(res) {
   }
 }
 
+function summaryTenantId() {
+  return (document.getElementById('summaryTenant').value || '').trim();
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function setSummarySkillsStatus(kind, text) {
+  const el = document.getElementById('summarySkillsStatus');
+  if (!el) return;
+  if (!text) {
+    el.className = 'tenant-skills-status';
+    el.textContent = '';
+    return;
+  }
+  el.className = 'tenant-skills-status ' + kind;
+  el.textContent = text;
+}
+
+const summaryPackState = { defaults: null, selectedAssetId: null, editingItemKey: null };
+
+function customItemKey(kind, id) {
+  return kind + ':' + id;
+}
+
+function switchPackTab(tabName) {
+  document.querySelectorAll('.pack-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.packTab === tabName);
+  });
+  const platform = document.getElementById('packTabPlatform');
+  const tenant = document.getElementById('packTabTenant');
+  if (platform) platform.classList.toggle('hidden', tabName !== 'platform');
+  if (tenant) tenant.classList.toggle('hidden', tabName !== 'tenant');
+}
+
+function packAssetsFromDefaults(defaults) {
+  const items = [];
+  if (defaults && defaults.skill) {
+    items.push({
+      id: 'skill:SKILL',
+      type: 'SKILL',
+      slug: 'SKILL',
+      label: 'SKILL.md',
+      source: defaults.skill.source_file || '',
+      body: defaults.skill.body || '',
+    });
+  }
+  (defaults && defaults.rules || []).forEach(rule => {
+    items.push({
+      id: 'rule:' + rule.slug,
+      type: 'RULE',
+      slug: rule.slug,
+      label: rule.slug,
+      source: rule.source_file || '',
+      body: rule.body || '',
+    });
+  });
+  return items;
+}
+
+function renderPackAssetList(defaults) {
+  summaryPackState.defaults = defaults;
+  const list = document.getElementById('packAssetList');
+  if (!list) return;
+  const items = packAssetsFromDefaults(defaults);
+  if (!items.length) {
+    list.innerHTML = '<div class="pack-empty">No default pack on disk.</div>';
+    const viewer = document.getElementById('packViewer');
+    if (viewer) {
+      viewer.innerHTML = '<div class="pack-viewer-empty">No platform assets loaded</div>';
+    }
+    return;
+  }
+  list.innerHTML = items.map(asset => (
+    `<button type="button" class="pack-asset-item${summaryPackState.selectedAssetId === asset.id ? ' selected' : ''}" data-asset-id="${escapeHtml(asset.id)}">`
+    + `<span class="pack-asset-type ${asset.type.toLowerCase()}">${asset.type}</span>`
+    + `<span class="pack-asset-label">${escapeHtml(asset.label)}</span>`
+    + `<span class="pack-asset-meta">${escapeHtml(asset.source)}</span>`
+    + `</button>`
+  )).join('');
+  list.querySelectorAll('.pack-asset-item').forEach(btn => {
+    btn.addEventListener('click', () => selectPackAsset(btn.dataset.assetId));
+  });
+  const keepSelection = items.some(a => a.id === summaryPackState.selectedAssetId);
+  selectPackAsset(keepSelection ? summaryPackState.selectedAssetId : items[0].id);
+}
+
+function selectPackAsset(assetId) {
+  summaryPackState.selectedAssetId = assetId;
+  document.querySelectorAll('.pack-asset-item').forEach(el => {
+    el.classList.toggle('selected', el.dataset.assetId === assetId);
+  });
+  const viewer = document.getElementById('packViewer');
+  if (!viewer) return;
+  const asset = packAssetsFromDefaults(summaryPackState.defaults).find(a => a.id === assetId);
+  if (!asset) {
+    viewer.innerHTML = '<div class="pack-viewer-empty">Select a skill or rule to preview</div>';
+    return;
+  }
+  viewer.innerHTML = (
+    `<div class="pack-viewer-head">`
+    + `<div><span class="pack-asset-type ${asset.type.toLowerCase()}">${asset.type}</span><strong>${escapeHtml(asset.slug)}</strong></div>`
+    + `<span class="pack-viewer-lock">Read-only</span>`
+    + `</div>`
+    + `<div class="pack-viewer-source">${escapeHtml(asset.source)}</div>`
+    + `<pre class="pack-viewer-body">${escapeHtml(asset.body)}</pre>`
+  );
+}
+
+function renderSummaryDefaults(defaults) {
+  renderPackAssetList(defaults);
+}
+
+function syncSummaryTenantZone() {
+  const zone = document.getElementById('summaryTenantZone');
+  const uploadZone = document.getElementById('packUploadZone');
+  const hint = document.getElementById('summaryTenantUnlockHint');
+  const tid = summaryTenantId();
+  if (zone) zone.classList.toggle('locked', !tid);
+  if (uploadZone) uploadZone.classList.toggle('locked', !tid);
+  if (tid) {
+    if (hint) hint.innerHTML = 'Tenant <strong>' + escapeHtml(tid) + '</strong> — upload <code>.md</code> skills or <code>.mdc</code> rules.';
+  } else {
+    summaryPackState.editingItemKey = null;
+    if (hint) {
+      hint.innerHTML = 'Set <strong>tenant_id</strong> in the form to upload and edit custom skills/rules.';
+    }
+    renderSummaryCustomItems([], []);
+    renderSummarySkillLogs([]);
+    setSummarySkillsStatus('', '');
+  }
+}
+
+function inferItemKindFromSource(sourceFile, fallbackKind) {
+  const f = String(sourceFile || '').trim().toLowerCase();
+  if (f.endsWith('.mdc')) return 'rule';
+  if (f.endsWith('.md')) return 'skill';
+  return fallbackKind || 'rule';
+}
+
+function normalizeCustomTenantItems(skills, rules) {
+  const outSkills = [...(skills || [])];
+  const outRules = [];
+  for (const item of (rules || [])) {
+    if (inferItemKindFromSource(item.source_file, 'rule') === 'skill') {
+      outSkills.push(item);
+    } else {
+      outRules.push(item);
+    }
+  }
+  return [outSkills, outRules];
+}
+
+function mergeCustomItems(skills, rules) {
+  const [normalizedSkills, normalizedRules] = normalizeCustomTenantItems(skills, rules);
+  const items = [];
+  normalizedSkills.forEach(item => {
+    items.push({
+      ...item,
+      item_kind: inferItemKindFromSource(item.source_file, 'skill'),
+    });
+  });
+  normalizedRules.forEach(item => {
+    items.push({
+      ...item,
+      item_kind: inferItemKindFromSource(item.source_file, 'rule'),
+    });
+  });
+  return items.sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+function renderSummaryCustomItems(skills, rules) {
+  const el = document.getElementById('summaryCustomRules');
+  if (!el) return;
+  const items = mergeCustomItems(skills, rules);
+  if (!items.length) {
+    el.innerHTML = '<div class="pack-empty">No custom uploads yet — use <code>.md</code> for skills or <code>.mdc</code> for rules.</div>';
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const kind = item.item_kind;
+    const active = Number(item.is_active) === 1;
+    const itemKey = customItemKey(kind, item.id);
+    const editing = summaryPackState.editingItemKey === itemKey;
+    const typeLabel = kind === 'skill' ? 'SKILL' : 'RULE';
+    const accept = kind === 'skill' ? '.md,text/markdown' : '.mdc,text/markdown';
+    const src = item.source_file
+      ? `<div class="tenant-source-file">${escapeHtml(item.source_file)}</div>`
+      : '';
+    const bodyBlock = editing
+      ? `<textarea class="tenant-rule-editor">${escapeHtml(item.body)}</textarea>`
+      : `<pre class="tenant-rule-preview">${escapeHtml(item.body)}</pre>`;
+    const actions = editing
+      ? `<div class="tenant-custom-actions">`
+        + `<button type="button" class="btn-primary tenant-item-save-edit">Save</button>`
+        + `<button type="button" class="btn-ghost tenant-item-cancel-edit">Cancel</button>`
+        + `</div>`
+      : `<div class="tenant-custom-actions">`
+        + `<button type="button" class="tenant-btn-edit tenant-item-edit">Edit</button>`
+        + `<button type="button" class="tenant-btn-replace tenant-item-replace">Replace file</button>`
+        + `<input type="file" class="tenant-item-replace-input" hidden accept="${accept}" />`
+        + `<button type="button" class="tenant-btn-active tenant-item-set-active"${active ? ' disabled' : ''}>Enable</button>`
+        + `<button type="button" class="tenant-btn-disabled tenant-item-set-disabled"${active ? '' : ' disabled'}>Disable</button>`
+        + `<button type="button" class="tenant-btn-delete tenant-item-delete">Delete</button>`
+        + `</div>`;
+    return (
+      `<div class="tenant-custom-card${active ? '' : ' disabled'}${editing ? ' editing' : ''}" data-item-kind="${kind}" data-item-id="${item.id}">`
+      + `<div class="tenant-custom-head">`
+      + `<span class="pack-asset-type ${kind}">${typeLabel}</span>`
+      + `<span class="slug">${escapeHtml(item.slug)}</span>`
+      + `<span class="badge${active ? '' : ' off'}">${active ? 'active' : 'disabled'}</span>`
+      + `</div>`
+      + src
+      + bodyBlock
+      + actions
+      + `</div>`
+    );
+  }).join('');
+
+  el.querySelectorAll('.tenant-item-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('.tenant-custom-card');
+      summaryPackState.editingItemKey = customItemKey(card.dataset.itemKind, Number(card.dataset.itemId));
+      renderSummaryCustomItems(skills, rules);
+    });
+  });
+  el.querySelectorAll('.tenant-item-cancel-edit').forEach(btn => {
+    btn.addEventListener('click', () => {
+      summaryPackState.editingItemKey = null;
+      renderSummaryCustomItems(skills, rules);
+    });
+  });
+  el.querySelectorAll('.tenant-item-save-edit').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const card = btn.closest('.tenant-custom-card');
+      const kind = card.dataset.itemKind;
+      const id = Number(card.dataset.itemId);
+      const editor = card.querySelector('.tenant-rule-editor');
+      const body = editor ? editor.value.trim() : '';
+      if (!body) {
+        setSummarySkillsStatus('error', 'Body cannot be empty.');
+        return;
+      }
+      summaryPackState.editingItemKey = null;
+      await patchSummaryCustomItem(kind, id, { body }, { quiet: true });
+    });
+  });
+  el.querySelectorAll('.tenant-item-replace').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const card = btn.closest('.tenant-custom-card');
+      const input = card.querySelector('.tenant-item-replace-input');
+      if (input) input.click();
+    });
+  });
+  el.querySelectorAll('.tenant-item-replace-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const card = input.closest('.tenant-custom-card');
+      await replaceSummaryCustomItemFile(card.dataset.itemKind, Number(card.dataset.itemId), file);
+      input.value = '';
+    });
+  });
+  el.querySelectorAll('.tenant-item-set-active').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const card = btn.closest('.tenant-custom-card');
+      await patchSummaryCustomItem(card.dataset.itemKind, Number(card.dataset.itemId), { is_active: true }, { quiet: true });
+    });
+  });
+  el.querySelectorAll('.tenant-item-set-disabled').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const card = btn.closest('.tenant-custom-card');
+      await patchSummaryCustomItem(card.dataset.itemKind, Number(card.dataset.itemId), { is_active: false }, { quiet: true });
+    });
+  });
+  el.querySelectorAll('.tenant-item-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const card = btn.closest('.tenant-custom-card');
+      const kind = card.dataset.itemKind;
+      const id = Number(card.dataset.itemId);
+      const slug = card.querySelector('.slug') ? card.querySelector('.slug').textContent : id;
+      if (!confirm(`Permanently delete "${slug}"? This cannot be undone.`)) return;
+      await deleteSummaryCustomItem(kind, id);
+    });
+  });
+}
+
+async function deleteSummaryCustomItem(kind, itemId) {
+  const tenantId = summaryTenantId();
+  if (!tenantId) {
+    addSystemMessage('Set tenant_id before deleting custom items.');
+    setSummarySkillsStatus('error', 'Set tenant_id first.');
+    return;
+  }
+  const bases = kind === 'skill'
+    ? ['custom-skills', 'custom-rules']
+    : ['custom-rules', 'custom-skills'];
+  setSummarySkillsStatus('', 'Deleting…');
+  for (const base of bases) {
+    try {
+      const res = await fetch(
+        '/console/summary-skills/' + base + '/' + itemId + '?tenant_id=' + encodeURIComponent(tenantId),
+        { method: 'DELETE' }
+      );
+      const data = await readResponseJson(res);
+      if (res.ok) {
+        const deleted = data.deleted || {};
+        addSystemMessage('Deleted ' + kind + ' "' + (deleted.slug || itemId) + '".');
+        await loadSummaryTenantCustom();
+        return;
+      }
+      if (res.status !== 404) {
+        setSummarySkillsStatus('error', typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status));
+        return;
+      }
+    } catch (e) {
+      setSummarySkillsStatus('error', 'Delete failed.');
+      return;
+    }
+  }
+  setSummarySkillsStatus('error', 'Item not found.');
+}
+
+function renderSummaryCustomRules(rules) {
+  renderSummaryCustomItems([], rules);
+}
+
+function renderSummarySkillLogs(logs) {
+  const wrap = document.getElementById('summaryLogsWrap');
+  const el = document.getElementById('summarySkillLogs');
+  if (!el) return;
+  if (!logs || !logs.length) {
+    if (wrap) wrap.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  if (wrap) wrap.hidden = false;
+  el.innerHTML = logs.map(log =>
+    `<div>${escapeHtml(log.changed_at)} · ${escapeHtml(log.item_type)} · ${escapeHtml(log.action)} · #${log.item_id}</div>`
+  ).join('');
+}
+
+async function loadSummaryDefaults() {
+  try {
+    const res = await fetch('/console/summary-skills/defaults');
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      addSystemMessage('Summary defaults: ' + msg);
+      return;
+    }
+    renderSummaryDefaults(data.defaults);
+  } catch (e) {
+    addSystemMessage('Could not load Summary defaults.');
+  }
+}
+
+async function loadSummaryTenantCustom() {
+  syncSummaryTenantZone();
+  const tenantId = summaryTenantId();
+  if (!tenantId) return;
+  try {
+    const res = await fetch('/console/summary-skills?tenant_id=' + encodeURIComponent(tenantId));
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      setSummarySkillsStatus('error', msg);
+      return;
+    }
+    renderSummaryCustomItems(data.custom_skills, data.custom_rules);
+    renderSummarySkillLogs(data.logs);
+    const [skills, rules] = normalizeCustomTenantItems(data.custom_skills, data.custom_rules);
+    const n = skills.length + rules.length;
+    const active = skills.filter(r => Number(r.is_active) === 1).length
+      + rules.filter(r => Number(r.is_active) === 1).length;
+    setSummarySkillsStatus('ok', active + ' active · ' + skills.length + ' skill(s) · ' + rules.length + ' rule(s)');
+  } catch (e) {
+    setSummarySkillsStatus('error', 'Could not load tenant uploads.');
+  }
+}
+
+async function loadSummarySkillsPack() {
+  await loadSummaryDefaults();
+  await loadSummaryTenantCustom();
+}
+
+async function patchSummaryCustomItem(kind, itemId, patch, opts) {
+  const quiet = opts && opts.quiet;
+  const tenantId = summaryTenantId();
+  if (!tenantId) {
+    if (!quiet) addSystemMessage('Set tenant_id before editing custom items.');
+    setSummarySkillsStatus('error', 'Set tenant_id first.');
+    return;
+  }
+  let base = kind === 'skill' ? 'custom-skills' : 'custom-rules';
+  try {
+    let res = await fetch('/console/summary-skills/' + base + '/' + itemId, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant_id: tenantId, ...patch }),
+    });
+    let data = await readResponseJson(res);
+    if (!res.ok && kind === 'skill' && res.status === 404) {
+      base = 'custom-rules';
+      res = await fetch('/console/summary-skills/' + base + '/' + itemId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: tenantId, ...patch }),
+      });
+      data = await readResponseJson(res);
+    }
+    if (!res.ok) {
+      const msg = data.detail || res.status;
+      setSummarySkillsStatus('error', String(msg));
+      if (!quiet) addSystemMessage('Custom ' + kind + ': ' + msg);
+      return;
+    }
+    await loadSummaryTenantCustom();
+    if (!quiet) {
+      const row = kind === 'skill' ? data.skill : data.rule;
+      addSystemMessage('Custom ' + kind + ' updated (' + (row && row.slug || itemId) + ').');
+    }
+  } catch (e) {
+    setSummarySkillsStatus('error', 'Update failed.');
+    if (!quiet) addSystemMessage('Custom ' + kind + ' update failed.');
+  }
+}
+
+async function replaceSummaryCustomItemFile(kind, itemId, file) {
+  const tenantId = summaryTenantId();
+  if (!tenantId) {
+    setSummarySkillsStatus('error', 'Set tenant_id first.');
+    return;
+  }
+  const name = (file && file.name || '').toLowerCase();
+  const fileKind = name.endsWith('.mdc') ? 'rule' : name.endsWith('.md') ? 'skill' : kind;
+  const bases = fileKind === 'skill'
+    ? ['custom-skills', 'custom-rules']
+    : ['custom-rules', 'custom-skills'];
+  const form = new FormData();
+  form.append('tenant_id', tenantId);
+  form.append('file', file, file.name);
+  setSummarySkillsStatus('', 'Replacing…');
+  let lastError = 'Replace failed.';
+  for (const base of bases) {
+    try {
+      const res = await fetch('/console/summary-skills/' + base + '/' + itemId + '/upload', {
+        method: 'POST',
+        body: form,
+      });
+      const data = await readResponseJson(res);
+      if (res.ok) {
+        summaryPackState.editingItemKey = null;
+        await loadSummaryTenantCustom();
+        addSystemMessage('Replaced with ' + (data.source_file || file.name) + '.');
+        return;
+      }
+      lastError = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      if (res.status !== 404) break;
+    } catch (e) {
+      lastError = 'Replace failed.';
+      break;
+    }
+  }
+  setSummarySkillsStatus('error', lastError);
+  addSystemMessage('Replace file: ' + lastError);
+}
+
+async function patchSummaryCustomRule(itemId, patch, opts) {
+  return patchSummaryCustomItem('rule', itemId, patch, opts);
+}
+
+async function replaceSummaryCustomRuleFile(itemId, file) {
+  return replaceSummaryCustomItemFile('rule', itemId, file);
+}
+
+async function saveSummaryCustomRuleFile() {
+  const tenantId = summaryTenantId();
+  if (!tenantId) {
+    setSummarySkillsStatus('error', 'Set tenant_id in the form first.');
+    return;
+  }
+  const input = document.getElementById('summaryRuleUploadFile');
+  const file = input && input.files && input.files[0];
+  if (!file) {
+    setSummarySkillsStatus('error', 'Choose a .md or .mdc file first.');
+    return;
+  }
+  const form = new FormData();
+  form.append('tenant_id', tenantId);
+  form.append('file', file, file.name);
+  setSummarySkillsStatus('', 'Saving…');
+  try {
+    const res = await fetch('/console/summary-skills/custom-rules/upload', {
+      method: 'POST',
+      body: form,
+    });
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      setSummarySkillsStatus('error', msg);
+      addSystemMessage('Save upload: ' + msg);
+      return;
+    }
+    if (input) input.value = '';
+    await loadSummaryTenantCustom();
+    const slug = data.kind === 'skill'
+      ? (data.skill && data.skill.slug)
+      : (data.rule && data.rule.slug);
+    addSystemMessage('Saved ' + (data.source_file || file.name) + ' as ' + (data.kind || 'item') + ' ' + (slug || '') + '.');
+  } catch (e) {
+    setSummarySkillsStatus('error', 'Save failed.');
+    addSystemMessage('Save upload failed.');
+  }
+}
+
+document.getElementById('summaryRuleSaveBtn').addEventListener('click', saveSummaryCustomRuleFile);
+document.getElementById('summaryTenant').addEventListener('input', loadSummaryTenantCustom);
+document.getElementById('summaryTenant').addEventListener('change', loadSummaryTenantCustom);
+document.querySelectorAll('.pack-tab').forEach(tab => {
+  tab.addEventListener('click', () => switchPackTab(tab.dataset.packTab));
+});
+
 function fieldRow(label, value) {
   if (value === null || value === undefined) return '';
   return `<tr><td>${label}</td><td>${value}</td></tr>`;
@@ -1333,6 +2350,17 @@ function codePanelHtml() {
       <pre class="summary-code-pre" data-pane="curl" hidden></pre>
     </div>
   </details>`;
+}
+
+function renderPromptResult(promptResult, request) {
+  const text = promptResult && promptResult.text != null ? String(promptResult.text) : '';
+  const resultJson = JSON.stringify(promptResult || { text }, null, 2);
+  const curlText = buildChatCurl(request, 'prompt');
+  let html = `<div class="detail-block"><div class="dt-title">Prompt result</div>`;
+  html += `<pre class="ocr-text-preview">${escapeHtml(text)}</pre>`;
+  html += codePanelHtml();
+  html += `</div>`;
+  return { html, resultJson, curlText };
 }
 
 function renderOcrResult(ocr, request) {
@@ -1632,6 +2660,11 @@ function renderAssistantMessage(body, sessionId, request) {
     details += insightCode.html;
     codeBlocks.push(insightCode);
   }
+  if (body.prompt_result) {
+    const promptCode = renderPromptResult(body.prompt_result, request);
+    details += promptCode.html;
+    codeBlocks.push(promptCode);
+  }
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -1664,6 +2697,9 @@ function renderAssistantMessage(body, sessionId, request) {
   if (body.insight_result) {
     const n = (body.insight_result.insights || []).length;
     bubbleText = body.reply || `Insights ready — ${n} item${n === 1 ? '' : 's'}.`;
+  }
+  if (body.prompt_result) {
+    bubbleText = body.reply || 'Prompt executed successfully.';
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -1851,6 +2887,7 @@ async function sendSummaryJob() {
 
     if (summaryJson) {
       const payload = { summary_json: summaryJson, ...payloadExtras };
+      if (tenantId) payload.tenant_id = tenantId;
       request = { intent: 'summary', kind: 'summary_json', session_id: sessionId, payload };
       res = await fetch('/chat', {
         method: 'POST',
@@ -1863,6 +2900,7 @@ async function sendSummaryJob() {
       });
     } else if (ocrText) {
       const payload = { ocr_text: ocrText, ...payloadExtras };
+      if (tenantId) payload.tenant_id = tenantId;
       request = { intent: 'summary', kind: 'ocr_text', session_id: sessionId, payload };
       res = await fetch('/chat', {
         method: 'POST',
@@ -2213,14 +3251,93 @@ document.getElementById('apClearSkillsBtn').addEventListener('click', () => {
   document.getElementById('apSkills').value = '';
 });
 
+const FOLDER_CONFIG_SAMPLE = `You help design document management folder configurations.
+User request: "Create a repository folder named "Accounts Payable". Business description: Manage supplier invoices, purchase orders, and AP supporting documents.. Storage provider: . Field / structure preference: Suggest the best metadata fields and folder structure for this folder. Propose practical metadata fields for this folder. Set includeInFolderStructure true only for hierarchy fields. Return a short reply confirming the field recommendations."
+
+Return a practical folder setup for this use case.
+- folderName should be short and clear
+- description should explain the folder purpose
+- fields should cover documents and metadata needed for this folder
+- includeInFolderStructure=true for hierarchy levels (e.g. Employee, Document Type)
+- includeInFolderStructure=false for document metadata fields (e.g. Employee ID, Payslip Month)
+- Prefer these dataType values: SHORT_TEXT, LONG_TEXT, NUMBER, BOOLEAN, DATE, TIME, DATE_TIME, SINGLE_SELECT, TABLE, BARCODE, OMR, CALCULATED, AUTO_GENERATED, LINK, CURRENCY_AMOUNT, DYNAMIC_TABLE
+- Prefer iconKey values like: building, document, folder, user, calendar, dollar
+- reply should be 1-2 short sentences explaining the folder purpose and how fields are organized (e.g. by customer/document type). Do not list every field.
+
+Respond with ONLY a JSON object (no markdown) using this shape:
+{
+  "folderName": string,
+  "description": string,
+  "reply": string,
+  "fields": [
+    {
+      "fieldName": string,
+      "dataType": string,
+      "includeInFolderStructure": boolean,
+      "isMandatory": boolean,
+      "iconKey": string
+    }
+  ]
+}`;
+
+document.getElementById('promptSampleBtn').addEventListener('click', () => {
+  setComposerMode('prompt');
+  messageInput.value = FOLDER_CONFIG_SAMPLE;
+  messageInput.focus();
+});
+
+async function sendPromptJob() {
+  const message = messageInput.value.trim();
+  if (!message) {
+    addSystemMessage('Paste a prompt, then Send. Or click Load folder-config sample.');
+    return;
+  }
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const model = (promptModelSelect && promptModelSelect.value) || '';
+  const preview = message.length > 400 ? message.slice(0, 400) + '…' : message;
+  addUserMessage(preview);
+  const processing = addProcessingMessage('Running prompt…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+
+  try {
+    const payload = {};
+    if (model) payload.model = model;
+    const body = { session_id: sessionId, intent: 'prompt', message };
+    if (Object.keys(payload).length) body.payload = payload;
+    const request = { intent: 'prompt', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send';
+  }
+}
+
 async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
   if (composerMode === 'ocr') return sendOcrJob();
   if (composerMode === 'ap') return sendApJob();
+  if (composerMode === 'prompt') return sendPromptJob();
   const message = messageInput.value.trim();
   if (!message) {
-    addSystemMessage('Type a message, or click OCR / Summarize / Insight / AP on the left to attach a document.');
+    addSystemMessage('Type a message, or click OCR agent / Summary agent / Insight agent / AP agent / Prompt agent on the left.');
     return;
   }
   const sessionId = sessionIdInput.value.trim() || newSessionId();

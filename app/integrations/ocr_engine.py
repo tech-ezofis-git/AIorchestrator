@@ -92,17 +92,6 @@ class OcrEngineClient:
                 "pages": "docx",
             }
 
-        # Offline / unit-test mock: no remote OCR URL configured.
-        if not extract_url:
-            name = filename or (filename_from_blob_name(filepath) if filepath else source)
-            if file_bytes is not None and len(file_bytes) > settings.ocr_max_file_bytes:
-                raise OcrEngineError("Uploaded file exceeds size limit.")
-            return self._mock_result(
-                source_reference=source,
-                page_selection=pages,
-                filename=name or "document.bin",
-            )
-
         data, name, ctype = await self._resolve_bytes(
             filepath=filepath,
             file_bytes=file_bytes,
@@ -111,6 +100,30 @@ class OcrEngineClient:
             reference=reference,
             tenant_id=tenant_id,
         )
+
+        local_text = self._extract_local_text(
+            data=data,
+            filename=name,
+            content_type=ctype,
+            page_selection=pages,
+        )
+        if local_text:
+            return {
+                "source_reference": source,
+                "text": local_text,
+                "confidence": None,
+                "mock": False,
+                "filename": name,
+                "pages": pages.label(),
+            }
+
+        # Offline / unit-test mock: no remote OCR URL configured.
+        if not extract_url:
+            return self._mock_result(
+                source_reference=source,
+                page_selection=pages,
+                filename=name or "document.bin",
+            )
 
         if not data:
             raise OcrEngineError("No file bytes available for OCR.")
@@ -139,6 +152,26 @@ class OcrEngineClient:
             "filename": name,
             "pages": pages.label(),
         }
+
+    def _extract_local_text(
+        self,
+        *,
+        data: bytes,
+        filename: str,
+        content_type: str,
+        page_selection: PageSelection,
+    ) -> Optional[str]:
+        lowered = (filename or "").strip().lower()
+        ctype = (content_type or "").strip().lower()
+
+        if lowered.endswith(".txt") or ctype.startswith("text/plain"):
+            text = data.decode("utf-8-sig", errors="replace").strip()
+            return text or None
+
+        if lowered.endswith(".pdf") or ctype == "application/pdf":
+            return _extract_pdf_text(data, page_selection=page_selection)
+
+        return None
 
     async def _resolve_bytes(
         self,
@@ -337,3 +370,28 @@ def _extract_text_from_response(payload: Any, *, response_text: str) -> Optional
             if parts:
                 return "\n".join(parts)
     return None
+
+
+def _extract_pdf_text(data: bytes, *, page_selection: PageSelection) -> Optional[str]:
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        return None
+
+    try:
+        with fitz.open(stream=data, filetype="pdf") as doc:
+            if doc.page_count <= 0:
+                return None
+            start = max(page_selection.start - 1, 0)
+            end = min(page_selection.end, doc.page_count)
+            parts: list[str] = []
+            for idx in range(start, end):
+                text = (doc.load_page(idx).get_text("text") or "").strip()
+                if text:
+                    parts.append(text)
+    except Exception:
+        logger.warning("pdf_local_extract_failed", exc_info=False)
+        return None
+
+    merged = "\n\n".join(parts).strip()
+    return merged or None

@@ -119,3 +119,23 @@ def apply_preset(adapter: Any, preset_id: str) -> bool:
         preset_id=preset["id"],
     )
     return True
+
+
+def preset_has_api_key(preset_id: str) -> bool:
+    preset = get_preset(preset_id)
+    if preset is None:
+        return False
+    return bool(_resolve_api_key(preset))
+
+
+def resolve_default_preset_id(preferred: str) -> str:
+    """Pick a default preset that has an API key in .env, else keep preferred."""
+    if preset_has_api_key(preferred):
+        return preferred
+    if preset_has_api_key(DEFAULT_PRESET_ID):
+        return DEFAULT_PRESET_ID
+    for preset in MODEL_PRESETS:
+        pid = preset["id"]
+        if preset_has_api_key(pid):
+            return pid
+    return preferred

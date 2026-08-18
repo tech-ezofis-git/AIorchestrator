@@ -59,8 +59,12 @@ USER_PROMPT_PREFIX_JSON = (
 )
 
 
-def system_prompt(*, settings=None) -> str:
-    """LLM system prompt = Summary SKILL.md + rules/*.mdc."""
+def system_prompt(*, settings=None, tenant_id: Optional[str] = None) -> str:
+    """LLM system prompt = Summary SKILL.md + rules/*.mdc + tenant extras."""
+    if tenant_id:
+        from app.tenant_skills.overlay import get_summary_skill
+
+        return get_summary_skill(tenant_id=tenant_id, settings=settings).system_prompt
     return get_skill("summary", settings=settings).system_prompt
 
 

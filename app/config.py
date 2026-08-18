@@ -90,16 +90,23 @@ class Settings(BaseSettings):
     ocr_allowed_host_suffixes: str = ".blob.core.windows.net"
     ocr_download_timeout_seconds: float = 60.0
     ocr_max_file_bytes: int = 25 * 1024 * 1024  # 25 MiB
+    # Hard cap for LLM provider calls — prevents /chat from hanging forever
+    # when a preset endpoint is unreachable.
+    llm_request_timeout_seconds: float = 60.0
     azure_storage_connection_string: Optional[str] = None
     azure_blob_container_prefix: str = "ezts"
 
-    # --- Agent skill packs (SKILL.md + rules/*.mdc for Summary / OCR / Insight) ---
+    # --- Agent skill packs (SKILL.md + rules/*.mdc for Summary / OCR / Insight / Prompt) ---
     # Defaults to <repo>/skills. Override root or a single agent pack so
     # customers can drop in their own instructions without code changes.
     agent_skills_root: Optional[str] = None
     summary_skill_dir: Optional[str] = None
     ocr_skill_dir: Optional[str] = None
     insight_skill_dir: Optional[str] = None
+    prompt_skill_dir: Optional[str] = None
+    # Local sample: SQLite path for tenant Summary extras (custom rules only).
+    # Defaults stay on disk; not used in Docker unless set explicitly.
+    tenant_skills_sqlite_path: Optional[str] = None
 
     # --- Ezofis cloud API (AP skills: auth, credits, PO/vendor masters) ---
     ezofis_api_base: str = "https://cloud.ezofis.com/api"

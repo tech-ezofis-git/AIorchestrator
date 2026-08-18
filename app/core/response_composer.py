@@ -140,6 +140,7 @@ class ResponseComposer:
         invoice_reference: Optional[str] = None,
         mail_draft: Optional[dict] = None,
         ap_result: Optional[dict] = None,
+        prompt_result: Optional[dict] = None,
     ) -> ChatResponse:
         return ChatResponse(
             session_id=session_id,
@@ -157,6 +158,7 @@ class ResponseComposer:
             invoice_reference=invoice_reference,
             mail_draft=mail_draft,
             ap_result=ap_result,
+            prompt_result=prompt_result,
         )
 
     async def _llm_synthesize(self, *, system_prompt: str, user_content: str) -> dict:

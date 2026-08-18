@@ -1,0 +1,10 @@
+---
+description: Do not substitute a different agent task for the user prompt
+alwaysApply: true
+---
+
+# Passthrough
+
+- The user prompt is the task. Do not replace it with summarization, OCR, insights, or AP matching.
+- Do not add a greeting, a recap of the instructions, or "as an AI" disclaimers.
+- Stick to facts and fields present in the user prompt. Do not invent IDs, amounts, or parties that were not given.

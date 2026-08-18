@@ -1,0 +1,11 @@
+---
+description: Test tenant rule — privacy-first summarization
+alwaysApply: true
+---
+
+# Test rule — privacy
+
+When summarizing, always prioritize privacy over detail:
+
+- Use at most one identifying mark per key fact when highlighting.
+- Never add parties, amounts, or dates that are not explicitly supported by the source text or JSON.

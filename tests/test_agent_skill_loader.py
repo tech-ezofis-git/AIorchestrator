@@ -18,14 +18,16 @@ def _clear_cache():
     clear_skill_cache()
 
 
-def test_default_skills_root_contains_summary_ocr_and_insight_packs():
+def test_default_skills_root_contains_summary_ocr_insight_and_prompt_packs():
     root = default_skills_root()
     assert (root / "summary" / "SKILL.md").is_file()
     assert (root / "ocr" / "SKILL.md").is_file()
     assert (root / "insight" / "SKILL.md").is_file()
+    assert (root / "prompt" / "SKILL.md").is_file()
     assert list((root / "summary" / "rules").glob("*.mdc"))
     assert list((root / "ocr" / "rules").glob("*.mdc"))
     assert list((root / "insight" / "rules").glob("*.mdc"))
+    assert list((root / "prompt" / "rules").glob("*.mdc"))
 
 
 def test_load_summary_skill_includes_rules_in_system_prompt():
@@ -45,6 +47,16 @@ def test_load_insight_skill_includes_output_contract():
     prompt = skill.system_prompt.lower()
     assert "insights" in prompt
     assert "output contract" in prompt or '"insights"' in prompt
+    assert len(skill.rules) >= 2
+
+
+def test_load_prompt_skill_includes_rules_in_system_prompt():
+    skill = load_skill_pack("prompt")
+    assert skill.skill_id == "run_prompt"
+    prompt = skill.system_prompt.lower()
+    assert "not the chat assistant" in prompt
+    assert "output contract" in prompt
+    assert "passthrough" in prompt
     assert len(skill.rules) >= 2
 
 
@@ -89,6 +101,7 @@ def test_get_skill_respects_summary_skill_dir_setting(tmp_path: Path, monkeypatc
         summary_skill_dir = str(pack)
         ocr_skill_dir = None
         insight_skill_dir = None
+        prompt_skill_dir = None
 
     skill = get_skill("summary", settings=_Settings())
     assert "SETTINGS_PACK" in skill.system_prompt

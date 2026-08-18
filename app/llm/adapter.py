@@ -21,12 +21,13 @@ LLMAdapter instance built in main.py's lifespan, so mutating it here
 takes effect for every subsequent call with no rewiring needed and no
 app restart.
 """
+import asyncio
 import logging
 from typing import Optional
 
 import litellm
 
-from app.config import Settings
+from app.config import Settings, get_settings
 
 logger = logging.getLogger("orchestrator.llm")
 
@@ -116,8 +117,27 @@ class LLMAdapter:
         if self._api_version:
             kwargs["api_version"] = self._api_version
 
+        timeout = get_settings().llm_request_timeout_seconds
+        if timeout and timeout > 0:
+            kwargs["timeout"] = timeout
+            kwargs["request_timeout"] = timeout
+
         try:
-            response = await litellm.acompletion(**kwargs)
+            if timeout and timeout > 0:
+                response = await asyncio.wait_for(
+                    litellm.acompletion(**kwargs),
+                    timeout=timeout,
+                )
+            else:
+                response = await litellm.acompletion(**kwargs)
+        except asyncio.TimeoutError as exc:
+            logger.warning(
+                "llm_call_timed_out",
+                extra={"model": model, "api_base": self._api_base, "timeout_seconds": timeout},
+            )
+            raise LLMAdapterError(
+                "The language model provider timed out. Try another model preset in the console."
+            ) from exc
         except Exception as exc:
             # Log only the exception type + model — never the exception's
             # str()/args, which for auth errors can echo back request
