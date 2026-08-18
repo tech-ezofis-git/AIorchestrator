@@ -1,0 +1,12 @@
+---
+description: Privacy-first summarization — sample tenant custom rule
+alwaysApply: true
+---
+
+# Privacy rule
+
+When summarizing, always prioritize privacy over detail:
+
+- Use at most one identifying mark per key fact when highlighting.
+- Never add parties, amounts, or dates that are not explicitly supported by the source text or JSON.
+- Do not repeat the same sensitive identifier in both `document_summary` and `key_facts_extracted`.

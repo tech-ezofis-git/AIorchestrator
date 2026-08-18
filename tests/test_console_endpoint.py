@@ -29,6 +29,13 @@ def test_console_serves_html(client):
     assert "buildChatCurl" in response.text
     assert "function renderOcrResult" in response.text
     assert "function renderApResult" in response.text
+    assert 'id="summaryPackInspector"' in response.text
+    assert 'data-pack-tab="tenant"' in response.text
+    assert "tenant-item-edit" in response.text
+    assert "custom-skills" in response.text
+    assert "/console/summary-skills/defaults" in response.text
+    assert "summaryRuleSaveBtn" in response.text
+    assert "Enable" in response.text
 
 
 def test_console_static_logo_is_served(client):

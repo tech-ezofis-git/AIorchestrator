@@ -193,6 +193,34 @@ def test_summary_multipart_file_upload(client, monkeypatch):
     assert body["summary_result"]["source_reference"] == "note.pdf"
 
 
+def test_summary_txt_upload_uses_local_text_without_remote_ocr(client, monkeypatch):
+    _install_fake_llm(monkeypatch)
+
+    async def broken_extract(self, *args, **kwargs):
+        raise AssertionError("remote OCR should not be called for plain text uploads")
+
+    monkeypatch.setattr(
+        "app.integrations.ocr_engine.OcrEngineClient._call_extract_text",
+        broken_extract,
+    )
+
+    response = client.post(
+        "/chat",
+        data={
+            "session_id": "s-sum-txt",
+            "intent": "summary",
+            "pageno": "1",
+        },
+        files={"file": ("note.txt", b"Insurance policy number ABC-123", "text/plain")},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["reply"] == "Document summary generated successfully."
+    assert body["summary_result"]["source_reference"] == "note.txt"
+    assert body["summary_result"]["ocr_text"] == "Insurance policy number ABC-123"
+
+
 def test_summary_extract_failure_does_not_hallucinate(client, monkeypatch):
     llm_calls = []
 

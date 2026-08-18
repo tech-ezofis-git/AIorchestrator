@@ -8,6 +8,7 @@ aiohttp==3.10.10
 redis==5.0.8
 python-multipart==0.0.9
 azure-storage-blob==12.23.1
+pymupdf==1.26.7
 
 # Testing
 pytest==8.3.3

@@ -23,6 +23,7 @@ async def run(
     content_kind: str = "text",
     source_text: Optional[str] = None,
     key_facts_count: int = rules.DEFAULT_KEY_FACTS_COUNT,
+    tenant_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Returns {"payload": dict, "usage": dict | None, "skill_id": str}."""
     body = (text or "").strip()
@@ -52,7 +53,7 @@ async def run(
     try:
         result = await llm.chat_completion(
             [
-                {"role": "system", "content": rules.system_prompt()},
+                {"role": "system", "content": rules.system_prompt(tenant_id=tenant_id)},
                 {
                     "role": "user",
                     "content": rules.build_user_prompt(

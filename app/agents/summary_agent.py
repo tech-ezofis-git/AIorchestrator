@@ -88,6 +88,7 @@ class SummaryAgent:
             summary_json=summary_json if isinstance(summary_json, dict) else None,
         )
         model = (job.get("model") or "").strip() or None
+        tenant_id = (job.get("tenant_id") or "").strip() or None
 
         content = ""
         source = "upload"
@@ -153,6 +154,7 @@ class SummaryAgent:
                 source=source,
                 page_label=page_label,
                 key_facts_count=key_facts_count,
+                tenant_id=tenant_id,
             )
             return _document_job_result(empty["payload"], source=source, usage=None)
 
@@ -166,6 +168,7 @@ class SummaryAgent:
                 content_kind=content_kind,
                 source_text=source_text,
                 key_facts_count=key_facts_count,
+                tenant_id=tenant_id,
             )
         except Exception as exc:
             logger.warning("summary_primary_failed", extra={"model": model or "default"})
@@ -178,6 +181,7 @@ class SummaryAgent:
                 key_facts_count=key_facts_count,
                 primary=model,
                 error=exc,
+                tenant_id=tenant_id,
             )
 
         usage = synthesis.get("usage") or {}
@@ -202,6 +206,7 @@ class SummaryAgent:
         key_facts_count: int,
         primary: Optional[str],
         error: Exception,
+        tenant_id: Optional[str] = None,
     ) -> dict[str, Any]:
         settings = self._cfg()
         fallback_preset = (
@@ -228,6 +233,7 @@ class SummaryAgent:
                     content_kind=content_kind,
                     source_text=source_text,
                     key_facts_count=key_facts_count,
+                    tenant_id=tenant_id,
                 )
             finally:
                 if default_preset and get_preset(default_preset):
@@ -244,6 +250,7 @@ class SummaryAgent:
                 content_kind=content_kind,
                 source_text=source_text,
                 key_facts_count=key_facts_count,
+                tenant_id=tenant_id,
             )
 
         raise error

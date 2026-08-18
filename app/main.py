@@ -95,7 +95,7 @@ from pathlib import Path
 from typing import Optional
 
 import asyncpg
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -146,12 +146,16 @@ from app.llm.model_presets import (
     apply_preset,
     get_preset,
     list_presets_public,
+    resolve_default_preset_id,
 )
 from app.llm.runtime_models import RuntimeModelSelection
 from app.models.chat import ChatRequest, ChatResponse
 from app.models.chat_request_parser import parse_chat_request
 from app.models.pending_action import ConfirmActionResponse
 from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
+from app.agent_skills.loader import resolve_pack_dir_from_settings
+from app.tenant_skills.store import store_from_settings
+from app.tenant_skills.upload import parse_tenant_upload, upload_kind
 from app.tools.fetch_document import FETCH_DOCUMENT_SCHEMA, make_fetch_document_handler
 from app.tools.fetch_invoice_status import FETCH_INVOICE_STATUS_SCHEMA, make_fetch_invoice_status_handler
 from app.tools.fetch_memories import FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler
@@ -242,7 +246,9 @@ async def lifespan(app: FastAPI):
         if env_fallback and get_preset(env_fallback):
             runtime_models.fallback_preset_id = env_fallback
     if not settings.llm_api_base:
-        apply_preset(llm_adapter, runtime_models.default_preset_id)
+        preset_id = resolve_default_preset_id(runtime_models.default_preset_id)
+        runtime_models.default_preset_id = preset_id
+        apply_preset(llm_adapter, preset_id)
     embedding_adapter = EmbeddingAdapter(settings)
     ezofis_client = EzofisClient(settings)
     context_manager = ContextManager(redis_client, settings.session_ttl_seconds, ezofis_client)
@@ -451,8 +457,9 @@ async def update_llm_config(payload: LLMConfigUpdate, request: Request) -> dict:
     if default_id is not None and default_id != "":
         if get_preset(default_id) is None:
             raise HTTPException(status_code=400, detail=f"Unknown default_preset_id: {default_id}")
-        apply_preset(llm_adapter, default_id)
-        runtime.set_default(default_id)
+        preset_id = resolve_default_preset_id(default_id)
+        apply_preset(llm_adapter, preset_id)
+        runtime.set_default(preset_id)
 
     if payload.fallback_preset_id is not None:
         try:
@@ -503,6 +510,285 @@ async def test_llm_config(request: Request) -> dict:
         return {"ok": True, "reply": result["content"], "usage": result["usage"]}
     except LLMAdapterError as exc:
         return {"ok": False, "error": str(exc)}
+
+
+class SummaryCustomRuleCreate(BaseModel):
+    tenant_id: str
+    body: str
+    changed_by: Optional[str] = "console"
+
+
+class SummaryCustomRuleUpdate(BaseModel):
+    tenant_id: str
+    body: Optional[str] = None
+    is_active: Optional[bool] = None
+    changed_by: Optional[str] = "console"
+
+
+SummaryCustomSkillUpdate = SummaryCustomRuleUpdate
+
+
+@app.get("/console/summary-skills/defaults")
+async def get_summary_skills_defaults() -> dict:
+    """Platform Summary SKILL.md + rules from disk (no tenant required)."""
+    try:
+        settings = get_settings()
+        store = store_from_settings(settings)
+        pack_dir = resolve_pack_dir_from_settings("summary", settings)
+        return {"defaults": store.list_defaults(pack_dir=pack_dir)}
+    except Exception as exc:
+        logger.warning(
+            "summary_skills_defaults_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/console/summary-skills")
+async def get_summary_skills_console(
+    tenant_id: Optional[str] = Query(None),
+) -> dict:
+    """Defaults from disk; custom skills/rules + logs when tenant_id is set."""
+    try:
+        settings = get_settings()
+        store = store_from_settings(settings)
+        pack_dir = resolve_pack_dir_from_settings("summary", settings)
+        tid = (tenant_id or "").strip()
+        payload: dict = {
+            "tenant_id": tid or None,
+            "defaults": store.list_defaults(pack_dir=pack_dir),
+            "custom_skills": [],
+            "custom_rules": [],
+            "logs": [],
+        }
+        if tid:
+            store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
+            payload["custom_skills"] = store.list_custom_skills(tenant_id=tid, agent="summary")
+            payload["custom_rules"] = store.list_custom_rules(tenant_id=tid, agent="summary")
+            payload["logs"] = store.list_logs(tenant_id=tid, agent="summary", limit=20)
+        return payload
+    except Exception as exc:
+        logger.warning(
+            "summary_skills_console_load_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/console/summary-skills/custom-rules")
+async def create_summary_custom_rule(payload: SummaryCustomRuleCreate) -> dict:
+    store = store_from_settings(get_settings())
+    try:
+        rule = store.add_custom_rule(
+            tenant_id=payload.tenant_id,
+            body=payload.body,
+            changed_by=payload.changed_by or "console",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"rule": rule}
+
+
+@app.post("/console/summary-skills/custom-rules/upload")
+async def upload_summary_custom_extra(
+    tenant_id: str = Form(...),
+    file: UploadFile = File(...),
+    changed_by: str = Form("console"),
+) -> dict:
+    """Upload .md → tenant_skills (skill) or .mdc → tenant_rules (rule)."""
+    raw = (await file.read()).decode("utf-8", errors="replace")
+    filename = file.filename or "upload.mdc"
+    try:
+        kind = upload_kind(filename)
+        source_file, body = parse_tenant_upload(filename=filename, raw=raw)
+        store = store_from_settings(get_settings())
+        tid = tenant_id.strip()
+        store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
+        if kind == "skill":
+            skill = store.add_custom_skill(
+                tenant_id=tid,
+                body=body,
+                source_file=source_file,
+                changed_by=changed_by or "console",
+            )
+            return {"kind": "skill", "skill": skill, "source_file": source_file}
+        rule = store.add_custom_rule(
+            tenant_id=tid,
+            body=body,
+            source_file=source_file,
+            changed_by=changed_by or "console",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning(
+            "summary_skills_upload_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"kind": "rule", "rule": rule, "source_file": source_file}
+
+
+@app.post("/console/summary-skills/custom-skills/{item_id:int}/upload")
+async def replace_summary_custom_skill(
+    item_id: int,
+    tenant_id: str = Form(...),
+    file: UploadFile = File(...),
+    changed_by: str = Form("console"),
+) -> dict:
+    """Replace an existing tenant custom skill from a .md file."""
+    raw = (await file.read()).decode("utf-8", errors="replace")
+    filename = file.filename or "upload.md"
+    try:
+        if upload_kind(filename) != "skill":
+            raise ValueError("replace skill requires a .md file")
+        source_file, body = parse_tenant_upload(filename=filename, raw=raw)
+        store = store_from_settings(get_settings())
+        tid = tenant_id.strip()
+        store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
+        skill = store.update_custom_skill(
+            item_id=item_id,
+            tenant_id=tenant_id.strip(),
+            body=body,
+            source_file=source_file,
+            changed_by=changed_by or "console",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning(
+            "summary_skills_replace_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"kind": "skill", "skill": skill, "source_file": source_file}
+
+
+@app.post("/console/summary-skills/custom-rules/{item_id:int}/upload")
+async def replace_summary_custom_rule(
+    item_id: int,
+    tenant_id: str = Form(...),
+    file: UploadFile = File(...),
+    changed_by: str = Form("console"),
+) -> dict:
+    """Replace an existing tenant custom rule from a .mdc file."""
+    raw = (await file.read()).decode("utf-8", errors="replace")
+    filename = file.filename or "upload.mdc"
+    try:
+        file_kind = upload_kind(filename)
+        source_file, body = parse_tenant_upload(filename=filename, raw=raw)
+        store = store_from_settings(get_settings())
+        tid = tenant_id.strip()
+        store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
+        if file_kind == "skill":
+            skill = store.update_custom_skill(
+                item_id=item_id,
+                tenant_id=tid,
+                body=body,
+                source_file=source_file,
+                changed_by=changed_by or "console",
+            )
+            return {"kind": "skill", "skill": skill, "source_file": source_file}
+        rule = store.update_custom_rule(
+            item_id=item_id,
+            tenant_id=tid,
+            body=body,
+            source_file=source_file,
+            changed_by=changed_by or "console",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning(
+            "summary_skills_replace_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"kind": "rule", "rule": rule, "source_file": source_file}
+
+
+@app.patch("/console/summary-skills/custom-skills/{item_id:int}")
+async def update_summary_custom_skill(
+    item_id: int, payload: SummaryCustomSkillUpdate
+) -> dict:
+    store = store_from_settings(get_settings())
+    tid = (payload.tenant_id or "").strip()
+    store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
+    try:
+        skill = store.update_custom_skill(
+            item_id=item_id,
+            tenant_id=payload.tenant_id,
+            body=payload.body,
+            is_active=payload.is_active,
+            changed_by=payload.changed_by or "console",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"kind": "skill", "skill": skill}
+
+
+@app.patch("/console/summary-skills/custom-rules/{item_id:int}")
+async def update_summary_custom_rule(item_id: int, payload: SummaryCustomRuleUpdate) -> dict:
+    store = store_from_settings(get_settings())
+    tid = (payload.tenant_id or "").strip()
+    store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
+    try:
+        rule = store.update_custom_rule(
+            item_id=item_id,
+            tenant_id=payload.tenant_id,
+            body=payload.body,
+            is_active=payload.is_active,
+            changed_by=payload.changed_by or "console",
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"kind": "rule", "rule": rule}
+
+
+@app.delete("/console/summary-skills/custom-skills/{item_id:int}")
+async def delete_summary_custom_skill(
+    item_id: int, tenant_id: str, changed_by: str = "console"
+) -> dict:
+    store = store_from_settings(get_settings())
+    store.migrate_legacy_md_rules_to_skills(tenant_id=tenant_id, agent="summary")
+    try:
+        deleted = store.delete_custom_skill(
+            item_id=item_id,
+            tenant_id=tenant_id,
+            changed_by=changed_by,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"kind": "skill", "deleted": deleted}
+
+
+@app.delete("/console/summary-skills/custom-rules/{item_id:int}")
+async def delete_summary_custom_rule(
+    item_id: int, tenant_id: str, changed_by: str = "console"
+) -> dict:
+    store = store_from_settings(get_settings())
+    store.migrate_legacy_md_rules_to_skills(tenant_id=tenant_id, agent="summary")
+    try:
+        deleted = store.delete_custom_rule(
+            item_id=item_id,
+            tenant_id=tenant_id,
+            changed_by=changed_by,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"kind": "rule", "deleted": deleted}
 
 
 @app.get("/metrics")
