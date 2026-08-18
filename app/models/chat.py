@@ -68,6 +68,13 @@ class DocumentPayload(BaseModel):
     parameters: list[str] = Field(default_factory=list)
     tableparameters: list[str] = Field(default_factory=list)
     model: Optional[str] = None
+    prompt: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional alias for the Prompt agent input when intent=prompt. "
+            "Used only when `message` is empty."
+        ),
+    )
     tenant_id: Optional[str] = Field(
         default=None,
         description="Tenant UUID. Required for relative blob filepath (container ezts{tenantid}).",
@@ -137,8 +144,9 @@ class ChatRequest(BaseModel):
     message: Optional[str] = Field(
         default=None,
         description=(
-            "Free-text chat message. Optional when intent=ocr/summary/insight/ap "
-            "with file, filepath, ocr_text, summary_json, insight_json, or invoice_json."
+            "Free-text chat message, or the full prompt when intent=prompt. "
+            "Optional when intent=ocr/summary/insight/ap with file, filepath, "
+            "ocr_text, summary_json, insight_json, or invoice_json."
         ),
     )
     intent: Optional[str] = Field(
@@ -165,6 +173,7 @@ class ChatRequest(BaseModel):
                 or (payload.item_id or "").strip()
             )
         )
+        has_prompt = bool(payload and (payload.prompt or "").strip())
         msg = (self.message or "").strip()
         if (
             not msg
@@ -173,13 +182,14 @@ class ChatRequest(BaseModel):
             and not has_summary_json
             and not has_insight_json
             and not has_ap_doc
+            and not has_prompt
         ):
             # Multipart uploads attach file bytes outside this model; main.py
             # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap after parsing.
             if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap"}:
                 return self
             raise ValueError(
-                "Either message, payload.filepath, payload.ocr_text, "
+                "Either message, payload.prompt, payload.filepath, payload.ocr_text, "
                 "payload.summary_json, payload.insight_json, or payload.invoice_json is required."
             )
         return self
@@ -261,5 +271,12 @@ class ChatResponse(BaseModel):
         description=(
             "AP document-job output (run_id, skills_run, credits_charged, decision, artifacts) — "
             "intent=ap with file/filepath/invoice_json only; absent/None for legacy invoice-status Q&A."
+        ),
+    )
+    prompt_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Prompt agent output. `text` is the raw model string (not parsed or "
+            "validated, even when it looks like JSON). `reply` is a short status line."
         ),
     )

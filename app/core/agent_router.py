@@ -2,11 +2,10 @@
 
 Phase 1 registered only the Chat agent. Phase 2 registered Search, Phase 3a
 registered Summary and Insight, Phase 3b registered OCR and Forecast,
-Phase 3c registered AP, and Phase 3d registers Mail — all the same way
-Phase 1 said they would: `agent_router.register(Intent.X, x_agent.handle)`
-in app/main.py's lifespan, no changes needed to this file's routing logic.
-Every Intent value is now registered; the NotImplementedError path below
-still guards any future Intent added to the enum before it's registered.
+Phase 3c registered AP, Phase 3d registers Mail, and Prompt is registered
+the same way: `agent_router.register(Intent.X, x_agent.handle)` in
+app/main.py's lifespan. The NotImplementedError path below still guards
+any future Intent added to the enum before it's registered.
 """
 from typing import Any, Awaitable, Callable
 

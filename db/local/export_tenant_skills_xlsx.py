@@ -167,6 +167,8 @@ def export(db_path: Path, out_path: Path) -> None:
             summary = f"Active flag set to {'on' if action == 'ENABLE' else 'off'}"
         elif action == "CREATE":
             summary = "Created: " + _short(row["new_value"], 80)
+        elif action == "DELETE":
+            summary = "Deleted: " + _short(row["old_value"], 80)
         else:
             summary = "Updated: " + _short(row["new_value"], 80)
         ws_log.append(

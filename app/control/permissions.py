@@ -32,7 +32,7 @@ class UserContext:
     once an auth mechanism exists. For now, a minimal mock shape: a flat
     set of allowed intents plus a separate flag for confirming pending
     actions (confirm has no single intent to check — see
-    check_confirm_permission below). Every one of the 8 intents is allowed
+    check_confirm_permission below). Every registered intent is allowed
     by default — the point of this phase is that the gate exists and is
     provably enforced (see tests/test_permissions.py), not that the mock
     data is elaborate.

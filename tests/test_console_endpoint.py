@@ -12,7 +12,7 @@ def test_console_serves_html(client):
     assert "text/html" in response.headers["content-type"]
     assert "AI Orchestrator" in response.text
     assert "/chat" in response.text  # the page's own fetch() call target
-    assert "AP document" in response.text
+    assert "AP agent" in response.text
     assert 'id="apPanel"' in response.text
     assert "Run AP" in response.text
     assert "invoice_json" in response.text
@@ -26,9 +26,17 @@ def test_console_serves_html(client):
     assert "intent: 'summary'" in response.text
     assert "intent: 'ocr'" in response.text
     assert "intent: 'ap'" in response.text
+    assert "intent: 'prompt'" in response.text
+    assert "Prompt agent" in response.text
+    assert "OCR agent" in response.text
+    assert "Summary agent" in response.text
+    assert "Insight agent" in response.text
+    assert 'id="promptFields"' in response.text
     assert "buildChatCurl" in response.text
     assert "function renderOcrResult" in response.text
     assert "function renderApResult" in response.text
+    assert "function renderPromptResult" in response.text
+    assert "skills/prompt/SKILL.md" in response.text
     assert 'id="summaryPackInspector"' in response.text
     assert 'data-pack-tab="tenant"' in response.text
     assert "tenant-item-edit" in response.text

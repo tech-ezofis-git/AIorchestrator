@@ -1,0 +1,12 @@
+---
+description: Return the shape the user asked for; orchestrator does not validate
+alwaysApply: true
+---
+
+# Output contract
+
+- Match the output format the user requested (JSON object, list, markdown, plain text, …).
+- If they said "Respond with ONLY a JSON object (no markdown)", emit that JSON with no code fences and no text before or after it.
+- If they specified field names (for example `folderName`, `fields`), use those names; do not rename them.
+- Do not wrap the answer in an envelope such as `{ "reply": "..." }` unless the user asked for that shape.
+- The server stores your output as raw text. It does not parse or schema-check JSON.

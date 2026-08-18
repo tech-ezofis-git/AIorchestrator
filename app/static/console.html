@@ -369,17 +369,18 @@
     border: 1px solid rgba(255,255,255,0.06);
   }
 
-  .composer {
-    flex: 0 0 auto;
-    margin: 0 16px 16px;
-    padding: 8px 8px 8px 16px;
-    background: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    border-radius: 20px;
-    box-shadow: var(--shadow-lg);
-    position: relative;
-    z-index: 10;
+  .composer.prompt-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 12px;
+  }
+  .composer.prompt-mode textarea {
+    min-height: 120px;
+    max-height: 280px;
+  }
+  .composer #promptFields {
+    margin: 0 8px;
   }
   .composer form { display: flex; gap: 10px; align-items: flex-end; }
   .composer textarea {
@@ -1155,7 +1156,7 @@
       <div class="empty-state">
         <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 16h5M9 3h6l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/></svg></div>
         <div class="empty-title">What would you like to run?</div>
-        <div class="empty-sub">Pick an action on the left — <strong>OCR</strong>, <strong>Summary</strong>, <strong>Insight</strong>, or <strong>AP</strong> — or type a message below.</div>
+        <div class="empty-sub">Pick an action on the left — <strong>OCR agent</strong>, <strong>Summary agent</strong>, <strong>Insight agent</strong>, <strong>AP agent</strong>, or <strong>Prompt agent</strong> — or type a message below.</div>
       </div>
     </div>
     <div class="main-controls" id="mainControls">
@@ -1264,7 +1265,7 @@ Due Date,DATE</textarea>
       </div>
     </details>
     <details class="ocr-panel" id="apPanel">
-      <summary>AP document — upload file, blob path, or invoice JSON</summary>
+      <summary>AP agent — upload file, blob path, or invoice JSON</summary>
       <div class="ocr-grid">
         <div>
           <label for="apFile">File (wins over filepath)</label>
@@ -1345,7 +1346,17 @@ Due Date,DATE</textarea>
       </div>
     </details>
     </div>
-    <div class="composer">
+    <div class="composer" id="composerWrap">
+      <div class="mode-fields" id="promptFields" hidden>
+        <div>
+          <label for="promptModel">model (optional)</label>
+          <select id="promptModel"></select>
+        </div>
+        <div class="ocr-actions" style="align-self:end">
+          <button type="button" class="btn-ghost" id="promptSampleBtn">Load folder-config sample</button>
+        </div>
+        <div style="grid-column:1/-1" class="field-hint">Uses <code>skills/prompt/SKILL.md</code> and <code>skills/prompt/rules/*.mdc</code> (same pack pattern as OCR / Summary / Insight).</div>
+      </div>
       <form id="composerForm">
         <textarea id="messageInput" placeholder="Type a message… (e.g. &quot;search for the PTO policy&quot;)" rows="1"></textarea>
         <button type="submit" class="btn-primary" id="sendBtn">Send</button>
@@ -1406,6 +1417,7 @@ const healthDot = document.getElementById('healthDot');
 const healthLabel = document.getElementById('healthLabel');
 const summaryModelSelect = document.getElementById('summaryModel');
 const insightModelSelect = document.getElementById('insightModel');
+const promptModelSelect = document.getElementById('promptModel');
 
 function newSessionId() {
   return 'console-' + (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random().toString(16).slice(2));
@@ -1487,6 +1499,12 @@ async function loadLlmPresetsAndConfig() {
         insightModelSelect.options[0].textContent = 'Console default';
       }
     }
+    if (promptModelSelect) {
+      fillPresetSelect(promptModelSelect, llmPresets, '', { includeNone: true });
+      if (promptModelSelect.options.length && promptModelSelect.options[0].value === '') {
+        promptModelSelect.options[0].textContent = 'Console default';
+      }
+    }
     updateDefaultHint(defaultId);
     llmKeyHint.textContent = data.has_api_key
       ? 'API key loaded from .env for the selected default preset.'
@@ -1549,10 +1567,11 @@ async function testLlmConnection() {
 llmTestBtn.addEventListener('click', testLlmConnection);
 
 const CAP_ACTIONS = [
-  { label: 'OCR document', ocr: true },
-  { label: 'Summarize document', summary: true },
-  { label: 'Insight', insight: true },
-  { label: 'AP document', ap: true },
+  { label: 'OCR agent', ocr: true },
+  { label: 'Summary agent', summary: true },
+  { label: 'Insight agent', insight: true },
+  { label: 'AP agent', ap: true },
+  { label: 'Prompt agent', prompt: true },
 ];
 const QUICK_PROMPTS = [
   { label: 'search for the PTO policy', message: 'search for the PTO policy' },
@@ -1588,12 +1607,13 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap')) {
+  if (mode === composerMode && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt')) {
     mode = 'chat';
   }
   composerMode = mode;
   const panel = document.getElementById('docPanel');
   const banner = document.getElementById('docBanner');
+  const composerWrap = document.getElementById('composerWrap');
   const showDoc = mode === 'summary' || mode === 'ocr' || mode === 'insight';
   panel.classList.toggle('visible', showDoc);
   panel.open = showDoc;
@@ -1602,6 +1622,9 @@ function setComposerMode(mode) {
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
+  const promptFields = document.getElementById('promptFields');
+  if (promptFields) promptFields.hidden = mode !== 'prompt';
+  if (composerWrap) composerWrap.classList.toggle('prompt-mode', mode === 'prompt');
   const layout = document.querySelector('.layout');
   const packInspector = document.getElementById('summaryPackInspector');
   if (layout) layout.classList.toggle('pack-inspector-open', mode === 'summary');
@@ -1624,6 +1647,9 @@ function setComposerMode(mode) {
     document.getElementById('ocrFilepath').focus();
   } else if (mode === 'ap') {
     messageInput.placeholder = 'Optional — use Run AP in the panel';
+  } else if (mode === 'prompt') {
+    messageInput.placeholder = 'Paste the full prompt — raw model output comes back as-is';
+    messageInput.focus();
   } else {
     messageInput.placeholder = 'Type a message… (e.g. "search for the PTO policy")';
   }
@@ -1639,11 +1665,13 @@ CAP_ACTIONS.forEach(p => {
   if (p.summary) btn.dataset.mode = 'summary';
   if (p.insight) btn.dataset.mode = 'insight';
   if (p.ap) btn.dataset.mode = 'ap';
+  if (p.prompt) btn.dataset.mode = 'prompt';
   btn.addEventListener('click', () => {
     if (p.ocr) { setComposerMode('ocr'); return; }
     if (p.summary) { setComposerMode('summary'); return; }
     if (p.insight) { setComposerMode('insight'); return; }
     if (p.ap) { setComposerMode('ap'); return; }
+    if (p.prompt) { setComposerMode('prompt'); return; }
   });
   capActionsEl.appendChild(btn);
 });
@@ -2320,6 +2348,17 @@ function codePanelHtml() {
   </details>`;
 }
 
+function renderPromptResult(promptResult, request) {
+  const text = promptResult && promptResult.text != null ? String(promptResult.text) : '';
+  const resultJson = JSON.stringify(promptResult || { text }, null, 2);
+  const curlText = buildChatCurl(request, 'prompt');
+  let html = `<div class="detail-block"><div class="dt-title">Prompt result</div>`;
+  html += `<pre class="ocr-text-preview">${escapeHtml(text)}</pre>`;
+  html += codePanelHtml();
+  html += `</div>`;
+  return { html, resultJson, curlText };
+}
+
 function renderOcrResult(ocr, request) {
   const fields = Array.isArray(ocr.ocrResult) ? ocr.ocrResult : [];
   const tables = Array.isArray(ocr.tableResult) ? ocr.tableResult : [];
@@ -2617,6 +2656,11 @@ function renderAssistantMessage(body, sessionId, request) {
     details += insightCode.html;
     codeBlocks.push(insightCode);
   }
+  if (body.prompt_result) {
+    const promptCode = renderPromptResult(body.prompt_result, request);
+    details += promptCode.html;
+    codeBlocks.push(promptCode);
+  }
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -2649,6 +2693,9 @@ function renderAssistantMessage(body, sessionId, request) {
   if (body.insight_result) {
     const n = (body.insight_result.insights || []).length;
     bubbleText = body.reply || `Insights ready — ${n} item${n === 1 ? '' : 's'}.`;
+  }
+  if (body.prompt_result) {
+    bubbleText = body.reply || 'Prompt executed successfully.';
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -3196,14 +3243,93 @@ document.getElementById('apClearSkillsBtn').addEventListener('click', () => {
   document.getElementById('apSkills').value = '';
 });
 
+const FOLDER_CONFIG_SAMPLE = `You help design document management folder configurations.
+User request: "Create a repository folder named "Accounts Payable". Business description: Manage supplier invoices, purchase orders, and AP supporting documents.. Storage provider: . Field / structure preference: Suggest the best metadata fields and folder structure for this folder. Propose practical metadata fields for this folder. Set includeInFolderStructure true only for hierarchy fields. Return a short reply confirming the field recommendations."
+
+Return a practical folder setup for this use case.
+- folderName should be short and clear
+- description should explain the folder purpose
+- fields should cover documents and metadata needed for this folder
+- includeInFolderStructure=true for hierarchy levels (e.g. Employee, Document Type)
+- includeInFolderStructure=false for document metadata fields (e.g. Employee ID, Payslip Month)
+- Prefer these dataType values: SHORT_TEXT, LONG_TEXT, NUMBER, BOOLEAN, DATE, TIME, DATE_TIME, SINGLE_SELECT, TABLE, BARCODE, OMR, CALCULATED, AUTO_GENERATED, LINK, CURRENCY_AMOUNT, DYNAMIC_TABLE
+- Prefer iconKey values like: building, document, folder, user, calendar, dollar
+- reply should be 1-2 short sentences explaining the folder purpose and how fields are organized (e.g. by customer/document type). Do not list every field.
+
+Respond with ONLY a JSON object (no markdown) using this shape:
+{
+  "folderName": string,
+  "description": string,
+  "reply": string,
+  "fields": [
+    {
+      "fieldName": string,
+      "dataType": string,
+      "includeInFolderStructure": boolean,
+      "isMandatory": boolean,
+      "iconKey": string
+    }
+  ]
+}`;
+
+document.getElementById('promptSampleBtn').addEventListener('click', () => {
+  setComposerMode('prompt');
+  messageInput.value = FOLDER_CONFIG_SAMPLE;
+  messageInput.focus();
+});
+
+async function sendPromptJob() {
+  const message = messageInput.value.trim();
+  if (!message) {
+    addSystemMessage('Paste a prompt, then Send. Or click Load folder-config sample.');
+    return;
+  }
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const model = (promptModelSelect && promptModelSelect.value) || '';
+  const preview = message.length > 400 ? message.slice(0, 400) + '…' : message;
+  addUserMessage(preview);
+  const processing = addProcessingMessage('Running prompt…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+
+  try {
+    const payload = {};
+    if (model) payload.model = model;
+    const body = { session_id: sessionId, intent: 'prompt', message };
+    if (Object.keys(payload).length) body.payload = payload;
+    const request = { intent: 'prompt', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Send';
+  }
+}
+
 async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
   if (composerMode === 'ocr') return sendOcrJob();
   if (composerMode === 'ap') return sendApJob();
+  if (composerMode === 'prompt') return sendPromptJob();
   const message = messageInput.value.trim();
   if (!message) {
-    addSystemMessage('Type a message, or click OCR / Summarize / Insight / AP on the left to attach a document.');
+    addSystemMessage('Type a message, or click OCR agent / Summary agent / Insight agent / AP agent / Prompt agent on the left.');
     return;
   }
   const sessionId = sessionIdInput.value.trim() || newSessionId();

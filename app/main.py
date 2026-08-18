@@ -34,10 +34,11 @@ Request flow for POST /chat:
   ContentFilter (check_content) ->
   RateLimiter (check, keyed by session_id) ->
   ContextManager (load history) ->
-  IntentRouter (classify chat/search/summary/insight/ocr/forecast/ap/mail) ->
+  IntentRouter (classify chat/search/summary/insight/ocr/forecast/ap/mail;
+                prompt is explicit-only) ->
   PermissionCheck (check_permission, per classified intent) ->
   AgentRouter -> ChatAgent | SearchAgent | SummaryAgent | InsightAgent |
-                 OcrAgent | ForecastAgent | ApAgent | MailAgent ->
+                 OcrAgent | ForecastAgent | ApAgent | MailAgent | PromptAgent ->
     LLMAdapter / HybridSearch /
     Dispatcher(fetch_document|fetch_report_data|run_ocr|run_forecast|
                fetch_invoice_status) / PendingActionStore (Mail only) ->
@@ -110,6 +111,7 @@ from app.agents.forecast_agent import ForecastAgent
 from app.agents.insight_agent import InsightAgent
 from app.agents.mail_agent import MailAgent
 from app.agents.ocr_agent import OcrAgent
+from app.agents.prompt_agent import PromptAgent
 from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
 from app.config import get_settings
@@ -182,7 +184,7 @@ _CONSOLE_HTML_PATH = _STATIC_DIR / "console.html"
 # 3c/3d), and anything where intent isn't classified yet (content filter,
 # rate limit rejections) is conservatively treated the same as AP/Mail:
 # we don't know what it would have been, so we don't snippet it.
-_SNIPPETABLE_INTENTS = {"chat", "search", "summary", "insight", "ocr", "forecast"}
+_SNIPPETABLE_INTENTS = {"chat", "search", "summary", "insight", "ocr", "forecast", "prompt"}
 
 # Only send_email exists today; mapped explicitly rather than guessed so
 # a future gated tool doesn't silently inherit the wrong intent label.
@@ -332,6 +334,7 @@ async def lifespan(app: FastAPI):
 
     pending_action_store = PendingActionStore(redis_client, settings.pending_action_ttl_seconds)
     mail_agent = MailAgent(pending_action_store, response_composer)
+    prompt_agent = PromptAgent(llm_adapter)
 
     rate_limiter = RateLimiter(
         redis_client,
@@ -348,6 +351,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.FORECAST, forecast_agent.handle)
     agent_router.register(Intent.AP, ap_agent.handle)
     agent_router.register(Intent.MAIL, mail_agent.handle)
+    agent_router.register(Intent.PROMPT, prompt_agent.handle)
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
@@ -913,6 +917,15 @@ _CHAT_MULTIPART_SCHEMA = {
                             "summary": "Plain chat",
                             "value": {"session_id": "demo", "message": "Hello"},
                         },
+                        "prompt": {
+                            "summary": "Prompt agent (raw model text, no JSON validation)",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "prompt",
+                                "message": "Respond with ONLY a JSON object (no markdown): {\"folderName\": string, \"description\": string}",
+                                "payload": {"model": "ezofis-gpu-box"},
+                            },
+                        },
                         "ocr_blob": {
                             "summary": "OCR from blob path",
                             "value": {
@@ -1047,8 +1060,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     has_insight_json = bool(payload.payload and payload.payload.insight_json)
     message = (payload.message or "").strip()
     explicit = (payload.intent or "").strip().lower()
+    prompt_alias = (payload.payload.prompt or "").strip() if payload.payload else ""
     if not message:
-        if (
+        if explicit == "prompt" and prompt_alias:
+            message = prompt_alias
+        elif (
             has_filepath
             or has_upload
             or has_ocr_text
@@ -1111,6 +1127,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
 
     document_job = None
     has_document = has_filepath or (parsed.file_bytes is not None)
+    if intent == Intent.PROMPT:
+        document_job = {
+            "prompt": message,
+            "model": payload.payload.model if payload.payload else None,
+        }
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
     if intent == Intent.INSIGHT and has_insight_json:
@@ -1323,6 +1344,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         invoice_reference=result.get("invoice_reference"),
         mail_draft=result.get("mail_draft"),
         ap_result=result.get("ap_result"),
+        prompt_result=result.get("prompt_result"),
     )
 
 

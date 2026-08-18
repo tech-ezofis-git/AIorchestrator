@@ -50,6 +50,7 @@ class Intent(str, Enum):
     OCR = "ocr"
     MAIL = "mail"
     AP = "ap"
+    PROMPT = "prompt"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the
@@ -130,11 +131,13 @@ class IntentRouter:
         """Return the Intent for `message`.
 
         Checked in order: `search`, `summary`, `insight`, `ocr`,
-        `forecast`, `ap`, `mail`; everything else resolves to `chat`. No
-        branch is a hardcoded bypass — a message genuinely has to match
-        (or not match) each trigger set in turn. See the module
-        docstring's CAUTION/NOTE before touching `_MAIL_TRIGGERS` or
-        adding another send-capable intent.
+        `forecast`, `ap`, `mail`; everything else resolves to `chat`.
+        `prompt` is explicit-only (`intent: "prompt"`) so the word
+        "prompt" never steals another job. No branch is a hardcoded
+        bypass — a message genuinely has to match (or not match) each
+        trigger set in turn. See the module docstring's CAUTION/NOTE
+        before touching `_MAIL_TRIGGERS` or adding another send-capable
+        intent.
         """
         normalized = message.strip().lower()
         if not normalized:
@@ -153,6 +156,5 @@ class IntentRouter:
             return Intent.AP
         if any(trigger in normalized for trigger in _MAIL_TRIGGERS):
             return Intent.MAIL
-        # Every Intent value is now classified. Everything unmatched
-        # resolves to chat.
+        # Prompt is explicit-only. Unmatched free-text stays chat.
         return Intent.CHAT

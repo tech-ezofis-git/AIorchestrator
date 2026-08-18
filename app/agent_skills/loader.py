@@ -1,4 +1,4 @@
-"""Load replaceable SKILL.md + rules/*.mdc packs for Summary / OCR / Insight.
+"""Load replaceable SKILL.md + rules/*.mdc packs for Summary / OCR / Insight / Prompt.
 
 Agent orchestration stays in Python. These files supply LLM instructions only.
 Deterministic enforcement (JSON lock, <mark> injection, OCR parse) stays in code.
@@ -30,6 +30,7 @@ def default_skills_root() -> Path:
             (candidate / "summary" / "SKILL.md").is_file()
             or (candidate / "ocr" / "SKILL.md").is_file()
             or (candidate / "insight" / "SKILL.md").is_file()
+            or (candidate / "prompt" / "SKILL.md").is_file()
         ):
             return candidate
     return _DEFAULT_CANDIDATES[0]
@@ -90,7 +91,7 @@ def load_skill_pack(
     skills_root: Optional[Path] = None,
     pack_dir: Optional[Path] = None,
 ) -> LoadedSkill:
-    """Load `{pack}/SKILL.md` + `{pack}/rules/*.mdc` for summary / ocr / insight."""
+    """Load `{pack}/SKILL.md` + `{pack}/rules/*.mdc` for summary / ocr / insight / prompt."""
     directory = _resolve_pack_dir(
         agent, skills_root=skills_root, pack_dir=pack_dir
     )
@@ -142,6 +143,7 @@ def resolve_pack_dir_from_settings(agent: str, settings: Optional[object] = None
         "summary": getattr(settings, "summary_skill_dir", None),
         "ocr": getattr(settings, "ocr_skill_dir", None),
         "insight": getattr(settings, "insight_skill_dir", None),
+        "prompt": getattr(settings, "prompt_skill_dir", None),
     }.get(agent)
     if specific:
         return Path(str(specific)).expanduser()
