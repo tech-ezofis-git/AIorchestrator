@@ -27,7 +27,7 @@ def test_get_llm_presets_lists_hardcoded_models_without_keys(client):
     assert response.status_code == 200
     body = response.json()
     ids = [p["id"] for p in body["presets"]]
-    assert ids == ["ezofis-gpu-box", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini"]
+    assert ids == ["ezofis-gpu-box", "gpt-4.1-nano", "gpt-5-nano", "gpt-4.1-mini", "gpt-4o-mini"]
     assert body["default_preset_id"] == "ezofis-gpu-box"
     assert all("api_key" not in p for p in body["presets"])
     assert "test-south-india-key" not in response.text

@@ -40,6 +40,16 @@ MODEL_PRESETS: list[dict[str, Any]] = [
         "api_version": "2025-01-01-preview",
     },
     {
+        "id": "gpt-5-nano",
+        "label": "gpt-5-nano",
+        "model": "azure/gpt-5-nano",
+        "model_version": None,
+        "region": "South India",
+        "api_base": "https://ezazopenai.openai.azure.com",
+        "api_key_attr": "azure_south_india_api_key",
+        "api_version": "2025-01-01-preview",
+    },
+    {
         "id": "gpt-4.1-mini",
         "label": "gpt-4.1-mini",
         "model": "azure/gpt-4.1-mini",
