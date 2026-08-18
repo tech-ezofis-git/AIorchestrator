@@ -10,5 +10,6 @@ app/evals/reports/
 
 # Local SQLite tenant skill sample (db/local/tenant_skills.sql is a copy; runtime uses app/tenant_skills/schema.sql).
 db/local/*.sqlite
+db/local/*.xlsx
 db/local/~$*
 app/tenant_skills/data/*.sqlite
