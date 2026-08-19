@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # --- Infra ---------------------------------------------------------
     redis_url: str = "redis://localhost:6379/0"
     database_url: str = "postgresql://orchestrator:orchestrator@localhost:5432/orchestrator"
+    # Ezofis catalog DB (agents, model URLs/keys, per-tenant model selection).
+    # Separate from DATABASE_URL and from per-tenant ezofis_Tenant_* DBs.
+    # Example: postgresql://USER:PASSWORD@HOST:5432/ezofis_catalog_new?sslmode=require
+    catalog_database_url: Optional[str] = None
     # Keep the asyncpg pool tiny on shared Azure Flexible Server SKUs
     # (B1ms ≈ 50 max_connections server-wide). asyncpg's default min_size=10
     # exhausts the server when agents crash-restarts, taking the whole

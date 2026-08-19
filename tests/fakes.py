@@ -4,8 +4,8 @@ in-memory stand-in for the asyncpg pool so tests never need a live
 Postgres(+pgvector) instance.
 
 Understands only the fixed set of query shapes app/knowledge/vector_store.py,
-app/control/audit_store.py, app/control/memory_store.py, and
-app/ap_skills/store.py issue (matched by distinctive substrings) — not a
+app/control/audit_store.py, app/control/memory_store.py, app/ap_skills/store.py, and
+app/catalog/store.py issue (matched by distinctive substrings) — not a
 general SQL engine.
 """
 import json
@@ -13,7 +13,7 @@ import math
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 
 def _parse_vector_literal(literal: str) -> list[float]:
@@ -51,8 +51,298 @@ class FakeDBPool:
         self.ap_tenant_plans: dict[str, dict[str, Any]] = {}
         self.ap_credit_ledger: list[dict[str, Any]] = []
         self.workflow_steps: list[dict[str, Any]] = []
+        self.catalog_agents: dict[str, dict[str, Any]] = {}
+        self.catalog_models: dict[str, dict[str, Any]] = {}
+        self.catalog_tenant_models: dict[str, dict[str, Any]] = {}
+
+    def _catalog_agent_by_id(self, agent_id: Any) -> Optional[dict[str, Any]]:
+        return self.catalog_agents.get(str(agent_id))
+
+    def _catalog_agent_by_slug(self, slug: str) -> Optional[dict[str, Any]]:
+        for row in self.catalog_agents.values():
+            if row["slug"] == slug:
+                return row
+        return None
+
+    def _catalog_model_by_id(self, model_id: Any) -> Optional[dict[str, Any]]:
+        return self.catalog_models.get(str(model_id))
+
+    def _catalog_model_by_slug(self, slug: str) -> Optional[dict[str, Any]]:
+        for row in self.catalog_models.values():
+            if row["slug"] == slug:
+                return row
+        return None
+
+    def _now(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+    def _handle_catalog_fetchrow(self, query: str, args: tuple[Any, ...]) -> Any:
+        if "INSERT INTO catalog_agents" in query and "RETURNING" in query:
+            (
+                agent_id,
+                slug,
+                name,
+                description,
+                kind,
+                enabled,
+                system_prompt,
+                trigger_phrases,
+            ) = args
+            if self._catalog_agent_by_slug(slug):
+                return None
+            row = {
+                "id": agent_id,
+                "slug": slug,
+                "name": name,
+                "description": description,
+                "kind": kind,
+                "enabled": enabled,
+                "system_prompt": system_prompt,
+                "trigger_phrases": list(trigger_phrases or []),
+                "created_at": self._now(),
+                "updated_at": self._now(),
+            }
+            self.catalog_agents[str(agent_id)] = row
+            return row
+        if "UPDATE catalog_agents" in query:
+            name, description, enabled, system_prompt, trigger_phrases, agent_id = args
+            row = self._catalog_agent_by_id(agent_id)
+            if row is None:
+                return None
+            row.update(
+                {
+                    "name": name,
+                    "description": description,
+                    "enabled": enabled,
+                    "system_prompt": system_prompt,
+                    "trigger_phrases": list(trigger_phrases or []),
+                    "updated_at": self._now(),
+                }
+            )
+            return row
+        if "DELETE FROM catalog_agents" in query:
+            agent_id = args[0]
+            row = self._catalog_agent_by_id(agent_id)
+            if row is None or row["kind"] != "custom":
+                return None
+            del self.catalog_agents[str(agent_id)]
+            return {"id": agent_id}
+        if "FROM catalog_agents WHERE slug = $1 AND kind = 'custom'" in query:
+            row = self._catalog_agent_by_slug(args[0])
+            if row and row["kind"] == "custom" and row["enabled"]:
+                return row
+            return None
+        if "FROM catalog_agents WHERE slug = $1" in query:
+            row = self._catalog_agent_by_slug(args[0])
+            return {"id": row["id"]} if row else None
+        if "FROM catalog_agents WHERE id = $1" in query:
+            return self._catalog_agent_by_id(args[0])
+        if "INSERT INTO catalog_models" in query and "RETURNING" in query:
+            (
+                model_id,
+                slug,
+                label,
+                model,
+                api_base,
+                api_key,
+                api_version,
+                region,
+                model_version,
+                enabled,
+                sort_order,
+            ) = args
+            if self._catalog_model_by_slug(slug):
+                return None
+            row = {
+                "id": model_id,
+                "slug": slug,
+                "label": label,
+                "model": model,
+                "api_base": api_base,
+                "api_key": api_key,
+                "api_version": api_version,
+                "region": region,
+                "model_version": model_version,
+                "enabled": enabled,
+                "sort_order": sort_order,
+                "created_at": self._now(),
+                "updated_at": self._now(),
+            }
+            self.catalog_models[str(model_id)] = row
+            return row
+        if "UPDATE catalog_models" in query:
+            (
+                label,
+                model,
+                api_base,
+                api_key,
+                api_version,
+                region,
+                model_version,
+                enabled,
+                sort_order,
+                model_id,
+            ) = args
+            row = self._catalog_model_by_id(model_id)
+            if row is None:
+                return None
+            row.update(
+                {
+                    "label": label,
+                    "model": model,
+                    "api_base": api_base,
+                    "api_key": api_key,
+                    "api_version": api_version,
+                    "region": region,
+                    "model_version": model_version,
+                    "enabled": enabled,
+                    "sort_order": sort_order,
+                    "updated_at": self._now(),
+                }
+            )
+            return row
+        if "DELETE FROM catalog_models" in query:
+            model_id = args[0]
+            row = self._catalog_model_by_id(model_id)
+            if row is None:
+                return None
+            del self.catalog_models[str(model_id)]
+            return {"id": model_id}
+        if "FROM catalog_models WHERE id = $1" in query:
+            return self._catalog_model_by_id(args[0])
+        if "FROM catalog_models WHERE slug = $1" in query:
+            row = self._catalog_model_by_slug(args[0])
+            return {"id": row["id"]} if row else None
+        if "FROM catalog_tenant_models t" in query and "WHERE t.tenant_id = $1" in query:
+            tenant = self.catalog_tenant_models.get(str(args[0]))
+            if tenant is None:
+                return None
+            return self._join_tenant_row(tenant)
+        if "FROM catalog_tenant_models" in query and "default_model_id" in query:
+            model_id = str(args[0])
+            for tenant in self.catalog_tenant_models.values():
+                if str(tenant["default_model_id"]) == model_id or str(tenant.get("fallback_model_id") or "") == model_id:
+                    return {"tenant_id": tenant["tenant_id"]}
+            return None
+        raise AssertionError(f"FakeDBPool.fetchrow: unrecognized catalog query: {query!r}")
+
+    def _join_tenant_row(self, tenant: dict[str, Any]) -> dict[str, Any]:
+        default = self._catalog_model_by_id(tenant["default_model_id"]) or {}
+        fallback = self._catalog_model_by_id(tenant.get("fallback_model_id")) if tenant.get("fallback_model_id") else None
+        return {
+            "tenant_id": tenant["tenant_id"],
+            "default_model_id": tenant["default_model_id"],
+            "fallback_model_id": tenant.get("fallback_model_id"),
+            "updated_at": tenant.get("updated_at"),
+            "default_slug": default.get("slug"),
+            "default_label": default.get("label"),
+            "fallback_slug": fallback.get("slug") if fallback else None,
+            "fallback_label": fallback.get("label") if fallback else None,
+        }
+
+    def _handle_catalog_fetch(self, query: str, args: tuple[Any, ...]) -> list[Any]:
+        if "FROM catalog_agents WHERE kind = 'custom' AND enabled = TRUE" in query:
+            rows = [
+                row
+                for row in self.catalog_agents.values()
+                if row["kind"] == "custom" and row["enabled"]
+            ]
+            rows.sort(key=lambda r: r["name"])
+            return rows
+        if "FROM catalog_agents ORDER BY kind ASC, name ASC" in query:
+            rows = list(self.catalog_agents.values())
+            rows.sort(key=lambda r: (r["kind"], r["name"]))
+            return rows
+        if "FROM catalog_models WHERE enabled = TRUE" in query:
+            rows = [row for row in self.catalog_models.values() if row["enabled"]]
+            rows.sort(key=lambda r: (r["sort_order"], r["label"]))
+            return rows
+        if "FROM catalog_models ORDER BY sort_order ASC, label ASC" in query:
+            rows = list(self.catalog_models.values())
+            rows.sort(key=lambda r: (r["sort_order"], r["label"]))
+            return rows
+        if "FROM catalog_tenant_models t" in query:
+            rows = [self._join_tenant_row(t) for t in self.catalog_tenant_models.values()]
+            rows.sort(key=lambda r: r["tenant_id"])
+            return rows
+        raise AssertionError(f"FakeDBPool.fetch: unrecognized catalog query: {query!r}")
+
+    def _handle_catalog_execute(self, query: str, args: tuple[Any, ...]) -> None:
+        stripped = query.strip().upper()
+        if stripped.startswith("CREATE "):
+            return
+        if "INSERT INTO catalog_agents" in query:
+            (
+                agent_id,
+                slug,
+                name,
+                description,
+                kind,
+                enabled,
+                system_prompt,
+                trigger_phrases,
+            ) = args
+            if self._catalog_agent_by_slug(slug):
+                return
+            self.catalog_agents[str(agent_id)] = {
+                "id": agent_id,
+                "slug": slug,
+                "name": name,
+                "description": description,
+                "kind": kind,
+                "enabled": enabled,
+                "system_prompt": system_prompt,
+                "trigger_phrases": list(trigger_phrases or []),
+                "created_at": self._now(),
+                "updated_at": self._now(),
+            }
+            return
+        if "INSERT INTO catalog_models" in query:
+            (
+                model_id,
+                slug,
+                label,
+                model,
+                api_base,
+                api_key,
+                api_version,
+                region,
+                model_version,
+                enabled,
+                sort_order,
+            ) = args
+            if self._catalog_model_by_slug(slug):
+                return
+            self.catalog_models[str(model_id)] = {
+                "id": model_id,
+                "slug": slug,
+                "label": label,
+                "model": model,
+                "api_base": api_base,
+                "api_key": api_key,
+                "api_version": api_version,
+                "region": region,
+                "model_version": model_version,
+                "enabled": enabled,
+                "sort_order": sort_order,
+                "created_at": self._now(),
+                "updated_at": self._now(),
+            }
+            return
+        if "INSERT INTO catalog_tenant_models" in query:
+            tenant_id, default_model_id, fallback_model_id = args
+            self.catalog_tenant_models[str(tenant_id)] = {
+                "tenant_id": tenant_id,
+                "default_model_id": default_model_id,
+                "fallback_model_id": fallback_model_id,
+                "updated_at": self._now(),
+            }
+            return
+        raise AssertionError(f"FakeDBPool.execute: unrecognized catalog query: {query!r}")
 
     async def fetchrow(self, query: str, *args: Any):
+        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query:
+            return self._handle_catalog_fetchrow(query, args)
         if "INSERT INTO documents" in query:
             source, title, metadata_json = args
             doc_id = uuid.uuid4()
@@ -105,6 +395,8 @@ class FakeDBPool:
         raise AssertionError(f"FakeDBPool.executemany: unrecognized query: {query!r}")
 
     async def fetch(self, query: str, *args: Any):
+        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query:
+            return self._handle_catalog_fetch(query, args)
         if "embedding <=>" in query:
             query_embedding = _parse_vector_literal(args[0])
             top_n = args[1]
@@ -158,6 +450,10 @@ class FakeDBPool:
         raise AssertionError(f"FakeDBPool.fetch: unrecognized query: {query!r}")
 
     async def execute(self, query: str, *args: Any):
+        if query.strip().upper().startswith("CREATE "):
+            return
+        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query:
+            return self._handle_catalog_execute(query, args)
         if "INSERT INTO memories" in query:
             user_id, fact = args
             self.memories.append({"user_id": user_id, "fact": fact})

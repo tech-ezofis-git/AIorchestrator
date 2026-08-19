@@ -5,9 +5,10 @@ Selecting a preset in the UI (GET /console/llm-presets + POST
 api_key, and api_version on the shared LLMAdapter so chat uses that
 deployment immediately — no restart.
 
-API keys are NOT stored here — they come from .env via Settings
-(`QWEN_MAC_API_KEY`, `AZURE_SOUTH_INDIA_API_KEY`, `AZURE_EAST_US_API_KEY`).
-Only id/label/region/endpoints are returned by the presets list endpoint.
+API keys are stored in catalog_models when the catalog DB is available;
+otherwise they come from .env via Settings (`QWEN_MAC_API_KEY`,
+`AZURE_SOUTH_INDIA_API_KEY`, `AZURE_EAST_US_API_KEY`). The presets list
+endpoint never returns api_key values.
 """
 from __future__ import annotations
 
@@ -73,15 +74,33 @@ MODEL_PRESETS: list[dict[str, Any]] = [
 
 DEFAULT_PRESET_ID = "ezofis-gpu-box"
 
+# Populated from catalog_models at startup (and after Catalog UI edits).
+# None => use the hardcoded MODEL_PRESETS list.
+_runtime_presets: Optional[list[dict[str, Any]]] = None
+
+
+def set_runtime_presets(presets: Optional[list[dict[str, Any]]]) -> None:
+    """Replace the in-memory preset list with catalog_models rows (or clear)."""
+    global _runtime_presets
+    _runtime_presets = presets
+
+
+def _preset_source() -> list[dict[str, Any]]:
+    if _runtime_presets:
+        return _runtime_presets
+    return MODEL_PRESETS
+
 
 def get_preset(preset_id: str) -> Optional[dict[str, Any]]:
-    for preset in MODEL_PRESETS:
+    for preset in _preset_source():
         if preset["id"] == preset_id:
             return preset
     return None
 
 
 def _resolve_api_key(preset: dict[str, Any]) -> Optional[str]:
+    if preset.get("api_key"):
+        return preset["api_key"]
     settings = get_settings()
     attr = preset.get("api_key_attr")
     if not attr:
@@ -100,8 +119,9 @@ def list_presets_public() -> list[dict[str, Any]]:
             "region": p.get("region"),
             "api_base": p["api_base"],
             "api_version": p.get("api_version") or None,
+            "has_api_key": bool(_resolve_api_key(p)),
         }
-        for p in MODEL_PRESETS
+        for p in _preset_source()
     ]
 
 

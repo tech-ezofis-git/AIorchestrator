@@ -104,7 +104,10 @@ from redis.asyncio import Redis
 from starlette.background import BackgroundTask
 
 from app.agents.ap_agent import ApAgent
+from app.agents.catalog_agent import CatalogAgent
 from app.agents.chat_agent import ChatAgent
+from app.catalog.store import CatalogConflictError, CatalogStore, CatalogStoreUnavailableError
+from app.catalog.url import catalog_pool_kwargs, normalize_catalog_url
 from app.ap_skills.store import ApStoreUnavailableError
 from app.ap_skills.tenant_db import ApTenantDbPools
 from app.agents.forecast_agent import ForecastAgent
@@ -145,10 +148,12 @@ from app.llm.adapter import LLMAdapter, LLMAdapterError
 from app.llm.embedding_adapter import EmbeddingAdapter, EmbeddingAdapterError
 from app.llm.model_presets import (
     DEFAULT_PRESET_ID,
+    MODEL_PRESETS,
     apply_preset,
     get_preset,
     list_presets_public,
     resolve_default_preset_id,
+    set_runtime_presets,
 )
 from app.llm.runtime_models import RuntimeModelSelection
 from app.models.chat import ChatRequest, ChatResponse
@@ -212,10 +217,16 @@ def _status_bucket(status_code: int) -> str:
 def _snippet_for_audit(intent: Optional[str], text: Optional[str]) -> Optional[str]:
     """None unless `intent` is one of the six low-stakes intents AND
     `text` is present — conservative by construction: unknown intent
-    (None) and AP/Mail both fall through to None, same as each other."""
-    if text is None or intent not in _SNIPPETABLE_INTENTS:
+    (None) and AP/Mail both fall through to None, same as each other.
+    Custom catalog agents (slugs not in Intent) are treated like chat."""
+    if text is None:
         return None
-    return redact_and_cap(text)
+    if intent in _SNIPPETABLE_INTENTS:
+        return redact_and_cap(text)
+    builtin = {item.value for item in Intent}
+    if intent and intent not in builtin:
+        return redact_and_cap(text)
+    return None
 
 
 @asynccontextmanager
@@ -238,6 +249,42 @@ async def lifespan(app: FastAPI):
         max_size=settings.database_pool_max_size,
     )
 
+    catalog_pool = None
+    catalog_db = db_pool
+    catalog_url = (settings.catalog_database_url or "").strip()
+    if catalog_url:
+        try:
+            catalog_pool = await asyncpg.create_pool(
+                normalize_catalog_url(catalog_url),
+                min_size=settings.database_pool_min_size,
+                max_size=settings.database_pool_max_size,
+                **catalog_pool_kwargs(catalog_url),
+            )
+            catalog_db = catalog_pool
+            logger.info("catalog_db_connected")
+        except Exception as exc:
+            logger.warning(
+                "catalog_db_connect_failed",
+                extra={"error_type": type(exc).__name__},
+            )
+            catalog_pool = None
+            catalog_db = db_pool
+
+    catalog_store = CatalogStore(catalog_db)
+    set_runtime_presets(None)
+    try:
+        await catalog_store.ensure_schema()
+        await catalog_store.seed_defaults(MODEL_PRESETS, settings)
+        db_presets = await catalog_store.list_model_presets_internal()
+        if db_presets:
+            set_runtime_presets(db_presets)
+    except Exception as exc:
+        logger.warning(
+            "catalog_bootstrap_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        set_runtime_presets(None)
+
     llm_adapter = LLMAdapter(settings)
     # Console can switch default/fallback at runtime; selection is persisted
     # in Redis so hosting restarts keep the last manual Save.
@@ -255,6 +302,13 @@ async def lifespan(app: FastAPI):
     ezofis_client = EzofisClient(settings)
     context_manager = ContextManager(redis_client, settings.session_ttl_seconds, ezofis_client)
     intent_router = IntentRouter()
+    try:
+        intent_router.set_custom_agents(await catalog_store.list_enabled_custom())
+    except Exception as exc:
+        logger.warning(
+            "catalog_custom_agents_load_failed",
+            extra={"error_type": type(exc).__name__},
+        )
     response_composer = ResponseComposer(llm_adapter)
     response_cache = ResponseCache(redis_client)
 
@@ -331,6 +385,7 @@ async def lifespan(app: FastAPI):
     # permission_provider (needs get_user_context for user_id scoping)
     # all exist — see app/agents/chat_agent.py.
     chat_agent = ChatAgent(llm_adapter, dispatcher, response_composer, permission_provider)
+    catalog_agent = CatalogAgent(llm_adapter)
 
     pending_action_store = PendingActionStore(redis_client, settings.pending_action_ttl_seconds)
     mail_agent = MailAgent(pending_action_store, response_composer)
@@ -374,11 +429,15 @@ async def lifespan(app: FastAPI):
     # reconfiguring it here takes effect everywhere with no app restart.
     app.state.llm_adapter = llm_adapter
     app.state.runtime_models = runtime_models
+    app.state.catalog_store = catalog_store
+    app.state.catalog_agent = catalog_agent
 
     yield
 
     await redis_client.aclose()
     await tenant_pools.close()
+    if catalog_pool is not None:
+        await catalog_pool.close()
     await db_pool.close()
 
 
@@ -795,6 +854,238 @@ async def delete_summary_custom_rule(
     return {"kind": "rule", "deleted": deleted}
 
 
+class CatalogAgentCreate(BaseModel):
+    slug: str
+    name: str
+    description: str = ""
+    system_prompt: str
+    trigger_phrases: list[str] = []
+    enabled: bool = True
+
+
+class CatalogAgentUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    system_prompt: Optional[str] = None
+    trigger_phrases: Optional[list[str]] = None
+    enabled: Optional[bool] = None
+
+
+class CatalogModelCreate(BaseModel):
+    slug: str
+    label: str
+    model: str
+    api_base: str = ""
+    api_key: str = ""
+    api_version: Optional[str] = None
+    region: Optional[str] = None
+    model_version: Optional[str] = None
+    enabled: bool = True
+    sort_order: int = 100
+
+
+class CatalogModelUpdate(BaseModel):
+    label: Optional[str] = None
+    model: Optional[str] = None
+    api_base: Optional[str] = None
+    api_key: Optional[str] = None
+    api_version: Optional[str] = None
+    region: Optional[str] = None
+    model_version: Optional[str] = None
+    enabled: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class CatalogTenantModelsUpsert(BaseModel):
+    tenant_id: str
+    default_model_id: str
+    fallback_model_id: Optional[str] = None
+
+
+def _catalog_store(request: Request) -> CatalogStore:
+    store = getattr(request.app.state, "catalog_store", None)
+    if store is None:
+        raise HTTPException(status_code=503, detail="Catalog store is currently unavailable.")
+    return store
+
+
+async def _refresh_catalog_runtime(request: Request) -> None:
+    store: CatalogStore = request.app.state.catalog_store
+    router: IntentRouter = request.app.state.intent_router
+    try:
+        presets = await store.list_model_presets_internal()
+        if presets:
+            set_runtime_presets(presets)
+        router.set_custom_agents(await store.list_enabled_custom())
+    except CatalogStoreUnavailableError:
+        logger.warning("catalog_runtime_refresh_failed", extra={"error_type": "store"})
+
+
+def _raise_catalog_http(exc: Exception) -> None:
+    if isinstance(exc, CatalogStoreUnavailableError):
+        raise HTTPException(status_code=503, detail="Catalog store is currently unavailable.") from exc
+    if isinstance(exc, CatalogConflictError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, KeyError):
+        raise HTTPException(status_code=404, detail=str(exc) or "Not found.") from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    raise exc
+
+
+@app.get("/console/catalog/agents")
+async def list_catalog_agents(request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        return {"agents": await store.list_agents()}
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+
+
+@app.post("/console/catalog/agents")
+async def create_catalog_agent(payload: CatalogAgentCreate, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        agent = await store.create_custom_agent(
+            slug=payload.slug,
+            name=payload.name,
+            description=payload.description,
+            system_prompt=payload.system_prompt,
+            trigger_phrases=payload.trigger_phrases,
+            enabled=payload.enabled,
+        )
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+    await _refresh_catalog_runtime(request)
+    return agent
+
+
+@app.patch("/console/catalog/agents/{agent_id}")
+async def update_catalog_agent(agent_id: str, payload: CatalogAgentUpdate, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        agent = await store.update_agent(
+            agent_id,
+            name=payload.name,
+            description=payload.description,
+            enabled=payload.enabled,
+            system_prompt=payload.system_prompt,
+            trigger_phrases=payload.trigger_phrases,
+        )
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+    await _refresh_catalog_runtime(request)
+    return agent
+
+
+@app.delete("/console/catalog/agents/{agent_id}")
+async def delete_catalog_agent(agent_id: str, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        await store.delete_custom_agent(agent_id)
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+    await _refresh_catalog_runtime(request)
+    return {"ok": True}
+
+
+@app.get("/console/catalog/models")
+async def list_catalog_models(request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        return {"models": await store.list_models()}
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+
+
+@app.post("/console/catalog/models")
+async def create_catalog_model(payload: CatalogModelCreate, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        model = await store.create_model(
+            slug=payload.slug,
+            label=payload.label,
+            model=payload.model,
+            api_base=payload.api_base,
+            api_key=payload.api_key,
+            api_version=payload.api_version,
+            region=payload.region,
+            model_version=payload.model_version,
+            enabled=payload.enabled,
+            sort_order=payload.sort_order,
+        )
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+    await _refresh_catalog_runtime(request)
+    return model
+
+
+@app.patch("/console/catalog/models/{model_id}")
+async def update_catalog_model(model_id: str, payload: CatalogModelUpdate, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        model = await store.update_model(
+            model_id,
+            label=payload.label,
+            model=payload.model,
+            api_base=payload.api_base,
+            api_key=payload.api_key,
+            api_version=payload.api_version,
+            region=payload.region,
+            model_version=payload.model_version,
+            enabled=payload.enabled,
+            sort_order=payload.sort_order,
+            clear_api_version=payload.api_version == "",
+        )
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+    await _refresh_catalog_runtime(request)
+    return model
+
+
+@app.delete("/console/catalog/models/{model_id}")
+async def delete_catalog_model(model_id: str, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        await store.delete_model(model_id)
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+    await _refresh_catalog_runtime(request)
+    return {"ok": True}
+
+
+@app.get("/console/catalog/tenant-models")
+async def list_catalog_tenant_models(request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        return {"tenant_models": await store.list_tenant_models()}
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+
+
+@app.put("/console/catalog/tenant-models")
+async def upsert_catalog_tenant_models(payload: CatalogTenantModelsUpsert, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        return await store.upsert_tenant_models(
+            tenant_id=payload.tenant_id,
+            default_model_id=payload.default_model_id,
+            fallback_model_id=payload.fallback_model_id or None,
+        )
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+
+
 @app.get("/metrics")
 async def metrics() -> Response:
     """Prometheus text-exposition format (Phase 5d) — pure aggregate
@@ -1116,15 +1407,33 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     # Explicit intent overrides keyword router. Empty/omitted intent keeps
     # legacy keyword classification (chat/search/...) so existing clients
     # keep working. Document OCR requires intent=ocr (filepath alone never
-    # forces OCR / AP).
+    # forces OCR / AP). Unknown strings may be catalog custom-agent slugs.
+    custom_agent = None
     if explicit:
         try:
             intent = Intent(explicit)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"Unknown intent '{payload.intent}'.") from exc
+            store = getattr(request.app.state, "catalog_store", None)
+            if store is not None:
+                try:
+                    custom_agent = await store.get_enabled_custom(explicit)
+                except CatalogStoreUnavailableError:
+                    custom_agent = None
+            if custom_agent is None:
+                raise HTTPException(status_code=400, detail=f"Unknown intent '{payload.intent}'.") from exc
+            intent = Intent.CHAT
     else:
         intent = await intent_router.classify(message)
-    request.state.intent = intent.value
+        if intent == Intent.CHAT:
+            custom_slug = intent_router.match_custom_slug(message)
+            if custom_slug:
+                store = getattr(request.app.state, "catalog_store", None)
+                if store is not None:
+                    try:
+                        custom_agent = await store.get_enabled_custom(custom_slug)
+                    except CatalogStoreUnavailableError:
+                        custom_agent = None
+    request.state.intent = custom_agent["slug"] if custom_agent else intent.value
 
     document_job = None
     has_document = has_filepath or (parsed.file_bytes is not None)
@@ -1274,13 +1583,22 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         raise HTTPException(status_code=403, detail="Not permitted to use this capability.") from exc
 
     try:
-        result = await agent_router.route(
-            intent,
-            session_id=payload.session_id,
-            message=message,
-            history=history,
-            document_job=document_job,
-        )
+        if custom_agent:
+            catalog_agent: CatalogAgent = request.app.state.catalog_agent
+            result = await catalog_agent.handle(
+                session_id=payload.session_id,
+                message=message,
+                history=history,
+                catalog_agent=custom_agent,
+            )
+        else:
+            result = await agent_router.route(
+                intent,
+                session_id=payload.session_id,
+                message=message,
+                history=history,
+                document_job=document_job,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMAdapterError as exc:
@@ -1322,7 +1640,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         audit_store.record,
         correlation_id=request.state.correlation_id,
         session_id=payload.session_id,
-        intent=intent.value,
+        intent=request.state.intent,
         event_type="request_completed",
         status="success",
         latency_ms=latency_ms,

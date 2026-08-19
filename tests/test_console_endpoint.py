@@ -52,6 +52,9 @@ def test_console_serves_html(client):
     assert "const body = { session_id: sessionId, message };" in response.text
     assert "function restoreEmptyState" in response.text
     assert "function renderChatReply" in response.text
+    assert 'id="catalogView"' in response.text
+    assert 'id="viewCatalogBtn"' in response.text
+    assert "/console/catalog/agents" in response.text
 
 
 def test_console_static_logo_is_served(client):

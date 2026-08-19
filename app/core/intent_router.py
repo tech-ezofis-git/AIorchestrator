@@ -39,6 +39,7 @@ approach; revisit it for real classification if that turns out to matter
 more than the layered mitigation covers.
 """
 from enum import Enum
+from typing import Any, Optional
 
 
 class Intent(str, Enum):
@@ -126,6 +127,32 @@ _MAIL_TRIGGERS = (
 
 class IntentRouter:
     """Classifies free-text messages into one of the platform's Intents."""
+
+    def __init__(self) -> None:
+        self._custom: list[tuple[str, tuple[str, ...]]] = []
+
+    def set_custom_agents(self, agents: list[dict[str, Any]]) -> None:
+        """Refresh keyword triggers for catalog custom agents (checked after builtins)."""
+        custom: list[tuple[str, tuple[str, ...]]] = []
+        for agent in agents:
+            slug = str(agent.get("slug") or "").strip()
+            phrases = tuple(
+                str(p).strip().lower()
+                for p in (agent.get("trigger_phrases") or [])
+                if p and str(p).strip()
+            )
+            if slug and phrases:
+                custom.append((slug, phrases))
+        self._custom = custom
+
+    def match_custom_slug(self, message: str) -> Optional[str]:
+        normalized = message.strip().lower()
+        if not normalized:
+            return None
+        for slug, phrases in self._custom:
+            if any(phrase in normalized for phrase in phrases):
+                return slug
+        return None
 
     async def classify(self, message: str) -> Intent:
         """Return the Intent for `message`.
