@@ -329,9 +329,9 @@ Identical structure regardless of whether input was JSON, OCR text, blob, or upl
   "document_type": "Invoice",
   "document_title": "Internet Service Invoice",
   "document_language": "English",
-  "document_summary": "This is an invoice from <mark>Niss Internet Services</mark> for internet charges totaling <mark>1770.00 INR</mark>.",
+  "document_summary": "This is an invoice from <b><u>Niss Internet Services</u></b> for internet charges totaling <b><u>1770.00 INR</u></b>.",
   "key_facts_extracted": [
-    "The invoice number is <mark>INV/26-27/002140</mark>.",
+    "The invoice number is <b><u>INV/26-27/002140</u></b>.",
     "The vendor is Niss Internet Services.",
     "The total amount due is 1770.00 INR.",
     "GST of 270.00 INR is included in the total."

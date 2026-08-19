@@ -200,7 +200,7 @@ Control keys (`no`, `insights_count`, `insight_area`, `area`, `dashboard`) are *
 | `document_type` | string | Inferred from JSON |
 | `document_title` | string | |
 | `document_language` | string | |
-| `document_summary` | string | 2–3 sentences; max 3 `<mark>` highlights |
+| `document_summary` | string | 2–3 sentences; max 3 `<b><u>` highlights |
 | `key_facts_extracted` | string[] | Capped by `no` / `key_facts_count` (default **6**) |
 | `ocr_text` | string | Pretty-printed input JSON (audit trace) |
 | `source_reference` | string | Always `"summary_json"` for JSON input |
