@@ -6,6 +6,11 @@ and the tool-failure path.
 import json
 
 
+def _as_emphasis(text: str) -> str:
+    """API lock rewrites <mark> to <b><u>…</u></b>."""
+    return text.replace("<mark>", "<b><u>").replace("</mark>", "</u></b>")
+
+
 _STRUCTURED_SUMMARY = {
     "confidence_score": 82.0,
     "document_type": "Letter",
@@ -286,8 +291,10 @@ def test_summary_document_job_locked_json_from_llm(client, monkeypatch):
     assert result["document_type"] == "Letter"
     assert result["document_title"] == "Broker Appointment Letter"
     assert result["document_language"] == "English"
-    assert result["document_summary"] == _STRUCTURED_SUMMARY["document_summary"]
-    assert result["key_facts_extracted"] == _STRUCTURED_SUMMARY["key_facts_extracted"]
+    assert result["document_summary"] == _as_emphasis(_STRUCTURED_SUMMARY["document_summary"])
+    assert result["key_facts_extracted"] == [
+        _as_emphasis(f) for f in _STRUCTURED_SUMMARY["key_facts_extracted"]
+    ]
     assert "Placeholder OCR text" in result["ocr_text"]
     assert "THIS SHOULD BE REPLACED" not in result["ocr_text"]
     assert result["source_reference"] == "letter.pdf"
@@ -317,10 +324,10 @@ def test_summary_unwraps_truncated_model_json_missing_brace():
     )
     body = result["summary_result"]
     assert body["confidence_score"] == 95.0
-    assert body["document_summary"] == "This is an invoice from <mark>Niss</mark>."
+    assert body["document_summary"] == "This is an invoice from <b><u>Niss</u></b>."
     assert body["key_facts_extracted"] == [
-        "The invoice was issued by <mark>Niss</mark>.",
-        "The total amount due is <mark>1770.00</mark>.",
+        "The invoice was issued by <b><u>Niss</u></b>.",
+        "The total amount due is <b><u>1770.00</u></b>.",
     ]
 
 
@@ -431,8 +438,10 @@ def test_summary_unwraps_double_encoded_llm_json(client, monkeypatch):
     assert body["reply"] == "Document summary generated successfully."
     result = body["summary_result"]
     assert result["confidence_score"] == 82.0
-    assert result["document_summary"] == _STRUCTURED_SUMMARY["document_summary"]
-    assert result["key_facts_extracted"] == _STRUCTURED_SUMMARY["key_facts_extracted"]
+    assert result["document_summary"] == _as_emphasis(_STRUCTURED_SUMMARY["document_summary"])
+    assert result["key_facts_extracted"] == [
+        _as_emphasis(f) for f in _STRUCTURED_SUMMARY["key_facts_extracted"]
+    ]
     assert not result["document_summary"].lstrip().startswith("{")
 
 
@@ -447,6 +456,7 @@ def test_summary_prompt_is_type_dynamic_not_invoice_only():
     assert "key_facts_extracted" in prompt
     assert "insurance" in prompt
     assert "<mark>" in prompt
+    assert "<b><u>" in prompt
     assert "label: value" in prompt
     assert "do not duplicate" in prompt
     # Forbidden output fields are named only as "do not add …"
@@ -493,7 +503,7 @@ def test_summary_preserves_insurance_wording_from_model(client, monkeypatch):
     assert result["document_title"] == "Motor Insurance Policy"
     assert result["document_language"] == "English"
     assert result["key_facts_extracted"][0].startswith("The policy number")
-    assert "<mark>POL-77821</mark>" in result["key_facts_extracted"][0]
+    assert "<b><u>POL-77821</u></b>" in result["key_facts_extracted"][0]
     assert "POL-77821" in result["ocr_text"]
 
 def test_summary_invalid_pageno_rejected(client):
@@ -752,12 +762,15 @@ def test_summary_injects_mark_tags_when_model_omits_them(client, monkeypatch):
     result = response.json()["summary_result"]
     summary = result["document_summary"]
     facts = result["key_facts_extracted"]
-    assert summary.count("<mark>") <= 3
-    assert summary.count("<mark>") == summary.count("</mark>")
-    assert "<mark>ABC General Insurance Company Ltd.</mark>" in summary or "<mark>John Smith</mark>" in summary
-    assert "<mark>INS-2026-001245</mark>" in facts[0] or "INS-2026-001245" in facts[0]
-    assert all(f.count("<mark>") <= 1 for f in facts)
-    assert all(f.count("<mark>") == f.count("</mark>") for f in facts)
+    assert summary.count("<b><u>") <= 3
+    assert summary.count("<b><u>") == summary.count("</u></b>")
+    assert (
+        "<b><u>ABC General Insurance Company Ltd.</u></b>" in summary
+        or "<b><u>John Smith</u></b>" in summary
+    )
+    assert "<b><u>INS-2026-001245</u></b>" in facts[0] or "INS-2026-001245" in facts[0]
+    assert all(f.count("<b><u>") <= 1 for f in facts)
+    assert all(f.count("<b><u>") == f.count("</u></b>") for f in facts)
 
 
 def test_summary_highlight_helper_is_idempotent():
@@ -776,6 +789,26 @@ def test_summary_highlight_helper_is_idempotent():
     assert once == twice
     assert once.count("<mark>") <= 3
     assert once.count("<mark>") == once.count("</mark>")
+
+
+def test_summary_lock_emits_bold_underline_and_is_idempotent():
+    from app.summary_skills.rules import apply_highlight_rules
+
+    summary, facts = apply_highlight_rules(
+        document_summary="This is an invoice from <mark>Niss</mark>.",
+        key_facts_extracted=["The invoice number is <b><u>INV-1</u></b>."],
+        ocr_text="Niss",
+    )
+    assert summary == "This is an invoice from <b><u>Niss</u></b>."
+    assert facts == ["The invoice number is <b><u>INV-1</u></b>."]
+    assert "<mark>" not in summary
+    twice_s, twice_f = apply_highlight_rules(
+        document_summary=summary,
+        key_facts_extracted=facts,
+        ocr_text="Niss",
+    )
+    assert twice_s == summary
+    assert twice_f == facts
 
 
 def test_summary_and_ocr_expose_reusable_skills_and_rules():

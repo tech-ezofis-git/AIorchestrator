@@ -1,12 +1,13 @@
 ---
-description: Highlight important spans with mark tags for API consumers
+description: Highlight important spans with bold and underline for API consumers
 alwaysApply: true
 ---
 
 # Highlights
 
-- Use `<mark>...</mark>` sparingly — only the most important party name, ID/number, date, or amount in each sentence.
-- In `document_summary`, use **at most 3** `<mark>` spans total across the whole summary.
-- In each `key_facts_extracted` sentence, use **at most 1** `<mark>` span.
+- Wrap only the most important party name, ID/number, date, or amount with `<b><u>...</u></b>` so UIs show it as **bold and underlined**.
+- `<mark>...</mark>` is also accepted and is rewritten to the same bold+underline tags.
+- In `document_summary`, use **at most 3** emphasized spans total across the whole summary.
+- In each `key_facts_extracted` sentence, use **at most 1** emphasized span.
 - Do not wrap whole sentences or entire amounts lists.
 - Do not use any other HTML or markdown tags.

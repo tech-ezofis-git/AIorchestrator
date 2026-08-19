@@ -12,6 +12,9 @@ def test_console_serves_html(client):
     assert "text/html" in response.headers["content-type"]
     assert "AI Orchestrator" in response.text
     assert "/chat" in response.text  # the page's own fetch() call target
+    assert "Ask AI" in response.text
+    assert "intent: 'chat'" in response.text
+    assert "Ask AI anything" in response.text
     assert "AP agent" in response.text
     assert 'id="apPanel"' in response.text
     assert "Run AP" in response.text
@@ -27,7 +30,9 @@ def test_console_serves_html(client):
     assert "intent: 'ocr'" in response.text
     assert "intent: 'ap'" in response.text
     assert "intent: 'prompt'" in response.text
-    assert "Prompt agent" in response.text
+    assert "Ask AI" in response.text
+    assert "intent: 'chat'" in response.text
+    assert "Ask AI anything" in response.text
     assert "OCR agent" in response.text
     assert "Summary agent" in response.text
     assert "Insight agent" in response.text
@@ -44,6 +49,9 @@ def test_console_serves_html(client):
     assert "/console/summary-skills/defaults" in response.text
     assert "summaryRuleSaveBtn" in response.text
     assert "Enable" in response.text
+    assert "const body = { session_id: sessionId, message };" in response.text
+    assert "function restoreEmptyState" in response.text
+    assert "function renderChatReply" in response.text
 
 
 def test_console_static_logo_is_served(client):

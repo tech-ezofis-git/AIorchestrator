@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EZOFIS AI Orchestrator — Test Console</title>
+<title>EZOFIS — Ask AI</title>
 <link rel="icon" href="/static/ezofis-logo-mark.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
     --cyan: #22d3ee;
@@ -47,7 +47,8 @@
     --shadow-sm: 0 1px 2px rgba(24, 18, 43, 0.04);
     --shadow: 0 4px 24px rgba(24, 18, 43, 0.06), 0 1px 0 rgba(255,255,255,0.9) inset;
     --shadow-lg: 0 12px 40px rgba(99, 102, 241, 0.14);
-    --font: "Inter", system-ui, sans-serif;
+    --display: "Sora", "Plus Jakarta Sans", system-ui, sans-serif;
+    --font: "Plus Jakarta Sans", system-ui, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
     /* legacy aliases used by inline JS templates */
     --accent-primary: var(--brand);
@@ -73,33 +74,69 @@
     color: var(--ink);
     min-height: 100vh;
     background:
-      radial-gradient(ellipse 80% 60% at 10% -10%, rgba(34, 211, 238, 0.16), transparent 55%),
-      radial-gradient(ellipse 70% 50% at 95% 5%, rgba(168, 85, 247, 0.12), transparent 50%),
-      radial-gradient(ellipse 60% 40% at 50% 100%, rgba(99, 102, 241, 0.07), transparent 55%),
-      #f4f2f8;
-    background-attachment: fixed;
+      radial-gradient(1200px 700px at 8% -10%, rgba(34, 211, 238, 0.18), transparent 55%),
+      radial-gradient(900px 600px at 92% 0%, rgba(168, 85, 247, 0.2), transparent 50%),
+      radial-gradient(700px 500px at 50% 110%, rgba(99, 102, 241, 0.12), transparent 55%),
+      #efeaf8;
+    overflow: hidden;
   }
+  body::before, body::after {
+    content: "";
+    position: fixed; inset: -20% -10% auto auto;
+    width: 70vw; height: 70vh; pointer-events: none; z-index: 0;
+    border-radius: 50%; filter: blur(90px);
+    animation: auroraDrift 18s ease-in-out infinite alternate;
+  }
+  body::before {
+    background: radial-gradient(circle, rgba(34, 211, 238, 0.32), transparent 62%);
+    top: -18%; left: -12%;
+  }
+  body::after {
+    background: radial-gradient(circle, rgba(168, 85, 247, 0.3), transparent 60%);
+    top: -8%; right: -18%;
+    animation-delay: -7s; animation-duration: 22s;
+  }
+  .mesh-blob {
+    position: fixed; width: 42vw; height: 42vw; pointer-events: none; z-index: 0;
+    border-radius: 50%; filter: blur(90px);
+    background: radial-gradient(circle, rgba(129, 140, 248, 0.22), transparent 68%);
+    bottom: -18%; left: 28%;
+    animation: auroraDrift 26s ease-in-out infinite alternate-reverse;
+  }
+  .grain {
+    position: fixed; inset: 0; pointer-events: none; z-index: 2; opacity: .045;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
+  }
+  @keyframes auroraDrift {
+    from { transform: translate3d(0, 0, 0) scale(1); }
+    to { transform: translate3d(6%, 8%, 0) scale(1.12); }
+  }
+  header, .layout { position: relative; z-index: 1; }
   code { font-family: var(--mono); font-size: 0.88em; background: var(--brand-soft); padding: 0.12em 0.4em; border-radius: 6px; }
 
   /* —— Header —— */
   header {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 14px 24px;
-    margin: 12px 20px 0;
-    max-width: 1380px;
-    margin-left: auto;
-    margin-right: auto;
-    background: var(--glass);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    gap: 14px;
+    padding: 10px 18px;
+    margin: 8px 10px 0;
+    max-width: none;
+    background: rgba(255,255,255,0.62);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
     border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
+    border-radius: 18px;
     box-shadow: var(--shadow);
     position: sticky;
-    top: 12px;
+    top: 8px;
     z-index: 20;
+    animation: fadeDown .5s ease both;
+  }
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: none; }
   }
   header::after { display: none; }
   header .brand-mark {
@@ -108,14 +145,20 @@
   }
   header .brand-copy { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   header h1 {
-    font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -0.03em;
+    font-family: var(--display);
+    font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.04em;
     color: var(--ink);
   }
   header .title-badge {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-    padding: 4px 10px; border-radius: var(--radius-pill);
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 5px 11px; border-radius: var(--radius-pill);
     background: var(--gradient-brand); color: #fff;
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+    animation: badgePulse 4.5s ease-in-out infinite;
+  }
+  @keyframes badgePulse {
+    0%, 100% { box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25); transform: scale(1); }
+    50% { box-shadow: 0 6px 18px rgba(168, 85, 247, 0.45); transform: scale(1.03); }
   }
   header .sub { display: none; }
   .health {
@@ -124,7 +167,15 @@
     background: var(--surface-2); border: 1px solid var(--line);
   }
   .health-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); }
-  .health-dot.up { background: var(--ok); box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2); }
+  .health-dot.up {
+    background: var(--ok);
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
+    animation: pulseDot 2.2s ease-in-out infinite;
+  }
+  @keyframes pulseDot {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.18); }
+    50% { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0.08); }
+  }
   .health-dot.down { background: var(--danger); box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.15); }
   .health-label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 
@@ -132,17 +183,19 @@
   .layout {
     display: grid;
     grid-template-columns: 260px minmax(0, 1fr);
-    gap: 16px;
-    max-width: 1380px;
-    margin: 16px auto 24px;
-    padding: 0 20px;
-    height: calc(100vh - 96px);
-    min-height: 560px;
+    gap: 10px;
+    max-width: none;
+    width: auto;
+    margin: 10px;
+    padding: 0;
+    height: calc(100vh - 76px);
+    min-height: 0;
+    animation: fadeUp .55s ease both;
     align-items: stretch;
   }
   .layout.pack-inspector-open {
-    grid-template-columns: 260px minmax(0, 1fr) minmax(340px, 400px);
-    max-width: 1720px;
+    grid-template-columns: 260px minmax(0, 1fr) minmax(300px, 28vw);
+    max-width: none;
   }
   @media (max-width: 1200px) {
     .layout.pack-inspector-open {
@@ -152,8 +205,9 @@
     .pack-inspector.visible { grid-column: 1 / -1; }
   }
   @media (max-width: 920px) {
-    .layout, .layout.pack-inspector-open { grid-template-columns: 1fr; height: calc(100vh - 88px); min-height: 480px; }
-    header { margin: 8px 12px 0; }
+    .layout, .layout.pack-inspector-open { grid-template-columns: 1fr; height: calc(100vh - 72px); min-height: 0; }
+    header { margin: 6px 8px 0; }
+    .layout { margin: 8px; }
     .transcript { min-height: 160px; }
     .main-controls { max-height: min(42vh, 280px); }
     .pack-inspector.visible { grid-column: 1; max-height: 360px; }
@@ -174,7 +228,10 @@
     padding: 20px 18px 22px;
     overflow-y: auto;
     align-self: stretch;
+    display: flex;
+    flex-direction: column;
   }
+  .sidebar .settings-fold { margin-top: auto; }
   .sidebar-section + .sidebar-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
   .sidebar h2 {
     font-size: 10px; font-weight: 600; text-transform: uppercase;
@@ -234,30 +291,39 @@
     box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
   }
 
-  .cap-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
-  @media (max-width: 920px) { .cap-actions { grid-template-columns: 1fr; } }
+  .cap-actions { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 4px; }
   .cap-btn {
-    display: flex; align-items: center; gap: 8px;
-    width: 100%; text-align: left; font-size: 12px; font-weight: 600;
-    padding: 12px 14px; border-radius: var(--radius-sm);
-    background: rgba(255, 255, 255, 0.75);
-    color: var(--ink-2); border: 1px solid var(--line);
-    box-shadow: var(--shadow-sm);
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; text-align: left; font-size: 13px; font-weight: 600;
+    padding: 11px 12px; border-radius: 14px;
+    background: rgba(255, 255, 255, 0.55);
+    color: var(--ink-2); border: 1px solid transparent;
+    animation: fadeUp .45s ease both;
   }
-  .cap-btn .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--gradient-brand); flex-shrink: 0;
+  .cap-btn:nth-child(1) { animation-delay: .04s; }
+  .cap-btn:nth-child(2) { animation-delay: .08s; }
+  .cap-btn:nth-child(3) { animation-delay: .12s; }
+  .cap-btn:nth-child(4) { animation-delay: .16s; }
+  .cap-btn:nth-child(5) { animation-delay: .2s; }
+  .cap-btn:nth-child(6) { animation-delay: .24s; }
+  .cap-btn .cap-ico {
+    width: 28px; height: 28px; border-radius: 9px; flex-shrink: 0;
+    display: grid; place-items: center;
+    background: var(--gradient-soft); color: var(--brand-deep);
   }
+  .cap-btn .cap-ico svg { width: 15px; height: 15px; }
+  .cap-btn .dot { display: none; }
   .cap-btn:hover {
-    border-color: rgba(129, 140, 248, 0.4); background: #fff;
-    color: var(--ink); transform: translateY(-1px); box-shadow: var(--shadow);
+    border-color: rgba(129, 140, 248, 0.35); background: #fff;
+    color: var(--ink); transform: translateX(3px); box-shadow: var(--shadow-sm);
   }
   .cap-btn.active {
     background: var(--gradient-brand);
     color: #fff; border-color: transparent;
-    box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
+    box-shadow: 0 10px 28px rgba(99, 102, 241, 0.32);
+    transform: none;
   }
-  .cap-btn.active .dot { background: #fff; }
+  .cap-btn.active .cap-ico { background: rgba(255,255,255,0.22); color: #fff; }
 
   .prompt-list { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
   .prompt-chip {
@@ -295,24 +361,72 @@
   .transcript::-webkit-scrollbar { width: 6px; }
   .transcript::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.2); border-radius: 99px; }
 
-  .empty-state { margin: auto; text-align: center; color: var(--ink-3); font-size: 14px; max-width: 420px; padding: 32px 20px; }
+  .empty-state { margin: auto; text-align: center; color: var(--ink-3); font-size: 14px; max-width: 560px; padding: 20px 12px 8px; animation: fadeUp .6s ease both; }
   .empty-state .empty-icon {
-    width: 64px; height: 64px; margin: 0 auto 20px; border-radius: 20px;
+    position: relative;
+    width: 76px; height: 76px; margin: 0 auto 20px; border-radius: 26px;
     background: var(--gradient-brand); border: none;
-    box-shadow: 0 12px 32px rgba(99, 102, 241, 0.28);
+    box-shadow: 0 16px 40px rgba(99, 102, 241, 0.32);
     display: flex; align-items: center; justify-content: center;
+    animation: orbFloat 4.5s ease-in-out infinite;
   }
-  .empty-state .empty-icon svg { width: 28px; height: 28px; stroke: #fff; }
+  .empty-state .empty-icon::before,
+  .empty-state .empty-icon::after {
+    content: ""; position: absolute; inset: -10px; border-radius: 32px;
+    border: 1px solid rgba(168, 85, 247, 0.28);
+    animation: ringOut 3.2s ease-out infinite;
+  }
+  .empty-state .empty-icon::after { inset: -18px; animation-delay: 1.1s; border-color: rgba(34, 211, 238, 0.22); }
+  @keyframes ringOut {
+    0% { transform: scale(.86); opacity: .7; }
+    100% { transform: scale(1.18); opacity: 0; }
+  }
+  @keyframes orbFloat {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-7px) scale(1.04); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: none; }
+  }
+  .empty-state .empty-icon svg { width: 30px; height: 30px; stroke: #fff; color: #fff; }
   .empty-state .empty-title {
-    font-size: 22px; font-weight: 700; color: var(--ink); margin-bottom: 8px; letter-spacing: -0.03em;
+    font-family: var(--display);
+    font-size: 32px; font-weight: 700; color: var(--ink); margin-bottom: 8px; letter-spacing: -0.055em;
+    background: linear-gradient(120deg, #18122b 10%, #7c3aed 48%, #0891b2 92%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .empty-state .empty-sub { color: var(--ink-3); line-height: 1.7; font-size: 14px; }
+  .empty-state .empty-sub { color: var(--ink-3); line-height: 1.6; font-size: 14px; max-width: 380px; margin: 0 auto; }
   .empty-state .empty-sub strong { color: var(--ink-2); font-weight: 600; }
+  .ask-chips, .ask-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 26px; text-align: left;
+  }
+  .ask-chip {
+    font-size: 13px; font-weight: 600; padding: 14px 16px; border-radius: 16px;
+    background: rgba(255,255,255,0.78); color: var(--ink-2); border: 1px solid var(--line);
+    animation: fadeUp .5s ease both;
+    display: flex; flex-direction: column; gap: 4px;
+    backdrop-filter: blur(16px);
+  }
+  .ask-chip small { font-size: 11px; font-weight: 500; color: var(--ink-4); }
+  .ask-chip:nth-child(1) { animation-delay: .12s; }
+  .ask-chip:nth-child(2) { animation-delay: .18s; }
+  .ask-chip:nth-child(3) { animation-delay: .24s; }
+  .ask-chip:nth-child(4) { animation-delay: .3s; }
+  .ask-chip:hover {
+    background: #fff; color: var(--ink); border-color: transparent;
+    transform: translateY(-3px) scale(1.015);
+    box-shadow: 0 14px 32px rgba(99,102,241,0.18);
+  }
+  @media (max-width: 560px) {
+    .ask-chips, .ask-grid { grid-template-columns: 1fr; }
+    .empty-state .empty-title { font-size: 26px; }
+  }
 
-  .msg { max-width: 82%; animation: msgIn .35s ease; }
+  .msg { max-width: min(720px, 100%); animation: msgIn .42s cubic-bezier(.2,.8,.2,1); }
   @keyframes msgIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(12px) scale(.98); }
+    to { opacity: 1; transform: none; }
   }
   .msg.user { align-self: flex-end; }
   .msg.assistant { align-self: flex-start; }
@@ -369,6 +483,10 @@
     border: 1px solid rgba(255,255,255,0.06);
   }
 
+  .composer {
+    padding: 10px 16px 16px;
+    background: linear-gradient(180deg, transparent, rgba(255,255,255,0.55) 28%);
+  }
   .composer.prompt-mode {
     display: flex;
     flex-direction: column;
@@ -382,14 +500,36 @@
   .composer #promptFields {
     margin: 0 8px;
   }
-  .composer form { display: flex; gap: 10px; align-items: flex-end; }
+  .composer form {
+    position: relative;
+    display: flex; gap: 10px; align-items: flex-end;
+    padding: 8px 10px 8px 16px;
+    background: rgba(255,255,255,0.92);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    box-shadow: 0 10px 36px rgba(99, 102, 241, 0.12);
+    transition: box-shadow .3s, border-color .3s;
+  }
+  .composer.ask-mode form {
+    box-shadow: 0 10px 36px rgba(99, 102, 241, 0.14), 0 0 0 1px rgba(168,85,247,0.08);
+  }
   .composer textarea {
-    flex: 1; resize: none; min-height: 48px; max-height: 140px;
+    flex: 1; resize: none; min-height: 48px; max-height: 160px;
     background: transparent; border: none; box-shadow: none; padding: 12px 0;
+    line-height: 1.5;
   }
-  .composer .btn-primary {
-    min-width: 88px; height: 48px; border-radius: 14px; flex-shrink: 0;
+  .composer .btn-primary, .composer .btn-send {
+    min-width: 48px; width: 48px; height: 48px; border-radius: 16px; flex-shrink: 0;
+    padding: 0; display: grid; place-items: center;
   }
+  .composer .btn-send svg { width: 18px; height: 18px; }
+  .composer-mode-label {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-4); padding: 0 6px 8px;
+  }
+  .composer-mode-label[hidden] { display: none !important; }
+  .composer.ask-mode .composer-mode-label { display: none; }
+  .badges:empty { display: none; }
 
   .main-controls {
     flex: 0 1 auto;
@@ -496,6 +636,7 @@
   }
   input[type=file]::file-selector-button:hover { background: var(--gradient-brand-hover); }
   .ocr-actions { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .ocr-grid .more-options { grid-column: 1 / -1; margin-top: 0; }
   .doc-banner { display: none; }
   .doc-panel .mode-fields {
     margin: 0;
@@ -578,12 +719,23 @@
     border-radius: var(--radius-sm); border: 1px solid var(--line);
   }
   .summary-prose mark,
-  .summary-facts mark {
-    background: linear-gradient(135deg, rgba(34, 211, 238, 0.35), rgba(168, 85, 247, 0.22));
+  .summary-facts mark,
+  .summary-prose b,
+  .summary-facts b,
+  .summary-prose strong,
+  .summary-facts strong {
+    font-weight: 700;
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.28), rgba(168, 85, 247, 0.16));
     color: inherit;
     padding: 0.08em 0.28em;
     border-radius: 4px;
     box-decoration-break: clone;
+  }
+  .summary-prose u,
+  .summary-facts u {
+    text-decoration: underline;
+    text-underline-offset: 0.14em;
+    text-decoration-thickness: 1.5px;
   }
   .summary-section-label {
     font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
@@ -679,6 +831,59 @@
   }
   .spinner.dark {
     border-color: rgba(99, 102, 241, 0.25); border-top-color: var(--periwinkle);
+  }
+  .typing {
+    display: inline-flex; gap: 5px; align-items: center; height: 14px; vertical-align: middle;
+  }
+  .typing span {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--periwinkle); animation: typingBounce 1.1s ease-in-out infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: .15s; }
+  .typing span:nth-child(3) { animation-delay: .3s; }
+  @keyframes typingBounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: .35; }
+    40% { transform: translateY(-5px); opacity: 1; }
+  }
+  .settings-fold {
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+  .settings-fold > summary {
+    cursor: pointer; list-style: none; font-size: 10px; font-weight: 700;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-4);
+    padding: 8px 2px;
+  }
+  .settings-fold > summary::-webkit-details-marker { display: none; }
+  .settings-fold > summary::after { content: " ▾"; opacity: .5; }
+  .more-options {
+    grid-column: 1 / -1;
+    margin-top: 4px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.35);
+  }
+  .more-options > summary {
+    cursor: pointer; list-style: none;
+    font-size: 12px; font-weight: 600; color: var(--ink-3);
+    padding: 10px 12px;
+  }
+  .more-options > summary::-webkit-details-marker { display: none; }
+  .more-options > summary::after { content: " ▾"; float: right; opacity: .45; }
+  .more-options[open] > summary { color: var(--ink-2); }
+  .more-options .more-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    padding: 0 12px 12px;
+  }
+  .more-options .more-grid > div[style*="grid-column"],
+  .more-options .span-all { grid-column: 1 / -1; }
+  .msg-meta.quiet { opacity: 0; transition: opacity .2s; }
+  .msg.assistant:hover .msg-meta.quiet, .msg.assistant:focus-within .msg-meta.quiet { opacity: 1; }
+  .chat-card { animation: msgIn .5s cubic-bezier(.16,1,.3,1); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -1087,12 +1292,14 @@
 </style>
 </head>
 <body>
+<div class="mesh-blob" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
 
 <header>
   <img class="brand-mark" src="/static/ezofis-logo-mark.png" alt="EZOFIS">
   <div class="brand-copy">
     <h1>EZOFIS AI Orchestrator</h1>
-    <span class="title-badge">Console</span>
+    <span class="title-badge">Ask AI</span>
   </div>
   <div class="health">
     <span class="health-dot" id="healthDot"></span>
@@ -1103,23 +1310,24 @@
 <div class="layout">
   <aside class="panel sidebar">
     <div class="sidebar-section">
-      <h2>Session</h2>
-      <label for="sessionId">session_id</label>
-      <div class="row">
-        <input type="text" id="sessionId" />
-        <button class="btn-ghost" id="newSessionBtn" title="New random session id">New</button>
-      </div>
+      <h2>Agents</h2>
+      <div class="cap-actions" id="capActions"></div>
     </div>
 
-    <div class="sidebar-section">
-      <h2>Model</h2>
-      <label for="llmDefaultPreset">Default model</label>
+    <details class="sidebar-section settings-fold">
+      <summary>Settings</summary>
+      <label for="sessionId">Session</label>
+      <div class="row">
+        <input type="text" id="sessionId" />
+        <button class="btn-ghost" id="newSessionBtn" title="New session">New</button>
+      </div>
+
+      <label for="llmDefaultPreset">Model</label>
       <select id="llmDefaultPreset"></select>
       <div class="field-hint" id="llmDefaultHint"></div>
 
-      <label for="llmFallbackPreset">Fallback model <span style="font-weight:500">(OCR / Summary)</span></label>
+      <label for="llmFallbackPreset">Fallback</label>
       <select id="llmFallbackPreset"></select>
-      <div class="field-hint">Used if the default model fails during OCR structuring or document summary. Keys stay in <code>.env</code>. Selection is saved to Redis and survives restarts.</div>
       <div class="field-hint" id="llmKeyHint" style="margin-top:6px"></div>
 
       <div class="row" style="margin-top:10px">
@@ -1127,41 +1335,26 @@
         <button class="btn-ghost" id="llmTestBtn">Test</button>
       </div>
       <div class="llm-status" id="llmStatus"></div>
-    </div>
-
-    <div class="sidebar-section">
-      <h2>Document actions</h2>
-      <div class="cap-actions" id="capActions"></div>
-    </div>
-
-    <div class="sidebar-section">
-      <h2>Example prompts</h2>
-      <div class="prompt-list" id="quickPrompts"></div>
-    </div>
-
-    <div class="sidebar-section">
-      <h2>About</h2>
-      <div class="about-blurb">
-        Calls this same origin's <code>/chat</code> and
-        <code>/actions/&#123;id&#125;/confirm</code> directly — no separate
-        backend config needed. EZOFIS integrations are mocked
-        (see <code>app/integrations/</code>) unless <code>EZOFIS_LOGIN_*</code>
-        is set; AP document jobs still run against the mock PO/vendor masters.
-      </div>
-    </div>
+    </details>
   </aside>
 
   <section class="panel main">
     <div class="transcript" id="transcript">
-      <div class="empty-state">
-        <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h8M8 16h5M9 3h6l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/></svg></div>
-        <div class="empty-title">What would you like to run?</div>
-        <div class="empty-sub">Pick an action on the left — <strong>OCR agent</strong>, <strong>Summary agent</strong>, <strong>Insight agent</strong>, <strong>AP agent</strong>, or <strong>Prompt agent</strong> — or type a message below.</div>
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4.5 0 8 3.1 8 7.2 0 2.6-1.4 4.9-3.6 6.2L17 21l-3.2-1.6A9 9 0 0 1 12 19.4c-4.5 0-8-3.1-8-7.2S7.5 3 12 3Z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg></div>
+        <div class="empty-title">Ask AI</div>
+        <div class="empty-sub">Search, remember, forecast, or just talk.</div>
+        <div class="ask-chips">
+          <button type="button" class="ask-chip" data-ask="hello there">Say hello<small>Normal chat</small></button>
+          <button type="button" class="ask-chip" data-ask="search for the PTO policy">Search PTO policy<small>Find a document</small></button>
+          <button type="button" class="ask-chip" data-ask="forecast revenue for next quarter">Forecast revenue<small>Look ahead</small></button>
+          <button type="button" class="ask-chip" data-ask="remember that I prefer email over phone calls">Remember this<small>Save a preference</small></button>
+        </div>
       </div>
     </div>
     <div class="main-controls" id="mainControls">
     <details class="doc-panel" id="docPanel">
-      <summary class="doc-banner" id="docBanner">OCR document — upload file or blob path</summary>
+      <summary class="doc-banner" id="docBanner">Document</summary>
       <div class="doc-panel-inner">
       <div class="mode-fields" id="summaryFields" hidden>
         <div>
@@ -1169,33 +1362,38 @@
           <input type="file" id="summaryFile" accept=".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
         </div>
         <div>
-          <label for="summaryFilepath">Blob filepath</label>
+          <label for="summaryFilepath">Blob path</label>
           <input type="text" id="summaryFilepath" placeholder="folder/file.pdf" />
         </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
         <div>
-          <label for="summaryTenant">tenant_id</label>
-          <input type="text" id="summaryTenant" placeholder="optional — blob path &amp; custom uploads" />
+          <label for="summaryTenant">Tenant</label>
+          <input type="text" id="summaryTenant" placeholder="tenant id" />
         </div>
         <div>
-          <label for="summaryPageno">pageno</label>
+          <label for="summaryPageno">Page</label>
           <input type="text" id="summaryPageno" value="1" placeholder="1 or -1" />
         </div>
         <div>
-          <label for="summaryModel">model (optional)</label>
+          <label for="summaryModel">Model</label>
           <select id="summaryModel"></select>
         </div>
         <div>
-          <label for="summaryKeyFactsCount">Key facts (max)</label>
-          <input type="text" id="summaryKeyFactsCount" value="6" placeholder="6 (default)" />
+          <label for="summaryKeyFactsCount">Key facts</label>
+          <input type="text" id="summaryKeyFactsCount" value="6" placeholder="6" />
         </div>
-        <div style="grid-column:1/-1">
-          <label for="summaryOcrText">OCR text (optional — skips file / blob / Paddle)</label>
-          <textarea id="summaryOcrText" placeholder="Paste extracted text here…"></textarea>
+        <div class="span-all">
+          <label for="summaryOcrText">Pasted text</label>
+          <textarea id="summaryOcrText" placeholder="Paste extracted text…"></textarea>
         </div>
-        <div style="grid-column:1/-1">
-          <label for="summaryJson">JSON data (optional — wins over file / blob / OCR text)</label>
-          <textarea id="summaryJson" placeholder='{"no": 4, "vendor": "Acme Corp", "invoice_no": "INV-001", "total": 1770.00}'></textarea>
+        <div class="span-all">
+          <label for="summaryJson">JSON</label>
+          <textarea id="summaryJson" placeholder='{"no": 4, "vendor": "Acme Corp"}'></textarea>
         </div>
+          </div>
+        </details>
       </div>
       <div class="mode-fields" id="insightFields" hidden>
         <div>
@@ -1203,37 +1401,42 @@
           <input type="file" id="insightFile" accept=".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
         </div>
         <div>
-          <label for="insightFilepath">Blob filepath</label>
+          <label for="insightFilepath">Blob path</label>
           <input type="text" id="insightFilepath" placeholder="folder/file.pdf" />
         </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
         <div>
-          <label for="insightTenant">tenant_id</label>
+          <label for="insightTenant">Tenant</label>
           <input type="text" id="insightTenant" placeholder="required for blob path" />
         </div>
         <div>
-          <label for="insightPageno">pageno</label>
+          <label for="insightPageno">Page</label>
           <input type="text" id="insightPageno" value="1" placeholder="1 or -1" />
         </div>
         <div>
-          <label for="insightModel">model (optional)</label>
+          <label for="insightModel">Model</label>
           <select id="insightModel"></select>
         </div>
         <div>
-          <label for="insightInsightsCount">Insights (max)</label>
-          <input type="text" id="insightInsightsCount" value="4" placeholder="4 (default)" />
+          <label for="insightInsightsCount">Insights</label>
+          <input type="text" id="insightInsightsCount" value="4" placeholder="4" />
         </div>
-        <div style="grid-column:1/-1">
-          <label for="insightArea">Business area / dashboard (optional)</label>
-          <input type="text" id="insightArea" placeholder="e.g. AP Aging, Cash Flow, Vendor Risk" />
+        <div class="span-all">
+          <label for="insightArea">Area</label>
+          <input type="text" id="insightArea" placeholder="AP Aging, Cash Flow…" />
         </div>
-        <div style="grid-column:1/-1">
-          <label for="insightOcrText">OCR text (optional — skips file / blob / Paddle)</label>
-          <textarea id="insightOcrText" placeholder="Paste extracted text here…"></textarea>
+        <div class="span-all">
+          <label for="insightOcrText">Pasted text</label>
+          <textarea id="insightOcrText" placeholder="Paste extracted text…"></textarea>
         </div>
-        <div style="grid-column:1/-1">
-          <label for="insightJson">JSON data (optional — wins over file / blob / OCR text)</label>
-          <textarea id="insightJson" placeholder='{"open_invoices": 120, "overdue": 18, ...}'></textarea>
+        <div class="span-all">
+          <label for="insightJson">JSON</label>
+          <textarea id="insightJson" placeholder='{"open_invoices": 120}'></textarea>
         </div>
+          </div>
+        </details>
       </div>
       <div class="mode-fields" id="ocrFields" hidden>
         <div>
@@ -1241,66 +1444,74 @@
           <input type="file" id="ocrFile" accept=".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
         </div>
         <div>
-          <label for="ocrFilepath">Blob filepath</label>
+          <label for="ocrFilepath">Blob path</label>
           <input type="text" id="ocrFilepath" placeholder="folder/file.pdf" />
         </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
         <div>
-          <label for="ocrTenant">tenant_id</label>
+          <label for="ocrTenant">Tenant</label>
           <input type="text" id="ocrTenant" placeholder="required for blob path" />
         </div>
         <div>
-          <label for="ocrPageno">pageno</label>
+          <label for="ocrPageno">Page</label>
           <input type="text" id="ocrPageno" value="1" placeholder="1 or -1" />
         </div>
-        <div>
-          <label for="ocrInstruction">instruction</label>
+        <div class="span-all">
+          <label for="ocrInstruction">Instruction</label>
           <input type="text" id="ocrInstruction" value="Region: India. Normalize DATE fields to YYYY-MM-DD." />
         </div>
-        <div style="grid-column:1/-1">
-          <label for="ocrParameters">parameters (one Name,TYPE per line)</label>
-          <textarea id="ocrParameters" placeholder="Invoice No,SHORT_TEXT&#10;Due Date,DATE">Invoice No,SHORT_TEXT
+        <div class="span-all">
+          <label for="ocrParameters">Fields</label>
+          <textarea id="ocrParameters" placeholder="Invoice No,SHORT_TEXT">Invoice No,SHORT_TEXT
 Due Date,DATE</textarea>
         </div>
+          </div>
+        </details>
       </div>
       </div>
     </details>
     <details class="ocr-panel" id="apPanel">
-      <summary>AP agent — upload file, blob path, or invoice JSON</summary>
+      <summary>AP document</summary>
       <div class="ocr-grid">
         <div>
-          <label for="apFile">File (wins over filepath)</label>
+          <label for="apFile">File</label>
           <input type="file" id="apFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
         </div>
         <div>
-          <label for="apFilepath">Blob filepath</label>
+          <label for="apFilepath">Blob path</label>
           <input type="text" id="apFilepath" placeholder="folder/file.pdf" />
         </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
         <div>
-          <label for="apPageno">pageno</label>
+          <label for="apPageno">Page</label>
           <input type="text" id="apPageno" value="1" placeholder="1 or -1" />
         </div>
         <div>
-          <label for="apTenant">tenant_id</label>
+          <label for="apTenant">Tenant</label>
           <input type="text" id="apTenant" value="default" />
         </div>
         <div>
-          <label for="apFormId">formid</label>
-          <input type="text" id="apFormId" placeholder="GUID or numeric PO/document form" />
+          <label for="apFormId">Form</label>
+          <input type="text" id="apFormId" placeholder="formid" />
         </div>
         <div>
-          <label for="apItemId">item_id (re-runs)</label>
-          <input type="text" id="apItemId" placeholder="optional stable key" />
+          <label for="apItemId">Item</label>
+          <input type="text" id="apItemId" placeholder="item_id" />
         </div>
         <div>
-          <label for="apResource">resource (QB/Sage)</label>
+          <label for="apResource">Resource</label>
           <input type="text" id="apResource" placeholder="QUICKBOOKS or SAGE" />
         </div>
-        <div style="grid-column:1/-1">
-          <label for="apSkills">skills (one per line; empty = tenant default plan)</label>
-          <textarea id="apSkills" placeholder="extract_invoice&#10;po_match&#10;finalize_decision"></textarea>
+        <div class="span-all">
+          <label for="apSkills">Skills</label>
+          <textarea id="apSkills" placeholder="extract_invoice"></textarea>
         </div>
-        <div style="grid-column:1/-1">
-          <label for="apInvoiceJson">invoice_json (optional; skips OCR extract)</label>
+        <div class="span-all">
+          <label for="apInvoiceJson">invoice_json</label>
           <textarea id="apInvoiceJson" placeholder='{"invoice_number":"INV-100",...}'>{
   "invoice_number": "INV-100",
   "vendor": "ACME Supplies",
@@ -1311,59 +1522,61 @@ Due Date,DATE</textarea>
 }</textarea>
         </div>
         <div>
-          <label for="apWorkflowId">workflow_id</label>
-          <input type="text" id="apWorkflowId" placeholder="optional" />
+          <label for="apWorkflowId">Workflow</label>
+          <input type="text" id="apWorkflowId" placeholder="workflow_id" />
         </div>
         <div>
-          <label for="apInstanceId">instanceId</label>
-          <input type="text" id="apInstanceId" placeholder="optional (move-next)" />
+          <label for="apInstanceId">Instance</label>
+          <input type="text" id="apInstanceId" placeholder="instanceId" />
         </div>
         <div>
-          <label for="apRepositoryId">repositoryId</label>
-          <input type="text" id="apRepositoryId" placeholder="repository UUID" />
+          <label for="apRepositoryId">Repository</label>
+          <input type="text" id="apRepositoryId" placeholder="repositoryId" />
         </div>
         <div>
-          <label for="apTransactionId">transactionId</label>
-          <input type="text" id="apTransactionId" placeholder="workflow transaction" />
+          <label for="apTransactionId">Transaction</label>
+          <input type="text" id="apTransactionId" placeholder="transactionId" />
         </div>
         <div>
-          <label for="apFormEntryId">formentryId</label>
-          <input type="text" id="apFormEntryId" placeholder="form entry id" />
+          <label for="apFormEntryId">Form entry</label>
+          <input type="text" id="apFormEntryId" placeholder="formentryId" />
         </div>
         <div>
-          <label for="apRepositoryItemId">repositoryItemId</label>
-          <input type="text" id="apRepositoryItemId" placeholder="repository item UUID" />
+          <label for="apRepositoryItemId">Repo item</label>
+          <input type="text" id="apRepositoryItemId" placeholder="repositoryItemId" />
+        </div>
+        <div class="span-all">
+          <label for="apProcessId">Process</label>
+          <input type="text" id="apProcessId" placeholder="processId" />
         </div>
         <div>
-          <label for="apProcessId">processId</label>
-          <input type="text" id="apProcessId" placeholder="optional process id" />
-        </div>
-        <div>
-          <label for="apActivityId">activityid</label>
+          <label for="apActivityId">Activity</label>
           <input type="text" id="apActivityId" placeholder="optional; else lookup AP AGENT 1" />
         </div>
+          </div>
+        </details>
         <div class="ocr-actions">
           <button type="button" class="btn-primary" id="apSendBtn">Run AP</button>
           <button type="button" class="btn-ghost" id="apClearSkillsBtn">Clear skills</button>
-          <span class="field-hint">POST /chat with intent=ap (multipart if file is set)</span>
         </div>
       </div>
     </details>
     </div>
-    <div class="composer" id="composerWrap">
+    <div class="composer ask-mode" id="composerWrap">
+      <div class="composer-mode-label" id="composerModeLabel">Ask AI</div>
       <div class="mode-fields" id="promptFields" hidden>
         <div>
-          <label for="promptModel">model (optional)</label>
+          <label for="promptModel">Model</label>
           <select id="promptModel"></select>
         </div>
         <div class="ocr-actions" style="align-self:end">
-          <button type="button" class="btn-ghost" id="promptSampleBtn">Load folder-config sample</button>
+          <button type="button" class="btn-ghost" id="promptSampleBtn">Load sample</button>
         </div>
-        <div style="grid-column:1/-1" class="field-hint">Uses <code>skills/prompt/SKILL.md</code> and <code>skills/prompt/rules/*.mdc</code> (same pack pattern as OCR / Summary / Insight).</div>
+        <div hidden>Uses <code>skills/prompt/SKILL.md</code> and <code>skills/prompt/rules/*.mdc</code></div>
       </div>
       <form id="composerForm">
-        <textarea id="messageInput" placeholder="Type a message… (e.g. &quot;search for the PTO policy&quot;)" rows="1"></textarea>
-        <button type="submit" class="btn-primary" id="sendBtn">Send</button>
+        <textarea id="messageInput" placeholder="Ask AI anything…" rows="1"></textarea>
+        <button type="submit" class="btn-primary btn-send" id="sendBtn" aria-label="Ask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
       </form>
     </div>
   </section>
@@ -1372,7 +1585,7 @@ Due Date,DATE</textarea>
     <div class="pack-inspector-head">
       <div class="pack-inspector-title">
         <h2>Summary pack</h2>
-        <p class="pack-inspector-sub">Platform defaults (read-only) and tenant custom rules</p>
+        <p class="pack-inspector-sub">Defaults and tenant overlays</p>
       </div>
       <div class="pack-tabs">
         <button type="button" class="pack-tab active" data-pack-tab="platform">Platform</button>
@@ -1390,7 +1603,7 @@ Due Date,DATE</textarea>
       </div>
       <div id="packTabTenant" class="pack-tab-panel hidden">
         <div class="pack-tenant-banner locked" id="summaryTenantZone">
-          <span id="summaryTenantUnlockHint">Set <strong>tenant_id</strong> in the form to upload and edit custom skills/rules.</span>
+          <span id="summaryTenantUnlockHint">Enter a tenant id to edit custom packs.</span>
         </div>
         <div id="summarySkillsStatus" class="tenant-skills-status"></div>
         <div class="pack-upload-zone locked" id="packUploadZone">
@@ -1570,26 +1783,77 @@ async function testLlmConnection() {
 }
 llmTestBtn.addEventListener('click', testLlmConnection);
 
+const ICONS = {
+  chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3c4.5 0 8 3.1 8 7.2 0 2.6-1.4 4.9-3.6 6.2L17 21l-3.2-1.6A9 9 0 0 1 12 19.4c-4.5 0-8-3.1-8-7.2S7.5 3 12 3Z"/></svg>',
+  ocr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 12h5M8 15h3"/></svg>',
+  summary: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 4h8l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M9 12h6M9 16h4"/></svg>',
+  insight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18V9l5 4 5-8 6 10"/></svg>',
+  ap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6V4h8v2"/></svg>',
+  prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 17 4 12l4-5M16 7l4 5-4 5M13 5l-2 14"/></svg>',
+};
 const CAP_ACTIONS = [
-  { label: 'OCR agent', ocr: true },
-  { label: 'Summary agent', summary: true },
-  { label: 'Insight agent', insight: true },
-  { label: 'AP agent', ap: true },
-  { label: 'Prompt agent', prompt: true },
+  { label: 'OCR agent', mode: 'ocr' },
+  { label: 'Summary agent', mode: 'summary' },
+  { label: 'Insight agent', mode: 'insight' },
+  { label: 'AP agent', mode: 'ap' },
+  { label: 'Prompt agent', mode: 'prompt' },
+  { label: 'Ask AI', mode: 'chat' },
 ];
-const QUICK_PROMPTS = [
-  { label: 'search for the PTO policy', message: 'search for the PTO policy' },
-  { label: 'give me insights on report RPT-456', message: 'give me insights on report RPT-456' },
-  { label: 'forecast revenue for next quarter', message: 'forecast revenue for next quarter' },
-  { label: 'what is the status of invoice INV-1234', message: 'what is the status of invoice INV-1234' },
-  { label: 'send an email to jane@example.com about the quarterly report', message: 'send an email to jane@example.com about the quarterly report' },
-  { label: 'remember that I prefer email over phone calls', message: 'remember that I prefer email over phone calls' },
-  { label: 'hello there', message: 'hello there' },
-];
+const MODE_LABELS = {
+  chat: 'Ask AI',
+  ocr: 'OCR agent',
+  summary: 'Summary agent',
+  insight: 'Insight agent',
+  ap: 'AP agent',
+  prompt: 'Prompt agent',
+};
 const capActionsEl = document.getElementById('capActions');
-const chipsEl = document.getElementById('quickPrompts');
 const apPanel = document.getElementById('apPanel');
 let composerMode = 'chat';
+
+const SEND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h12M13 6l6 6-6 6"/></svg>';
+const ASK_EMPTY_CHIPS = `
+      <button type="button" class="ask-chip" data-ask="hello there">Say hello<small>Normal chat</small></button>
+      <button type="button" class="ask-chip" data-ask="search for the PTO policy">Search PTO policy<small>Find a document</small></button>
+      <button type="button" class="ask-chip" data-ask="forecast revenue for next quarter">Forecast revenue<small>Look ahead</small></button>
+      <button type="button" class="ask-chip" data-ask="remember that I prefer email over phone calls">Remember this<small>Save a preference</small></button>`;
+const EMPTY_SPECS = {
+  chat: { title: 'Ask AI', sub: 'Search, remember, forecast, or just talk.', chips: ASK_EMPTY_CHIPS },
+  ocr: { title: 'OCR', sub: 'Add a file or blob path, then send.', chips: '' },
+  summary: { title: 'Summary', sub: 'Add a file, JSON, or pasted text.', chips: '' },
+  insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
+  ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
+  prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
+};
+
+function emptyStateHtml(mode) {
+  const spec = EMPTY_SPECS[mode] || EMPTY_SPECS.chat;
+  const icon = ICONS[mode] || ICONS.chat;
+  return `
+    <div class="empty-icon">${icon}</div>
+    <div class="empty-title">${spec.title}</div>
+    <div class="empty-sub">${spec.sub}</div>
+    ${spec.chips ? `<div class="ask-chips">${spec.chips}</div>` : ''}`;
+}
+
+function autosizeComposer() {
+  if (!messageInput) return;
+  messageInput.style.height = 'auto';
+  messageInput.style.height = Math.min(Math.max(messageInput.scrollHeight, 48), 160) + 'px';
+}
+
+function renderChatReply(text) {
+  return escapeHtml(String(text || ''))
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function syncSendBtn() {
+  if (sendBtn.disabled) return;
+  sendBtn.classList.add('btn-primary', 'btn-send');
+  sendBtn.innerHTML = SEND_ICON;
+  sendBtn.setAttribute('aria-label', composerMode === 'chat' ? 'Ask' : 'Send');
+}
 
 function syncMainControls() {
   const mc = document.getElementById('mainControls');
@@ -1611,13 +1875,14 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt')) {
     mode = 'chat';
   }
   composerMode = mode;
   const panel = document.getElementById('docPanel');
   const banner = document.getElementById('docBanner');
   const composerWrap = document.getElementById('composerWrap');
+  const modeLabel = document.getElementById('composerModeLabel');
   const showDoc = mode === 'summary' || mode === 'ocr' || mode === 'insight';
   panel.classList.toggle('visible', showDoc);
   panel.open = showDoc;
@@ -1628,7 +1893,14 @@ function setComposerMode(mode) {
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
   const promptFields = document.getElementById('promptFields');
   if (promptFields) promptFields.hidden = mode !== 'prompt';
-  if (composerWrap) composerWrap.classList.toggle('prompt-mode', mode === 'prompt');
+  if (composerWrap) {
+    composerWrap.classList.toggle('prompt-mode', mode === 'prompt');
+    composerWrap.classList.toggle('ask-mode', mode === 'chat');
+  }
+  if (modeLabel) {
+    modeLabel.textContent = MODE_LABELS[mode] || 'Ask AI';
+    modeLabel.hidden = mode === 'chat';
+  }
   const layout = document.querySelector('.layout');
   const packInspector = document.getElementById('summaryPackInspector');
   if (layout) layout.classList.toggle('pack-inspector-open', mode === 'summary');
@@ -1636,27 +1908,27 @@ function setComposerMode(mode) {
   document.querySelectorAll('#capActions .cap-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
-  sendBtn.textContent = 'Send';
+  syncSendBtn();
   if (mode === 'summary') {
-    banner.textContent = 'Summarize document — JSON, OCR text, upload file, or blob path';
-    messageInput.placeholder = 'Optional — JSON / file / blob / OCR text is enough';
+    banner.textContent = 'Summary';
+    messageInput.placeholder = 'Optional note';
     loadSummarySkillsPack();
   } else if (mode === 'insight') {
-    banner.textContent = 'Insight — paste JSON, OCR text, upload file, or blob path';
-    messageInput.placeholder = 'Optional — JSON / file / blob / OCR text is enough';
-    document.getElementById('insightJson').focus();
+    banner.textContent = 'Insights';
+    messageInput.placeholder = 'Optional note';
   } else if (mode === 'ocr') {
-    banner.textContent = 'OCR document — upload file or blob path';
-    messageInput.placeholder = 'Optional — file or blob path is enough';
-    document.getElementById('ocrFilepath').focus();
+    banner.textContent = 'OCR';
+    messageInput.placeholder = 'Optional note';
   } else if (mode === 'ap') {
-    messageInput.placeholder = 'Optional — use Run AP in the panel';
+    messageInput.placeholder = 'Optional note';
   } else if (mode === 'prompt') {
-    messageInput.placeholder = 'Paste the full prompt — raw model output comes back as-is';
-    messageInput.focus();
+    messageInput.placeholder = 'Paste the prompt';
   } else {
-    messageInput.placeholder = 'Type a message… (e.g. "search for the PTO policy")';
+    messageInput.placeholder = 'Ask AI anything…';
   }
+  restoreEmptyState();
+  messageInput.focus();
+  autosizeComposer();
 }
 
 
@@ -1664,34 +1936,19 @@ CAP_ACTIONS.forEach(p => {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'cap-btn';
-  btn.innerHTML = '<span class="dot"></span><span>' + p.label + '</span>';
-  if (p.ocr) btn.dataset.mode = 'ocr';
-  if (p.summary) btn.dataset.mode = 'summary';
-  if (p.insight) btn.dataset.mode = 'insight';
-  if (p.ap) btn.dataset.mode = 'ap';
-  if (p.prompt) btn.dataset.mode = 'prompt';
-  btn.addEventListener('click', () => {
-    if (p.ocr) { setComposerMode('ocr'); return; }
-    if (p.summary) { setComposerMode('summary'); return; }
-    if (p.insight) { setComposerMode('insight'); return; }
-    if (p.ap) { setComposerMode('ap'); return; }
-    if (p.prompt) { setComposerMode('prompt'); return; }
-  });
+  btn.dataset.mode = p.mode;
+  btn.innerHTML = '<span class="cap-ico">' + (ICONS[p.mode] || '') + '</span><span>' + p.label + '</span>';
+  btn.addEventListener('click', () => setComposerMode(p.mode));
   capActionsEl.appendChild(btn);
 });
+setComposerMode('chat');
 
-QUICK_PROMPTS.forEach(p => {
-  const chip = document.createElement('button');
-  chip.type = 'button';
-  chip.className = 'prompt-chip';
-  chip.textContent = p.label;
-  chip.title = p.message || p.label;
-  chip.addEventListener('click', () => {
-    setComposerMode('chat');
-    messageInput.value = p.message;
-    sendMessage();
-  });
-  chipsEl.appendChild(chip);
+transcript.addEventListener('click', (e) => {
+  const chip = e.target.closest('.ask-chip');
+  if (!chip || !chip.dataset.ask) return;
+  setComposerMode('chat');
+  messageInput.value = chip.dataset.ask;
+  sendMessage();
 });
 
 async function checkHealth() {
@@ -1718,6 +1975,17 @@ function clearEmptyState() {
   if (empty) empty.remove();
 }
 
+function restoreEmptyState() {
+  if (transcript.querySelector('.msg')) return;
+  const existing = transcript.querySelector('.empty-state');
+  if (existing) existing.remove();
+  const wrap = document.createElement('div');
+  wrap.className = 'empty-state';
+  wrap.id = 'emptyState';
+  wrap.innerHTML = emptyStateHtml(composerMode);
+  transcript.appendChild(wrap);
+}
+
 function addUserMessage(text) {
   clearEmptyState();
   const div = document.createElement('div');
@@ -1742,7 +2010,7 @@ function addProcessingMessage(text) {
   clearEmptyState();
   const div = document.createElement('div');
   div.className = 'msg assistant processing';
-  div.innerHTML = `<div class="bubble"><span class="spinner dark"></span> <span class="processing-text"></span></div>`;
+  div.innerHTML = `<div class="bubble"><span class="typing" aria-hidden="true"><span></span><span></span><span></span></span> <span class="processing-text"></span></div>`;
   div.querySelector('.processing-text').textContent = text;
   transcript.appendChild(div);
   transcript.scrollTop = transcript.scrollHeight;
@@ -2613,9 +2881,15 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-/** Escape HTML, then allow only <mark>...</mark> highlight tags from the summary model. */
+/** Escape HTML, then allow summary emphasis tags: <b><u>, <mark>, <strong>. */
 function renderHighlightedText(s) {
   return escapeHtml(String(s || ''))
+    .replace(/&lt;b&gt;/gi, '<b>')
+    .replace(/&lt;\/b&gt;/gi, '</b>')
+    .replace(/&lt;u&gt;/gi, '<u>')
+    .replace(/&lt;\/u&gt;/gi, '</u>')
+    .replace(/&lt;strong&gt;/gi, '<strong>')
+    .replace(/&lt;\/strong&gt;/gi, '</strong>')
     .replace(/&lt;mark&gt;/gi, '<mark>')
     .replace(/&lt;\/mark&gt;/gi, '</mark>');
 }
@@ -2623,7 +2897,9 @@ function renderHighlightedText(s) {
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result) ? 'msg assistant has-summary' : 'msg assistant';
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result)
+    ? 'msg assistant has-summary'
+    : 'msg assistant';
 
   const badges = [];
   if (body.latency_ms != null) badges.push(`<span class="badge info">${body.latency_ms} ms</span>`);
@@ -2631,13 +2907,13 @@ function renderAssistantMessage(body, sessionId, request) {
 
   let details = '';
   if (body.chunk_ids && body.chunk_ids.length) {
-    details += `<div class="detail-block"><div class="dt-title">Search citations</div>chunk_ids: ${body.chunk_ids.join(', ')}</div>`;
+    details += `<div class="detail-block"><div class="dt-title">Sources</div>${body.chunk_ids.map(id => escapeHtml(String(id))).join(', ')}</div>`;
   }
   if (body.document_id && !body.summary_result) {
-    details += `<div class="detail-block"><div class="dt-title">Source document</div>document_id: ${escapeHtml(body.document_id)}</div>`;
+    details += `<div class="detail-block"><div class="dt-title">Document</div>${escapeHtml(body.document_id)}</div>`;
   }
   if (body.cited_data_points && body.cited_data_points.length) {
-    details += `<div class="detail-block"><div class="dt-title">Cited data points</div>${body.cited_data_points.join(', ')}</div>`;
+    details += `<div class="detail-block"><div class="dt-title">Cited</div>${body.cited_data_points.map(p => escapeHtml(String(p))).join(', ')}</div>`;
   }
   const codeBlocks = [];
   if (body.ocr_result) {
@@ -2665,6 +2941,8 @@ function renderAssistantMessage(body, sessionId, request) {
     details += promptCode.html;
     codeBlocks.push(promptCode);
   }
+  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
+    && !body.insight_result && !body.prompt_result && !body.forecast_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -2705,17 +2983,22 @@ function renderAssistantMessage(body, sessionId, request) {
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
   div.innerHTML = `
     <div class="bubble"></div>
-    <div class="badges">${badges.join('')}</div>
+    <div class="badges msg-meta quiet">${badges.join('')}</div>
     ${details}
-    <span class="raw-toggle" data-target="${rawId}">view raw JSON</span>
-    <pre class="raw-json" id="${rawId}" style="display:none"></pre>
+    ${isChatOnly ? '' : `<span class="raw-toggle" data-target="${rawId}">view raw JSON</span>
+    <pre class="raw-json" id="${rawId}" style="display:none"></pre>`}
   `;
-  div.querySelector('.bubble').textContent = bubbleText;
-  div.querySelector(`#${rawId}`).textContent = JSON.stringify(body, null, 2);
-  div.querySelector('.raw-toggle').addEventListener('click', (e) => {
-    const pre = document.getElementById(e.target.dataset.target);
-    pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
-  });
+  const bubble = div.querySelector('.bubble');
+  if (isChatOnly) bubble.innerHTML = renderChatReply(bubbleText);
+  else bubble.textContent = bubbleText;
+  const rawEl = div.querySelector(`#${rawId}`);
+  if (rawEl) {
+    rawEl.textContent = JSON.stringify(body, null, 2);
+    div.querySelector('.raw-toggle').addEventListener('click', (e) => {
+      const pre = document.getElementById(e.target.dataset.target);
+      pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
+    });
+  }
   div.querySelectorAll('.summary-code').forEach((panel, i) => {
     const block = codeBlocks[i];
     if (block) bindCodePanel(panel, block.resultJson, block.curlText);
@@ -2814,7 +3097,7 @@ async function sendOcrJob() {
     addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
   } finally {
     sendBtn.disabled = false;
-    sendBtn.textContent = 'Send';
+    syncSendBtn();
   }
 }
 
@@ -2954,7 +3237,7 @@ async function sendSummaryJob() {
     addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
   } finally {
     sendBtn.disabled = false;
-    sendBtn.textContent = 'Send';
+    syncSendBtn();
   }
 }
 
@@ -3100,7 +3383,7 @@ async function sendInsightJob() {
     addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
   } finally {
     sendBtn.disabled = false;
-    sendBtn.textContent = 'Send';
+    syncSendBtn();
   }
 }
 
@@ -3325,7 +3608,7 @@ async function sendPromptJob() {
     addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
   } finally {
     sendBtn.disabled = false;
-    sendBtn.textContent = 'Send';
+    syncSendBtn();
   }
 }
 
@@ -3337,7 +3620,7 @@ async function sendMessage() {
   if (composerMode === 'prompt') return sendPromptJob();
   const message = messageInput.value.trim();
   if (!message) {
-    addSystemMessage('Type a message, or click OCR agent / Summary agent / Insight agent / AP agent / Prompt agent on the left.');
+    addSystemMessage('Type a question, or pick a suggestion above.');
     return;
   }
   const sessionId = sessionIdInput.value.trim() || newSessionId();
@@ -3345,20 +3628,23 @@ async function sendMessage() {
 
   addUserMessage(message);
   messageInput.value = '';
-  const processing = addProcessingMessage('Working…');
+  autosizeComposer();
+  const processing = addProcessingMessage('Thinking…');
   sendBtn.disabled = true;
-  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+  sendBtn.innerHTML = '<span class="spinner"></span>';
 
   try {
+    const body = { session_id: sessionId, message };
+    const request = { intent: 'chat', kind: 'json', session_id: sessionId, body };
     const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, message }),
+      body: JSON.stringify(body),
     });
     const data = await readResponseJson(res);
     removeProcessingMessage(processing);
     if (res.ok) {
-      renderAssistantMessage(data, sessionId);
+      renderAssistantMessage(data, sessionId, request);
     } else {
       addSystemMessage(`${res.status}: ${data.detail || 'request failed'}`);
     }
@@ -3367,14 +3653,16 @@ async function sendMessage() {
     addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
   } finally {
     sendBtn.disabled = false;
-    sendBtn.textContent = 'Send';
+    syncSendBtn();
   }
 }
 
 composerForm.addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });
+messageInput.addEventListener('input', autosizeComposer);
 messageInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
+autosizeComposer();
 </script>
 </body>
 </html>

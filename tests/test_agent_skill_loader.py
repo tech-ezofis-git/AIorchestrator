@@ -37,6 +37,7 @@ def test_load_summary_skill_includes_rules_in_system_prompt():
     assert "document summarization" in prompt or "summarize" in prompt
     assert "key_facts_extracted" in prompt
     assert "<mark>" in prompt
+    assert "<b><u>" in prompt
     assert "label: value" in prompt or "label:value" in prompt.replace(" ", "")
     assert len(skill.rules) >= 3
 

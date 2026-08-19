@@ -329,8 +329,8 @@ The agent then **locks** the object and injects:
 | `document_type` | string | Short label from the text: Invoice, Insurance Policy, Letter, … |
 | `document_title` | string | Short title supported by the text |
 | `document_language` | string | Language of the OCR text (English, Arabic, …) |
-| `document_summary` | string | Plain prose with optional `<mark>` around key names/IDs/dates/amounts; high-level type/parties/purpose |
-| `key_facts_extracted` | string[] | Type-specific facts as **plain sentences** (not `Label: value`); may use `<mark>`; must not duplicate the summary |
+| `document_summary` | string | Plain prose with optional `<b><u>…</u></b>` around key names/IDs/dates/amounts; high-level type/parties/purpose |
+| `key_facts_extracted` | string[] | Type-specific facts as **plain sentences** (not `Label: value`); may use `<b><u>`; must not duplicate the summary |
 | `ocr_text` | string | Paddle extract **or** caller `ocr_text` — **never** the model’s copy |
 | `source_reference` | string | filepath, filename, or `"ocr_text"` |
 
@@ -338,7 +338,7 @@ Removed (do not emit): `compliance_and_risk_assessment`, `ai_recommendations`, `
 
 JSON **keys never change** by document type. Only the **values** change.
 
-`document_summary` and `key_facts_extracted` include `<mark>...</mark>` around important names, IDs, dates, and amounts so UIs can highlight them. The model is asked to emit these tags; the orchestrator also **injects them server-side** when the model omits them (using OCR label values plus amount/ID/date patterns). No other HTML/markdown tags are used.
+`document_summary` and `key_facts_extracted` wrap important names, IDs, dates, and amounts in `<b><u>...</u></b>` so UIs can show them as **bold and underlined**. The model is asked to emit these tags (or `<mark>`, which the orchestrator rewrites to the same pair). The orchestrator also **injects them server-side** when the model omits them (using OCR label values plus amount/ID/date patterns). No other HTML/markdown tags are used.
 
 Qwen sometimes wraps the object as a string inside `document_summary` and/or drops a final `}`. The agent unwraps that and brace-closes truncated JSON before locking.
 
@@ -390,11 +390,11 @@ The model **infers type from the text first** (invoice, insurance policy/claim/c
   "document_type": "Invoice",
   "document_title": "Internet Service Invoice",
   "document_language": "English",
-  "document_summary": "This is an invoice from <mark>Niss Internet Services</mark> to <mark>EZOFIS</mark> for internet charges.",
+  "document_summary": "This is an invoice from <b><u>Niss Internet Services</u></b> to <b><u>EZOFIS</u></b> for internet charges.",
   "key_facts_extracted": [
-    "The invoice number is <mark>INV/26-27/002140</mark>.",
-    "The invoice date is <mark>2026-04-01</mark>.",
-    "The total amount due is <mark>1770.00</mark>."
+    "The invoice number is <b><u>INV/26-27/002140</u></b>.",
+    "The invoice date is <b><u>2026-04-01</u></b>.",
+    "The total amount due is <b><u>1770.00</u></b>."
   ]
 }
 ```
@@ -406,10 +406,10 @@ The model **infers type from the text first** (invoice, insurance policy/claim/c
   "document_type": "Insurance Policy",
   "document_title": "Motor Insurance Policy",
   "document_language": "English",
-  "document_summary": "This is a motor insurance policy issued by <mark>ABC General Insurance</mark> covering the insured vehicle.",
+  "document_summary": "This is a motor insurance policy issued by <b><u>ABC General Insurance</u></b> covering the insured vehicle.",
   "key_facts_extracted": [
-    "The policy number is <mark>POL-77821</mark>.",
-    "Coverage includes <mark>own damage and third party</mark>.",
+    "The policy number is <b><u>POL-77821</u></b>.",
+    "Coverage includes <b><u>own damage and third party</u></b>.",
     "The premium amount is stated on the schedule."
   ]
 }

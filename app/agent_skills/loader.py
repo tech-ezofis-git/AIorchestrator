@@ -1,7 +1,7 @@
 """Load replaceable SKILL.md + rules/*.mdc packs for Summary / OCR / Insight / Prompt.
 
 Agent orchestration stays in Python. These files supply LLM instructions only.
-Deterministic enforcement (JSON lock, <mark> injection, OCR parse) stays in code.
+Deterministic enforcement (JSON lock, highlight injection, OCR parse) stays in code.
 """
 from __future__ import annotations
 

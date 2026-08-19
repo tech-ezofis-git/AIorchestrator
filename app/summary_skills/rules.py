@@ -1,7 +1,7 @@
 """Summary rules: LLM instructions from SKILL.md/.mdc; enforcement in Python.
 
 Replaceable packs live under `skills/summary/` (or SUMMARY_SKILL_DIR /
-AGENT_SKILLS_ROOT). Deterministic <mark> injection stays here in code.
+AGENT_SKILLS_ROOT). Deterministic highlight injection stays here in code.
 """
 from __future__ import annotations
 
@@ -131,8 +131,19 @@ def build_user_prompt(
     )
 
 
-# --- Highlight enforcement (deterministic; model may omit <mark>) ---------
+# --- Highlight enforcement (deterministic; model may omit emphasis tags) --
+# Internal processing uses <mark>; apply_highlight_rules emits <b><u>…</u></b>.
 _MARK_SEGMENT_RE = re.compile(r"(<mark>.*?</mark>)", re.IGNORECASE | re.DOTALL)
+_MARK_INNER_RE = re.compile(r"<mark>(.*?)</mark>", re.IGNORECASE | re.DOTALL)
+_BOLD_UNDERLINE_RE = re.compile(
+    r"<b>\s*<u>(.*?)</u>\s*</b>", re.IGNORECASE | re.DOTALL
+)
+_UNDERLINE_BOLD_RE = re.compile(
+    r"<u>\s*<b>(.*?)</b>\s*</u>", re.IGNORECASE | re.DOTALL
+)
+_STRONG_RE = re.compile(r"<strong>(.*?)</strong>", re.IGNORECASE | re.DOTALL)
+_BOLD_RE = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
+_UNDERLINE_RE = re.compile(r"<u>(.*?)</u>", re.IGNORECASE | re.DOTALL)
 _OCR_LABEL_VALUE_RE = re.compile(
     r"(?im)^(?:\s*(?:insurer|insured|policyholder|issuer|vendor|seller|buyer|"
     r"customer|supplier|from|to|company|client|payee|payer)\s*[:\-]\s*)(.+)$"
@@ -155,6 +166,22 @@ _HIGHLIGHT_PATTERNS = (
     re.compile(r"\b\d+(?:\.\d+)?\s*%"),
     re.compile(r"\b\d+\s+hours?\b", re.IGNORECASE),
 )
+
+
+def _normalize_emphasis_to_marks(text: str) -> str:
+    """Treat model-emitted bold/underline/strong as already-highlighted spans."""
+    if not text:
+        return text
+    text = _BOLD_UNDERLINE_RE.sub(r"<mark>\1</mark>", text)
+    text = _UNDERLINE_BOLD_RE.sub(r"<mark>\1</mark>", text)
+    text = _STRONG_RE.sub(r"<mark>\1</mark>", text)
+    text = _BOLD_RE.sub(r"<mark>\1</mark>", text)
+    text = _UNDERLINE_RE.sub(r"<mark>\1</mark>", text)
+    return text
+
+
+def _marks_to_bold_underline(text: str) -> str:
+    return _MARK_INNER_RE.sub(r"<b><u>\1</u></b>", text or "")
 
 
 def _is_mark_segment(part: str) -> bool:
@@ -273,7 +300,7 @@ def highlight_summary_text(
     """Code rule: lightly wrap important spans in <mark>…</mark>."""
     if not REQUIRE_MARK_HIGHLIGHTS:
         return str(text or "")
-    raw = str(text or "")
+    raw = _normalize_emphasis_to_marks(str(text or ""))
     if not raw.strip() or raw.strip() == EMPTY_SUMMARY_TEXT:
         return raw
 
@@ -344,4 +371,4 @@ def apply_highlight_rules(
         for fact in (key_facts_extracted or [])
         if str(fact).strip()
     ]
-    return summary, facts
+    return _marks_to_bold_underline(summary), [_marks_to_bold_underline(f) for f in facts]
