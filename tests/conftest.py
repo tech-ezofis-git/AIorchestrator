@@ -47,9 +47,13 @@ def client(monkeypatch):
     # Use local mock OCR (no remote extract_text) unless a test overrides.
     monkeypatch.setenv("OCR_EXTRACT_URL", "")
     monkeypatch.delenv("AZURE_STORAGE_CONNECTION_STRING", raising=False)
+    monkeypatch.delenv("CATALOG_DATABASE_URL", raising=False)
     from app.config import get_settings
 
     get_settings.cache_clear()
+    from app.llm.model_presets import set_runtime_presets
+
+    set_runtime_presets(None)
 
     fake_db_pool = FakeDBPool()
 
@@ -63,3 +67,4 @@ def client(monkeypatch):
         yield test_client
 
     get_settings.cache_clear()
+    set_runtime_presets(None)
