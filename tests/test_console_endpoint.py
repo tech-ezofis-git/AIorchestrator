@@ -59,6 +59,8 @@ def test_console_serves_html(client):
     assert "Available models" in response.text
     assert "/console/catalog/agents" in response.text
     assert "/console/catalog/tenants" in response.text
+    assert "overflow-y: auto" in response.text
+    assert 'class="catalog-shell"' in response.text
 
 
 def test_console_static_logo_is_served(client):

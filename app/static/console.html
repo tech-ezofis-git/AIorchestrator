@@ -72,7 +72,10 @@
   body {
     margin: 0;
     color: var(--ink);
-    min-height: 100vh;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     background:
       radial-gradient(1200px 700px at 8% -10%, rgba(34, 211, 238, 0.18), transparent 55%),
       radial-gradient(900px 600px at 92% 0%, rgba(168, 85, 247, 0.2), transparent 50%),
@@ -104,7 +107,7 @@
     animation: auroraDrift 26s ease-in-out infinite alternate-reverse;
   }
   .grain {
-    position: fixed; inset: 0; pointer-events: none; z-index: 2; opacity: .045;
+    position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .045;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     mix-blend-mode: overlay;
   }
@@ -112,7 +115,7 @@
     from { transform: translate3d(0, 0, 0) scale(1); }
     to { transform: translate3d(6%, 8%, 0) scale(1.12); }
   }
-  header, .layout { position: relative; z-index: 1; }
+  header, .layout, .catalog-shell { position: relative; z-index: 1; }
   code { font-family: var(--mono); font-size: 0.88em; background: var(--brand-soft); padding: 0.12em 0.4em; border-radius: 6px; }
 
   /* —— Header —— */
@@ -129,8 +132,8 @@
     border: 1px solid var(--glass-border);
     border-radius: 18px;
     box-shadow: var(--shadow);
-    position: sticky;
-    top: 8px;
+    position: relative;
+    flex: 0 0 auto;
     z-index: 20;
     animation: fadeDown .5s ease both;
   }
@@ -188,7 +191,8 @@
     width: auto;
     margin: 10px;
     padding: 0;
-    height: calc(100vh - 76px);
+    flex: 1 1 auto;
+    height: auto;
     min-height: 0;
     animation: fadeUp .55s ease both;
     align-items: stretch;
@@ -205,9 +209,10 @@
     .pack-inspector.visible { grid-column: 1 / -1; }
   }
   @media (max-width: 920px) {
-    .layout, .layout.pack-inspector-open { grid-template-columns: 1fr; height: calc(100vh - 72px); min-height: 0; }
+    .layout, .layout.pack-inspector-open { grid-template-columns: 1fr; height: auto; min-height: 0; }
     header { margin: 6px 8px 0; }
     .layout { margin: 8px; }
+    .catalog-shell { margin: 8px; }
     .transcript { min-height: 160px; }
     .main-controls { max-height: min(42vh, 280px); }
     .pack-inspector.visible { grid-column: 1; max-height: 360px; }
@@ -1296,11 +1301,27 @@
     color: var(--ink-2); border: 1px solid var(--line);
   }
   .view-btn.active { background: var(--accent-primary); color: white; border-color: var(--accent-primary); }
-  .catalog-page {
-    display: none; max-width: 1200px; margin: 24px auto; padding: 0 20px 40px;
-    flex-direction: column; gap: 20px;
+  .catalog-shell {
+    display: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 10px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
-  .catalog-page.visible { display: flex; }
+  .catalog-shell.visible { display: block; }
+  .catalog-shell::-webkit-scrollbar { width: 8px; }
+  .catalog-shell::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.35); border-radius: 99px; }
+  .catalog-page {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 4px 20px 40px;
+  }
   .catalog-card { padding: 18px 20px; }
   .catalog-card h2 { font-size: 14px; margin: 0 0 6px; }
   .catalog-card .lede { font-size: 12px; color: var(--ink-3); margin: 0 0 14px; line-height: 1.5; }
@@ -1674,7 +1695,8 @@ Due Date,DATE</textarea>
   </aside>
 </div>
 
-<div class="catalog-page" id="catalogView">
+<div class="catalog-shell" id="catalogView">
+  <div class="catalog-page">
   <section class="card catalog-card">
     <h2>Tenant</h2>
     <p class="lede">Choose a tenant to view its agents grid and set default / fallback models. Available models can be added or removed below at any time.</p>
@@ -1807,6 +1829,7 @@ Due Date,DATE</textarea>
     </form>
     <div class="catalog-status" id="catalogModelStatus"></div>
   </section>
+  </div>
 </div>
 
 <script>
@@ -3857,11 +3880,15 @@ const viewCatalogBtn = document.getElementById('viewCatalogBtn');
 
 function setView(name) {
   const catalog = name === 'catalog';
+  document.body.classList.toggle('catalog-open', catalog);
   if (chatView) chatView.style.display = catalog ? 'none' : '';
   if (catalogView) catalogView.classList.toggle('visible', catalog);
   viewChatBtn.classList.toggle('active', !catalog);
   viewCatalogBtn.classList.toggle('active', catalog);
-  if (catalog) loadCatalog();
+  if (catalog) {
+    catalogView.scrollTop = 0;
+    loadCatalog();
+  }
 }
 viewChatBtn.addEventListener('click', () => setView('chat'));
 viewCatalogBtn.addEventListener('click', () => setView('catalog'));
