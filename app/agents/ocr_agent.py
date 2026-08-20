@@ -151,7 +151,9 @@ class OcrAgent:
         restore_preset = (
             self._runtime_models.default_preset_id if self._runtime_models else None
         )
-        tenant_fallback = await self._apply_tenant_models(job.get("tenant_id"))
+        tenant_fallback = job.get("catalog_fallback_preset")
+        if not tenant_fallback:
+            tenant_fallback = await self._apply_tenant_models(job.get("tenant_id"))
 
         try:
             try:
@@ -211,7 +213,7 @@ class OcrAgent:
         if not tenant_id or self._catalog is None or self._llm is None:
             return None
         try:
-            mapping = await self._catalog.get_tenant_models(tenant_id)
+            mapping = await self._catalog.resolve_tenant_agent_llm_slugs(tenant_id, "ocr")
         except Exception:
             logger.warning("ocr_tenant_models_lookup_failed")
             return None

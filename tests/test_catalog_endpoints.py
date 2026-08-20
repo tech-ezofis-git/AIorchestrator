@@ -138,28 +138,22 @@ def test_duplicate_model_slug_conflict(client):
     assert response.status_code == 409
 
 
-def test_tenant_model_upsert_is_admin_only_not_used_by_chat(client, monkeypatch):
+def test_tenant_model_upsert_applied_on_chat_with_tenant_id(client, monkeypatch):
     models = client.get("/console/catalog/models").json()["models"]
     default_id = models[0]["id"]
     fallback_id = models[1]["id"]
+    tenant_id = "2e3b7b37-38a3-4f94-878e-a006dad93230"
 
     saved = client.put(
         "/console/catalog/tenant-models",
         json={
-            "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+            "tenant_id": tenant_id,
             "default_model_id": default_id,
             "fallback_model_id": fallback_id,
         },
     )
     assert saved.status_code == 200
-    assert saved.json()["tenant_id"] == "2e3b7b37-38a3-4f94-878e-a006dad93230"
-    assert saved.json()["default_model_id"] == default_id
 
-    listed = client.get("/console/catalog/tenant-models")
-    assert listed.status_code == 200
-    assert listed.json()["tenant_models"][0]["default_slug"] == models[0]["slug"]
-
-    # Chat with a tenant_id still uses the process-global adapter (admin mapping only).
     captured = []
 
     async def fake_chat_completion(self, messages):
@@ -173,12 +167,72 @@ def test_tenant_model_upsert_is_admin_only_not_used_by_chat(client, monkeypatch)
         json={
             "session_id": "s-tenant-models",
             "message": "hello",
-            "payload": {"tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230"},
+            "payload": {"tenant_id": tenant_id},
         },
     )
     assert chat.status_code == 200
-    # Global console default is still ezofis-gpu-box — tenant mapping is storage only.
-    assert captured == ["ezofis-gpu-box"]
+    assert captured == [models[0]["slug"]]
+
+
+def test_tenant_agent_model_overrides_tenant_default(client, monkeypatch):
+    models = client.get("/console/catalog/models").json()["models"]
+    tenant_id = "tenant-agent-model-test"
+    tenant_default = models[0]["id"]
+    chat_model = models[1]["id"]
+
+    client.put(
+        "/console/catalog/tenant-models",
+        json={"tenant_id": tenant_id, "default_model_id": tenant_default},
+    )
+    saved = client.put(
+        "/console/catalog/tenant-agent-models",
+        json={"tenant_id": tenant_id, "agent_slug": "chat", "model_id": chat_model},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["mapping"]["model_id"] == chat_model
+
+    listed = client.get(f"/console/catalog/tenant-agent-models/{tenant_id}")
+    assert listed.status_code == 200
+    assert len(listed.json()["mappings"]) == 1
+
+    captured = []
+
+    async def fake_chat_completion(self, messages):
+        captured.append(getattr(self, "_preset_id", None))
+        return {"content": "ok", "usage": None}
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_chat_completion)
+
+    chat = client.post(
+        "/chat",
+        json={
+            "session_id": "s-agent-model",
+            "message": "hello",
+            "payload": {"tenant_id": tenant_id},
+        },
+    )
+    assert chat.status_code == 200
+    assert captured == [models[1]["slug"]]
+
+
+def test_disabled_builtin_agent_returns_403(client):
+    agents = client.get("/console/catalog/agents").json()["agents"]
+    summary = next(row for row in agents if row["slug"] == "summary")
+
+    disabled = client.patch(
+        f"/console/catalog/agents/{summary['id']}",
+        json={"enabled": False},
+    )
+    assert disabled.status_code == 200
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s-disabled-summary", "message": "summarize this doc", "intent": "summary"},
+    )
+    assert response.status_code == 403
+    assert "disabled" in response.json()["detail"].lower()
+
+    client.patch(f"/console/catalog/agents/{summary['id']}", json={"enabled": True})
 
 
 def test_catalog_tenants_combo_merges_ezofis_and_saved(client, monkeypatch):

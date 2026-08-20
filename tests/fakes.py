@@ -54,6 +54,7 @@ class FakeDBPool:
         self.catalog_agents: dict[str, dict[str, Any]] = {}
         self.catalog_models: dict[str, dict[str, Any]] = {}
         self.catalog_tenant_models: dict[str, dict[str, Any]] = {}
+        self.catalog_tenant_agent_models: dict[str, dict[str, Any]] = {}
 
     def _catalog_agent_by_id(self, agent_id: Any) -> Optional[dict[str, Any]]:
         return self.catalog_agents.get(str(agent_id))
@@ -127,14 +128,13 @@ class FakeDBPool:
                 return None
             del self.catalog_agents[str(agent_id)]
             return {"id": agent_id}
-        if "FROM catalog_agents WHERE slug = $1 AND kind = 'custom'" in query:
+        if "FROM catalog_agents WHERE slug = $1 AND kind = 'custom' AND enabled = TRUE" in query:
             row = self._catalog_agent_by_slug(args[0])
             if row and row["kind"] == "custom" and row["enabled"]:
                 return row
             return None
         if "FROM catalog_agents WHERE slug = $1" in query:
-            row = self._catalog_agent_by_slug(args[0])
-            return {"id": row["id"]} if row else None
+            return self._catalog_agent_by_slug(args[0])
         if "FROM catalog_agents WHERE id = $1" in query:
             return self._catalog_agent_by_id(args[0])
         if "INSERT INTO catalog_models" in query and "RETURNING" in query:
@@ -224,7 +224,26 @@ class FakeDBPool:
                 if str(tenant["default_model_id"]) == model_id or str(tenant.get("fallback_model_id") or "") == model_id:
                     return {"tenant_id": tenant["tenant_id"]}
             return None
+        if "FROM catalog_tenant_agent_models t" in query and "agent_slug = $2" in query:
+            key = f"{args[0]}:{args[1]}"
+            row = self.catalog_tenant_agent_models.get(key)
+            return self._join_tenant_agent_row(row) if row else None
         raise AssertionError(f"FakeDBPool.fetchrow: unrecognized catalog query: {query!r}")
+
+    def _join_tenant_agent_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        model = self._catalog_model_by_id(row["model_id"]) if row.get("model_id") else None
+        fallback = self._catalog_model_by_id(row["fallback_model_id"]) if row.get("fallback_model_id") else None
+        return {
+            "tenant_id": row["tenant_id"],
+            "agent_slug": row["agent_slug"],
+            "model_id": row.get("model_id"),
+            "fallback_model_id": row.get("fallback_model_id"),
+            "updated_at": row.get("updated_at"),
+            "model_slug": model.get("slug") if model else None,
+            "model_label": model.get("label") if model else None,
+            "fallback_slug": fallback.get("slug") if fallback else None,
+            "fallback_label": fallback.get("label") if fallback else None,
+        }
 
     def _join_tenant_row(self, tenant: dict[str, Any]) -> dict[str, Any]:
         default = self._catalog_model_by_id(tenant["default_model_id"]) or {}
@@ -264,6 +283,12 @@ class FakeDBPool:
         if "FROM catalog_tenant_models t" in query:
             rows = [self._join_tenant_row(t) for t in self.catalog_tenant_models.values()]
             rows.sort(key=lambda r: r["tenant_id"])
+            return rows
+        if "FROM catalog_tenant_agent_models t" in query:
+            rows = [self._join_tenant_agent_row(row) for row in self.catalog_tenant_agent_models.values()]
+            if "WHERE t.tenant_id = $1" in query:
+                rows = [row for row in rows if row["tenant_id"] == args[0]]
+            rows.sort(key=lambda r: r["agent_slug"])
             return rows
         raise AssertionError(f"FakeDBPool.fetch: unrecognized catalog query: {query!r}")
 
@@ -338,10 +363,25 @@ class FakeDBPool:
                 "updated_at": self._now(),
             }
             return
+        if "INSERT INTO catalog_tenant_agent_models" in query:
+            tenant_id, agent_slug, model_id, fallback_model_id = args
+            key = f"{tenant_id}:{agent_slug}"
+            self.catalog_tenant_agent_models[key] = {
+                "tenant_id": tenant_id,
+                "agent_slug": agent_slug,
+                "model_id": model_id,
+                "fallback_model_id": fallback_model_id,
+                "updated_at": self._now(),
+            }
+            return
+        if "DELETE FROM catalog_tenant_agent_models" in query:
+            key = f"{args[0]}:{args[1]}"
+            self.catalog_tenant_agent_models.pop(key, None)
+            return
         raise AssertionError(f"FakeDBPool.execute: unrecognized catalog query: {query!r}")
 
     async def fetchrow(self, query: str, *args: Any):
-        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query:
+        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
             return self._handle_catalog_fetchrow(query, args)
         if "INSERT INTO documents" in query:
             source, title, metadata_json = args
@@ -395,7 +435,7 @@ class FakeDBPool:
         raise AssertionError(f"FakeDBPool.executemany: unrecognized query: {query!r}")
 
     async def fetch(self, query: str, *args: Any):
-        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query:
+        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
             return self._handle_catalog_fetch(query, args)
         if "embedding <=>" in query:
             query_embedding = _parse_vector_literal(args[0])
@@ -452,7 +492,7 @@ class FakeDBPool:
     async def execute(self, query: str, *args: Any):
         if query.strip().upper().startswith("CREATE "):
             return
-        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query:
+        if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
             return self._handle_catalog_execute(query, args)
         if "INSERT INTO memories" in query:
             user_id, fact = args
