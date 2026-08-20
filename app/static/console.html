@@ -1318,6 +1318,17 @@
   }
   .catalog-form textarea { min-height: 72px; resize: vertical; }
   .catalog-form .span-2 { grid-column: 1 / -1; }
+  .catalog-tenant-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .catalog-tenant-row > div { flex: 1; min-width: 220px; }
+  .catalog-tenant-row label { font-size: 12px; color: var(--ink-2); display: block; margin-bottom: 4px; }
+  .catalog-tenant-row select, .catalog-tenant-row input {
+    width: 100%; padding: 8px 10px; font-size: 13px; font-family: inherit;
+    border: 1px solid var(--line); border-radius: var(--radius-sm);
+    color: var(--ink); background: var(--surface-3);
+  }
+  .catalog-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 12px 0 8px; flex-wrap: wrap; }
+  .catalog-actions { white-space: nowrap; }
+  .catalog-table input[type="checkbox"] { width: auto; accent-color: var(--accent-primary); }
   .catalog-status { font-size: 12px; margin-top: 10px; min-height: 1.2em; color: var(--ink-2); }
   .catalog-status.ok { color: var(--success-main); }
   .catalog-status.fail { color: var(--error-main); }
@@ -1665,15 +1676,55 @@ Due Date,DATE</textarea>
 
 <div class="catalog-page" id="catalogView">
   <section class="card catalog-card">
+    <h2>Tenant</h2>
+    <p class="lede">Choose a tenant to view its agents grid and set default / fallback models. Available models can be added or removed below at any time.</p>
+    <div class="catalog-tenant-row">
+      <div>
+        <label for="catTenantSelect">Tenant</label>
+        <select id="catTenantSelect">
+          <option value="">Select a tenant…</option>
+        </select>
+      </div>
+      <div>
+        <label for="catTenantCustom">Or paste tenant id</label>
+        <input type="text" id="catTenantCustom" placeholder="2e3b7b37-38a3-4f94-878e-a006dad93230" />
+      </div>
+      <div>
+        <button type="button" class="btn-ghost" id="catTenantUseBtn">Use tenant</button>
+      </div>
+    </div>
+    <div class="catalog-status" id="catalogTenantPickStatus"></div>
+  </section>
+
+  <section class="card catalog-card" id="catalogTenantWorkspace" hidden>
     <h2>Agents</h2>
-    <p class="lede">Built-in agents are registered in code. Custom agents run as LLM specialists (system prompt + keyword triggers) when you send <code>intent=&lt;slug&gt;</code> or a matching phrase.</p>
+    <p class="lede">Built-in agents are registered in code. Custom agents run as LLM specialists (system prompt + keyword triggers) when you send <code>intent=&lt;slug&gt;</code> or a matching phrase. Default and fallback below are stored for this tenant (admin mapping — live chat still uses the sidebar global models).</p>
+    <form class="catalog-form" id="catalogTenantForm" style="margin-top:0">
+      <div>
+        <label for="catTenantDefault">default model</label>
+        <select id="catTenantDefault" required></select>
+      </div>
+      <div>
+        <label for="catTenantFallback">fallback model</label>
+        <select id="catTenantFallback"></select>
+      </div>
+      <div class="span-2">
+        <button type="submit" class="btn-primary" id="catTenantSaveBtn">Save default / fallback</button>
+      </div>
+    </form>
+    <div class="catalog-status" id="catalogTenantStatus"></div>
+    <div class="catalog-toolbar">
+      <strong style="font-size:13px">Agent list</strong>
+      <button type="button" class="btn-primary" id="catAgentAddBtn">Add agent</button>
+    </div>
     <div style="overflow-x:auto">
       <table class="catalog-table" id="catalogAgentsTable">
         <thead><tr><th>Slug</th><th>Name</th><th>Kind</th><th>Enabled</th><th>Triggers</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
-    <form class="catalog-form" id="catalogAgentForm">
+    <form class="catalog-form" id="catalogAgentForm" hidden>
+      <input type="hidden" id="catAgentId" />
       <div>
         <label for="catAgentSlug">slug (intent)</label>
         <input type="text" id="catAgentSlug" required placeholder="hr-policy" />
@@ -1696,21 +1747,26 @@ Due Date,DATE</textarea>
       </div>
       <div class="span-2">
         <button type="submit" class="btn-primary" id="catAgentSaveBtn">Save custom agent</button>
+        <button type="button" class="btn-ghost" id="catAgentCancelBtn">Cancel</button>
       </div>
     </form>
     <div class="catalog-status" id="catalogAgentStatus"></div>
   </section>
 
   <section class="card catalog-card">
-    <h2>Models (URL + key)</h2>
-    <p class="lede">Add or edit LiteLLM model string, API base URL, and API key. Keys are stored in the catalog DB and never returned by GET (only <code>has_api_key</code>).</p>
+    <h2>Available models</h2>
+    <p class="lede">Add or remove models (LiteLLM string, API base URL, API key). Keys are stored in the catalog DB and never returned by GET (only <code>has_api_key</code>).</p>
+    <div class="catalog-toolbar">
+      <span></span>
+      <button type="button" class="btn-primary" id="catModelAddBtn">Add model</button>
+    </div>
     <div style="overflow-x:auto">
       <table class="catalog-table" id="catalogModelsTable">
         <thead><tr><th>Slug</th><th>Label</th><th>Model</th><th>URL</th><th>Key</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
-    <form class="catalog-form" id="catalogModelForm">
+    <form class="catalog-form" id="catalogModelForm" hidden>
       <input type="hidden" id="catModelId" />
       <div>
         <label for="catModelSlug">slug</label>
@@ -1746,39 +1802,10 @@ Due Date,DATE</textarea>
       </div>
       <div class="span-2">
         <button type="submit" class="btn-primary" id="catModelSaveBtn">Save model</button>
-        <button type="button" class="btn-ghost" id="catModelResetBtn">Clear form</button>
+        <button type="button" class="btn-ghost" id="catModelResetBtn">Cancel</button>
       </div>
     </form>
     <div class="catalog-status" id="catalogModelStatus"></div>
-  </section>
-
-  <section class="card catalog-card">
-    <h2>Tenant default / fallback models</h2>
-    <p class="lede">Stored per <code>tenant_id</code> in the catalog. This mapping is admin-only for now — live <code>/chat</code> still uses the sidebar global default/fallback.</p>
-    <div style="overflow-x:auto">
-      <table class="catalog-table" id="catalogTenantTable">
-        <thead><tr><th>tenant_id</th><th>Default</th><th>Fallback</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-    <form class="catalog-form" id="catalogTenantForm">
-      <div class="span-2">
-        <label for="catTenantId">tenant_id</label>
-        <input type="text" id="catTenantId" required placeholder="2e3b7b37-38a3-4f94-878e-a006dad93230" />
-      </div>
-      <div>
-        <label for="catTenantDefault">default model</label>
-        <select id="catTenantDefault" required></select>
-      </div>
-      <div>
-        <label for="catTenantFallback">fallback model</label>
-        <select id="catTenantFallback"></select>
-      </div>
-      <div class="span-2">
-        <button type="submit" class="btn-primary">Save tenant models</button>
-      </div>
-    </form>
-    <div class="catalog-status" id="catalogTenantStatus"></div>
   </section>
 </div>
 
@@ -3849,10 +3876,92 @@ function parsePhrases(raw) {
 }
 
 let catalogModelsCache = [];
+const CATALOG_TENANT_KEY = 'consoleCatalogTenantId';
+
+function selectedCatalogTenantId() {
+  return (document.getElementById('catTenantSelect').value || '').trim();
+}
+
+function setCatalogWorkspaceVisible(visible) {
+  const workspace = document.getElementById('catalogTenantWorkspace');
+  if (workspace) workspace.hidden = !visible;
+}
 
 async function loadCatalog() {
-  await Promise.all([loadCatalogAgents(), loadCatalogModels(), loadCatalogTenants()]);
+  await Promise.all([loadCatalogTenantOptions(), loadCatalogModels()]);
+  const tenantId = selectedCatalogTenantId();
+  setCatalogWorkspaceVisible(Boolean(tenantId));
+  if (tenantId) {
+    await Promise.all([loadCatalogAgents(), loadSelectedTenantModels()]);
+  }
 }
+
+function ensureTenantOption(tenantId, label) {
+  const select = document.getElementById('catTenantSelect');
+  if (!tenantId || [...select.options].some(opt => opt.value === tenantId)) return;
+  const opt = document.createElement('option');
+  opt.value = tenantId;
+  opt.textContent = label || tenantId;
+  select.appendChild(opt);
+}
+
+async function loadCatalogTenantOptions() {
+  const status = document.getElementById('catalogTenantPickStatus');
+  const select = document.getElementById('catTenantSelect');
+  const previous = selectedCatalogTenantId() || sessionStorage.getItem(CATALOG_TENANT_KEY) || '';
+  try {
+    const res = await fetch('/console/catalog/tenants');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'failed');
+    select.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Select a tenant…';
+    select.appendChild(placeholder);
+    (data.tenants || []).forEach(tenant => {
+      const opt = document.createElement('option');
+      opt.value = tenant.id;
+      opt.textContent = tenant.name && tenant.name !== tenant.id
+        ? (tenant.name + ' — ' + tenant.id.slice(0, 8))
+        : tenant.id;
+      select.appendChild(opt);
+    });
+    if (previous) {
+      ensureTenantOption(previous, previous);
+      select.value = previous;
+    }
+    catStatus(status, '', (data.tenants || []).length
+      ? ''
+      : 'No tenants from Ezofis login. Paste a tenant id and click Use tenant.');
+  } catch (e) {
+    catStatus(status, 'fail', e.message || 'Could not load tenants.');
+  }
+}
+
+function onCatalogTenantChange() {
+  const tenantId = selectedCatalogTenantId();
+  if (tenantId) sessionStorage.setItem(CATALOG_TENANT_KEY, tenantId);
+  else sessionStorage.removeItem(CATALOG_TENANT_KEY);
+  setCatalogWorkspaceVisible(Boolean(tenantId));
+  if (tenantId) {
+    loadCatalogAgents();
+    loadSelectedTenantModels();
+  }
+}
+
+document.getElementById('catTenantSelect').addEventListener('change', onCatalogTenantChange);
+document.getElementById('catTenantUseBtn').addEventListener('click', () => {
+  const raw = (document.getElementById('catTenantCustom').value || '').trim();
+  const status = document.getElementById('catalogTenantPickStatus');
+  if (!raw) {
+    catStatus(status, 'fail', 'Paste a tenant id first.');
+    return;
+  }
+  ensureTenantOption(raw, raw);
+  document.getElementById('catTenantSelect').value = raw;
+  catStatus(status, '', '');
+  onCatalogTenantChange();
+});
 
 async function loadCatalogAgents() {
   const status = document.getElementById('catalogAgentStatus');
@@ -3869,13 +3978,26 @@ async function loadCatalogAgents() {
         '<td><code>' + escapeHtml(agent.slug) + '</code></td>' +
         '<td>' + escapeHtml(agent.name) + '</td>' +
         '<td><span class="kind-pill">' + escapeHtml(agent.kind) + '</span></td>' +
-        '<td>' + (agent.enabled ? 'yes' : 'no') + '</td>' +
+        '<td></td>' +
         '<td>' + escapeHtml(triggers) + '</td>' +
-        '<td></td>';
+        '<td class="catalog-actions"></td>';
+      const enabledCell = tr.children[3];
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = Boolean(agent.enabled);
+      cb.title = 'Enabled';
+      cb.addEventListener('change', () => patchCatalogAgent(agent.id, { enabled: cb.checked }));
+      enabledCell.appendChild(cb);
       const cell = tr.lastElementChild;
       if (agent.kind === 'custom') {
+        const edit = document.createElement('button');
+        edit.className = 'btn-ghost';
+        edit.textContent = 'Edit';
+        edit.addEventListener('click', () => fillAgentForm(agent));
+        cell.appendChild(edit);
         const del = document.createElement('button');
         del.className = 'btn-danger';
+        del.style.marginLeft = '6px';
         del.textContent = 'Delete';
         del.addEventListener('click', () => deleteCatalogAgent(agent.id));
         cell.appendChild(del);
@@ -3888,6 +4010,39 @@ async function loadCatalogAgents() {
   }
 }
 
+function showAgentForm() {
+  document.getElementById('catalogAgentForm').hidden = false;
+}
+
+function resetAgentForm() {
+  const form = document.getElementById('catalogAgentForm');
+  form.reset();
+  document.getElementById('catAgentId').value = '';
+  document.getElementById('catAgentSlug').disabled = false;
+  document.getElementById('catAgentSaveBtn').textContent = 'Save custom agent';
+  form.hidden = true;
+}
+
+function fillAgentForm(agent) {
+  document.getElementById('catAgentId').value = agent.id;
+  document.getElementById('catAgentSlug').value = agent.slug;
+  document.getElementById('catAgentSlug').disabled = true;
+  document.getElementById('catAgentName').value = agent.name || '';
+  document.getElementById('catAgentDesc').value = agent.description || '';
+  document.getElementById('catAgentPrompt').value = agent.system_prompt || '';
+  document.getElementById('catAgentTriggers').value = (agent.trigger_phrases || []).join(', ');
+  document.getElementById('catAgentSaveBtn').textContent = 'Update agent';
+  showAgentForm();
+  document.getElementById('catalogAgentForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+document.getElementById('catAgentAddBtn').addEventListener('click', () => {
+  resetAgentForm();
+  document.getElementById('catalogAgentForm').hidden = false;
+  document.getElementById('catAgentSlug').focus();
+});
+document.getElementById('catAgentCancelBtn').addEventListener('click', resetAgentForm);
+
 async function deleteCatalogAgent(id) {
   const status = document.getElementById('catalogAgentStatus');
   const res = await fetch('/console/catalog/agents/' + id, { method: 'DELETE' });
@@ -3897,22 +4052,41 @@ async function deleteCatalogAgent(id) {
     return;
   }
   catStatus(status, 'ok', 'Deleted.');
+  resetAgentForm();
   loadCatalogAgents();
+}
+
+async function patchCatalogAgent(id, payload) {
+  const status = document.getElementById('catalogAgentStatus');
+  const res = await fetch('/console/catalog/agents/' + id, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await readResponseJson(res);
+  if (!res.ok) {
+    catStatus(status, 'fail', data.detail || 'Update failed');
+    loadCatalogAgents();
+    return;
+  }
+  catStatus(status, 'ok', 'Updated ' + (data.slug || 'agent') + '.');
 }
 
 document.getElementById('catalogAgentForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const status = document.getElementById('catalogAgentStatus');
+  const existingId = document.getElementById('catAgentId').value;
   const payload = {
-    slug: document.getElementById('catAgentSlug').value,
     name: document.getElementById('catAgentName').value,
     description: document.getElementById('catAgentDesc').value,
     system_prompt: document.getElementById('catAgentPrompt').value,
     trigger_phrases: parsePhrases(document.getElementById('catAgentTriggers').value),
     enabled: true,
   };
-  const res = await fetch('/console/catalog/agents', {
-    method: 'POST',
+  if (!existingId) payload.slug = document.getElementById('catAgentSlug').value;
+  const url = existingId ? ('/console/catalog/agents/' + existingId) : '/console/catalog/agents';
+  const res = await fetch(url, {
+    method: existingId ? 'PATCH' : 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
@@ -3922,7 +4096,7 @@ document.getElementById('catalogAgentForm').addEventListener('submit', async (e)
     return;
   }
   catStatus(status, 'ok', 'Saved ' + data.slug + '.');
-  e.target.reset();
+  resetAgentForm();
   loadCatalogAgents();
 });
 
@@ -3944,7 +4118,7 @@ async function loadCatalogModels() {
         '<td>' + escapeHtml(model.model) + '</td>' +
         '<td>' + escapeHtml(model.api_base || '') + '</td>' +
         '<td>' + escapeHtml(keyHint) + '</td>' +
-        '<td></td>';
+        '<td class="catalog-actions"></td>';
       const cell = tr.lastElementChild;
       const edit = document.createElement('button');
       edit.className = 'btn-ghost';
@@ -3967,6 +4141,10 @@ async function loadCatalogModels() {
   }
 }
 
+function showModelForm() {
+  document.getElementById('catalogModelForm').hidden = false;
+}
+
 function fillModelForm(model) {
   document.getElementById('catModelId').value = model.id;
   document.getElementById('catModelSlug').value = model.slug;
@@ -3979,6 +4157,7 @@ function fillModelForm(model) {
   document.getElementById('catModelVersionApi').value = model.api_version || '';
   document.getElementById('catModelVersion').value = model.model_version || '';
   document.getElementById('catModelSaveBtn').textContent = 'Update model';
+  showModelForm();
 }
 
 function resetModelForm() {
@@ -3986,11 +4165,18 @@ function resetModelForm() {
   document.getElementById('catModelId').value = '';
   document.getElementById('catModelSlug').disabled = false;
   document.getElementById('catModelSaveBtn').textContent = 'Save model';
+  document.getElementById('catalogModelForm').hidden = true;
 }
 document.getElementById('catModelResetBtn').addEventListener('click', resetModelForm);
+document.getElementById('catModelAddBtn').addEventListener('click', () => {
+  resetModelForm();
+  document.getElementById('catalogModelForm').hidden = false;
+  document.getElementById('catModelSlug').focus();
+});
 
 async function deleteCatalogModel(id) {
   const status = document.getElementById('catalogModelStatus');
+  if (!window.confirm('Remove this model from the catalog?')) return;
   const res = await fetch('/console/catalog/models/' + id, { method: 'DELETE' });
   const data = await readResponseJson(res);
   if (!res.ok) {
@@ -4036,29 +4222,30 @@ document.getElementById('catalogModelForm').addEventListener('submit', async (e)
 function fillTenantModelSelects() {
   const defSel = document.getElementById('catTenantDefault');
   const fbSel = document.getElementById('catTenantFallback');
+  if (!defSel || !fbSel) return;
   const currentDef = defSel.value;
   const currentFb = fbSel.value;
   fillPresetSelect(defSel, catalogModelsCache.map(m => ({ id: m.id, label: m.label, region: m.region })), currentDef);
   fillPresetSelect(fbSel, catalogModelsCache.map(m => ({ id: m.id, label: m.label, region: m.region })), currentFb, { includeNone: true });
 }
 
-async function loadCatalogTenants() {
+async function loadSelectedTenantModels() {
   const status = document.getElementById('catalogTenantStatus');
-  const tbody = document.querySelector('#catalogTenantTable tbody');
+  const tenantId = selectedCatalogTenantId();
+  if (!tenantId) return;
+  fillTenantModelSelects();
   try {
-    const res = await fetch('/console/catalog/tenant-models');
+    const res = await fetch('/console/catalog/tenant-models/' + encodeURIComponent(tenantId));
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'failed');
-    tbody.innerHTML = '';
-    (data.tenant_models || []).forEach(row => {
-      const tr = document.createElement('tr');
-      tr.innerHTML =
-        '<td><code>' + escapeHtml(row.tenant_id) + '</code></td>' +
-        '<td>' + escapeHtml(row.default_label || row.default_slug || '') + '</td>' +
-        '<td>' + escapeHtml(row.fallback_label || row.fallback_slug || '—') + '</td>';
-      tbody.appendChild(tr);
-    });
-    catStatus(status, '', '');
+    const row = data.tenant_model;
+    if (row) {
+      document.getElementById('catTenantDefault').value = row.default_model_id || '';
+      document.getElementById('catTenantFallback').value = row.fallback_model_id || '';
+      catStatus(status, '', 'Loaded default / fallback for this tenant.');
+    } else {
+      catStatus(status, '', 'No default / fallback saved yet for this tenant.');
+    }
   } catch (e) {
     catStatus(status, 'fail', e.message || 'Could not load tenant models.');
   }
@@ -4067,8 +4254,13 @@ async function loadCatalogTenants() {
 document.getElementById('catalogTenantForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const status = document.getElementById('catalogTenantStatus');
+  const tenantId = selectedCatalogTenantId();
+  if (!tenantId) {
+    catStatus(status, 'fail', 'Select a tenant first.');
+    return;
+  }
   const payload = {
-    tenant_id: document.getElementById('catTenantId').value,
+    tenant_id: tenantId,
     default_model_id: document.getElementById('catTenantDefault').value,
     fallback_model_id: document.getElementById('catTenantFallback').value || null,
   };
@@ -4082,9 +4274,9 @@ document.getElementById('catalogTenantForm').addEventListener('submit', async (e
     catStatus(status, 'fail', data.detail || 'Save failed');
     return;
   }
-  catStatus(status, 'ok', 'Saved models for tenant ' + data.tenant_id + '.');
-  loadCatalogTenants();
+  catStatus(status, 'ok', 'Saved default / fallback for this tenant.');
 });
+
 
 </script>
 </body>

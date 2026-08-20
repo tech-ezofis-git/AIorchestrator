@@ -486,6 +486,23 @@ class CatalogStore:
         )
         return [_public_tenant(row) for row in rows]
 
+    async def get_tenant_models(self, tenant_id: str) -> Optional[dict[str, Any]]:
+        tenant_id = (tenant_id or "").strip()
+        if not tenant_id:
+            return None
+        row = await self._run(
+            "fetchrow",
+            "SELECT t.tenant_id, t.default_model_id, t.fallback_model_id, t.updated_at, "
+            "d.slug AS default_slug, d.label AS default_label, "
+            "f.slug AS fallback_slug, f.label AS fallback_label "
+            "FROM catalog_tenant_models t "
+            "JOIN catalog_models d ON d.id = t.default_model_id "
+            "LEFT JOIN catalog_models f ON f.id = t.fallback_model_id "
+            "WHERE t.tenant_id = $1",
+            tenant_id,
+        )
+        return _public_tenant(row) if row else None
+
     async def upsert_tenant_models(
         self,
         *,

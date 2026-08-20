@@ -181,6 +181,76 @@ def test_tenant_model_upsert_is_admin_only_not_used_by_chat(client, monkeypatch)
     assert captured == ["ezofis-gpu-box"]
 
 
+def test_catalog_tenants_combo_merges_ezofis_and_saved(client, monkeypatch):
+    import app.main as main_module
+
+    async def fake_list_tenants():
+        return [{"id": "tid-live", "name": "Live Tenant"}]
+
+    monkeypatch.setattr(main_module.app.state.ezofis_client, "list_tenants", fake_list_tenants)
+
+    models = client.get("/console/catalog/models").json()["models"]
+    saved = client.put(
+        "/console/catalog/tenant-models",
+        json={"tenant_id": "tid-saved", "default_model_id": models[0]["id"]},
+    )
+    assert saved.status_code == 200
+
+    response = client.get("/console/catalog/tenants")
+    assert response.status_code == 200
+    by_id = {row["id"]: row for row in response.json()["tenants"]}
+    assert by_id["tid-live"]["name"] == "Live Tenant"
+    assert by_id["tid-live"]["source"] == "ezofis"
+    assert by_id["tid-saved"]["source"] == "catalog"
+
+
+def test_get_catalog_tenant_models_by_id(client):
+    models = client.get("/console/catalog/models").json()["models"]
+    tenant_id = "2e3b7b37-38a3-4f94-878e-a006dad93230"
+
+    empty = client.get(f"/console/catalog/tenant-models/{tenant_id}")
+    assert empty.status_code == 200
+    assert empty.json()["tenant_model"] is None
+
+    saved = client.put(
+        "/console/catalog/tenant-models",
+        json={
+            "tenant_id": tenant_id,
+            "default_model_id": models[0]["id"],
+            "fallback_model_id": models[1]["id"],
+        },
+    )
+    assert saved.status_code == 200
+
+    found = client.get(f"/console/catalog/tenant-models/{tenant_id}")
+    assert found.status_code == 200
+    row = found.json()["tenant_model"]
+    assert row["default_model_id"] == models[0]["id"]
+    assert row["fallback_model_id"] == models[1]["id"]
+
+
+def test_patch_custom_agent_name(client):
+    created = client.post(
+        "/console/catalog/agents",
+        json={
+            "slug": "hr-policy",
+            "name": "HR Policy",
+            "system_prompt": "You are the HR policy agent.",
+            "trigger_phrases": ["pto"],
+        },
+    )
+    assert created.status_code == 200
+    agent_id = created.json()["id"]
+
+    patched = client.patch(
+        f"/console/catalog/agents/{agent_id}",
+        json={"name": "HR Policy v2", "trigger_phrases": ["pto", "leave"]},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["name"] == "HR Policy v2"
+    assert patched.json()["trigger_phrases"] == ["pto", "leave"]
+
+
 def test_unknown_intent_still_400_when_not_a_catalog_agent(client):
     response = client.post(
         "/chat",
