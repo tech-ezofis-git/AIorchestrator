@@ -92,6 +92,56 @@ def test_explicit_ocr_document_job_locked_json_shape(client, monkeypatch):
     assert "model_used" not in reply
 
 
+def test_ocr_uses_tenant_catalog_default_model(client, monkeypatch):
+    models = client.get("/console/catalog/models").json()["models"]
+    nano = next(row for row in models if row["slug"] == "gpt-4.1-nano")
+    saved = client.put(
+        "/console/catalog/tenant-models",
+        json={
+            "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+            "default_model_id": nano["id"],
+        },
+    )
+    assert saved.status_code == 200
+
+    captured = []
+
+    async def fake_completion(self, messages):
+        captured.append(getattr(self, "_preset_id", None))
+        return {
+            "content": json.dumps(
+                {
+                    "ocrResult": [
+                        {"name": "Invoice No", "value": "INV/26-27/002140", "type": "SHORT_TEXT"},
+                    ],
+                    "tableResult": [],
+                }
+            ),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-tenant-ocr-model",
+            "intent": "ocr",
+            "instruction": "Region: India. Normalize DATE fields to YYYY-MM-DD.",
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "filepath": r"INV26-27002140.pdf",
+                "pageno": "1",
+                "parameters": ["Invoice No,SHORT_TEXT"],
+                "tableparameters": [],
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert captured == ["gpt-4.1-nano"]
+    assert client.get("/console/llm-config").json()["preset_id"] == "ezofis-gpu-box"
+
+
 def test_ocr_fail_returns_null_fields_no_hallucination(client, monkeypatch):
     async def broken_run_ocr(self, *args, **kwargs):
         from app.integrations.ocr_engine import OcrEngineError

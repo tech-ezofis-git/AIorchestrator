@@ -109,13 +109,17 @@ class LLMAdapter:
         if self._api_base and "/" not in model:
             model = f"openai/{model}"
 
-        kwargs = {"model": model, "messages": messages}
+        kwargs = {"model": model, "messages": messages, "drop_params": True}
         if self._api_base:
             kwargs["api_base"] = self._api_base
         if self._api_key:
             kwargs["api_key"] = self._api_key
         if self._api_version:
             kwargs["api_version"] = self._api_version
+        # GPT-5 / Azure reasoning deployments reject temperature and
+        # max_tokens; LiteLLM maps completion tokens when this is set.
+        if "gpt-5" in (model or "").lower():
+            kwargs["max_completion_tokens"] = 4096
 
         timeout = get_settings().llm_request_timeout_seconds
         if timeout and timeout > 0:

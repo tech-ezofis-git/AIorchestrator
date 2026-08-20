@@ -152,6 +152,7 @@ from app.llm.model_presets import (
     apply_preset,
     get_preset,
     list_presets_public,
+    preset_has_api_key,
     resolve_default_preset_id,
     set_runtime_presets,
 )
@@ -362,6 +363,7 @@ async def lifespan(app: FastAPI):
         settings,
         llm_adapter=llm_adapter,
         runtime_models=runtime_models,
+        catalog_store=catalog_store,
     )
     forecast_agent = ForecastAgent(
         dispatcher,
@@ -521,9 +523,13 @@ async def update_llm_config(payload: LLMConfigUpdate, request: Request) -> dict:
     if default_id is not None and default_id != "":
         if get_preset(default_id) is None:
             raise HTTPException(status_code=400, detail=f"Unknown default_preset_id: {default_id}")
-        preset_id = resolve_default_preset_id(default_id)
-        apply_preset(llm_adapter, preset_id)
-        runtime.set_default(preset_id)
+        if not preset_has_api_key(default_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Selected default model has no API key. Add a key in Catalog → Available models, then Save again.",
+            )
+        apply_preset(llm_adapter, default_id)
+        runtime.set_default(default_id)
 
     if payload.fallback_preset_id is not None:
         try:
@@ -918,6 +924,12 @@ async def _refresh_catalog_runtime(request: Request) -> None:
         if presets:
             set_runtime_presets(presets)
         router.set_custom_agents(await store.list_enabled_custom())
+        llm_adapter = getattr(request.app.state, "llm_adapter", None)
+        runtime = getattr(request.app.state, "runtime_models", None)
+        if llm_adapter is not None and runtime is not None:
+            current = runtime.default_preset_id
+            if current and get_preset(current):
+                apply_preset(llm_adapter, current)
     except CatalogStoreUnavailableError:
         logger.warning("catalog_runtime_refresh_failed", extra={"error_type": "store"})
 

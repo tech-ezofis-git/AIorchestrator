@@ -88,6 +88,45 @@ def test_llm_config_selection_persists_in_redis_across_reload(client):
     assert reloaded.fallback_preset_id == "gpt-4o-mini"
 
 
+def test_catalog_runtime_presets_use_env_key_when_db_key_empty(client):
+    from app.llm.model_presets import preset_has_api_key, set_runtime_presets
+
+    set_runtime_presets(
+        [
+            {
+                "id": "gpt-4.1-nano",
+                "label": "gpt-4.1-nano",
+                "model": "azure/gpt-4.1-nano",
+                "api_base": "https://ezazopenai.openai.azure.com",
+                "api_key": "",
+                "api_version": "2025-01-01-preview",
+            }
+        ]
+    )
+    try:
+        assert preset_has_api_key("gpt-4.1-nano") is True
+    finally:
+        set_runtime_presets(None)
+
+
+def test_llm_config_rejects_preset_without_api_key(client):
+    created = client.post(
+        "/console/catalog/models",
+        json={
+            "slug": "no-key-model",
+            "label": "no-key-model",
+            "model": "azure/no-key-model",
+            "api_base": "https://example.openai.azure.com",
+            "api_key": "",
+        },
+    )
+    assert created.status_code == 200
+
+    response = client.post("/console/llm-config", json={"default_preset_id": "no-key-model"})
+    assert response.status_code == 400
+    assert "API key" in response.json()["detail"]
+
+
 def test_post_llm_config_unknown_preset_returns_400(client):
     response = client.post("/console/llm-config", json={"preset_id": "no-such-model"})
 
@@ -266,6 +305,7 @@ async def test_llm_adapter_passes_api_version_for_azure(monkeypatch):
 
     assert captured["model"] == "azure/gpt-4.1-nano"
     assert captured["api_version"] == "2025-01-01-preview"
+    assert captured["drop_params"] is True
 
 
 async def test_llm_adapter_does_not_double_prefix_an_already_prefixed_model(monkeypatch):
@@ -292,4 +332,32 @@ async def test_llm_adapter_does_not_double_prefix_an_already_prefixed_model(monk
     await adapter.chat_completion([{"role": "user", "content": "hi"}])
 
     assert captured["model"] == "azure/gpt-4.1-mini"
+
+
+async def test_llm_adapter_gpt5_sets_max_completion_tokens(monkeypatch):
+    from app.config import Settings
+    from app.llm.adapter import LLMAdapter
+
+    captured = {}
+
+    async def fake_acompletion(**kwargs):
+        captured.update(kwargs)
+
+        class _Choice:
+            class message:
+                content = "ok"
+        class _Response:
+            choices = [_Choice()]
+            usage = None
+        return _Response()
+
+    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+
+    adapter = LLMAdapter(Settings())
+    adapter.configure(model="azure/gpt-5-nano", api_base="https://example/v1")
+    await adapter.chat_completion([{"role": "user", "content": "hi"}])
+
+    assert captured["model"] == "azure/gpt-5-nano"
+    assert captured["drop_params"] is True
+    assert captured["max_completion_tokens"] == 4096
 
