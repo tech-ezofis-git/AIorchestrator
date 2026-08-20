@@ -89,6 +89,7 @@ where intent isn't yet known, e.g. content-filter/rate-limit rejections)
 never do — see `_snippet_for_audit` below and
 app/control/pii_redaction.py.
 """
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -138,6 +139,8 @@ from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.intent_router import Intent, IntentRouter
 from app.core.pending_actions import PendingActionStore, PendingActionStoreUnavailableError
 from app.core.response_composer import ResponseComposer
+from app.data_import.models import DataImportRequest
+from app.data_import.service import run_data_import
 from app.integrations.email_client import EmailClient
 from app.integrations.ezofis_client import EzofisClient
 from app.integrations.forecast_model import ForecastModelClient
@@ -455,6 +458,15 @@ app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/api/ezDataImport")
+async def ez_data_import(payload: DataImportRequest) -> dict:
+    """Excel import into tenant ezfb_*_items. Exempt from the /chat guardrail pipeline."""
+    try:
+        return await asyncio.to_thread(run_data_import, payload)
+    except HTTPException:
+        raise
 
 
 @app.get("/console", response_class=HTMLResponse)
