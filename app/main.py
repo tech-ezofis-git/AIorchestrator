@@ -108,6 +108,7 @@ from app.agents.ap_agent import ApAgent
 from app.agents.catalog_agent import CatalogAgent
 from app.agents.chat_agent import ChatAgent
 from app.catalog.store import CatalogConflictError, CatalogStore, CatalogStoreUnavailableError
+from app.catalog.tenant_llm import apply_tenant_agent_llm, restore_runtime_llm
 from app.catalog.url import catalog_pool_kwargs, normalize_catalog_url
 from app.ap_skills.store import ApStoreUnavailableError
 from app.ap_skills.tenant_db import ApTenantDbPools
@@ -921,6 +922,13 @@ class CatalogTenantModelsUpsert(BaseModel):
     fallback_model_id: Optional[str] = None
 
 
+class CatalogTenantAgentModelUpsert(BaseModel):
+    tenant_id: str
+    agent_slug: str
+    model_id: Optional[str] = None
+    fallback_model_id: Optional[str] = None
+
+
 def _catalog_store(request: Request) -> CatalogStore:
     store = getattr(request.app.state, "catalog_store", None)
     if store is None:
@@ -1152,6 +1160,32 @@ async def upsert_catalog_tenant_models(payload: CatalogTenantModelsUpsert, reque
     except Exception as exc:
         _raise_catalog_http(exc)
         raise
+
+
+@app.get("/console/catalog/tenant-agent-models/{tenant_id}")
+async def list_catalog_tenant_agent_models(tenant_id: str, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        return {"mappings": await store.list_tenant_agent_models(tenant_id)}
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+
+
+@app.put("/console/catalog/tenant-agent-models")
+async def upsert_catalog_tenant_agent_model(payload: CatalogTenantAgentModelUpsert, request: Request) -> dict:
+    store = _catalog_store(request)
+    try:
+        mapping = await store.upsert_tenant_agent_model(
+            tenant_id=payload.tenant_id,
+            agent_slug=payload.agent_slug,
+            model_id=payload.model_id,
+            fallback_model_id=payload.fallback_model_id or None,
+        )
+    except Exception as exc:
+        _raise_catalog_http(exc)
+        raise
+    return {"mapping": mapping}
 
 
 @app.get("/metrics")
@@ -1502,6 +1536,16 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                     except CatalogStoreUnavailableError:
                         custom_agent = None
     request.state.intent = custom_agent["slug"] if custom_agent else intent.value
+    agent_slug = request.state.intent
+
+    catalog_store = getattr(request.app.state, "catalog_store", None)
+    if catalog_store is not None:
+        try:
+            agent_row = await catalog_store.get_agent_by_slug(agent_slug)
+            if agent_row is not None and not agent_row.get("enabled", True):
+                raise HTTPException(status_code=403, detail=f"Agent '{agent_slug}' is disabled.")
+        except CatalogStoreUnavailableError:
+            pass
 
     document_job = None
     has_document = has_filepath or (parsed.file_bytes is not None)
@@ -1650,6 +1694,21 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     except PermissionDeniedError as exc:
         raise HTTPException(status_code=403, detail="Not permitted to use this capability.") from exc
 
+    tenant_id = (payload.payload.tenant_id if payload.payload else None) or ""
+    tenant_id = tenant_id.strip()
+    llm_adapter: LLMAdapter = request.app.state.llm_adapter
+    runtime_models: RuntimeModelSelection = request.app.state.runtime_models
+    explicit_model = (payload.payload.model if payload.payload else None) or ""
+    if document_job is not None and document_job.get("model"):
+        explicit_model = str(document_job.get("model") or explicit_model)
+    catalog_fallback_preset = None
+    if tenant_id and catalog_store is not None and not (explicit_model or "").strip():
+        catalog_fallback_preset = await apply_tenant_agent_llm(
+            catalog_store, llm_adapter, tenant_id, agent_slug
+        )
+        if catalog_fallback_preset and document_job is not None:
+            document_job["catalog_fallback_preset"] = catalog_fallback_preset
+
     try:
         if custom_agent:
             catalog_agent: CatalogAgent = request.app.state.catalog_agent
@@ -1691,6 +1750,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         ) from exc
     except NotImplementedError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
+    finally:
+        restore_runtime_llm(llm_adapter, runtime_models)
 
     try:
         await context_manager.append_turn(payload.session_id, "user", message)

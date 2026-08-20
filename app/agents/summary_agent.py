@@ -182,6 +182,7 @@ class SummaryAgent:
                 primary=model,
                 error=exc,
                 tenant_id=tenant_id,
+                catalog_fallback_preset=job.get("catalog_fallback_preset"),
             )
 
         usage = synthesis.get("usage") or {}
@@ -207,9 +208,10 @@ class SummaryAgent:
         primary: Optional[str],
         error: Exception,
         tenant_id: Optional[str] = None,
+        catalog_fallback_preset: Optional[str] = None,
     ) -> dict[str, Any]:
         settings = self._cfg()
-        fallback_preset = (
+        fallback_preset = catalog_fallback_preset or (
             self._runtime_models.fallback_preset_id if self._runtime_models else None
         )
         env_fallback = (settings.ocr_fallback_model or "").strip() or None

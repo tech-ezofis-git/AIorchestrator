@@ -12,7 +12,10 @@ from app.catalog.defaults import BUILTIN_AGENTS, RESERVED_SLUGS
 
 logger = logging.getLogger("orchestrator.catalog")
 
-_MIGRATION = Path(__file__).resolve().parents[2] / "db" / "migrations" / "0005_create_catalog_tables.sql"
+_MIGRATIONS = (
+    Path(__file__).resolve().parents[2] / "db" / "migrations" / "0005_create_catalog_tables.sql",
+    Path(__file__).resolve().parents[2] / "db" / "migrations" / "0006_create_catalog_tenant_agent_models.sql",
+)
 # Preset ids include dots (gpt-4.1-nano). Letters, digits, dots, hyphens, underscores.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
@@ -162,9 +165,10 @@ class CatalogStore:
             raise CatalogStoreUnavailableError("Catalog store is currently unavailable.") from exc
 
     async def ensure_schema(self) -> None:
-        sql = _MIGRATION.read_text(encoding="utf-8")
-        for stmt in _split_sql(sql):
-            await self._run("execute", stmt)
+        for migration in _MIGRATIONS:
+            sql = migration.read_text(encoding="utf-8")
+            for stmt in _split_sql(sql):
+                await self._run("execute", stmt)
 
     async def seed_defaults(self, presets: list[dict[str, Any]], settings: Any) -> None:
         now = datetime.now(timezone.utc)
@@ -215,6 +219,18 @@ class CatalogStore:
             "FROM catalog_agents ORDER BY kind ASC, name ASC",
         )
         return [_public_agent(row) for row in rows]
+
+    async def get_agent_by_slug(self, slug: str) -> Optional[dict[str, Any]]:
+        slug = (slug or "").strip()
+        if not slug:
+            return None
+        row = await self._run(
+            "fetchrow",
+            "SELECT id, slug, name, description, kind, enabled, system_prompt, trigger_phrases, created_at, updated_at "
+            "FROM catalog_agents WHERE slug = $1",
+            slug,
+        )
+        return _public_agent(row) if row else None
 
     async def get_enabled_custom(self, slug: str) -> Optional[dict[str, Any]]:
         row = await self._run(
@@ -552,6 +568,132 @@ class CatalogStore:
             tenant_id,
         )
         return _public_tenant(row)
+
+    async def list_tenant_agent_models(self, tenant_id: str) -> list[dict[str, Any]]:
+        tenant_id = (tenant_id or "").strip()
+        if not tenant_id:
+            return []
+        rows = await self._run(
+            "fetch",
+            "SELECT t.tenant_id, t.agent_slug, t.model_id, t.fallback_model_id, t.updated_at, "
+            "m.slug AS model_slug, m.label AS model_label, "
+            "f.slug AS fallback_slug, f.label AS fallback_label "
+            "FROM catalog_tenant_agent_models t "
+            "LEFT JOIN catalog_models m ON m.id = t.model_id "
+            "LEFT JOIN catalog_models f ON f.id = t.fallback_model_id "
+            "WHERE t.tenant_id = $1 "
+            "ORDER BY t.agent_slug ASC",
+            tenant_id,
+        )
+        return [_public_tenant_agent(row) for row in rows]
+
+    async def get_tenant_agent_model(self, tenant_id: str, agent_slug: str) -> Optional[dict[str, Any]]:
+        tenant_id = (tenant_id or "").strip()
+        agent_slug = (agent_slug or "").strip()
+        if not tenant_id or not agent_slug:
+            return None
+        row = await self._run(
+            "fetchrow",
+            "SELECT t.tenant_id, t.agent_slug, t.model_id, t.fallback_model_id, t.updated_at, "
+            "m.slug AS model_slug, m.label AS model_label, "
+            "f.slug AS fallback_slug, f.label AS fallback_label "
+            "FROM catalog_tenant_agent_models t "
+            "LEFT JOIN catalog_models m ON m.id = t.model_id "
+            "LEFT JOIN catalog_models f ON f.id = t.fallback_model_id "
+            "WHERE t.tenant_id = $1 AND t.agent_slug = $2",
+            tenant_id,
+            agent_slug,
+        )
+        return _public_tenant_agent(row) if row else None
+
+    async def upsert_tenant_agent_model(
+        self,
+        *,
+        tenant_id: str,
+        agent_slug: str,
+        model_id: Optional[str],
+        fallback_model_id: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        tenant_id = (tenant_id or "").strip()
+        agent_slug = normalize_slug(agent_slug)
+        if not tenant_id:
+            raise ValueError("tenant_id is required.")
+        agent_row = await self.get_agent_by_slug(agent_slug)
+        if agent_row is None:
+            raise ValueError(f"Unknown agent slug: {agent_slug}")
+        if not model_id:
+            await self._run(
+                "execute",
+                "DELETE FROM catalog_tenant_agent_models WHERE tenant_id = $1 AND agent_slug = $2",
+                tenant_id,
+                agent_slug,
+            )
+            return None
+        model_uuid = uuid.UUID(str(model_id))
+        fallback_uuid = uuid.UUID(str(fallback_model_id)) if fallback_model_id else None
+        model_row = await self._run(
+            "fetchrow",
+            "SELECT id FROM catalog_models WHERE id = $1",
+            model_uuid,
+        )
+        if model_row is None:
+            raise ValueError("model_id is not a known model.")
+        if fallback_uuid is not None:
+            fallback_row = await self._run(
+                "fetchrow",
+                "SELECT id FROM catalog_models WHERE id = $1",
+                fallback_uuid,
+            )
+            if fallback_row is None:
+                raise ValueError("fallback_model_id is not a known model.")
+        await self._run(
+            "execute",
+            "INSERT INTO catalog_tenant_agent_models (tenant_id, agent_slug, model_id, fallback_model_id) "
+            "VALUES ($1, $2, $3, $4) "
+            "ON CONFLICT (tenant_id, agent_slug) DO UPDATE SET "
+            "model_id = EXCLUDED.model_id, fallback_model_id = EXCLUDED.fallback_model_id, updated_at = now()",
+            tenant_id,
+            agent_slug,
+            model_uuid,
+            fallback_uuid,
+        )
+        return await self.get_tenant_agent_model(tenant_id, agent_slug)
+
+    async def resolve_tenant_agent_llm_slugs(
+        self,
+        tenant_id: str,
+        agent_slug: str,
+    ) -> dict[str, Optional[str]]:
+        """Per-agent mapping first, then tenant-wide default/fallback."""
+        per_agent = await self.get_tenant_agent_model(tenant_id, agent_slug)
+        if per_agent and per_agent.get("model_slug"):
+            return {
+                "default_slug": per_agent.get("model_slug"),
+                "fallback_slug": per_agent.get("fallback_slug"),
+            }
+        tenant = await self.get_tenant_models(tenant_id)
+        if tenant:
+            return {
+                "default_slug": tenant.get("default_slug"),
+                "fallback_slug": tenant.get("fallback_slug"),
+            }
+        return {"default_slug": None, "fallback_slug": None}
+
+
+def _public_tenant_agent(row: Any) -> dict[str, Any]:
+    model_id = _row_get(row, "model_id")
+    fallback_id = _row_get(row, "fallback_model_id")
+    return {
+        "tenant_id": _row_get(row, "tenant_id"),
+        "agent_slug": _row_get(row, "agent_slug"),
+        "model_id": str(model_id) if model_id else None,
+        "fallback_model_id": str(fallback_id) if fallback_id else None,
+        "model_slug": _row_get(row, "model_slug"),
+        "model_label": _row_get(row, "model_label"),
+        "fallback_slug": _row_get(row, "fallback_slug"),
+        "fallback_label": _row_get(row, "fallback_label"),
+        "updated_at": _fmt_dt(_row_get(row, "updated_at")),
+    }
 
 
 def _public_tenant(row: Any) -> dict[str, Any]:
