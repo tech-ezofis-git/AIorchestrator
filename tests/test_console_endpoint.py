@@ -54,7 +54,11 @@ def test_console_serves_html(client):
     assert "function renderChatReply" in response.text
     assert 'id="catalogView"' in response.text
     assert 'id="viewCatalogBtn"' in response.text
+    assert 'id="catTenantSelect"' in response.text
+    assert 'id="catalogTenantWorkspace"' in response.text
+    assert "Available models" in response.text
     assert "/console/catalog/agents" in response.text
+    assert "/console/catalog/tenants" in response.text
 
 
 def test_console_static_logo_is_served(client):

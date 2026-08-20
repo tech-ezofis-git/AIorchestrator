@@ -155,6 +155,44 @@ class EzofisClient:
             "tenant_id": resolved_tenant,
         }
 
+    async def list_tenants(self) -> list[dict[str, str]]:
+        """GET /auth/tenants for the configured login email. Empty when login is unset."""
+        cfg = self._cfg()
+        email = (cfg.ezofis_login_email or "").strip()
+        if not email:
+            return []
+        timeout = min(float(cfg.ezofis_timeout_seconds or 15), 8.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                tenants_resp = await client.get(
+                    f"{self._base()}/auth/tenants",
+                    params={"email": email},
+                    headers={"accept": "application/json"},
+                )
+                tenants_resp.raise_for_status()
+                payload = tenants_resp.json() if tenants_resp.content else {}
+                tenants = payload.get("tenants") if isinstance(payload, dict) else None
+        except Exception:
+            logger.warning("ezofis_list_tenants_failed")
+            return []
+        if not isinstance(tenants, list):
+            return []
+        rows: list[dict[str, str]] = []
+        for item in tenants:
+            if not isinstance(item, dict):
+                continue
+            tenant_id = str(item.get("tenantId") or item.get("tenant_id") or item.get("id") or "").strip()
+            if not tenant_id:
+                continue
+            name = str(
+                item.get("tenantName")
+                or item.get("name")
+                or item.get("companyName")
+                or tenant_id
+            ).strip()
+            rows.append({"id": tenant_id, "name": name or tenant_id})
+        return rows
+
     async def _auth_headers(self, tenant_id: str) -> dict[str, str]:
         if not self._token:
             await self.authenticate(tenant_id=tenant_id)
