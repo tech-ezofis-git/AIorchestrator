@@ -17,7 +17,7 @@ from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
 from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
-from app.llm.model_presets import apply_preset, get_preset
+from app.llm.model_presets import apply_preset, get_preset, preset_has_api_key
 from app.llm.runtime_models import RuntimeModelSelection
 from app.ocr_skills.extract_fields import run as extract_fields_skill
 
@@ -33,12 +33,14 @@ class OcrAgent:
         *,
         llm_adapter: Optional[LLMAdapter] = None,
         runtime_models: Optional[RuntimeModelSelection] = None,
+        catalog_store: Any = None,
     ):
         self._dispatcher = dispatcher
         self._composer = response_composer
         self._settings = settings
         self._llm = llm_adapter
         self._runtime_models = runtime_models
+        self._catalog = catalog_store
 
     def _llm_for_skill(self) -> LLMAdapter:
         if self._llm is not None:
@@ -146,30 +148,39 @@ class OcrAgent:
         # Prefer explicit payload.model; otherwise keep the shared adapter
         # (default preset chosen in the Test Console / startup).
         primary = model
+        restore_preset = (
+            self._runtime_models.default_preset_id if self._runtime_models else None
+        )
+        tenant_fallback = await self._apply_tenant_models(job.get("tenant_id"))
 
         try:
-            synthesized = await extract_fields_skill(
-                llm=self._llm_for_skill(),
-                instruction=instruction,
-                ocr_text=ocr_text,
-                parameters=parameters,
-                tableparameters=tableparameters,
-                page_label=pages.label(),
-                model=primary,
-                max_recommended_fields=settings.ocr_max_recommended_fields,
-            )
-        except Exception as exc:
-            logger.warning("ocr_structuring_primary_failed", extra={"model": primary or "default"})
-            synthesized = await self._structure_with_fallback(
-                instruction=instruction,
-                ocr_text=ocr_text,
-                parameters=parameters,
-                tableparameters=tableparameters,
-                page_label=pages.label(),
-                primary=primary,
-                max_recommended_fields=settings.ocr_max_recommended_fields,
-                error=exc,
-            )
+            try:
+                synthesized = await extract_fields_skill(
+                    llm=self._llm_for_skill(),
+                    instruction=instruction,
+                    ocr_text=ocr_text,
+                    parameters=parameters,
+                    tableparameters=tableparameters,
+                    page_label=pages.label(),
+                    model=primary,
+                    max_recommended_fields=settings.ocr_max_recommended_fields,
+                )
+            except Exception as exc:
+                logger.warning("ocr_structuring_primary_failed", extra={"model": primary or "default"})
+                synthesized = await self._structure_with_fallback(
+                    instruction=instruction,
+                    ocr_text=ocr_text,
+                    parameters=parameters,
+                    tableparameters=tableparameters,
+                    page_label=pages.label(),
+                    primary=primary,
+                    max_recommended_fields=settings.ocr_max_recommended_fields,
+                    error=exc,
+                    fallback_preset=tenant_fallback,
+                )
+        finally:
+            if restore_preset and self._llm is not None and get_preset(restore_preset):
+                apply_preset(self._llm, restore_preset)
 
         fields = synthesized["ocrResult"]
         table_result = synthesized.get("tableResult")
@@ -194,6 +205,31 @@ class OcrAgent:
             "ocr_result": body,
         }
 
+    async def _apply_tenant_models(self, tenant_id: Optional[str]) -> Optional[str]:
+        """Switch the shared adapter to this tenant's catalog default. Returns fallback slug."""
+        tenant_id = (tenant_id or "").strip()
+        if not tenant_id or self._catalog is None or self._llm is None:
+            return None
+        try:
+            mapping = await self._catalog.get_tenant_models(tenant_id)
+        except Exception:
+            logger.warning("ocr_tenant_models_lookup_failed")
+            return None
+        if not mapping:
+            return None
+        default_slug = (mapping.get("default_slug") or "").strip()
+        fallback_slug = (mapping.get("fallback_slug") or "").strip() or None
+        if default_slug and get_preset(default_slug) and preset_has_api_key(default_slug):
+            apply_preset(self._llm, default_slug)
+        else:
+            logger.warning(
+                "ocr_tenant_default_skipped",
+                extra={"default_slug": default_slug or None},
+            )
+        if fallback_slug and get_preset(fallback_slug) and preset_has_api_key(fallback_slug):
+            return fallback_slug
+        return None
+
     async def _structure_with_fallback(
         self,
         *,
@@ -205,39 +241,32 @@ class OcrAgent:
         primary: Optional[str],
         max_recommended_fields: int,
         error: Exception,
+        fallback_preset: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Retry OCR structuring on the console/env fallback model."""
+        """Retry OCR structuring on the tenant/console/env fallback model."""
         settings = self._cfg()
-        fallback_preset = (
-            self._runtime_models.fallback_preset_id if self._runtime_models else None
-        )
+        if not fallback_preset:
+            fallback_preset = (
+                self._runtime_models.fallback_preset_id if self._runtime_models else None
+            )
         env_fallback = (settings.ocr_fallback_model or "").strip() or None
 
         if fallback_preset and self._llm is not None and get_preset(fallback_preset):
-            default_preset = (
-                self._runtime_models.default_preset_id
-                if self._runtime_models
-                else None
-            )
             logger.warning(
                 "ocr_structuring_fallback_preset",
                 extra={"fallback_preset_id": fallback_preset},
             )
             apply_preset(self._llm, fallback_preset)
-            try:
-                return await extract_fields_skill(
-                    llm=self._llm_for_skill(),
-                    instruction=instruction,
-                    ocr_text=ocr_text,
-                    parameters=parameters,
-                    tableparameters=tableparameters,
-                    page_label=page_label,
-                    model=None,
-                    max_recommended_fields=max_recommended_fields,
-                )
-            finally:
-                if default_preset and get_preset(default_preset):
-                    apply_preset(self._llm, default_preset)
+            return await extract_fields_skill(
+                llm=self._llm_for_skill(),
+                instruction=instruction,
+                ocr_text=ocr_text,
+                parameters=parameters,
+                tableparameters=tableparameters,
+                page_label=page_label,
+                model=None,
+                max_recommended_fields=max_recommended_fields,
+            )
 
         if env_fallback and env_fallback != primary:
             logger.warning(

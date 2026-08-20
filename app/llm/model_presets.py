@@ -80,9 +80,24 @@ _runtime_presets: Optional[list[dict[str, Any]]] = None
 
 
 def set_runtime_presets(presets: Optional[list[dict[str, Any]]]) -> None:
-    """Replace the in-memory preset list with catalog_models rows (or clear)."""
+    """Replace the in-memory preset list with catalog_models rows (or clear).
+
+    Catalog rows store the key in `api_key`. Built-in slugs also keep
+    `api_key_attr` so an empty catalog key still resolves from .env.
+    """
     global _runtime_presets
-    _runtime_presets = presets
+    if presets is None:
+        _runtime_presets = None
+        return
+    by_id = {row["id"]: row for row in MODEL_PRESETS}
+    enriched: list[dict[str, Any]] = []
+    for preset in presets:
+        row = dict(preset)
+        hardcoded = by_id.get(str(row.get("id") or ""))
+        if hardcoded and hardcoded.get("api_key_attr") and not row.get("api_key_attr"):
+            row["api_key_attr"] = hardcoded["api_key_attr"]
+        enriched.append(row)
+    _runtime_presets = enriched
 
 
 def _preset_source() -> list[dict[str, Any]]:
