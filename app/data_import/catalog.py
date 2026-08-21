@@ -148,6 +148,22 @@ async def resolve_tenant_connection_string(tenant_id: str, store: Any = None) ->
     """Return tenant ConnectionString plus a secret-free diagnosis of which DB was used."""
     diag: dict[str, Any] = catalog_env_diag()
     tid = (tenant_id or "").strip()
+    try:
+        from app.ap_skills.tenant_db import tenant_database_name
+
+        prefix = (get_settings().ap_tenant_db_prefix or "ezofis_Tenant_").strip() or "ezofis_Tenant_"
+        derived = tenant_database_name(tid, prefix=prefix)
+        diag["derived_tenant_database"] = derived
+        if derived:
+            target = dict(diag.get("app_target") or {})
+            target["database"] = derived
+            diag["derived_tenant_target"] = {
+                "host": (diag.get("catalog_target") or {}).get("host")
+                or (diag.get("app_target") or {}).get("host"),
+                "database": derived,
+            }
+    except Exception:
+        diag["derived_tenant_database"] = None
     if store is not None:
         try:
             diag["asyncpg_pool_database"] = await store.connected_database()
@@ -288,6 +304,28 @@ def fetch_tenant_catalog_row(tenant_id: str) -> Optional[dict[str, Any]]:
         raise CatalogUnavailableError("Catalog database is unavailable.") from exc
 
 
+def tenant_engine_url_from_app_settings(tenant_id: str) -> str:
+    """Same host/user as DATABASE_URL, database ezofis_Tenant_<first 8 of tenantId>."""
+    from app.ap_skills.tenant_db import replace_database_name, tenant_database_name
+
+    settings = get_settings()
+    raw = (settings.catalog_database_url or "").strip() or (settings.database_url or "").strip()
+    if not raw:
+        raise CatalogUnavailableError("DATABASE_URL is not set.")
+    prefix = (settings.ap_tenant_db_prefix or "ezofis_Tenant_").strip() or "ezofis_Tenant_"
+    db_name = tenant_database_name(tenant_id, prefix=prefix)
+    if not db_name:
+        raise TenantConnectionNotFoundError("No tenant connection found.")
+    if "://" not in raw:
+        raw = sqlalchemy_url_from_connection_string(raw)
+    swapped = replace_database_name(raw, db_name)
+    if swapped.startswith("postgresql://"):
+        swapped = "postgresql+psycopg2://" + swapped[len("postgresql://") :]
+    elif swapped.startswith("postgres://"):
+        swapped = "postgresql+psycopg2://" + swapped[len("postgres://") :]
+    return ensure_azure_ssl(swapped)
+
+
 def create_tenant_engine(tenant_id: str, connection_string: Optional[str] = None):
     cs = (connection_string or "").strip()
     if cs:
@@ -296,6 +334,12 @@ def create_tenant_engine(tenant_id: str, connection_string: Optional[str] = None
         except Exception as exc:
             logger.warning("tenant_engine_from_cs_failed", extra={"error_type": type(exc).__name__})
             raise TenantConnectionNotFoundError("No tenant connection found.") from exc
+    try:
+        return create_engine(tenant_engine_url_from_app_settings(tenant_id), pool_pre_ping=True)
+    except (TenantConnectionNotFoundError, CatalogUnavailableError):
+        raise
+    except Exception as exc:
+        logger.warning("tenant_engine_from_app_settings_failed", extra={"error_type": type(exc).__name__})
     row = fetch_tenant_catalog_row(tenant_id)
     if not row or not row.get("sqlalchemy_url"):
         raise TenantConnectionNotFoundError("No tenant connection found.")

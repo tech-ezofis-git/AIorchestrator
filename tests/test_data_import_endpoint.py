@@ -67,6 +67,24 @@ def test_catalog_sqlalchemy_url_adds_azure_ssl(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_tenant_engine_url_uses_ezofis_tenant_prefix(monkeypatch):
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://u:p@ezv6psql.postgres.database.azure.com:5432/orchestrator",
+    )
+    monkeypatch.delenv("CATALOG_DATABASE_URL", raising=False)
+    from app.config import get_settings
+    from app.data_import.catalog import tenant_engine_url_from_app_settings
+
+    get_settings.cache_clear()
+    url = tenant_engine_url_from_app_settings("496a0db6-5267-47b7-972d-249023817dba")
+    assert url.startswith("postgresql+psycopg2://")
+    assert "ezofis_Tenant_496a0db6" in url
+    assert "/orchestrator" not in url.split("?")[0]
+    assert "sslmode=require" in url
+    get_settings.cache_clear()
+
+
 def test_catalog_env_diag_has_no_secrets(monkeypatch):
     monkeypatch.setenv(
         "CATALOG_DATABASE_URL",
