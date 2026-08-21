@@ -141,6 +141,7 @@ from app.core.pending_actions import PendingActionStore, PendingActionStoreUnava
 from app.core.response_composer import ResponseComposer
 from app.data_import.models import DataImportRequest
 from app.data_import.service import run_data_import
+from app.data_import.catalog import resolve_tenant_connection_string
 from app.integrations.email_client import EmailClient
 from app.integrations.ezofis_client import EzofisClient
 from app.integrations.forecast_model import ForecastModelClient
@@ -463,19 +464,23 @@ async def health() -> dict:
 @app.post("/api/ezDataImport")
 async def ez_data_import(request: Request, payload: DataImportRequest) -> dict:
     """Excel import into tenant ezfb_*_items. Exempt from the /chat guardrail pipeline."""
-    connection_string = None
     store = getattr(request.app.state, "catalog_store", None)
-    if store is not None:
-        try:
-            connection_string = await store.fetch_tenant_connection_string(payload.tenantId)
-        except Exception as exc:
-            logger.warning(
-                "data_import_catalog_cs_failed",
-                extra={"error_type": type(exc).__name__},
-            )
+    try:
+        connection_string, diag = await resolve_tenant_connection_string(payload.tenantId, store)
+    except Exception as exc:
+        logger.warning(
+            "data_import_catalog_cs_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        connection_string, diag = None, {"resolve_error": type(exc).__name__}
     try:
         return await asyncio.to_thread(run_data_import, payload, connection_string)
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code in (404, 503) and isinstance(exc.detail, str):
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail={"message": exc.detail, **diag},
+            ) from None
         raise
 
 

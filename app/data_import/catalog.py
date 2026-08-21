@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
+import os
 from functools import lru_cache
 from typing import Any, Optional
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 
 from sqlalchemy import create_engine, text
 
@@ -72,6 +73,8 @@ def sqlalchemy_url_from_connection_string(conn_str: str) -> str:
     if not all([host, database, user, password]):
         raise ValueError("Incomplete PostgreSQL connection string")
     sslmode = kv.get("sslmode") or kv.get("ssl mode")
+    if sslmode:
+        sslmode = str(sslmode).strip().lower()
     if not sslmode:
         sslmode = "require" if host and "postgres.database.azure.com" in host else "prefer"
     return (
@@ -92,6 +95,124 @@ def catalog_sqlalchemy_url() -> str:
     elif raw.startswith("postgres://"):
         raw = "postgresql+psycopg2://" + raw[len("postgres://") :]
     return ensure_azure_ssl(raw)
+
+
+def postgres_target_diag(raw: str) -> dict[str, Optional[str]]:
+    """Host + database name only — never user/password."""
+    text = (raw or "").strip()
+    if not text:
+        return {"host": None, "database": None}
+    if "://" in text:
+        parsed = urlparse(text)
+        database = (parsed.path or "").lstrip("/").split("?")[0] or None
+        return {"host": parsed.hostname, "database": database}
+    kv = parse_connection_kv(text)
+    return {
+        "host": kv.get("host") or kv.get("server") or kv.get("data source"),
+        "database": kv.get("database") or kv.get("initial catalog"),
+    }
+
+
+def catalog_env_diag() -> dict[str, Any]:
+    settings = get_settings()
+    catalog_url = (settings.catalog_database_url or "").strip()
+    app_url = (settings.database_url or "").strip()
+    return {
+        "catalog_database_url_set": bool(catalog_url),
+        "catalog_target": postgres_target_diag(catalog_url),
+        "app_database_url_set": bool(app_url),
+        "app_target": postgres_target_diag(app_url),
+    }
+
+
+def safe_cs_preview(cs: str) -> dict[str, Any]:
+    kv = parse_connection_kv(cs)
+    parse_ok = True
+    try:
+        _tenant_sqlalchemy_url(cs)
+    except Exception:
+        parse_ok = False
+    keys = sorted(k for k in kv if k not in {"password", "pwd"})
+    if "://" in cs and "uri" not in keys:
+        keys = ["uri", *keys]
+    target = postgres_target_diag(cs)
+    return {
+        "tenant_host": target.get("host"),
+        "tenant_database": target.get("database"),
+        "cs_keys": keys,
+        "cs_parse_ok": parse_ok,
+    }
+
+
+async def resolve_tenant_connection_string(tenant_id: str, store: Any = None) -> tuple[Optional[str], dict[str, Any]]:
+    """Return tenant ConnectionString plus a secret-free diagnosis of which DB was used."""
+    diag: dict[str, Any] = catalog_env_diag()
+    tid = (tenant_id or "").strip()
+    if store is not None:
+        try:
+            diag["asyncpg_pool_database"] = await store.connected_database()
+        except Exception as exc:
+            diag["asyncpg_pool_database"] = None
+            diag["asyncpg_pool_describe_error"] = type(exc).__name__
+        try:
+            cs = await store.fetch_tenant_connection_string(tid)
+            diag["asyncpg_pool_cs_found"] = bool(cs)
+            if cs:
+                diag.update(safe_cs_preview(cs))
+                diag["lookup"] = "asyncpg_pool"
+                return cs, diag
+        except Exception as exc:
+            diag["asyncpg_pool_cs_found"] = False
+            diag["asyncpg_pool_lookup_error"] = type(exc).__name__
+    catalog_url = (get_settings().catalog_database_url or "").strip()
+    in_pytest = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    if catalog_url and not in_pytest:
+        try:
+            import asyncpg
+
+            from app.catalog.url import catalog_pool_kwargs, normalize_catalog_url
+
+            conn = await asyncpg.connect(
+                normalize_catalog_url(catalog_url),
+                **catalog_pool_kwargs(catalog_url),
+            )
+            try:
+                dbrow = await conn.fetchrow("SELECT current_database() AS db")
+                diag["direct_catalog_database"] = dbrow["db"] if dbrow else None
+                row = await conn.fetchrow(
+                    """
+                    SELECT "ConnectionString" AS connection_string
+                    FROM catalog."Tenants"
+                    WHERE "Id" = $1::uuid
+                    LIMIT 1
+                    """,
+                    tid,
+                )
+            finally:
+                await conn.close()
+            cs = None
+            if row is not None:
+                try:
+                    cs = row["connection_string"]
+                except (KeyError, TypeError):
+                    try:
+                        cs = row["ConnectionString"]
+                    except (KeyError, TypeError, IndexError):
+                        cs = row[0] if len(row) else None
+            cs = str(cs or "").strip() or None
+            diag["direct_catalog_cs_found"] = bool(cs)
+            if cs:
+                diag.update(safe_cs_preview(cs))
+                diag["lookup"] = "direct_catalog_url"
+                return cs, diag
+        except Exception as exc:
+            logger.warning(
+                "direct_catalog_tenant_lookup_failed",
+                extra={"error_type": type(exc).__name__},
+            )
+            diag["direct_catalog_error"] = type(exc).__name__
+    diag["lookup"] = "none"
+    return None, diag
 
 
 @lru_cache(maxsize=1)

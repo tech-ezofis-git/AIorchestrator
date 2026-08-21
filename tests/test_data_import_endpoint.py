@@ -67,6 +67,31 @@ def test_catalog_sqlalchemy_url_adds_azure_ssl(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_catalog_env_diag_has_no_secrets(monkeypatch):
+    monkeypatch.setenv(
+        "CATALOG_DATABASE_URL",
+        "postgresql://u:secret-pass@ezv6psql.postgres.database.azure.com:5432/ezofis_catalog_new?sslmode=require",
+    )
+    from app.config import get_settings
+    from app.data_import.catalog import catalog_env_diag, safe_cs_preview
+
+    get_settings.cache_clear()
+    diag = catalog_env_diag()
+    blob = str(diag)
+    assert "secret-pass" not in blob
+    assert diag["catalog_target"]["database"] == "ezofis_catalog_new"
+    assert diag["catalog_target"]["host"] == "ezv6psql.postgres.database.azure.com"
+    preview = safe_cs_preview(
+        "Host=ezv6psql.postgres.database.azure.com;Port=5432;Database=ezofis_Tenant_496a0db6;"
+        "Username=v6dbadmin;Password=secret-pass;SSL Mode=Require"
+    )
+    assert preview["tenant_database"] == "ezofis_Tenant_496a0db6"
+    assert preview["cs_parse_ok"] is True
+    assert "password" not in preview["cs_keys"]
+    assert "secret-pass" not in str(preview)
+    get_settings.cache_clear()
+
+
 def test_catalog_unavailable_returns_503(client, monkeypatch):
     from app.data_import.catalog import CatalogUnavailableError
 
@@ -76,7 +101,13 @@ def test_catalog_unavailable_returns_503(client, monkeypatch):
     monkeypatch.setattr("app.data_import.service.create_tenant_engine", boom)
     response = client.post("/api/ezDataImport", json=_VALID_BODY)
     assert response.status_code == 503
-    assert response.json()["detail"] == "Catalog database is unavailable."
+    detail = response.json()["detail"]
+    if isinstance(detail, dict):
+        assert detail["message"] == "Catalog database is unavailable."
+        assert "password" not in str(detail).lower()
+        assert "AccountKey" not in str(detail)
+    else:
+        assert detail == "Catalog database is unavailable."
 
 
 def test_happy_path_monkeypatches_importer(client, monkeypatch):

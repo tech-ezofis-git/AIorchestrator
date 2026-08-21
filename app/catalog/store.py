@@ -188,6 +188,16 @@ class CatalogStore:
                 return text
         return None
 
+    async def connected_database(self) -> Optional[str]:
+        try:
+            row = await self._db.fetchrow("SELECT current_database() AS db")
+        except Exception:
+            return None
+        if not row:
+            return None
+        value = _row_get(row, "db")
+        return str(value) if value is not None else None
+
     async def _run(self, method: str, query: str, *args: Any) -> Any:
         try:
             fn = getattr(self._db, method)
