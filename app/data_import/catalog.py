@@ -81,7 +81,8 @@ def sqlalchemy_url_from_connection_string(conn_str: str) -> str:
 
 
 def catalog_sqlalchemy_url() -> str:
-    raw = (get_settings().catalog_database_url or "").strip()
+    settings = get_settings()
+    raw = (settings.catalog_database_url or "").strip() or (settings.database_url or "").strip()
     if not raw:
         raise CatalogUnavailableError("CATALOG_DATABASE_URL is not set.")
     if "://" not in raw:
@@ -166,7 +167,14 @@ def fetch_tenant_catalog_row(tenant_id: str) -> Optional[dict[str, Any]]:
         raise CatalogUnavailableError("Catalog database is unavailable.") from exc
 
 
-def create_tenant_engine(tenant_id: str):
+def create_tenant_engine(tenant_id: str, connection_string: Optional[str] = None):
+    cs = (connection_string or "").strip()
+    if cs:
+        try:
+            return create_engine(_tenant_sqlalchemy_url(cs), pool_pre_ping=True)
+        except Exception as exc:
+            logger.warning("tenant_engine_from_cs_failed", extra={"error_type": type(exc).__name__})
+            raise TenantConnectionNotFoundError("No tenant connection found.") from exc
     row = fetch_tenant_catalog_row(tenant_id)
     if not row or not row.get("sqlalchemy_url"):
         raise TenantConnectionNotFoundError("No tenant connection found.")

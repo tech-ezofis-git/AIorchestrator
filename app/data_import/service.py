@@ -18,7 +18,10 @@ from app.data_import.xlsx_import import import_xlsx_bytes
 logger = logging.getLogger("orchestrator.data_import")
 
 
-def run_data_import(request: DataImportRequest) -> dict[str, str]:
+def run_data_import(
+    request: DataImportRequest,
+    connection_string: str | None = None,
+) -> dict[str, str]:
     extension = (request.fileName or "").rsplit(".", 1)[-1].lower()
     if extension != "xlsx":
         raise HTTPException(
@@ -30,7 +33,7 @@ def run_data_import(request: DataImportRequest) -> dict[str, str]:
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid formId for PO master table.") from None
     try:
-        engine = create_tenant_engine(request.tenantId)
+        engine = create_tenant_engine(request.tenantId, connection_string)
     except TenantConnectionNotFoundError:
         raise HTTPException(status_code=404, detail="No tenant connection found.") from None
     except CatalogUnavailableError:
