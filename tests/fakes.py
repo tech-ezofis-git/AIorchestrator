@@ -381,6 +381,8 @@ class FakeDBPool:
         raise AssertionError(f"FakeDBPool.execute: unrecognized catalog query: {query!r}")
 
     async def fetchrow(self, query: str, *args: Any):
+        if 'catalog."Tenants"' in query:
+            return None
         if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
             return self._handle_catalog_fetchrow(query, args)
         if "INSERT INTO documents" in query:

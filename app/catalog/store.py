@@ -147,6 +147,50 @@ class CatalogStore:
     def __init__(self, db: DBExecutor):
         self._db = db
 
+    async def fetch_tenant_connection_string(self, tenant_id: str) -> Optional[str]:
+        """Read catalog.Tenants.ConnectionString via the same asyncpg pool as Catalog UI."""
+        tid = (tenant_id or "").strip()
+        if not tid:
+            return None
+        queries = (
+            """
+            SELECT "ConnectionString" AS connection_string
+            FROM catalog."Tenants"
+            WHERE "Id" = $1::uuid
+              AND coalesce("IsActive", true) = true
+            LIMIT 1
+            """,
+            """
+            SELECT "ConnectionString" AS connection_string
+            FROM catalog."Tenants"
+            WHERE replace(lower("Id"::text), '-', '') = replace(lower($1::text), '-', '')
+            LIMIT 1
+            """,
+        )
+        for query in queries:
+            try:
+                row = await self._db.fetchrow(query, tid)
+            except Exception as exc:
+                logger.warning(
+                    "catalog_tenant_cs_query_failed",
+                    extra={"error_type": type(exc).__name__},
+                )
+                continue
+            if not row:
+                continue
+            raw = _row_get(row, "connection_string")
+            if raw is None:
+                raw = _row_get(row, "ConnectionString")
+            if raw is None and not isinstance(row, dict):
+                try:
+                    raw = row[0]
+                except Exception:
+                    raw = None
+            text = str(raw or "").strip()
+            if text:
+                return text
+        return None
+
     async def _run(self, method: str, query: str, *args: Any) -> Any:
         try:
             fn = getattr(self._db, method)

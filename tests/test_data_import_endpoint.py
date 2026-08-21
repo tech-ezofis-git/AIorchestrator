@@ -70,7 +70,7 @@ def test_catalog_sqlalchemy_url_adds_azure_ssl(monkeypatch):
 def test_catalog_unavailable_returns_503(client, monkeypatch):
     from app.data_import.catalog import CatalogUnavailableError
 
-    def boom(_tenant_id):
+    def boom(_tenant_id, _connection_string=None):
         raise CatalogUnavailableError("Catalog database is unavailable.")
 
     monkeypatch.setattr("app.data_import.service.create_tenant_engine", boom)
@@ -80,7 +80,7 @@ def test_catalog_unavailable_returns_503(client, monkeypatch):
 
 
 def test_happy_path_monkeypatches_importer(client, monkeypatch):
-    def fake_run(request: DataImportRequest):
+    def fake_run(request: DataImportRequest, connection_string=None):
         assert request.fileName == "po.xlsx"
         assert UUID(request.tenantId)
         return {"message": "Total rows inserted: 1, Total rows updated: 0"}
