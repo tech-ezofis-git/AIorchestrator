@@ -49,6 +49,36 @@ def test_non_xlsx_returns_400(client):
     assert "xlsx" in response.json()["detail"].lower()
 
 
+def test_catalog_sqlalchemy_url_adds_azure_ssl(monkeypatch):
+    monkeypatch.setenv(
+        "CATALOG_DATABASE_URL",
+        "postgresql://u:p@ezv6psql.postgres.database.azure.com:5432/ezofis_catalog_new",
+    )
+    from app.config import get_settings
+    from app.data_import.catalog import catalog_sqlalchemy_url, ensure_azure_ssl
+
+    get_settings.cache_clear()
+    url = catalog_sqlalchemy_url()
+    assert url.startswith("postgresql+psycopg2://")
+    assert "sslmode=require" in url
+    assert "ezofis_catalog_new" in url
+    already = "postgresql+psycopg2://u:p@host/db?sslmode=prefer"
+    assert ensure_azure_ssl(already) == already
+    get_settings.cache_clear()
+
+
+def test_catalog_unavailable_returns_503(client, monkeypatch):
+    from app.data_import.catalog import CatalogUnavailableError
+
+    def boom(_tenant_id):
+        raise CatalogUnavailableError("Catalog database is unavailable.")
+
+    monkeypatch.setattr("app.data_import.service.create_tenant_engine", boom)
+    response = client.post("/api/ezDataImport", json=_VALID_BODY)
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Catalog database is unavailable."
+
+
 def test_happy_path_monkeypatches_importer(client, monkeypatch):
     def fake_run(request: DataImportRequest):
         assert request.fileName == "po.xlsx"
