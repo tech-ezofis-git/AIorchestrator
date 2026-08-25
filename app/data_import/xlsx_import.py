@@ -67,6 +67,23 @@ def resolve_table(session_or_conn, table_name: str) -> dict[str, Any]:
     }
 
 
+def control_db_column(column_name: Any, json_id: Any) -> str:
+    """Prefer wFormControl.columnName for ezfb_*_items SQL; jsonId is fallback."""
+    name = str(column_name or "").strip()
+    if name:
+        return name
+    return str(json_id or "").strip()
+
+
+def _target_column_sql(cols: dict[str, str]) -> str:
+    json_c = quote_ident(cols["jsonid"]) if "jsonid" in cols else "NULL"
+    col_key = next((key for key in ("columnname", "column_name") if key in cols), None)
+    if not col_key:
+        return f"{json_c}::text"
+    col_c = quote_ident(cols[col_key])
+    return f"coalesce(nullif(btrim({col_c}::text), ''), {json_c}::text)"
+
+
 def _resolve_wformcontrol_table(session) -> dict[str, Any]:
     tables = session.execute(
         text(
@@ -93,9 +110,9 @@ def _resolve_wformcontrol_table(session) -> dict[str, Any]:
         {"schema": schema_name, "table": table_name},
     ).fetchall()
     by_lower = {str(row[0]).lower(): str(row[0]) for row in col_rows}
-    required = ("name", "jsonid", "wformid")
+    required = ("name", "wformid")
     missing = [col for col in required if col not in by_lower]
-    if missing:
+    if missing or ("jsonid" not in by_lower and "columnname" not in by_lower and "column_name" not in by_lower):
         raise HTTPException(status_code=404, detail="wFormControl is missing required columns.")
     return {
         "schema": schema_name,
@@ -106,27 +123,62 @@ def _resolve_wformcontrol_table(session) -> dict[str, Any]:
 
 
 def fetch_form_column_mapping(session, form_id: str) -> dict[str, str]:
+    name_to_col, _json_to_col, _date_cols = fetch_form_control_maps(session, form_id)
+    return name_to_col
+
+
+def fetch_form_control_maps(
+    session, form_id: str
+) -> tuple[dict[str, str], dict[str, str], set[str]]:
+    """Excel control name → table columnName; jsonId → columnName; date columnNames."""
     token = str(form_id).strip()
     if not is_guid(token):
-        return {}
+        return {}, {}, set()
     guid = str(UUID(token))
     try:
         meta = _resolve_wformcontrol_table(session)
         cols = meta["columns"]
         name_c = quote_ident(cols["name"])
-        json_c = quote_ident(cols["jsonid"])
+        target_c = _target_column_sql(cols)
         form_c = quote_ident(cols["wformid"])
+        json_c = quote_ident(cols["jsonid"]) if "jsonid" in cols else "NULL"
+        type_col = cols.get("type") or cols.get("controltype")
+        type_expr = (
+            f"upper(coalesce({quote_ident(type_col)}::text, ''))"
+            if type_col
+            else "''"
+        )
         deleted_filter = ""
         if "isdeleted" in cols:
             deleted_filter = f' AND coalesce({quote_ident(cols["isdeleted"])}::int, 0) = 0'
         sql = f"""
-            SELECT lower(replace({name_c}::text, ' ', '')) AS norm_name, {json_c} AS jsonid
+            SELECT
+                lower(replace({name_c}::text, ' ', '')) AS norm_name,
+                {target_c} AS target_col,
+                {json_c}::text AS jsonid,
+                {type_expr} AS control_type
             FROM {meta["qualified"]}
             WHERE lower({form_c}::text) = lower(:fid)
             {deleted_filter}
         """
         rows = _execute_form_query(session, sql, {"fid": guid})
-        return {row[0]: row[1] for row in rows if row[0] and row[1]}
+        name_to_col: dict[str, str] = {}
+        json_to_col: dict[str, str] = {}
+        date_cols: set[str] = set()
+        for row in rows:
+            norm_name = str(row[0] or "").strip()
+            target_col = control_db_column(row[1], row[2])
+            json_id = str(row[2] or "").strip()
+            control_type = str(row[3] or "").strip().upper()
+            if norm_name and target_col:
+                name_to_col[norm_name] = target_col
+            if json_id and target_col:
+                json_to_col[json_id.lower()] = target_col
+            if target_col and control_type in {"DATE", "DATETIME"}:
+                date_cols.add(target_col)
+                if json_id:
+                    date_cols.add(json_id)
+        return name_to_col, json_to_col, date_cols
     except HTTPException:
         raise
     except Exception as exc:
@@ -135,42 +187,12 @@ def fetch_form_column_mapping(session, form_id: str) -> dict[str, str]:
             session.rollback()
         except Exception:
             pass
-        return {}
+        return {}, {}, set()
 
 
 def fetch_form_date_jsonids(session, form_id: str) -> set[str]:
-    token = str(form_id).strip()
-    if not is_guid(token):
-        return set()
-    guid = str(UUID(token))
-    try:
-        meta = _resolve_wformcontrol_table(session)
-        cols = meta["columns"]
-        json_c = quote_ident(cols["jsonid"])
-        form_c = quote_ident(cols["wformid"])
-        type_col = cols.get("type") or cols.get("controltype")
-        if not type_col:
-            return set()
-        type_c = quote_ident(type_col)
-        deleted_filter = ""
-        if "isdeleted" in cols:
-            deleted_filter = f' AND coalesce({quote_ident(cols["isdeleted"])}::int, 0) = 0'
-        sql = f"""
-            SELECT {json_c} AS jsonid
-            FROM {meta["qualified"]}
-            WHERE lower({form_c}::text) = lower(:fid)
-              AND upper(coalesce({type_c}::text, '')) IN ('DATE', 'DATETIME')
-              {deleted_filter}
-        """
-        rows = _execute_form_query(session, sql, {"fid": guid})
-        return {row[0] for row in rows if row[0]}
-    except Exception as exc:
-        logger.warning("form_date_jsonids_failed", extra={"error_type": type(exc).__name__})
-        try:
-            session.rollback()
-        except Exception:
-            pass
-        return set()
+    _name_to_col, _json_to_col, date_cols = fetch_form_control_maps(session, form_id)
+    return date_cols
 
 
 def _update_import_status(engine, request: DataImportRequest, remarks: str) -> None:
@@ -386,7 +408,7 @@ def _read_workbook(file_bytes: bytes, column_mapping: dict[str, str], date_jsoni
     if key_col not in df2.columns:
         df["__enriched"] = None
     else:
-        reverse_mapping = {key.lower(): value for key, value in column_mapping.items()}
+        reverse_mapping = {_normalize_col(key): value for key, value in column_mapping.items()}
         non_key_cols = [col for col in df2.columns if col != key_col]
 
         def _has_any_value(row) -> bool:
@@ -409,7 +431,7 @@ def _read_workbook(file_bytes: bytes, column_mapping: dict[str, str], date_jsoni
                     continue
                 if pd.isna(value) or str(value).strip() == "":
                     continue
-                json_id = reverse_mapping.get(key.lower().replace(" ", ""))
+                json_id = reverse_mapping.get(_normalize_col(key))
                 if not json_id:
                     continue
                 if json_id in date_jsonids:
@@ -452,20 +474,26 @@ def import_xlsx_bytes(engine, request: DataImportRequest, table_name: str, file_
     Session = sessionmaker(bind=engine)
     session = Session()
     try:
-        column_mapping = fetch_form_column_mapping(session, request.formId)
+        column_mapping, json_to_column, date_columns = fetch_form_control_maps(session, request.formId)
         if not column_mapping:
             raise HTTPException(status_code=404, detail="No form controls found for formId.")
-        date_jsonids = fetch_form_date_jsonids(session, request.formId)
     finally:
         session.close()
 
-    df = _read_workbook(file_bytes, column_mapping, date_jsonids)
+    df = _read_workbook(file_bytes, column_mapping, date_columns)
     normalized_mapping = {_normalize_col(key): value for key, value in column_mapping.items()}
     df.columns = [_normalize_col(col) for col in df.columns]
     df.rename(columns=normalized_mapping, inplace=True)
-    _fix_date_columns(df, date_jsonids)
+    _fix_date_columns(df, date_columns)
     if "entryid" in df.columns and "item_id" not in df.columns:
         df.rename(columns={"entryid": "item_id"}, inplace=True)
+
+    mapped_conditions: list[str] = []
+    for col in request.conditionColumn or []:
+        raw = str(col or "").strip()
+        mapped_conditions.append(json_to_column.get(raw.lower(), raw))
+    if mapped_conditions != list(request.conditionColumn or []):
+        request = request.model_copy(update={"conditionColumn": mapped_conditions})
 
     with engine.connect() as conn:
         table_meta = resolve_table(conn, table_name)
@@ -506,10 +534,12 @@ def import_xlsx_bytes(engine, request: DataImportRequest, table_name: str, file_
         raise HTTPException(status_code=500, detail="Failed to write to staging table") from exc
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    df_cols_lower = {str(col).lower(): col for col in df.columns}
     effective: list[str] = []
     for col in request.conditionColumn or []:
-        if col in df.columns:
-            effective.append(col)
+        match = df_cols_lower.get(str(col).lower())
+        if match:
+            effective.append(match)
     if not effective and "item_id" in df.columns and request.conditionColumn:
         effective.append("item_id")
 
