@@ -476,11 +476,17 @@ async def ez_data_import(request: Request, payload: DataImportRequest) -> dict:
     try:
         return await asyncio.to_thread(run_data_import, payload, connection_string)
     except HTTPException as exc:
-        if exc.status_code in (404, 503) and isinstance(exc.detail, str):
-            raise HTTPException(
-                status_code=exc.status_code,
-                detail={"message": exc.detail, **diag},
-            ) from None
+        if exc.status_code in (404, 503):
+            if isinstance(exc.detail, str):
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail={"message": exc.detail, **diag},
+                ) from None
+            if isinstance(exc.detail, dict):
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail={**exc.detail, **diag},
+                ) from None
         raise
 
 

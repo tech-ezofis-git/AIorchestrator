@@ -50,5 +50,9 @@ def run_data_import(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning("data_import_failed", extra={"error_type": type(exc).__name__})
-        raise HTTPException(status_code=404, detail="Import failed.") from exc
+        err_type = type(exc).__name__
+        logger.warning("data_import_failed", extra={"error_type": err_type})
+        raise HTTPException(
+            status_code=404,
+            detail={"message": "Import failed.", "error_type": err_type},
+        ) from exc

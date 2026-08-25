@@ -256,15 +256,28 @@ def execute_postgres_upsert_import(
     userid = _sql_literal(request.userid)
     skip = {condition_col.lower(), "item_id", "itemid"}
     update_cols = [col for col in staging_table_columns if col.lower() not in skip]
-    set_parts = [f"t.{pg_ident(col)} = s.{pg_ident(col)}" for col in update_cols]
-    set_parts.append(f"t.modified_at = '{today}'")
-    set_parts.append(f"t.modified_by = '{userid}'")
+    # Postgres rejects alias-qualified SET targets (SET t.col = ...).
+    set_parts = [f"{pg_ident(col)} = s.{pg_ident(col)}" for col in update_cols]
+    set_parts.append(f"modified_at = '{today}'")
+    set_parts.append(f"modified_by = '{userid}'")
     insert_cols = [col for col in staging_table_columns if col.lower() not in ("item_id", "itemid")]
-    insert_col_list = ", ".join([pg_ident(col) for col in insert_cols] + ["created_by", "created_at"])
-    insert_sel_list = ", ".join([f"s.{pg_ident(col)}" for col in insert_cols] + [f"'{userid}'", f"'{today}'"])
+    insert_col_list = ", ".join(
+        [pg_ident(col) for col in insert_cols]
+        + ["created_by", "created_at", "modified_by", "modified_at", "is_deleted", "today_task", "is_marked"]
+    )
+    insert_sel_list = ", ".join(
+        [f"s.{pg_ident(col)}" for col in insert_cols]
+        + [f"'{userid}'", f"'{today}'", f"'{userid}'", f"'{today}'", "false", "false", "false"]
+    )
     empty_insert_cols = [col for col in staging_table_columns if col.lower() not in skip]
-    empty_col_list = ", ".join([pg_ident(col) for col in empty_insert_cols] + ["created_by", "created_at"])
-    empty_sel_list = ", ".join([pg_ident(col) for col in empty_insert_cols] + [f"'{userid}'", f"'{today}'"])
+    empty_col_list = ", ".join(
+        [pg_ident(col) for col in empty_insert_cols]
+        + ["created_by", "created_at", "modified_by", "modified_at", "is_deleted", "today_task", "is_marked"]
+    )
+    empty_sel_list = ", ".join(
+        [pg_ident(col) for col in empty_insert_cols]
+        + [f"'{userid}'", f"'{today}'", f"'{userid}'", f"'{today}'", "false", "false", "false"]
+    )
 
     with engine.begin() as conn:
         updated_count = conn.execute(
@@ -329,8 +342,14 @@ def execute_postgres_insert_only(
     qs = pg_ident(staging_table_name)
     userid = _sql_literal(request.userid)
     insert_cols = [col for col in staging_table_columns if col.lower() not in ("item_id", "itemid")]
-    col_list = ", ".join([pg_ident(col) for col in insert_cols] + ["created_by", "created_at"])
-    sel_list = ", ".join([f"s.{pg_ident(col)}" for col in insert_cols] + [f"'{userid}'", f"'{today}'"])
+    col_list = ", ".join(
+        [pg_ident(col) for col in insert_cols]
+        + ["created_by", "created_at", "modified_by", "modified_at", "is_deleted", "today_task", "is_marked"]
+    )
+    sel_list = ", ".join(
+        [f"s.{pg_ident(col)}" for col in insert_cols]
+        + [f"'{userid}'", f"'{today}'", f"'{userid}'", f"'{today}'", "false", "false", "false"]
+    )
     with engine.begin() as conn:
         inserted_count = conn.execute(
             text(f"INSERT INTO {qt} ({col_list}) SELECT {sel_list} FROM {qs} s")
