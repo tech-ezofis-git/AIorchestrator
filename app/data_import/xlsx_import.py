@@ -423,14 +423,25 @@ def _choose_master_sheet(
     normalized_mapping: dict[str, str],
     table_columns: list[str],
 ) -> int:
+    """Pick the sheet whose headers map onto real ezfb_* table columns.
+
+    Line-item sheets match more *control names* (Line, Part Number, …) but those
+    map to non-table fields. Prefer sheets that resolve to actual DB columns
+    (PO_Number, Supplier, …) so header values are not packed into TABLE JSON.
+    """
     db_targets = {_normalize_col(col) for col in table_columns}
     best_idx = 0
     best_score = -1
     for idx, (_sheet_name, frame) in enumerate(frames):
         cols = [_normalize_col(col) for col in frame.columns]
+        db_mapped_hits = 0
+        for col in cols:
+            target = normalized_mapping.get(col, col)
+            if _normalize_col(target) in db_targets:
+                db_mapped_hits += 1
         mapped_hits = sum(1 for col in cols if col in normalized_mapping)
-        db_hits = sum(1 for col in cols if col in db_targets)
-        score = mapped_hits * 10 + db_hits
+        # Weight DB-column hits far above raw control-name hits.
+        score = db_mapped_hits * 100 + mapped_hits
         if score > best_score:
             best_idx = idx
             best_score = score
@@ -443,6 +454,7 @@ def _read_workbook(
     date_jsonids: set[str],
     table_columns: list[str],
     name_to_jsonid: dict[str, str] | None = None,
+    db_columns: list[str] | None = None,
 ) -> pd.DataFrame:
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     sheets = xls.sheet_names
@@ -460,7 +472,7 @@ def _read_workbook(
         frame.dropna(how="all", inplace=True)
         frame.reset_index(drop=True, inplace=True)
     normalized_mapping = {_normalize_col(key): value for key, value in column_mapping.items()}
-    master_idx = _choose_master_sheet(frames, normalized_mapping, table_columns)
+    master_idx = _choose_master_sheet(frames, normalized_mapping, db_columns or table_columns)
     detail_idx = 1 - master_idx
     _master_sheetname, df = frames[master_idx]
     df2_sheetname, df2 = frames[detail_idx]
@@ -560,6 +572,7 @@ def import_xlsx_bytes(engine, request: DataImportRequest, table_name: str, file_
         date_columns,
         table_json_columns,
         name_to_jsonid,
+        db_columns=table_meta["columns"],
     )
     normalized_mapping = {_normalize_col(key): value for key, value in column_mapping.items()}
     normalized_json_mapping = {_normalize_col(key): value for key, value in json_to_column.items()}
