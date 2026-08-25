@@ -55,17 +55,25 @@ def test_choose_master_sheet_prefers_db_mapped_headers():
     from app.data_import.xlsx_import import _choose_master_sheet
 
     frames = [
-        ("Details", pd.DataFrame(columns=["Line", "Part Number", "Req Date"])),
+        ("Details", pd.DataFrame(columns=["Line", "Part Number", "Req Date", "Quantity", "UOM"])),
         ("Master", pd.DataFrame(columns=["PO Number", "Supplier", "PO Date"])),
     ]
     normalized_mapping = {
         "ponumber": "PO_Number",
         "supplier": "Supplier",
         "podate": "PO_Date",
-        "line": "2z2Rh5MpXEaiHSaWlMThr",
+        "line": "Line",
+        "partnumber": "Part_Number",
+        "reqdate": "Req_Date",
+        "quantity": "Quantity",
+        "uom": "UOM",
     }
     table_columns = ["PO_Number", "Supplier", "PO_Date", "PO_Line_Item"]
+    # Details has more control-name hits, but Master maps onto real DB columns.
     assert _choose_master_sheet(frames, normalized_mapping, table_columns) == 1
+
+    frames_swapped = [frames[1], frames[0]]
+    assert _choose_master_sheet(frames_swapped, normalized_mapping, table_columns) == 0
 
 
 def test_upsert_set_clause_does_not_qualify_target_columns():
