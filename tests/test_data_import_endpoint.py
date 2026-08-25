@@ -5,6 +5,7 @@ import pytest
 
 from app.data_import.ident import resolve_import_table_name
 from app.data_import.models import DataImportRequest
+from app.data_import.xlsx_import import control_db_column
 
 _VALID_BODY = {
     "fileName": "po.xlsx",
@@ -32,6 +33,12 @@ def test_resolve_import_table_name_from_numeric_token():
 def test_resolve_import_table_name_rejects_invalid():
     with pytest.raises(ValueError):
         resolve_import_table_name("bad form!")
+
+
+def test_control_db_column_prefers_column_name():
+    assert control_db_column("vendor_code", "pLIax1zKPXRCdlnCOLHzy") == "vendor_code"
+    assert control_db_column("  ", "pLIax1zKPXRCdlnCOLHzy") == "pLIax1zKPXRCdlnCOLHzy"
+    assert control_db_column(None, "jsonid1") == "jsonid1"
 
 
 def test_tenant_id_must_be_uuid(client):
