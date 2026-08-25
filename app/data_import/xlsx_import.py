@@ -123,17 +123,17 @@ def _resolve_wformcontrol_table(session) -> dict[str, Any]:
 
 
 def fetch_form_column_mapping(session, form_id: str) -> dict[str, str]:
-    name_to_col, _json_to_col, _date_cols = fetch_form_control_maps(session, form_id)
+    name_to_col, _json_to_col, _date_cols, _table_cols = fetch_form_control_maps(session, form_id)
     return name_to_col
 
 
 def fetch_form_control_maps(
     session, form_id: str
-) -> tuple[dict[str, str], dict[str, str], set[str]]:
-    """Excel control name → table columnName; jsonId → columnName; date columnNames."""
+) -> tuple[dict[str, str], dict[str, str], set[str], list[str]]:
+    """Excel control name → table columnName; jsonId → columnName; date columnNames; TABLE columns."""
     token = str(form_id).strip()
     if not is_guid(token):
-        return {}, {}, set()
+        return {}, {}, set(), []
     guid = str(UUID(token))
     try:
         meta = _resolve_wformcontrol_table(session)
@@ -165,6 +165,7 @@ def fetch_form_control_maps(
         name_to_col: dict[str, str] = {}
         json_to_col: dict[str, str] = {}
         date_cols: set[str] = set()
+        table_columns: list[str] = []
         for row in rows:
             norm_name = str(row[0] or "").strip()
             target_col = control_db_column(row[1], row[2])
@@ -178,7 +179,9 @@ def fetch_form_control_maps(
                 date_cols.add(target_col)
                 if json_id:
                     date_cols.add(json_id)
-        return name_to_col, json_to_col, date_cols
+            if target_col and control_type == "TABLE" and target_col not in table_columns:
+                table_columns.append(target_col)
+        return name_to_col, json_to_col, date_cols, table_columns
     except HTTPException:
         raise
     except Exception as exc:
@@ -187,11 +190,11 @@ def fetch_form_control_maps(
             session.rollback()
         except Exception:
             pass
-        return {}, {}, set()
+        return {}, {}, set(), []
 
 
 def fetch_form_date_jsonids(session, form_id: str) -> set[str]:
-    _name_to_col, _json_to_col, date_cols = fetch_form_control_maps(session, form_id)
+    _name_to_col, _json_to_col, date_cols, _table_cols = fetch_form_control_maps(session, form_id)
     return date_cols
 
 
@@ -253,15 +256,28 @@ def execute_postgres_upsert_import(
     userid = _sql_literal(request.userid)
     skip = {condition_col.lower(), "item_id", "itemid"}
     update_cols = [col for col in staging_table_columns if col.lower() not in skip]
-    set_parts = [f"t.{pg_ident(col)} = s.{pg_ident(col)}" for col in update_cols]
-    set_parts.append(f"t.modified_at = '{today}'")
-    set_parts.append(f"t.modified_by = '{userid}'")
+    # Postgres rejects alias-qualified SET targets (SET t.col = ...).
+    set_parts = [f"{pg_ident(col)} = s.{pg_ident(col)}" for col in update_cols]
+    set_parts.append(f"modified_at = '{today}'")
+    set_parts.append(f"modified_by = '{userid}'")
     insert_cols = [col for col in staging_table_columns if col.lower() not in ("item_id", "itemid")]
-    insert_col_list = ", ".join([pg_ident(col) for col in insert_cols] + ["created_by", "created_at"])
-    insert_sel_list = ", ".join([f"s.{pg_ident(col)}" for col in insert_cols] + [f"'{userid}'", f"'{today}'"])
+    insert_col_list = ", ".join(
+        [pg_ident(col) for col in insert_cols]
+        + ["created_by", "created_at", "modified_by", "modified_at", "is_deleted", "today_task", "is_marked"]
+    )
+    insert_sel_list = ", ".join(
+        [f"s.{pg_ident(col)}" for col in insert_cols]
+        + [f"'{userid}'", f"'{today}'", f"'{userid}'", f"'{today}'", "false", "false", "false"]
+    )
     empty_insert_cols = [col for col in staging_table_columns if col.lower() not in skip]
-    empty_col_list = ", ".join([pg_ident(col) for col in empty_insert_cols] + ["created_by", "created_at"])
-    empty_sel_list = ", ".join([pg_ident(col) for col in empty_insert_cols] + [f"'{userid}'", f"'{today}'"])
+    empty_col_list = ", ".join(
+        [pg_ident(col) for col in empty_insert_cols]
+        + ["created_by", "created_at", "modified_by", "modified_at", "is_deleted", "today_task", "is_marked"]
+    )
+    empty_sel_list = ", ".join(
+        [pg_ident(col) for col in empty_insert_cols]
+        + [f"'{userid}'", f"'{today}'", f"'{userid}'", f"'{today}'", "false", "false", "false"]
+    )
 
     with engine.begin() as conn:
         updated_count = conn.execute(
@@ -326,8 +342,14 @@ def execute_postgres_insert_only(
     qs = pg_ident(staging_table_name)
     userid = _sql_literal(request.userid)
     insert_cols = [col for col in staging_table_columns if col.lower() not in ("item_id", "itemid")]
-    col_list = ", ".join([pg_ident(col) for col in insert_cols] + ["created_by", "created_at"])
-    sel_list = ", ".join([f"s.{pg_ident(col)}" for col in insert_cols] + [f"'{userid}'", f"'{today}'"])
+    col_list = ", ".join(
+        [pg_ident(col) for col in insert_cols]
+        + ["created_by", "created_at", "modified_by", "modified_at", "is_deleted", "today_task", "is_marked"]
+    )
+    sel_list = ", ".join(
+        [f"s.{pg_ident(col)}" for col in insert_cols]
+        + [f"'{userid}'", f"'{today}'", f"'{userid}'", f"'{today}'", "false", "false", "false"]
+    )
     with engine.begin() as conn:
         inserted_count = conn.execute(
             text(f"INSERT INTO {qt} ({col_list}) SELECT {sel_list} FROM {qs} s")
@@ -382,7 +404,31 @@ def _to_ymd(val: Any) -> Optional[str]:
     return None if pd.isna(dt) else dt.strftime("%Y-%m-%d")
 
 
-def _read_workbook(file_bytes: bytes, column_mapping: dict[str, str], date_jsonids: set[str]) -> pd.DataFrame:
+def _choose_master_sheet(
+    frames: list[tuple[str, pd.DataFrame]],
+    normalized_mapping: dict[str, str],
+    table_columns: list[str],
+) -> int:
+    db_targets = {_normalize_col(col) for col in table_columns}
+    best_idx = 0
+    best_score = -1
+    for idx, (_sheet_name, frame) in enumerate(frames):
+        cols = [_normalize_col(col) for col in frame.columns]
+        mapped_hits = sum(1 for col in cols if col in normalized_mapping)
+        db_hits = sum(1 for col in cols if col in db_targets)
+        score = mapped_hits * 10 + db_hits
+        if score > best_score:
+            best_idx = idx
+            best_score = score
+    return best_idx
+
+
+def _read_workbook(
+    file_bytes: bytes,
+    column_mapping: dict[str, str],
+    date_jsonids: set[str],
+    table_columns: list[str],
+) -> pd.DataFrame:
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     sheets = xls.sheet_names
     if len(sheets) == 1:
@@ -393,14 +439,17 @@ def _read_workbook(file_bytes: bytes, column_mapping: dict[str, str], date_jsoni
         df = pd.read_excel(xls, sheet_name=sheets[0], dtype=str)
         return df.replace(r"^\s*$", None, regex=True)
 
-    df = pd.read_excel(xls, sheet_name=sheets[0], dtype=str)
-    df2 = pd.read_excel(xls, sheet_name=sheets[1], dtype=str)
-    for frame in (df, df2):
+    frames = [(sheet, pd.read_excel(xls, sheet_name=sheet, dtype=str)) for sheet in sheets[:2]]
+    for _, frame in frames:
         frame.replace(r"^\s*$", None, regex=True, inplace=True)
         frame.dropna(how="all", inplace=True)
         frame.reset_index(drop=True, inplace=True)
+    normalized_mapping = {_normalize_col(key): value for key, value in column_mapping.items()}
+    master_idx = _choose_master_sheet(frames, normalized_mapping, table_columns)
+    detail_idx = 1 - master_idx
+    _master_sheetname, df = frames[master_idx]
+    df2_sheetname, df2 = frames[detail_idx]
     key_col = df.columns[0]
-    df2_sheetname = sheets[1]
     if key_col in df.columns:
         df[key_col] = df[key_col].astype(str).where(pd.notna(df[key_col]), None)
     if key_col in df2.columns:
@@ -408,7 +457,7 @@ def _read_workbook(file_bytes: bytes, column_mapping: dict[str, str], date_jsoni
     if key_col not in df2.columns:
         df["__enriched"] = None
     else:
-        reverse_mapping = {_normalize_col(key): value for key, value in column_mapping.items()}
+        reverse_mapping = normalized_mapping
         non_key_cols = [col for col in df2.columns if col != key_col]
 
         def _has_any_value(row) -> bool:
@@ -474,16 +523,27 @@ def import_xlsx_bytes(engine, request: DataImportRequest, table_name: str, file_
     Session = sessionmaker(bind=engine)
     session = Session()
     try:
-        column_mapping, json_to_column, date_columns = fetch_form_control_maps(session, request.formId)
+        column_mapping, json_to_column, date_columns, table_json_columns = fetch_form_control_maps(
+            session, request.formId
+        )
         if not column_mapping:
             raise HTTPException(status_code=404, detail="No form controls found for formId.")
     finally:
         session.close()
 
-    df = _read_workbook(file_bytes, column_mapping, date_columns)
+    with engine.connect() as conn:
+        table_meta = resolve_table(conn, table_name)
+    table_qualified = table_meta["qualified"]
+    db_by_lower = {col.lower(): col for col in table_meta["columns"]}
+
+    df = _read_workbook(file_bytes, column_mapping, date_columns, table_json_columns)
     normalized_mapping = {_normalize_col(key): value for key, value in column_mapping.items()}
+    normalized_json_mapping = {_normalize_col(key): value for key, value in json_to_column.items()}
+    normalized_db_mapping = {_normalize_col(col): col for col in table_meta["columns"]}
     df.columns = [_normalize_col(col) for col in df.columns]
     df.rename(columns=normalized_mapping, inplace=True)
+    df.rename(columns=normalized_json_mapping, inplace=True)
+    df.rename(columns=normalized_db_mapping, inplace=True)
     _fix_date_columns(df, date_columns)
     if "entryid" in df.columns and "item_id" not in df.columns:
         df.rename(columns={"entryid": "item_id"}, inplace=True)
@@ -495,10 +555,6 @@ def import_xlsx_bytes(engine, request: DataImportRequest, table_name: str, file_
     if mapped_conditions != list(request.conditionColumn or []):
         request = request.model_copy(update={"conditionColumn": mapped_conditions})
 
-    with engine.connect() as conn:
-        table_meta = resolve_table(conn, table_name)
-    table_qualified = table_meta["qualified"]
-    db_by_lower = {col.lower(): col for col in table_meta["columns"]}
     rename_to_db = {}
     staging_table_columns: list[str] = []
     for col in df.columns:

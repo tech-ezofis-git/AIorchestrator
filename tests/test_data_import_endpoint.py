@@ -41,6 +41,38 @@ def test_control_db_column_prefers_column_name():
     assert control_db_column(None, "jsonid1") == "jsonid1"
 
 
+def test_choose_master_sheet_prefers_db_mapped_headers():
+    import pandas as pd
+
+    from app.data_import.xlsx_import import _choose_master_sheet
+
+    frames = [
+        ("Details", pd.DataFrame(columns=["Line", "Part Number", "Req Date"])),
+        ("Master", pd.DataFrame(columns=["PO Number", "Supplier", "PO Date"])),
+    ]
+    normalized_mapping = {
+        "ponumber": "PO_Number",
+        "supplier": "Supplier",
+        "podate": "PO_Date",
+        "line": "2z2Rh5MpXEaiHSaWlMThr",
+    }
+    table_columns = ["PO_Number", "Supplier", "PO_Date", "PO_Line_Item"]
+    assert _choose_master_sheet(frames, normalized_mapping, table_columns) == 1
+
+
+def test_upsert_set_clause_does_not_qualify_target_columns():
+    """Postgres rejects SET t.col = ...; targets must be unqualified."""
+    import inspect
+
+    from app.data_import import xlsx_import
+
+    src = inspect.getsource(xlsx_import.execute_postgres_upsert_import)
+    assert 'f"t.{pg_ident(col)} = s.{pg_ident(col)}"' not in src
+    assert 'f"{pg_ident(col)} = s.{pg_ident(col)}"' in src
+    assert "modified_at = '" in src
+    assert "t.modified_at" not in src
+
+
 def test_tenant_id_must_be_uuid(client):
     body = {**_VALID_BODY, "tenantId": "not-a-uuid"}
     response = client.post("/api/ezDataImport", json=body)
