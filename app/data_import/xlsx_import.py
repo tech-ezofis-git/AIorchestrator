@@ -67,21 +67,26 @@ def resolve_table(session_or_conn, table_name: str) -> dict[str, Any]:
     }
 
 
-def control_db_column(column_name: Any, json_id: Any) -> str:
-    """Prefer wFormControl.columnName for ezfb_*_items SQL; jsonId is fallback."""
+def control_db_column(column_name: Any, json_id: Any, display_name: Any = None) -> str:
+    """Prefer wFormControl.columnName for ezfb_*_items SQL.
+
+    When columnName is absent (some tenants), derive SQL column from the
+    control display name (``PO Number`` → ``PO_Number``). jsonId is last resort.
+    """
     name = str(column_name or "").strip()
     if name:
         return name
+    display = str(display_name or "").strip()
+    if display:
+        return display.replace(" ", "_")
     return str(json_id or "").strip()
 
 
-def _target_column_sql(cols: dict[str, str]) -> str:
-    json_c = quote_ident(cols["jsonid"]) if "jsonid" in cols else "NULL"
+def _column_name_sql(cols: dict[str, str]) -> str:
     col_key = next((key for key in ("columnname", "column_name") if key in cols), None)
     if not col_key:
-        return f"{json_c}::text"
-    col_c = quote_ident(cols[col_key])
-    return f"coalesce(nullif(btrim({col_c}::text), ''), {json_c}::text)"
+        return "NULL"
+    return f"{quote_ident(cols[col_key])}::text"
 
 
 def _resolve_wformcontrol_table(session) -> dict[str, Any]:
@@ -123,25 +128,27 @@ def _resolve_wformcontrol_table(session) -> dict[str, Any]:
 
 
 def fetch_form_column_mapping(session, form_id: str) -> dict[str, str]:
-    name_to_col, _json_to_col, _date_cols, _table_cols = fetch_form_control_maps(session, form_id)
+    name_to_col, _json_to_col, _date_cols, _table_cols, _name_to_json = fetch_form_control_maps(
+        session, form_id
+    )
     return name_to_col
 
 
 def fetch_form_control_maps(
     session, form_id: str
-) -> tuple[dict[str, str], dict[str, str], set[str], list[str]]:
-    """Excel control name → table columnName; jsonId → columnName; date columnNames; TABLE columns."""
+) -> tuple[dict[str, str], dict[str, str], set[str], list[str], dict[str, str]]:
+    """Excel control name → SQL column; jsonId → SQL column; date cols; TABLE cols; name → jsonId."""
     token = str(form_id).strip()
     if not is_guid(token):
-        return {}, {}, set(), []
+        return {}, {}, set(), [], {}
     guid = str(UUID(token))
     try:
         meta = _resolve_wformcontrol_table(session)
         cols = meta["columns"]
         name_c = quote_ident(cols["name"])
-        target_c = _target_column_sql(cols)
         form_c = quote_ident(cols["wformid"])
         json_c = quote_ident(cols["jsonid"]) if "jsonid" in cols else "NULL"
+        col_name_c = _column_name_sql(cols)
         type_col = cols.get("type") or cols.get("controltype")
         type_expr = (
             f"upper(coalesce({quote_ident(type_col)}::text, ''))"
@@ -153,8 +160,9 @@ def fetch_form_control_maps(
             deleted_filter = f' AND coalesce({quote_ident(cols["isdeleted"])}::int, 0) = 0'
         sql = f"""
             SELECT
+                {name_c}::text AS display_name,
                 lower(replace({name_c}::text, ' ', '')) AS norm_name,
-                {target_c} AS target_col,
+                {col_name_c} AS column_name,
                 {json_c}::text AS jsonid,
                 {type_expr} AS control_type
             FROM {meta["qualified"]}
@@ -164,24 +172,28 @@ def fetch_form_control_maps(
         rows = _execute_form_query(session, sql, {"fid": guid})
         name_to_col: dict[str, str] = {}
         json_to_col: dict[str, str] = {}
+        name_to_jsonid: dict[str, str] = {}
         date_cols: set[str] = set()
         table_columns: list[str] = []
         for row in rows:
-            norm_name = str(row[0] or "").strip()
-            target_col = control_db_column(row[1], row[2])
-            json_id = str(row[2] or "").strip()
-            control_type = str(row[3] or "").strip().upper()
+            display_name = str(row[0] or "").strip()
+            norm_name = str(row[1] or "").strip()
+            target_col = control_db_column(row[2], row[3], display_name)
+            json_id = str(row[3] or "").strip()
+            control_type = str(row[4] or "").strip().upper()
             if norm_name and target_col:
                 name_to_col[norm_name] = target_col
             if json_id and target_col:
                 json_to_col[json_id.lower()] = target_col
+            if norm_name and json_id:
+                name_to_jsonid[norm_name] = json_id
             if target_col and control_type in {"DATE", "DATETIME"}:
                 date_cols.add(target_col)
                 if json_id:
                     date_cols.add(json_id)
             if target_col and control_type == "TABLE" and target_col not in table_columns:
                 table_columns.append(target_col)
-        return name_to_col, json_to_col, date_cols, table_columns
+        return name_to_col, json_to_col, date_cols, table_columns, name_to_jsonid
     except HTTPException:
         raise
     except Exception as exc:
@@ -190,11 +202,13 @@ def fetch_form_control_maps(
             session.rollback()
         except Exception:
             pass
-        return {}, {}, set(), []
+        return {}, {}, set(), [], {}
 
 
 def fetch_form_date_jsonids(session, form_id: str) -> set[str]:
-    _name_to_col, _json_to_col, date_cols, _table_cols = fetch_form_control_maps(session, form_id)
+    _name_to_col, _json_to_col, date_cols, _table_cols, _name_to_json = fetch_form_control_maps(
+        session, form_id
+    )
     return date_cols
 
 
@@ -428,6 +442,7 @@ def _read_workbook(
     column_mapping: dict[str, str],
     date_jsonids: set[str],
     table_columns: list[str],
+    name_to_jsonid: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     sheets = xls.sheet_names
@@ -457,7 +472,9 @@ def _read_workbook(
     if key_col not in df2.columns:
         df["__enriched"] = None
     else:
-        reverse_mapping = normalized_mapping
+        # Detail JSON payloads use jsonId keys (form runtime), not SQL column names.
+        detail_map = name_to_jsonid if name_to_jsonid else column_mapping
+        reverse_mapping = {_normalize_col(key): value for key, value in detail_map.items()}
         non_key_cols = [col for col in df2.columns if col != key_col]
 
         def _has_any_value(row) -> bool:
@@ -514,7 +531,8 @@ def _read_workbook(
         return None
 
     df["__enriched"] = df["__enriched"].where(pd.notna(df["__enriched"]), None)
-    df[df2_sheetname] = df["__enriched"].apply(_to_json_or_none)
+    enriched_col = table_columns[0] if table_columns else df2_sheetname
+    df[enriched_col] = df["__enriched"].apply(_to_json_or_none)
     df.drop(columns="__enriched", inplace=True)
     return df
 
@@ -523,8 +541,8 @@ def import_xlsx_bytes(engine, request: DataImportRequest, table_name: str, file_
     Session = sessionmaker(bind=engine)
     session = Session()
     try:
-        column_mapping, json_to_column, date_columns, table_json_columns = fetch_form_control_maps(
-            session, request.formId
+        column_mapping, json_to_column, date_columns, table_json_columns, name_to_jsonid = (
+            fetch_form_control_maps(session, request.formId)
         )
         if not column_mapping:
             raise HTTPException(status_code=404, detail="No form controls found for formId.")
@@ -536,7 +554,13 @@ def import_xlsx_bytes(engine, request: DataImportRequest, table_name: str, file_
     table_qualified = table_meta["qualified"]
     db_by_lower = {col.lower(): col for col in table_meta["columns"]}
 
-    df = _read_workbook(file_bytes, column_mapping, date_columns, table_json_columns)
+    df = _read_workbook(
+        file_bytes,
+        column_mapping,
+        date_columns,
+        table_json_columns,
+        name_to_jsonid,
+    )
     normalized_mapping = {_normalize_col(key): value for key, value in column_mapping.items()}
     normalized_json_mapping = {_normalize_col(key): value for key, value in json_to_column.items()}
     normalized_db_mapping = {_normalize_col(col): col for col in table_meta["columns"]}

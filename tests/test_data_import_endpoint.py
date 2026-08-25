@@ -41,6 +41,14 @@ def test_control_db_column_prefers_column_name():
     assert control_db_column(None, "jsonid1") == "jsonid1"
 
 
+def test_control_db_column_derives_from_display_name_when_column_name_missing():
+    assert (
+        control_db_column(None, "pLIax1zKPXRCdlnCOLHzy", "PO Number") == "PO_Number"
+    )
+    assert control_db_column("", "jid", "Ship To Address") == "Ship_To_Address"
+    assert control_db_column("PO_Number", "jid", "PO Number") == "PO_Number"
+
+
 def test_choose_master_sheet_prefers_db_mapped_headers():
     import pandas as pd
 
