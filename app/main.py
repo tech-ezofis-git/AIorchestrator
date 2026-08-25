@@ -254,6 +254,15 @@ async def lifespan(app: FastAPI):
         min_size=0,
         max_size=settings.database_pool_max_size,
     )
+    try:
+        from app.ap_skills.tenant_db import ensure_ap_schema
+
+        await ensure_ap_schema(db_pool)
+    except Exception as exc:
+        logger.warning(
+            "ap_schema_bootstrap_failed",
+            extra={"error_type": type(exc).__name__},
+        )
 
     catalog_pool = None
     catalog_db = db_pool

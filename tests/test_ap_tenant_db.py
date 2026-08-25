@@ -59,10 +59,12 @@ def test_replace_database_name_keeps_auth_and_query():
 
 def test_uuid_tenant_opens_rewritten_database_url():
     seen = []
+    seen_kwargs = []
     fake = FakeDBPool()
 
     async def create_pool(url, **kwargs):
         seen.append(url)
+        seen_kwargs.append(kwargs)
         return fake
 
     async def run():
@@ -84,3 +86,6 @@ def test_uuid_tenant_opens_rewritten_database_url():
     assert len(seen) == 1
     assert "/ezofis_Tenant_2e3b7b37" in seen[0]
     assert "maindb" not in seen[0].split("?")[0]
+    # asyncpg gets ssl= via kwargs; sslmode query is stripped
+    assert "sslmode" not in seen[0].lower()
+    assert seen_kwargs[0].get("ssl") is True
