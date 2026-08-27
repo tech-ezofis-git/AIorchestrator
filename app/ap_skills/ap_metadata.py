@@ -2,6 +2,9 @@
 
 PATCH /Workflows/{workflowId}/instances/{instanceId}/ap-agent/metadata
 Persists invoice_header + line items; does not move-next.
+
+ezfb_*_items updates require formId + formEntryId. Header/line keys are dual-emitted
+to match both the V6 preferred labels and live apagentv6 OCR labels (Vendor Name / Line Item).
 """
 from __future__ import annotations
 
@@ -10,25 +13,31 @@ from typing import Any, Optional
 
 logger = logging.getLogger("orchestrator.ap.metadata")
 
-# Form control Labels / names expected by V6 ApAgentMetadataParser.
+# (output label, source keys). Duplicate labels for aliasing across form styles.
 _HEADER_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("PO Number", ("po_number", "PO Number", "poNumber")),
     ("Invoice No", ("invoice_number", "Invoice No", "invoice_no", "invoiceNumber")),
     ("Invoice Amount", ("total", "Invoice Amount", "amount", "invoice_amount")),
-    ("Supplier", ("vendor", "Supplier", "supplier", "vendor_name", "Supplier Name", "Vendor Name")),
+    ("Supplier", ("vendor", "Supplier", "supplier", "vendor_name", "Supplier Name", "Vendor Name", "VENDOR Name")),
+    ("Vendor Name", ("vendor", "Vendor Name", "VENDOR Name", "vendor_name", "Supplier", "Supplier Name", "supplier")),
     ("Supplier Address", ("supplier_address", "Supplier Address", "vendor_address", "Vendor Address")),
+    ("Vendor Address", ("vendor_address", "Vendor Address", "supplier_address", "Supplier Address")),
     ("Ship To Address", ("ship_to_address", "Ship To Address", "ship_to")),
     ("PO Date", ("po_date", "PO Date", "PO DATE")),
+    ("PO DATE", ("po_date", "PO DATE", "PO Date")),
     ("Due Date", ("due_date", "Due Date")),
     ("Invoice Date", ("invoice_date", "Invoice Date")),
     ("Currency", ("currency", "Currency")),
     ("Terms", ("terms", "Terms", "TERMS")),
+    ("TERMS", ("terms", "TERMS", "Terms")),
     ("Buyer", ("buyer", "Buyer")),
     ("Invoice Tax Amount", ("tax", "Invoice Tax Amount", "tax_amount", "invoice_tax_amount")),
     ("Matched Status", ("matched_status", "Matched Status")),
+    ("Document Type", ("document_type", "Document Type", "doc_type")),
 )
 
-_LINE_ITEM_KEY = "Invoice Extracted Line Item"
+_LINE_ITEM_KEY_PREFERRED = "Invoice Extracted Line Item"
+_LINE_ITEM_KEY_LEGACY = "Line Item"
 
 
 def _first_value(data: dict[str, Any], *keys: str) -> Any:
@@ -72,8 +81,8 @@ def build_ap_metadata_fields(invoice: dict[str, Any]) -> dict[str, Any]:
         header[label] = value if not isinstance(value, str) else value.strip()
 
     lines_raw = (
-        invoice.get(_LINE_ITEM_KEY)
-        or invoice.get("Line Item")
+        invoice.get(_LINE_ITEM_KEY_PREFERRED)
+        or invoice.get(_LINE_ITEM_KEY_LEGACY)
         or invoice.get("line_items")
         or invoice.get("lines")
         or []
@@ -101,7 +110,9 @@ def build_ap_metadata_fields(invoice: dict[str, Any]) -> dict[str, Any]:
     if header:
         fields["invoice_header"] = header
     if lines:
-        fields[_LINE_ITEM_KEY] = lines
+        # Dual keys: V6 preferred + live apagentv6 / older form controls.
+        fields[_LINE_ITEM_KEY_PREFERRED] = lines
+        fields[_LINE_ITEM_KEY_LEGACY] = lines
     return fields
 
 
@@ -144,6 +155,16 @@ async def push_extract_metadata(
         logger.warning("ap_metadata_skipped", extra={"reason": "empty_fields"})
         return {"ok": False, "skipped": True, "reason": "empty_fields"}
 
+    # Without formId + formEntryId, V6 cannot update ezfb_*_items (only may touch repo metadata).
+    if not resolved_form_id or form_entry_id is None:
+        logger.warning(
+            "ap_metadata_missing_form_ids",
+            extra={
+                "has_form_id": bool(resolved_form_id),
+                "has_form_entry_id": form_entry_id is not None,
+            },
+        )
+
     try:
         result = await ezofis.apply_ap_agent_metadata(
             tenant_id=tenant_id,
@@ -155,12 +176,30 @@ async def push_extract_metadata(
             form_id=resolved_form_id,
             form_entry_id=form_entry_id,
         )
-        if isinstance(result, dict) and not result.get("ok", True) and not result.get("mock"):
+        if not isinstance(result, dict):
+            return {"ok": bool(result)}
+
+        if not resolved_form_id or form_entry_id is None:
+            result = {
+                **result,
+                "ezfb_warning": "missing_form_ids",
+                "has_form_id": bool(resolved_form_id),
+                "has_form_entry_id": form_entry_id is not None,
+            }
+
+        ezfb_n = result.get("ezfbFieldsUpdated")
+        if result.get("ok") and ezfb_n is not None and int(ezfb_n or 0) == 0:
+            logger.warning(
+                "ap_metadata_zero_ezfb_fields",
+                extra={"form_entry_id": form_entry_id, "form_id": resolved_form_id},
+            )
+
+        if not result.get("ok", True) and not result.get("mock"):
             logger.warning(
                 "ap_metadata_push_failed",
                 extra={"status_code": result.get("status_code"), "reason": result.get("reason")},
             )
-        return result if isinstance(result, dict) else {"ok": bool(result)}
+        return result
     except Exception as exc:
         logger.warning(
             "ap_metadata_push_error",
