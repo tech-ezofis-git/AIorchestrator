@@ -89,7 +89,8 @@ class DocumentPayload(BaseModel):
     )
     item_id: Optional[str] = Field(
         default=None,
-        description="Stable AP document key for artifact re-runs. Defaults to filepath/filename/hash.",
+        validation_alias=AliasChoices("item_id", "itemId", "ItemId"),
+        description="Stable AP document key for artifact re-runs. Alias: itemId. Defaults to filepath/filename/hash.",
     )
     repository_item_id: Optional[str] = Field(
         default=None,
