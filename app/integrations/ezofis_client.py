@@ -497,6 +497,14 @@ class EzofisClient:
             body["formId"] = str(form_id).strip()
         if form_entry_id is not None:
             body["formEntryId"] = int(form_entry_id)
+        if "formId" not in body or "formEntryId" not in body:
+            logger.warning(
+                "ezofis_metadata_without_form_ids",
+                extra={
+                    "has_form_id": "formId" in body,
+                    "has_form_entry_id": "formEntryId" in body,
+                },
+            )
 
         if not self._live_enabled():
             return {"ok": True, "mock": True, **body}
@@ -531,6 +539,7 @@ class EzofisClient:
                         "repository_fields": result.get("repositoryFieldsUpdated"),
                         "ezfb_fields": result.get("ezfbFieldsUpdated"),
                         "line_items": result.get("lineItemsUpdated"),
+                        "form_entry_id": body.get("formEntryId"),
                     },
                 )
                 return result
