@@ -466,6 +466,79 @@ class EzofisClient:
             logger.warning("ezofis_progress_error")
             return {"ok": False}
 
+    async def apply_ap_agent_metadata(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: str,
+        instance_id: str,
+        repository_id: str,
+        item_id: str,
+        fields: dict[str, Any],
+        form_id: Optional[str] = None,
+        form_entry_id: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """PATCH .../ap-agent/metadata — persist extracted header/lines (not move-next)."""
+        wf_id = str(workflow_id or "").strip()
+        inst_id = str(instance_id or "").strip()
+        repo_id = str(repository_id or "").strip()
+        item_guid = str(item_id or "").strip()
+        if not all([wf_id, inst_id, repo_id, item_guid]):
+            return {"ok": False, "skipped": True, "reason": "missing_ids"}
+        if not fields:
+            return {"ok": False, "skipped": True, "reason": "empty_fields"}
+
+        body: dict[str, Any] = {
+            "repositoryId": repo_id,
+            "itemId": item_guid,
+            "fields": fields,
+        }
+        if form_id:
+            body["formId"] = str(form_id).strip()
+        if form_entry_id is not None:
+            body["formEntryId"] = int(form_entry_id)
+
+        if not self._live_enabled():
+            return {"ok": True, "mock": True, **body}
+
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/Workflows/{wf_id}/instances/{inst_id}/ap-agent/metadata"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.patch(url, headers=headers, json=body)
+                if response.status_code not in (200, 204):
+                    logger.warning(
+                        "ezofis_metadata_failed",
+                        extra={"status_code": response.status_code},
+                    )
+                    return {
+                        "ok": False,
+                        "status_code": response.status_code,
+                        "detail": (response.text or "")[:300],
+                    }
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                logger.info(
+                    "ezofis_metadata_applied",
+                    extra={
+                        "repository_fields": result.get("repositoryFieldsUpdated"),
+                        "ezfb_fields": result.get("ezfbFieldsUpdated"),
+                        "line_items": result.get("lineItemsUpdated"),
+                    },
+                )
+                return result
+        except Exception:
+            logger.warning("ezofis_metadata_error")
+            return {"ok": False}
+
+
     async def workflow_move_next(
         self, *, tenant_id: str, instance_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
