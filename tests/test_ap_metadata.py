@@ -1,7 +1,11 @@
 """AP metadata PATCH payload builder + client wiring."""
 import pytest
 
-from app.ap_skills.ap_metadata import build_ap_metadata_fields, push_extract_metadata
+from app.ap_skills.ap_metadata import (
+    build_ap_metadata_fields,
+    push_extract_metadata,
+    resolve_metadata_ids,
+)
 from app.integrations.ezofis_client import EzofisClient
 
 
@@ -47,36 +51,26 @@ def test_build_ap_metadata_fields_preserves_nested_invoice_header():
     assert fields["Line Item"][0]["description"] == "A"
 
 
-@pytest.mark.asyncio
-async def test_push_extract_metadata_warns_when_form_ids_missing():
-    seen = {}
-
-    class FakeEz:
-        async def apply_ap_agent_metadata(self, **kwargs):
-            seen.update(kwargs)
-            return {"ok": True, "mock": True, "ezfbFieldsUpdated": 0}
-
-    result = await push_extract_metadata(
-        ezofis=FakeEz(),
-        tenant_id="t1",
-        document_job={
-            "workflow_id": "wf",
-            "instance_id": "inst",
-            "repository_id": "repo",
-            "repository_item_id": "item-guid",
-        },
-        form_id=None,
-        invoice={"invoice_number": "INV-1"},
-    )
-    assert result["ok"] is True
-    assert result["ezfb_warning"] == "missing_form_ids"
-    assert seen["form_id"] is None
-    assert seen["form_entry_id"] is None
-
-
 def test_build_ap_metadata_fields_empty_invoice():
     assert build_ap_metadata_fields({}) == {}
     assert build_ap_metadata_fields({"line_items": []}) == {}
+
+
+def test_resolve_metadata_ids_prefers_repository_guid_and_numeric_item_as_form_entry():
+    ids = resolve_metadata_ids(
+        {
+            "workflow_id": "wf",
+            "instance_id": "inst",
+            "repository_id": "repo",
+            "repository_item_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "item_id": "42",
+            "form_id": "9a117b01-1111-2222-3333-444444444444",
+        },
+        form_id=None,
+    )
+    assert ids["item_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    assert ids["form_entry_id"] == 42
+    assert ids["form_id"].startswith("9a117b01")
 
 
 @pytest.mark.asyncio
@@ -97,6 +91,29 @@ async def test_push_extract_metadata_skips_when_ids_missing():
 
 
 @pytest.mark.asyncio
+async def test_push_extract_metadata_skips_when_form_ids_missing():
+    class FakeEz:
+        async def apply_ap_agent_metadata(self, **kwargs):
+            raise AssertionError("should not call — V6 requires form ids")
+
+    result = await push_extract_metadata(
+        ezofis=FakeEz(),
+        tenant_id="t1",
+        document_job={
+            "workflow_id": "wf",
+            "instance_id": "inst",
+            "repository_id": "repo",
+            "repository_item_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        },
+        form_id=None,
+        invoice={"invoice_number": "INV-1"},
+    )
+    assert result["skipped"] is True
+    assert result["reason"] == "missing_form_ids"
+    assert result["request"]["item_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+
+@pytest.mark.asyncio
 async def test_push_extract_metadata_calls_client():
     seen = {}
 
@@ -112,7 +129,7 @@ async def test_push_extract_metadata_calls_client():
             "workflow_id": "wf",
             "instance_id": "inst",
             "repository_id": "repo",
-            "repository_item_id": "item-guid",
+            "repository_item_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             "form_entry_id": "42",
             "form_id": "form-guid",
         },
@@ -120,13 +137,35 @@ async def test_push_extract_metadata_calls_client():
         invoice={"invoice_number": "INV-9", "vendor": "Acme", "po_number": "PO-1"},
     )
     assert result["ok"] is True
+    assert result["ezfb_warning"] == "mock_login_disabled"
     assert seen["tenant_id"] == "tenant-1"
     assert seen["workflow_id"] == "wf"
     assert seen["instance_id"] == "inst"
     assert seen["repository_id"] == "repo"
-    assert seen["item_id"] == "item-guid"
+    assert seen["item_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     assert seen["form_entry_id"] == 42
     assert seen["fields"]["invoice_header"]["Invoice No"] == "INV-9"
+
+
+@pytest.mark.asyncio
+async def test_ezofis_apply_metadata_skips_without_form_ids(monkeypatch):
+    monkeypatch.delenv("EZOFIS_LOGIN_EMAIL", raising=False)
+    monkeypatch.delenv("EZOFIS_LOGIN_PASSWORD", raising=False)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    client = EzofisClient()
+    result = await client.apply_ap_agent_metadata(
+        tenant_id="t1",
+        workflow_id="wf",
+        instance_id="inst",
+        repository_id="repo",
+        item_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        fields={"invoice_header": {"Invoice No": "1"}},
+    )
+    assert result["skipped"] is True
+    assert result["reason"] == "missing_form_ids"
+    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -142,7 +181,7 @@ async def test_ezofis_apply_metadata_mock_when_live_disabled(monkeypatch):
         workflow_id="wf",
         instance_id="inst",
         repository_id="repo",
-        item_id="item",
+        item_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         fields={"invoice_header": {"Invoice No": "1"}},
         form_id="form",
         form_entry_id=7,

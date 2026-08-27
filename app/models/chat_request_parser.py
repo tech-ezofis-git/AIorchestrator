@@ -53,7 +53,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or _form_str(form.get("formid"))
         or _form_str(form.get("formId"))
     )
-    item_id = _form_str(form.get("item_id"))
+    item_id = _form_str(form.get("item_id")) or _form_str(form.get("itemId")) or _form_str(form.get("ItemId"))
     repository_item_id = (
         _form_str(form.get("repository_item_id"))
         or _form_str(form.get("repositoryItemId"))

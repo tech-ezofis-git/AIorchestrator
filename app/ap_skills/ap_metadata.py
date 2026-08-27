@@ -3,12 +3,13 @@
 PATCH /Workflows/{workflowId}/instances/{instanceId}/ap-agent/metadata
 Persists invoice_header + line items; does not move-next.
 
-ezfb_*_items updates require formId + formEntryId. Header/line keys are dual-emitted
-to match both the V6 preferred labels and live apagentv6 OCR labels (Vendor Name / Line Item).
+V6 ApplyApAgentMetadata **requires** formId + formEntryId (400 otherwise) and updates
+``dbo.ezfb_{formToken}_items`` WHERE item_id = formEntryId.
 """
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 
 logger = logging.getLogger("orchestrator.ap.metadata")
@@ -38,6 +39,9 @@ _HEADER_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 _LINE_ITEM_KEY_PREFERRED = "Invoice Extracted Line Item"
 _LINE_ITEM_KEY_LEGACY = "Line Item"
+_GUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 def _first_value(data: dict[str, Any], *keys: str) -> Any:
@@ -68,7 +72,6 @@ def build_ap_metadata_fields(invoice: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(invoice, dict) or not invoice:
         return {}
 
-    # Prefer nested invoice_header when already present (apagentv6 shape).
     header_src = invoice.get("invoice_header")
     if not isinstance(header_src, dict):
         header_src = invoice
@@ -110,7 +113,6 @@ def build_ap_metadata_fields(invoice: dict[str, Any]) -> dict[str, Any]:
     if header:
         fields["invoice_header"] = header
     if lines:
-        # Dual keys: V6 preferred + live apagentv6 / older form controls.
         fields[_LINE_ITEM_KEY_PREFERRED] = lines
         fields[_LINE_ITEM_KEY_LEGACY] = lines
     return fields
@@ -120,9 +122,46 @@ def _parse_form_entry_id(raw: Any) -> Optional[int]:
     if raw is None or raw == "":
         return None
     try:
-        return int(str(raw).strip())
+        value = int(str(raw).strip())
     except (TypeError, ValueError):
         return None
+    return value if value > 0 else None
+
+
+def _is_guid(value: str) -> bool:
+    return bool(_GUID_RE.match((value or "").strip()))
+
+
+def resolve_metadata_ids(document_job: dict[str, Any], form_id: Optional[str]) -> dict[str, Any]:
+    """Resolve IDs V6 ApplyApAgentMetadata requires."""
+    job = document_job or {}
+    workflow_id = str(job.get("workflow_id") or "").strip()
+    instance_id = str(job.get("instance_id") or "").strip()
+    repository_id = str(job.get("repository_id") or "").strip()
+    repo_item = str(job.get("repository_item_id") or "").strip()
+    raw_item = str(job.get("item_id") or "").strip()
+    form_entry_id = _parse_form_entry_id(job.get("form_entry_id"))
+    resolved_form_id = str(form_id or job.get("form_id") or "").strip() or None
+
+    # V6 body.itemId must be the repository item GUID.
+    item_guid = ""
+    if _is_guid(repo_item):
+        item_guid = repo_item
+    elif _is_guid(raw_item):
+        item_guid = raw_item
+
+    # If formentryId was omitted but item_id is a positive int, treat it as form entry PK.
+    if form_entry_id is None and raw_item and not _is_guid(raw_item):
+        form_entry_id = _parse_form_entry_id(raw_item)
+
+    return {
+        "workflow_id": workflow_id,
+        "instance_id": instance_id,
+        "repository_id": repository_id,
+        "item_id": item_guid,
+        "form_id": resolved_form_id,
+        "form_entry_id": form_entry_id,
+    }
 
 
 async def push_extract_metadata(
@@ -134,36 +173,46 @@ async def push_extract_metadata(
     invoice: dict[str, Any],
 ) -> dict[str, Any]:
     """Best-effort metadata PATCH after extract_invoice (non-fatal upstream)."""
-    job = document_job or {}
-    workflow_id = str(job.get("workflow_id") or "").strip()
-    instance_id = str(job.get("instance_id") or "").strip()
-    repository_id = str(job.get("repository_id") or "").strip()
-    item_id = str(
-        job.get("repository_item_id") or job.get("item_id") or ""
-    ).strip()
-    form_entry_id = _parse_form_entry_id(job.get("form_entry_id"))
-    resolved_form_id = str(form_id or job.get("form_id") or "").strip() or None
+    ids = resolve_metadata_ids(document_job, form_id)
+    workflow_id = ids["workflow_id"]
+    instance_id = ids["instance_id"]
+    repository_id = ids["repository_id"]
+    item_id = ids["item_id"]
+    form_entry_id = ids["form_entry_id"]
+    resolved_form_id = ids["form_id"]
 
     fields = build_ap_metadata_fields(invoice)
-    if not workflow_id or not instance_id or not repository_id or not item_id:
-        logger.warning(
-            "ap_metadata_skipped",
-            extra={"reason": "missing_ids"},
-        )
-        return {"ok": False, "skipped": True, "reason": "missing_ids"}
-    if not fields:
-        logger.warning("ap_metadata_skipped", extra={"reason": "empty_fields"})
-        return {"ok": False, "skipped": True, "reason": "empty_fields"}
+    request_summary = {
+        "workflow_id": workflow_id or None,
+        "instance_id": instance_id or None,
+        "repository_id": repository_id or None,
+        "item_id": item_id or None,
+        "form_id": resolved_form_id,
+        "form_entry_id": form_entry_id,
+        "header_keys": sorted((fields.get("invoice_header") or {}).keys()),
+        "line_item_count": len(fields.get(_LINE_ITEM_KEY_PREFERRED) or []),
+    }
 
-    # Without formId + formEntryId, V6 cannot update ezfb_*_items (only may touch repo metadata).
+    if not workflow_id or not instance_id or not repository_id or not item_id:
+        logger.warning("ap_metadata_skipped", extra={"reason": "missing_ids", **request_summary})
+        return {"ok": False, "skipped": True, "reason": "missing_ids", "request": request_summary}
+
+    # V6 controller requires formId + formEntryId; without them PATCH is 400 and ezfb is untouched.
     if not resolved_form_id or form_entry_id is None:
         logger.warning(
-            "ap_metadata_missing_form_ids",
-            extra={
-                "has_form_id": bool(resolved_form_id),
-                "has_form_entry_id": form_entry_id is not None,
-            },
+            "ap_metadata_skipped",
+            extra={"reason": "missing_form_ids", **request_summary},
         )
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "missing_form_ids",
+            "request": request_summary,
+        }
+
+    if not fields:
+        logger.warning("ap_metadata_skipped", extra={"reason": "empty_fields", **request_summary})
+        return {"ok": False, "skipped": True, "reason": "empty_fields", "request": request_summary}
 
     try:
         result = await ezofis.apply_ap_agent_metadata(
@@ -177,32 +226,35 @@ async def push_extract_metadata(
             form_entry_id=form_entry_id,
         )
         if not isinstance(result, dict):
-            return {"ok": bool(result)}
+            return {"ok": bool(result), "request": request_summary}
 
-        if not resolved_form_id or form_entry_id is None:
-            result = {
-                **result,
-                "ezfb_warning": "missing_form_ids",
-                "has_form_id": bool(resolved_form_id),
-                "has_form_entry_id": form_entry_id is not None,
-            }
+        out = {**result, "request": request_summary}
+        if out.get("mock"):
+            logger.warning(
+                "ap_metadata_mock_no_ezfb",
+                extra={"reason": "ezofis_login_not_configured", **request_summary},
+            )
+            out["ezfb_warning"] = "mock_login_disabled"
 
-        ezfb_n = result.get("ezfbFieldsUpdated")
-        if result.get("ok") and ezfb_n is not None and int(ezfb_n or 0) == 0:
+        ezfb_n = out.get("ezfbFieldsUpdated")
+        if out.get("ok") and not out.get("mock") and ezfb_n is not None and int(ezfb_n or 0) == 0:
             logger.warning(
                 "ap_metadata_zero_ezfb_fields",
                 extra={"form_entry_id": form_entry_id, "form_id": resolved_form_id},
             )
 
-        if not result.get("ok", True) and not result.get("mock"):
+        if not out.get("ok", True) and not out.get("mock"):
             logger.warning(
                 "ap_metadata_push_failed",
-                extra={"status_code": result.get("status_code"), "reason": result.get("reason")},
+                extra={
+                    "status_code": out.get("status_code"),
+                    "detail": (out.get("detail") or "")[:200],
+                },
             )
-        return result
+        return out
     except Exception as exc:
         logger.warning(
             "ap_metadata_push_error",
             extra={"error_type": type(exc).__name__},
         )
-        return {"ok": False, "error_type": type(exc).__name__}
+        return {"ok": False, "error_type": type(exc).__name__, "request": request_summary}

@@ -497,16 +497,26 @@ class EzofisClient:
             body["formId"] = str(form_id).strip()
         if form_entry_id is not None:
             body["formEntryId"] = int(form_entry_id)
+        # V6 ParseApAgentMetadataBody requires formId + formEntryId (exact casing).
         if "formId" not in body or "formEntryId" not in body:
             logger.warning(
-                "ezofis_metadata_without_form_ids",
+                "ezofis_metadata_skipped",
                 extra={
+                    "reason": "missing_form_ids",
                     "has_form_id": "formId" in body,
                     "has_form_entry_id": "formEntryId" in body,
                 },
             )
+            return {
+                "ok": False,
+                "skipped": True,
+                "reason": "missing_form_ids",
+                "has_form_id": "formId" in body,
+                "has_form_entry_id": "formEntryId" in body,
+            }
 
         if not self._live_enabled():
+            logger.warning("ezofis_metadata_mock", extra={"reason": "login_not_configured"})
             return {"ok": True, "mock": True, **body}
 
         try:
@@ -515,14 +525,18 @@ class EzofisClient:
             async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
                 response = await client.patch(url, headers=headers, json=body)
                 if response.status_code not in (200, 204):
+                    detail = (response.text or "")[:500]
                     logger.warning(
                         "ezofis_metadata_failed",
-                        extra={"status_code": response.status_code},
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
                     )
                     return {
                         "ok": False,
                         "status_code": response.status_code,
-                        "detail": (response.text or "")[:300],
+                        "detail": detail,
+                        "formId": body.get("formId"),
+                        "formEntryId": body.get("formEntryId"),
+                        "itemId": body.get("itemId"),
                     }
                 result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
                 if response.content:
