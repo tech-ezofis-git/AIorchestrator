@@ -104,6 +104,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     key_facts_count = _parse_optional_int(_form_str(form.get("key_facts_count")), field="key_facts_count")
     insights_count = _parse_optional_int(_form_str(form.get("insights_count")), field="insights_count")
     insight_area = _form_str(form.get("insight_area"))
+    pdf_json = _parse_optional_json_object_or_list(_form_str(form.get("pdf_json")), field="pdf_json")
+    template_json = _parse_optional_json_object(_form_str(form.get("template_json")), field="template_json")
+    pdf_title = _form_str(form.get("pdf_title"))
+    pdf_theme = _form_str(form.get("pdf_theme"))
 
     upload = form.get("file")
     file_bytes = None
@@ -151,6 +155,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or key_facts_count is not None
         or insights_count is not None
         or insight_area
+        or pdf_json
+        or template_json
+        or pdf_title
+        or pdf_theme
     ):
         payload = DocumentPayload(
             filepath=filepath,
@@ -161,6 +169,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             insight_json=insight_json,
             insights_count=insights_count,
             insight_area=insight_area,
+            pdf_json=pdf_json,
+            template_json=template_json,
+            pdf_title=pdf_title,
+            pdf_theme=pdf_theme,
             parameters=parameters,
             tableparameters=tableparameters,
             model=model,
@@ -232,6 +244,21 @@ def _parse_optional_json_object(raw: Optional[str], *, field: str) -> Optional[d
         ) from exc
     if not isinstance(data, dict):
         raise HTTPException(status_code=422, detail=f"{field} must be a JSON object string.")
+    return data
+
+
+def _parse_optional_json_object_or_list(raw: Optional[str], *, field: str) -> Optional[Any]:
+    if raw is None or raw == "":
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{field} must be a valid JSON string (object or array).",
+        ) from exc
+    if not isinstance(data, (dict, list)):
+        raise HTTPException(status_code=422, detail=f"{field} must be a JSON object or array.")
     return data
 
 

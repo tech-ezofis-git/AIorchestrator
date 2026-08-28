@@ -1,0 +1,131 @@
+"""The PDF Generator agent — converts structured JSON into beautiful, styled PDFs."""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+
+from app.config import Settings
+from app.llm.adapter import LLMAdapter
+from app.pdf_skills.pdf_generator import generate_pdf_from_json, PdfGenerationResult
+
+logger = logging.getLogger("orchestrator.pdf_agent")
+
+_STATIC_PDF_DIR = Path(__file__).resolve().parent.parent / "static" / "generated_pdfs"
+
+
+class PdfAgent:
+    def __init__(
+        self,
+        llm_adapter: Optional[LLMAdapter] = None,
+        settings: Optional[Settings] = None,
+    ) -> None:
+        self._llm = llm_adapter
+        self._settings = settings
+        _STATIC_PDF_DIR.mkdir(parents=True, exist_ok=True)
+
+    async def handle(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        history: Optional[list[dict[str, str]]] = None,
+        document_job: Optional[dict[str, Any]] = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        """Handles PDF generation requests from POST /chat."""
+        job = document_job or {}
+        pdf_json = job.get("pdf_json") or job.get("json_data") or job.get("template_json")
+        pdf_title = job.get("pdf_title") or job.get("title")
+        pdf_theme = job.get("pdf_theme") or job.get("theme")
+
+        # If not in document_job, check if message is a JSON string
+        if not pdf_json and message:
+            trimmed = message.strip()
+            # If message contains JSON (e.g. enclosed in ```json ... ``` or raw {...})
+            if trimmed.startswith("{") or trimmed.startswith("["):
+                try:
+                    pdf_json = json.loads(trimmed)
+                except Exception:
+                    pass
+            elif "```json" in trimmed:
+                match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", trimmed)
+                if match:
+                    try:
+                        pdf_json = json.loads(match.group(1).strip())
+                    except Exception:
+                        pass
+
+        # If still no JSON, and we have an LLM adapter + a natural language message,
+        # synthesize structured JSON from the user description
+        usage = None
+        if not pdf_json and message and self._llm:
+            try:
+                system_prompt = (
+                    "You are the PDF data structuring assistant for EZOFIS. "
+                    "Extract or generate structured JSON from the user's description. "
+                    "Include appropriate title, metadata fields, sections, and items/tables. "
+                    "Return ONLY valid JSON (no markdown formatting, no commentary)."
+                )
+                llm_res = await self._llm.chat_completion(
+                    [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": message},
+                    ]
+                )
+                raw_text = str(llm_res.get("content") or "").strip()
+                if "```" in raw_text:
+                    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw_text)
+                    if match:
+                        raw_text = match.group(1).strip()
+                pdf_json = json.loads(raw_text)
+                usage = llm_res.get("usage")
+            except Exception as exc:
+                logger.warning("pdf_llm_synthesis_failed", extra={"error": str(exc)})
+
+        if not pdf_json:
+            raise ValueError(
+                "PDF generation requires a JSON object with values in payload.pdf_json, "
+                "or a valid JSON string / prompt in message."
+            )
+
+        if not isinstance(pdf_json, (dict, list)):
+            raise ValueError("pdf_json must be a JSON object or list of records.")
+
+        # Determine target file path inside static directory
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        candidate_title = pdf_title or (pdf_json.get("title") if isinstance(pdf_json, dict) else "Document")
+        clean_title = re.sub(r"[^\w\-.]", "_", str(candidate_title or "document")).strip("_") or "document"
+        out_filename = f"{clean_title}_{timestamp}.pdf"
+        out_path = str(_STATIC_PDF_DIR / out_filename)
+
+        # Run CPU-bound ReportLab generation in async thread pool
+        gen_result: PdfGenerationResult = await asyncio.to_thread(
+            generate_pdf_from_json,
+            pdf_json,
+            output_path=out_path,
+            title=pdf_title,
+            theme=pdf_theme,
+        )
+
+        reply = (
+            f"PDF document '{gen_result.filename}' generated successfully "
+            f"({gen_result.page_count} page{'s' if gen_result.page_count != 1 else ''}, "
+            f"{gen_result.file_size_bytes / 1024:.1f} KB)."
+        )
+
+        res_dict = gen_result.to_dict()
+        res_dict["download_url"] = f"/api/pdf/download/{gen_result.filename}"
+        res_dict["preview_url"] = f"/api/pdf/preview/{gen_result.filename}"
+        res_dict["static_url"] = f"/static/generated_pdfs/{gen_result.filename}"
+
+        return {
+            "reply": reply,
+            "usage": usage,
+            "pdf_result": res_dict,
+        }

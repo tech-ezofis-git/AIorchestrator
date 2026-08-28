@@ -52,10 +52,25 @@ class Intent(str, Enum):
     MAIL = "mail"
     AP = "ap"
     PROMPT = "prompt"
+    PDF = "pdf"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the
 # lowercased message — simple and deterministic, not ML-based.
+_PDF_TRIGGERS = (
+    "generate pdf",
+    "generate a pdf",
+    "create pdf",
+    "create a pdf",
+    "make a pdf",
+    "make pdf",
+    "build pdf",
+    "export to pdf",
+    "export pdf",
+    "convert json to pdf",
+    "print pdf",
+)
+
 _SEARCH_TRIGGERS = (
     "search",
     "find",
@@ -169,6 +184,8 @@ class IntentRouter:
         normalized = message.strip().lower()
         if not normalized:
             return Intent.CHAT
+        if any(trigger in normalized for trigger in _PDF_TRIGGERS):
+            return Intent.PDF
         if any(trigger in normalized for trigger in _SEARCH_TRIGGERS):
             return Intent.SEARCH
         if any(trigger in normalized for trigger in _SUMMARY_TRIGGERS):

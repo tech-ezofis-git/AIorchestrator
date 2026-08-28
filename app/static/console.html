@@ -1606,6 +1606,30 @@ Due Date,DATE</textarea>
           </div>
         </details>
       </div>
+      <div class="mode-fields" id="pdfFields" hidden>
+        <div>
+          <label for="pdfTitle">Document Title</label>
+          <input type="text" id="pdfTitle" placeholder="e.g. Invoice INV-2026-001" />
+        </div>
+        <div>
+          <label for="pdfTheme">Color Theme</label>
+          <select id="pdfTheme">
+            <option value="corporate_blue">Corporate Blue</option>
+            <option value="emerald">Emerald Green</option>
+            <option value="graphite">Graphite Slate</option>
+            <option value="purple">Royal Purple</option>
+            <option value="amber">Warm Amber</option>
+          </select>
+        </div>
+        <div class="ocr-actions" style="align-self:end; display:flex; gap:6px;">
+          <button type="button" class="btn-ghost" id="pdfSampleInvoiceBtn">Invoice Sample</button>
+          <button type="button" class="btn-ghost" id="pdfSampleReportBtn">Report Sample</button>
+        </div>
+        <div class="span-all">
+          <label for="pdfJson">JSON Data (values / fields / tables)</label>
+          <textarea id="pdfJson" rows="6" placeholder='{"title": "Invoice", "invoice_number": "INV-100", "total": 1500, "items": [{"name": "Item 1", "amount": 1500}]}'></textarea>
+        </div>
+      </div>
       </div>
     </details>
     <details class="ocr-panel" id="apPanel">
@@ -2067,6 +2091,7 @@ const ICONS = {
   insight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18V9l5 4 5-8 6 10"/></svg>',
   ap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6V4h8v2"/></svg>',
   prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 17 4 12l4-5M16 7l4 5-4 5M13 5l-2 14"/></svg>',
+  pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
@@ -2074,6 +2099,7 @@ const CAP_ACTIONS = [
   { slug: 'insight', label: 'Insight agent', mode: 'insight' },
   { slug: 'ap', label: 'AP agent', mode: 'ap' },
   { slug: 'prompt', label: 'Prompt agent', mode: 'prompt' },
+  { slug: 'pdf', label: 'PDF generator', mode: 'pdf' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
 const MODE_LABELS = {
@@ -2083,6 +2109,7 @@ const MODE_LABELS = {
   insight: 'Insight agent',
   ap: 'AP agent',
   prompt: 'Prompt agent',
+  pdf: 'PDF generator',
 };
 const capActionsEl = document.getElementById('capActions');
 const apPanel = document.getElementById('apPanel');
@@ -2366,7 +2393,7 @@ function syncMainControls() {
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result)) return;
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
@@ -2377,7 +2404,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -2385,7 +2412,7 @@ function setComposerMode(mode) {
   const banner = document.getElementById('docBanner');
   const composerWrap = document.getElementById('composerWrap');
   const modeLabel = document.getElementById('composerModeLabel');
-  const showDoc = mode === 'summary' || mode === 'ocr' || mode === 'insight';
+  const showDoc = mode === 'summary' || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
   panel.classList.toggle('visible', showDoc);
   panel.open = showDoc;
   if (apPanel) apPanel.open = mode === 'ap';
@@ -2393,6 +2420,8 @@ function setComposerMode(mode) {
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
+  const pdfFields = document.getElementById('pdfFields');
+  if (pdfFields) pdfFields.hidden = mode !== 'pdf';
   const promptFields = document.getElementById('promptFields');
   if (promptFields) promptFields.hidden = mode !== 'prompt';
   if (composerWrap) {
@@ -2423,6 +2452,9 @@ function setComposerMode(mode) {
     messageInput.placeholder = 'Optional note';
   } else if (mode === 'prompt') {
     messageInput.placeholder = 'Paste the prompt';
+  } else if (mode === 'pdf') {
+    banner.textContent = 'PDF Generator';
+    messageInput.placeholder = 'Optional note or styling instructions';
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -3387,10 +3419,46 @@ function renderHighlightedText(s) {
     .replace(/&lt;\/mark&gt;/gi, '</mark>');
 }
 
+function renderPdfResult(pdf, request) {
+  if (!pdf) return { html: '', resultJson: {}, curlText: '' };
+  const filename = pdf.filename || 'document.pdf';
+  const downloadUrl = pdf.download_url || `/api/pdf/download/${encodeURIComponent(filename)}`;
+  const previewUrl = pdf.preview_url || `/api/pdf/preview/${encodeURIComponent(filename)}`;
+  const pages = pdf.page_count ?? 1;
+  const sizeKb = pdf.file_size_bytes ? (pdf.file_size_bytes / 1024).toFixed(1) + ' KB' : '';
+  const title = pdf.title || 'Generated PDF Document';
+
+  const html = `
+    <div class="detail-block pdf-card" style="border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 14px; margin-top: 10px; background: rgba(59,130,246,0.03);">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+        <div style="font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px;">
+          <svg style="width:20px;height:20px;color:#ef4444;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span>${escapeHtml(title)}</span>
+        </div>
+        <div style="font-size:12px; color:var(--text-muted, #64748b); display:flex; gap:8px; align-items:center;">
+          <span class="badge info">${pages} page${pages === 1 ? '' : 's'}</span>
+          ${sizeKb ? `<span class="badge">${sizeKb}</span>` : ''}
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+        <a href="${downloadUrl}" download="${escapeHtml(filename)}" class="btn-primary" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:8px 14px; font-size:13px; border-radius:6px; font-weight:500;">
+          <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download PDF
+        </a>
+        <a href="${previewUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:8px 14px; font-size:13px; border-radius:6px; border:1px solid rgba(255,255,255,0.15);">
+          <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Preview in Browser
+        </a>
+      </div>
+    </div>
+  `;
+  return { html, resultJson: pdf, curlText: '' };
+}
+
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result)
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -3434,8 +3502,13 @@ function renderAssistantMessage(body, sessionId, request) {
     details += promptCode.html;
     codeBlocks.push(promptCode);
   }
+  if (body.pdf_result) {
+    const pdfCode = renderPdfResult(body.pdf_result, request);
+    details += pdfCode.html;
+    codeBlocks.push(pdfCode);
+  }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -3471,6 +3544,9 @@ function renderAssistantMessage(body, sessionId, request) {
   }
   if (body.prompt_result) {
     bubbleText = body.reply || 'Prompt executed successfully.';
+  }
+  if (body.pdf_result) {
+    bubbleText = body.reply || `PDF generated successfully (${body.pdf_result.page_count || 1} page${(body.pdf_result.page_count || 1) === 1 ? '' : 's'}).`;
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -4105,12 +4181,141 @@ async function sendPromptJob() {
   }
 }
 
+const PDF_INVOICE_SAMPLE = {
+  "invoice_number": "INV-2026-0042",
+  "invoice_date": "2026-08-28",
+  "due_date": "2026-09-28",
+  "vendor_name": "Apex Cloud Systems Inc.",
+  "vendor_address": "100 Innovation Way, Suite 400, Austin TX 78701",
+  "customer_name": "Enterprise Holdings LLC",
+  "customer_address": "500 Corporate Blvd, New York NY 10001",
+  "payment_terms": "Net 30",
+  "currency": "USD",
+  "items": [
+    { "item": "AI Orchestration Platform License", "quantity": 1, "rate": 8500.00, "amount": 8500.00 },
+    { "item": "Custom PDF Agent Integration & Setup", "quantity": 1, "rate": 3200.00, "amount": 3200.00 },
+    { "item": "Multi-Tenant Cloud Configuration", "quantity": 2, "rate": 750.00, "amount": 1500.00 },
+    { "item": "24/7 Enterprise SLA Support (Annual)", "quantity": 1, "rate": 2400.00, "amount": 2400.00 }
+  ],
+  "subtotal": 15600.00,
+  "tax_rate": "8.25%",
+  "tax_amount": 1287.00,
+  "total_amount": 16887.00,
+  "notes": "Thank you for partnering with Apex Cloud Systems. Direct bank wire details sent separately."
+};
+
+const PDF_REPORT_SAMPLE = {
+  "report_title": "Monthly Financial & Operational Performance",
+  "period": "August 2026",
+  "prepared_by": "Finance & Analytics Team",
+  "summary_metrics": {
+    "total_revenue": "$1,450,000",
+    "gross_margin": "74.5%",
+    "active_subscribers": "12,480",
+    "operating_expenses": "$620,000",
+    "net_ebitda": "$460,250"
+  },
+  "department_breakdown": [
+    { "department": "Cloud Platform", "budget": "$350,000", "actual": "$332,000", "variance": "-5.1%", "status": "On Track" },
+    { "department": "AI & Data Engineering", "budget": "$280,000", "actual": "$275,000", "variance": "-1.8%", "status": "On Track" },
+    { "department": "Enterprise Sales", "budget": "$190,000", "actual": "$205,000", "variance": "+7.9%", "status": "Review" },
+    { "department": "Customer Success", "budget": "$120,000", "actual": "$114,000", "variance": "-5.0%", "status": "On Track" }
+  ],
+  "key_findings": "All business units met or exceeded revenue targets. Q3 renewal rate tracked at 98.2%.",
+  "approvals": {
+    "chief_financial_officer": "Approved",
+    "chief_executive_officer": "Approved",
+    "audit_committee": "Signed"
+  }
+};
+
+const pdfSampleInvBtn = document.getElementById('pdfSampleInvoiceBtn');
+if (pdfSampleInvBtn) {
+  pdfSampleInvBtn.addEventListener('click', () => {
+    setComposerMode('pdf');
+    document.getElementById('pdfTitle').value = 'Commercial Invoice INV-2026-0042';
+    document.getElementById('pdfTheme').value = 'corporate_blue';
+    document.getElementById('pdfJson').value = JSON.stringify(PDF_INVOICE_SAMPLE, null, 2);
+  });
+}
+
+const pdfSampleRepBtn = document.getElementById('pdfSampleReportBtn');
+if (pdfSampleRepBtn) {
+  pdfSampleRepBtn.addEventListener('click', () => {
+    setComposerMode('pdf');
+    document.getElementById('pdfTitle').value = 'Monthly Financial & Operational Performance';
+    document.getElementById('pdfTheme').value = 'emerald';
+    document.getElementById('pdfJson').value = JSON.stringify(PDF_REPORT_SAMPLE, null, 2);
+  });
+}
+
+async function sendPdfJob() {
+  const jsonRaw = document.getElementById('pdfJson')?.value.trim() || '';
+  if (!jsonRaw) {
+    addSystemMessage('Provide JSON data in the box, or click Invoice / Report Sample.');
+    return;
+  }
+  let parsedJson;
+  try {
+    parsedJson = JSON.parse(jsonRaw);
+  } catch (err) {
+    addSystemMessage('Invalid JSON data: ' + err.message);
+    return;
+  }
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const title = document.getElementById('pdfTitle')?.value.trim() || '';
+  const theme = document.getElementById('pdfTheme')?.value || 'corporate_blue';
+  const note = messageInput.value.trim();
+
+  addUserMessage(`Generate PDF: ${title || 'Document'} (${theme})`);
+  const processing = addProcessingMessage('Generating PDF with ReportLab…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Generating PDF';
+
+  try {
+    const payload = {
+      pdf_json: parsedJson,
+      pdf_title: title || undefined,
+      pdf_theme: theme,
+    };
+    const body = attachConsoleTenantBody({
+      session_id: sessionId,
+      intent: 'pdf',
+      message: note || 'Generate PDF document from structured JSON data.',
+      payload: attachConsoleTenant(payload),
+    });
+    const request = { intent: 'pdf', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      collapseFormsAfterResult(data);
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'PDF generation failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
 async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
   if (composerMode === 'ocr') return sendOcrJob();
   if (composerMode === 'ap') return sendApJob();
   if (composerMode === 'prompt') return sendPromptJob();
+  if (composerMode === 'pdf') return sendPdfJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');

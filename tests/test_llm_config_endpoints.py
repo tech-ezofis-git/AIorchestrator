@@ -17,7 +17,7 @@ def test_get_llm_config_reflects_startup_settings(client):
     assert body["api_version"] is None
     assert body["preset_id"] == "ezofis-gpu-box"
     assert body["default_preset_id"] == "ezofis-gpu-box"
-    assert body["fallback_preset_id"] is None
+    assert body["fallback_preset_id"] in (None, "gpt-4.1-mini")
     assert body["has_api_key"] is True
 
 

@@ -91,6 +91,8 @@ app/control/pii_redaction.py.
 """
 import asyncio
 import logging
+import os
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -98,7 +100,7 @@ from typing import Optional
 
 import asyncpg
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from redis.asyncio import Redis
@@ -116,6 +118,7 @@ from app.agents.forecast_agent import ForecastAgent
 from app.agents.insight_agent import InsightAgent
 from app.agents.mail_agent import MailAgent
 from app.agents.ocr_agent import OcrAgent
+from app.agents.pdf_agent import PdfAgent
 from app.agents.prompt_agent import PromptAgent
 from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
@@ -406,6 +409,7 @@ async def lifespan(app: FastAPI):
     pending_action_store = PendingActionStore(redis_client, settings.pending_action_ttl_seconds)
     mail_agent = MailAgent(pending_action_store, response_composer)
     prompt_agent = PromptAgent(llm_adapter)
+    pdf_agent = PdfAgent(llm_adapter, settings)
 
     rate_limiter = RateLimiter(
         redis_client,
@@ -423,6 +427,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.AP, ap_agent.handle)
     agent_router.register(Intent.MAIL, mail_agent.handle)
     agent_router.register(Intent.PROMPT, prompt_agent.handle)
+    agent_router.register(Intent.PDF, pdf_agent.handle)
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
@@ -469,6 +474,41 @@ app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/api/pdf/download/{filename}")
+async def download_pdf(filename: str) -> FileResponse:
+    """Download a generated PDF document with attachment headers."""
+    import tempfile
+    safe_name = os.path.basename(filename)
+    static_path = _STATIC_DIR / "generated_pdfs" / safe_name
+    temp_path = Path(tempfile.gettempdir()) / safe_name
+    target_path = static_path if static_path.is_file() else (temp_path if temp_path.is_file() else None)
+    if not target_path or not target_path.is_file():
+        raise HTTPException(status_code=404, detail=f"PDF file '{safe_name}' not found.")
+    return FileResponse(
+        path=str(target_path),
+        media_type="application/pdf",
+        filename=safe_name,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+
+@app.get("/api/pdf/preview/{filename}")
+async def preview_pdf(filename: str) -> FileResponse:
+    """Preview a generated PDF inline in the browser."""
+    import tempfile
+    safe_name = os.path.basename(filename)
+    static_path = _STATIC_DIR / "generated_pdfs" / safe_name
+    temp_path = Path(tempfile.gettempdir()) / safe_name
+    target_path = static_path if static_path.is_file() else (temp_path if temp_path.is_file() else None)
+    if not target_path or not target_path.is_file():
+        raise HTTPException(status_code=404, detail=f"PDF file '{safe_name}' not found.")
+    return FileResponse(
+        path=str(target_path),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+    )
 
 
 @app.post("/api/ezDataImport")
@@ -1314,6 +1354,22 @@ _CHAT_MULTIPART_SCHEMA = {
             "type": "string",
             "description": "Pre-extracted invoice JSON object (intent=ap).",
         },
+        "pdf_json": {
+            "type": "string",
+            "description": "Arbitrary structured JSON object or array string for intent=pdf.",
+        },
+        "template_json": {
+            "type": "string",
+            "description": "Optional schema template JSON string for intent=pdf.",
+        },
+        "pdf_title": {
+            "type": "string",
+            "description": "Optional title for generated PDF (intent=pdf).",
+        },
+        "pdf_theme": {
+            "type": "string",
+            "description": "Optional theme for generated PDF: corporate_blue, emerald, graphite, purple, amber.",
+        },
         "file": {
             "type": "string",
             "format": "binary",
@@ -1340,6 +1396,33 @@ _CHAT_MULTIPART_SCHEMA = {
                         "chat": {
                             "summary": "Plain chat",
                             "value": {"session_id": "demo", "message": "Hello"},
+                        },
+                        "pdf_invoice": {
+                            "summary": "PDF Agent: Generate styled PDF from structured invoice JSON",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "pdf",
+                                "payload": {
+                                    "pdf_title": "Invoice INV-2026-001",
+                                    "pdf_theme": "corporate_blue",
+                                    "pdf_json": {
+                                        "invoice_number": "INV-2026-001",
+                                        "date": "2026-08-28",
+                                        "due_date": "2026-09-28",
+                                        "vendor": "Acme Solutions Ltd",
+                                        "customer": "Global Corp Inc",
+                                        "items": [
+                                            {"description": "AI Orchestration Platform", "quantity": 1, "rate": 5000.0, "amount": 5000.0},
+                                            {"description": "Enterprise Cloud Setup", "quantity": 2, "rate": 1200.0, "amount": 2400.0}
+                                        ],
+                                        "subtotal": 7400.0,
+                                        "tax_amount": 740.0,
+                                        "total_amount": 8140.0,
+                                        "currency": "USD",
+                                        "notes": "Thank you for your business. Payment due within 30 days."
+                                    }
+                                }
+                            },
                         },
                         "prompt": {
                             "summary": "Prompt agent (raw model text, no JSON validation)",
@@ -1482,6 +1565,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     has_ocr_text = bool(payload.payload and (payload.payload.ocr_text or "").strip())
     has_summary_json = bool(payload.payload and payload.payload.summary_json)
     has_insight_json = bool(payload.payload and payload.payload.insight_json)
+    has_pdf_json = bool(payload.payload and (payload.payload.pdf_json or payload.payload.template_json))
     message = (payload.message or "").strip()
     explicit = (payload.intent or "").strip().lower()
     prompt_alias = (payload.payload.prompt or "").strip() if payload.payload else ""
@@ -1494,12 +1578,15 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             or has_ocr_text
             or has_summary_json
             or has_insight_json
-            or explicit in {"ocr", "summary", "insight", "ap"}
+            or has_pdf_json
+            or explicit in {"ocr", "summary", "insight", "ap", "pdf"}
         ):
             if explicit == "summary":
                 message = "Summarize the document."
             elif explicit == "insight":
                 message = "Generate insights from the supplied data."
+            elif explicit == "pdf":
+                message = "Generate PDF document from structured JSON data."
             else:
                 message = (payload.instruction or "").strip() or "Process the document and generate structured JSON."
         else:
@@ -1583,6 +1670,15 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         document_job = {
             "prompt": message,
             "model": payload.payload.model if payload.payload else None,
+        }
+    elif intent == Intent.PDF:
+        document_job = {
+            "pdf_json": payload.payload.pdf_json if payload.payload else None,
+            "template_json": payload.payload.template_json if payload.payload else None,
+            "pdf_title": payload.payload.pdf_title if payload.payload else None,
+            "pdf_theme": payload.payload.pdf_theme if payload.payload else None,
+            "model": payload.payload.model if payload.payload else None,
+            "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
@@ -1824,6 +1920,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         mail_draft=result.get("mail_draft"),
         ap_result=result.get("ap_result"),
         prompt_result=result.get("prompt_result"),
+        pdf_result=result.get("pdf_result"),
     )
 
 

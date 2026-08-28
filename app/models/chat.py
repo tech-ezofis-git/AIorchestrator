@@ -65,6 +65,25 @@ class DocumentPayload(BaseModel):
             "to steer insight tone. Wins over insight_json.area / dashboard."
         ),
     )
+    pdf_json: Optional[Any] = Field(
+        default=None,
+        description=(
+            "Arbitrary structured JSON object or list of records for intent=pdf. "
+            "Auto-formatted into a publication-quality PDF document."
+        ),
+    )
+    template_json: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Optional schema template JSON for intent=pdf.",
+    )
+    pdf_title: Optional[str] = Field(
+        default=None,
+        description="Optional document title for intent=pdf.",
+    )
+    pdf_theme: Optional[str] = Field(
+        default=None,
+        description="Optional color theme for intent=pdf (corporate_blue, emerald, graphite, purple, amber).",
+    )
     parameters: list[str] = Field(default_factory=list)
     tableparameters: list[str] = Field(default_factory=list)
     model: Optional[str] = None
@@ -172,6 +191,7 @@ class ChatRequest(BaseModel):
         has_ocr_text = bool(payload and (payload.ocr_text or "").strip())
         has_summary_json = bool(payload and payload.summary_json)
         has_insight_json = bool(payload and payload.insight_json)
+        has_pdf_json = bool(payload and (payload.pdf_json or payload.template_json))
         has_ap_doc = bool(
             payload
             and (
@@ -187,16 +207,17 @@ class ChatRequest(BaseModel):
             and not has_ocr_text
             and not has_summary_json
             and not has_insight_json
+            and not has_pdf_json
             and not has_ap_doc
             and not has_prompt
         ):
             # Multipart uploads attach file bytes outside this model; main.py
-            # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap after parsing.
-            if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap"}:
+            # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap/pdf after parsing.
+            if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap", "pdf"}:
                 return self
             raise ValueError(
                 "Either message, payload.prompt, payload.filepath, payload.ocr_text, "
-                "payload.summary_json, payload.insight_json, or payload.invoice_json is required."
+                "payload.summary_json, payload.insight_json, payload.pdf_json, or payload.invoice_json is required."
             )
         return self
 
@@ -284,5 +305,12 @@ class ChatResponse(BaseModel):
         description=(
             "Prompt agent output. `text` is the raw model string (not parsed or "
             "validated, even when it looks like JSON). `reply` is a short status line."
+        ),
+    )
+    pdf_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "PDF agent output — status, filename, file_path, download_url, "
+            "preview_url, pdf_base64, page_count, file_size_bytes, title, generated_at."
         ),
     )
