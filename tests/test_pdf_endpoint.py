@@ -104,3 +104,38 @@ def test_chat_pdf_intent_missing_data(client):
 def test_pdf_download_not_found(client):
     response = client.get("/api/pdf/download/nonexistent_file_12345.pdf")
     assert response.status_code == 404
+
+
+def test_get_pdf_templates_endpoint(client):
+    response = client.get("/api/pdf/templates")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert body["count"] >= 2
+    tpl_ids = [t["template_id"] for t in body["templates"]]
+    assert "Vessel_Call_FDA_Exact_Format" in tpl_ids
+    assert "Vessel_Call_PDA_Exact_Format" in tpl_ids
+
+
+def test_chat_pdf_with_template_name(client):
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "session-tpl-1",
+            "intent": "pdf",
+            "payload": {
+                "template_name": "Vessel_Call_FDA_Exact_Format",
+                "pdf_title": "Vessel Call FDA",
+                "pdf_json": {
+                    "vessel_name": "M/V PACIFIC HORIZON",
+                    "port_name": "PORT OF SINGAPORE",
+                    "total_disbursement": "20980.00",
+                },
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["pdf_result"] is not None
+    assert body["pdf_result"]["status"] == "success"
+    assert body["pdf_result"]["page_count"] >= 1

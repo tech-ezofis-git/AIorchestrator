@@ -8,8 +8,10 @@ from __future__ import annotations
 import base64
 import html
 import io
+import json
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -38,6 +40,10 @@ from app.pdf_skills.rules import (
     infer_document_title,
     resolve_theme,
     sanitize_filename,
+)
+from app.pdf_skills.template_renderer import (
+    is_pdfme_template,
+    render_pdfme_template_to_pdf,
 )
 
 logger = logging.getLogger("orchestrator.pdf_skills")
@@ -651,26 +657,153 @@ def _build_signature_grid(
     return t
 
 
+TEMPLATES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "templates"))
+if not os.path.exists(TEMPLATES_DIR):
+    root_templates = os.path.abspath(os.path.join(os.getcwd(), "templates"))
+    if os.path.exists(root_templates):
+        TEMPLATES_DIR = root_templates
+
+
+def list_available_templates(templates_dir: Optional[str] = None) -> list[dict[str, Any]]:
+    """Discovers and lists all pre-installed PDF templates."""
+    search_dir = templates_dir or TEMPLATES_DIR
+    if not os.path.isdir(search_dir):
+        return []
+
+    results: list[dict[str, Any]] = []
+    for entry in sorted(os.listdir(search_dir)):
+        if entry.lower().endswith(".json"):
+            fp = os.path.join(search_dir, entry)
+            try:
+                with open(fp, "r", encoding="utf-8") as f:
+                    tpl = json.load(f)
+                if is_pdfme_template(tpl):
+                    t_id = os.path.splitext(entry)[0]
+                    title = t_id.replace("_", " ").title()
+                    sample_keys: list[str] = []
+                    schemas = tpl.get("schemas", [])
+                    if schemas and isinstance(schemas[0], list):
+                        for fld in schemas[0]:
+                            k = fld.get("name") or fld.get("dataKey")
+                            if k and k not in sample_keys:
+                                sample_keys.append(k)
+                    results.append(
+                        {
+                            "template_id": t_id,
+                            "filename": entry,
+                            "title": title,
+                            "file_path": fp,
+                            "page_count": len(schemas),
+                            "schema_fields_sample": sample_keys[:12],
+                        }
+                    )
+            except Exception as ex:
+                logger.warning("template_scan_skip", extra={"file": entry, "error": str(ex)})
+    return results
+
+
+def load_template(name_or_path: str, templates_dir: Optional[str] = None) -> Optional[dict[str, Any]]:
+    """Loads a template JSON by ID, alias, filename, or direct file path."""
+    if not name_or_path:
+        return None
+    raw = str(name_or_path).strip()
+    if not raw:
+        return None
+
+    # 1. Direct JSON string
+    if raw.startswith("{") and raw.endswith("}"):
+        try:
+            tpl = json.loads(raw)
+            if is_pdfme_template(tpl):
+                return tpl
+        except Exception:
+            pass
+
+    # 2. Direct File Path
+    if os.path.isfile(raw):
+        try:
+            with open(raw, "r", encoding="utf-8") as f:
+                tpl = json.load(f)
+            if is_pdfme_template(tpl):
+                return tpl
+        except Exception:
+            pass
+
+    # 3. Search directory
+    search_dir = templates_dir or TEMPLATES_DIR
+    if os.path.isdir(search_dir):
+        cand_path = os.path.join(search_dir, f"{raw}.json" if not raw.endswith(".json") else raw)
+        if os.path.isfile(cand_path):
+            with open(cand_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+        norm_key = re.sub(r"[\s\-_]+", "", raw.lower().replace(".json", ""))
+        for entry in os.listdir(search_dir):
+            if entry.lower().endswith(".json"):
+                base_entry = os.path.splitext(entry)[0]
+                norm_entry = re.sub(r"[\s\-_]+", "", base_entry.lower())
+
+                if norm_key in {"fda", "vesselcallfda", "vesselfda"} and "fda" in norm_entry:
+                    with open(os.path.join(search_dir, entry), "r", encoding="utf-8") as f:
+                        return json.load(f)
+                if norm_key in {"pda", "vesselcallpda", "vesselpda"} and "pda" in norm_entry:
+                    with open(os.path.join(search_dir, entry), "r", encoding="utf-8") as f:
+                        return json.load(f)
+
+                if norm_key in norm_entry or norm_entry in norm_key:
+                    with open(os.path.join(search_dir, entry), "r", encoding="utf-8") as f:
+                        return json.load(f)
+
+    return None
+
+
 def generate_pdf_from_json(
     json_data: dict[str, Any] | list[Any],
     *,
+    template_name: Optional[str] = None,
+    template_id: Optional[str] = None,
+    template_json: Optional[dict[str, Any]] = None,
+    template: Optional[dict[str, Any]] = None,
     output_path: Optional[str] = None,
     title: Optional[str] = None,
     theme: Optional[str] = None,
     theme_name: Optional[str] = None,
     page_size: str = "A4",
 ) -> PdfGenerationResult:
-    """Renders a complete, beautifully styled PDF from structured JSON."""
-    if isinstance(json_data, list):
-        data: dict[str, Any] = {"records": json_data}
+    """Renders a complete, beautifully styled PDF from structured JSON or template."""
+    now_str = datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
+
+    # If json_data itself is a pdfme template
+    active_template: Optional[dict[str, Any]] = template or template_json
+    tpl_identifier = template_name or template_id or (json_data.get("template_name") if isinstance(json_data, dict) else None)
+
+    if tpl_identifier and str(tpl_identifier).strip().lower() not in {"none", "dynamic", "flowable", "null", ""}:
+        active_template = active_template or load_template(str(tpl_identifier).strip())
+
+    if isinstance(json_data, dict) and is_pdfme_template(json_data):
+        active_template = json_data
+        data = json_data.get("data") if isinstance(json_data.get("data"), dict) else json_data
+    elif isinstance(json_data, list):
+        if len(json_data) == 1 and isinstance(json_data[0], dict):
+            data = dict(json_data[0])
+        elif len(json_data) > 0 and isinstance(json_data[0], dict) and any("Customer" in k or "Vessel" in k or "Document" in k or "Actual Cost" in k for k in json_data[0].keys()):
+            data = dict(json_data[0])
+        else:
+            data = {"records": json_data}
     elif isinstance(json_data, dict):
         data = dict(json_data)
     else:
         raise ValueError("json_data must be a dictionary or a list of records.")
 
+    # Auto-infer template only if not explicitly set and not set to none/dynamic
+    if not active_template and (not tpl_identifier or str(tpl_identifier).strip().lower() not in {"none", "dynamic", "flowable"}):
+        doc_no = str(data.get("Document No.", data.get("document_no", data.get("call_number", ""))))
+        if "FDA" in doc_no.upper() or "Actual Cost + Tax" in data or "BALANCE DUE" in data:
+            active_template = load_template("Vessel_Call_FDA_Exact_Format")
+        elif "PDA" in doc_no.upper() or "TOTAL PDA" in data or "Estimated Subtotal" in data:
+            active_template = load_template("Vessel_Call_PDA_Exact_Format")
+
     doc_title = infer_document_title(data, title)
-    active_theme = theme or theme_name or data.get("theme") or data.get("pdf_theme")
-    theme_dict = resolve_theme(active_theme)
 
     # Determine output file path
     if not output_path:
@@ -681,6 +814,30 @@ def generate_pdf_from_json(
         filename = os.path.basename(output_path)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    # If an active template is present, render via coordinate-based template engine
+    if active_template and is_pdfme_template(active_template):
+        out_path, pdf_bytes, page_count = render_pdfme_template_to_pdf(
+            template=active_template,
+            data=data,
+            output_path=output_path,
+            title=doc_title,
+        )
+        b64_str = base64.b64encode(pdf_bytes).decode("utf-8")
+        return PdfGenerationResult(
+            status="success",
+            filename=filename,
+            file_path=out_path,
+            pdf_bytes=pdf_bytes,
+            pdf_base64=b64_str,
+            page_count=page_count,
+            file_size_bytes=len(pdf_bytes),
+            title=doc_title,
+            generated_at=now_str,
+        )
+
+    active_theme = theme or theme_name or data.get("theme") or data.get("pdf_theme")
+    theme_dict = resolve_theme(active_theme)
 
     # Document Geometry
     selected_page_size = letter if page_size.lower() == "letter" else A4

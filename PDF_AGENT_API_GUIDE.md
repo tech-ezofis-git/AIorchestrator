@@ -108,13 +108,74 @@ GET /api/pdf/preview/{filename}
 - Sets `Content-Type: application/pdf`
 - Allows instant rendering inside browser tabs or iframe components.
 
+### 3. List Pre-Installed Templates
+```http
+GET /api/pdf/templates
+```
+- Discovers and lists all pre-installed coordinate templates located in `templates/` (e.g. `Vessel_Call_FDA_Exact_Format.json`, `Vessel_Call_PDA_Exact_Format.json`).
+
+Response:
+```json
+{
+  "status": "success",
+  "count": 2,
+  "templates": [
+    {
+      "template_id": "Vessel_Call_FDA_Exact_Format",
+      "filename": "Vessel_Call_FDA_Exact_Format.json",
+      "title": "Vessel Call Fda Exact Format",
+      "file_path": ".../templates/Vessel_Call_FDA_Exact_Format.json",
+      "page_count": 2,
+      "schema_fields_sample": ["vessel_name", "port_name", "agent_name", "disbursement_items"]
+    },
+    {
+      "template_id": "Vessel_Call_PDA_Exact_Format",
+      "filename": "Vessel_Call_PDA_Exact_Format.json",
+      "title": "Vessel Call Pda Exact Format",
+      "file_path": ".../templates/Vessel_Call_PDA_Exact_Format.json",
+      "page_count": 1,
+      "schema_fields_sample": ["vessel_name", "proforma_ref", "port_name", "estimated_costs"]
+    }
+  ]
+}
+```
+
 ---
 
-## 4. Test Console (`/console`)
+## 4. Coordinate Template Mode
+
+When a `template_name` or `template_json` is specified, the engine switches to exact coordinate-based rendering using `pdfme`-style template schemas:
+
+```json
+{
+  "session_id": "session-tpl-1",
+  "intent": "pdf",
+  "payload": {
+    "template_name": "Vessel_Call_FDA_Exact_Format",
+    "pdf_title": "Final Disbursement Account — M/V PACIFIC HORIZON",
+    "pdf_json": {
+      "vessel_name": "M/V PACIFIC HORIZON",
+      "call_number": "VC-2026-8841",
+      "port_name": "PORT OF SINGAPORE",
+      "total_disbursement": "20980.00",
+      "advance_received": "25000.00",
+      "balance_due_to_principal": "4020.00"
+    }
+  }
+}
+```
+
+- **Fuzzy template matching**: Accepts `"fda"`, `"pda"`, `"vessel_call_fda"`, `"vessel_call_pda"`, or full filename `"Vessel_Call_FDA_Exact_Format"`.
+- **Variable Interpolation**: Automatically replaces `{{var}}`, `${var}`, `{var}`, `dataKey`, and `sourceFieldId`.
+- **Dynamic Table Splitting & Border Math**: Calculates column percentages and applies zebra shading and cell grid rules.
+
+---
+
+## 5. Test Console (`/console`)
 
 1. Open `http://localhost:8010/console` in your browser.
 2. Click the **PDF generator** action button above the composer.
-3. Use **Invoice Sample** or **Report Sample** to populate sample structured JSON.
-4. Pick a color theme (`corporate_blue`, `emerald`, `graphite`, `purple`, `amber`).
+3. Choose a template (e.g. **Vessel Call FDA Template**, **Vessel Call PDA Template**, or **Auto-Layout**).
+4. Click **FDA Sample**, **PDA Sample**, **Invoice**, or **Report** to populate structured JSON data.
 5. Click **Send** / **Generate PDF**.
-6. The assistant bubble returns immediate download and inline preview buttons along with the page count and file size badge.
+6. The assistant bubble returns immediate download and inline preview buttons along with page count and file size badge.

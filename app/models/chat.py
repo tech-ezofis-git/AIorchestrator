@@ -72,6 +72,11 @@ class DocumentPayload(BaseModel):
             "Auto-formatted into a publication-quality PDF document."
         ),
     )
+    template_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("template_name", "templateName", "template_id", "templateId", "template"),
+        description="Optional template ID/name (e.g. 'Vessel_Call_FDA_Exact_Format', 'Vessel_Call_PDA_Exact_Format', 'fda', 'pda').",
+    )
     template_json: Optional[dict[str, Any]] = Field(
         default=None,
         description="Optional schema template JSON for intent=pdf.",

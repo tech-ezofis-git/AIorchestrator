@@ -220,3 +220,86 @@ def test_generate_pdf_discharge_summary_structure():
     assert result.file_size_bytes > 1500
     raw_bytes = base64.b64decode(result.pdf_base64)
     assert raw_bytes.startswith(b"%PDF")
+
+
+def test_list_and_load_templates():
+    from app.pdf_skills import list_available_templates, load_template
+
+    templates = list_available_templates()
+    assert isinstance(templates, list)
+    assert len(templates) >= 2
+
+    ids = [t["template_id"] for t in templates]
+    assert "Vessel_Call_FDA_Exact_Format" in ids
+    assert "Vessel_Call_PDA_Exact_Format" in ids
+
+    # Fuzzy loading
+    fda_tpl = load_template("fda")
+    assert fda_tpl is not None
+    assert "schemas" in fda_tpl
+
+    pda_tpl = load_template("pda")
+    assert pda_tpl is not None
+    assert "schemas" in pda_tpl
+
+    exact_tpl = load_template("Vessel_Call_FDA_Exact_Format")
+    assert exact_tpl is not None
+
+
+def test_generate_pdf_vessel_call_fda_template():
+    data = {
+        "vessel_name": "M/V PACIFIC HORIZON",
+        "call_number": "VC-2026-8841",
+        "port_name": "PORT OF SINGAPORE",
+        "agent_name": "TransGlobal Maritime Ltd",
+        "total_disbursement": "20980.00",
+    }
+    result = generate_pdf_from_json(
+        data,
+        template_name="Vessel_Call_FDA_Exact_Format",
+        title="Final Disbursement Account",
+    )
+    assert isinstance(result, PdfGenerationResult)
+    assert result.page_count >= 1
+    assert result.file_size_bytes > 1000
+    raw_bytes = base64.b64decode(result.pdf_base64)
+    assert raw_bytes.startswith(b"%PDF")
+
+
+def test_generate_pdf_vessel_call_pda_template():
+    data = {
+        "vessel_name": "M/V ATLANTIC VOYAGER",
+        "proforma_ref": "PDA-2026-9912",
+        "port_name": "PORT OF ROTTERDAM",
+        "estimated_total": "27500.00",
+    }
+    result = generate_pdf_from_json(
+        data,
+        template_name="Vessel_Call_PDA_Exact_Format",
+        title="Proforma Disbursement Account",
+    )
+    assert isinstance(result, PdfGenerationResult)
+    assert result.page_count >= 1
+    assert result.file_size_bytes > 1000
+    raw_bytes = base64.b64decode(result.pdf_base64)
+    assert raw_bytes.startswith(b"%PDF")
+
+
+@pytest.mark.asyncio
+async def test_pdf_agent_template_resolution():
+    llm_mock = MagicMock()
+    llm_mock.chat_completion = AsyncMock()
+    settings_mock = MagicMock()
+    settings_mock.api_base_url = "http://localhost:8010"
+
+    agent = PdfAgent(llm_adapter=llm_mock, settings=settings_mock)
+    document_job = {
+        "pdf_json": {"vessel_name": "M/V PACIFIC HORIZON", "port": "Singapore"},
+        "template_name": "fda",
+        "pdf_title": "Vessel FDA",
+    }
+    resp = await agent.handle(message="", session_id="test-session", document_job=document_job)
+    assert "pdf_result" in resp
+    assert resp["pdf_result"]["status"] == "success"
+    assert resp["pdf_result"]["page_count"] >= 1
+    assert resp["pdf_result"]["download_url"].startswith("/api/pdf/download/")

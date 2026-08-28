@@ -1609,10 +1609,18 @@ Due Date,DATE</textarea>
       <div class="mode-fields" id="pdfFields" hidden>
         <div>
           <label for="pdfTitle">Document Title</label>
-          <input type="text" id="pdfTitle" placeholder="e.g. Invoice INV-2026-001" />
+          <input type="text" id="pdfTitle" placeholder="e.g. Vessel Call FDA 2026" />
         </div>
         <div>
-          <label for="pdfTheme">Color Theme</label>
+          <label for="pdfTemplate">Template</label>
+          <select id="pdfTemplate">
+            <option value="">Auto-Layout (No template)</option>
+            <option value="Vessel_Call_FDA_Exact_Format">Vessel Call FDA Template</option>
+            <option value="Vessel_Call_PDA_Exact_Format">Vessel Call PDA Template</option>
+          </select>
+        </div>
+        <div>
+          <label for="pdfTheme">Color Theme (Auto-Layout)</label>
           <select id="pdfTheme">
             <option value="corporate_blue">Corporate Blue</option>
             <option value="emerald">Emerald Green</option>
@@ -1621,9 +1629,11 @@ Due Date,DATE</textarea>
             <option value="amber">Warm Amber</option>
           </select>
         </div>
-        <div class="ocr-actions" style="align-self:end; display:flex; gap:6px;">
-          <button type="button" class="btn-ghost" id="pdfSampleInvoiceBtn">Invoice Sample</button>
-          <button type="button" class="btn-ghost" id="pdfSampleReportBtn">Report Sample</button>
+        <div class="ocr-actions" style="align-self:end; display:flex; gap:6px; flex-wrap:wrap;">
+          <button type="button" class="btn-ghost" id="pdfSampleFdaBtn">FDA Sample</button>
+          <button type="button" class="btn-ghost" id="pdfSamplePdaBtn">PDA Sample</button>
+          <button type="button" class="btn-ghost" id="pdfSampleInvoiceBtn">Invoice</button>
+          <button type="button" class="btn-ghost" id="pdfSampleReportBtn">Report</button>
         </div>
         <div class="span-all">
           <label for="pdfJson">JSON Data (values / fields / tables)</label>
@@ -4229,11 +4239,94 @@ const PDF_REPORT_SAMPLE = {
   }
 };
 
+const PDF_FDA_SAMPLE = {
+  "Customer / Principal": "Oceanic Shipping Lines Pte. Ltd.",
+  "Document No.": "FDA-2026-0816",
+  "Shipper / Charterer / Broker": "Global Maritime Chartering Ltd.",
+  "Document Date": "20 September 2026",
+  "Vessel Name": "MV Ocean Star",
+  "Currency": "SGD",
+  "IMO Number": "9876543",
+  "Payment Terms": "Balance due within 30 days",
+  "Voyage Number": "OS-2026-002",
+  "Cost Verified": "Yes",
+  "Port of Call": "Port of Singapore",
+  "Related PDA/FDA": "PDA-2026-0815",
+  "Terminal": "PSA Pasir Panjang Terminal",
+  "ETA / ETD": "15 Sep 2026 08:00 / 16 Sep 2026 18:00",
+  "Actual Cost + Tax": "SGD 15,178.24",
+  "Less PDA Advance": "SGD 15,045.00",
+  "BALANCE DUE": "SGD 133.24",
+  "Remarks": "Final account prepared after completion of the vessel call. Actual port call cost is SGD 15,178.24. PDA advance received was SGD 15,045.00; balance due is SGD 133.24.",
+  "items": [
+    { "no": "1", "service": "Agency Fee", "vendor": "Oceanlink Marine Services", "qty": 1, "rate": "2,500.00", "amount": "2,500.00" },
+    { "no": "2", "service": "Port Dues", "vendor": "Port Authority actual", "qty": 1, "rate": "6,680.00", "amount": "6,680.00" },
+    { "no": "3", "service": "Pilotage / Towage", "vendor": "Actual service", "qty": 1, "rate": "2,175.00", "amount": "2,175.00" },
+    { "no": "4", "service": "Launch / Transport", "vendor": "Actual operations", "qty": 1, "rate": "820.00", "amount": "820.00" },
+    { "no": "5", "service": "Crew Change Handling", "vendor": "2 persons", "qty": 2, "rate": "180.00", "amount": "360.00" },
+    { "no": "6", "service": "Fresh Water Supply", "vendor": "28 MT actual", "qty": 28, "rate": "18.00", "amount": "504.00" },
+    { "no": "7", "service": "Bunker Survey", "vendor": "Survey attendance", "qty": 1, "rate": "800.00", "amount": "800.00" },
+    { "no": "8", "service": "Communication / Misc.", "vendor": "Actual", "qty": 1, "rate": "285.00", "amount": "285.00" }
+  ]
+};
+
+const PDF_PDA_SAMPLE = {
+  "Customer / Principal": "Oceanic Shipping Lines Pte. Ltd.",
+  "Document No.": "PDA-2026-0915",
+  "Shipper / Charterer / Broker": "Global Maritime Chartering Ltd.",
+  "Document Date": "29 August 2026",
+  "Vessel Name": "MV Ocean Star",
+  "Currency": "SGD",
+  "IMO Number": "9876543",
+  "Payment Terms": "Advance before vessel arrival",
+  "Voyage Number": "OS-2026-002",
+  "Cost Verified": "Estimate / Pending",
+  "Port of Call": "Port of Singapore",
+  "Related PDA/FDA": "Enquiry VCE-SG-2026-0917",
+  "Terminal": "PSA Pasir Panjang Terminal",
+  "ETA / ETD": "15 Sep 2026 08:00 / 16 Sep 2026 18:00",
+  "Estimated Subtotal": "SGD 14,000.00",
+  "Estimated Tax (7.45%)": "SGD 1,043.00",
+  "TOTAL PDA": "SGD 15,043.00",
+  "Remarks": "Estimated advance requested based on expected port call services. Final charges are subject to actual vendor invoices, port tariffs and services rendered.",
+  "items": [
+    { "no": "1", "service": "Agency Fee", "vendor": "Oceanlink Marine Services", "qty": 1, "rate": "2,500.00", "amount": "2,500.00" },
+    { "no": "2", "service": "Port Dues - Estimate", "vendor": "Port tariff estimate", "qty": 1, "rate": "6,450.00", "amount": "6,450.00" },
+    { "no": "3", "service": "Pilotage / Towage", "vendor": "Estimated tariff", "qty": 1, "rate": "2,150.00", "amount": "2,150.00" },
+    { "no": "4", "service": "Launch / Transport", "vendor": "Estimated operations", "qty": 1, "rate": "650.00", "amount": "650.00" },
+    { "no": "5", "service": "Crew Change Handling", "vendor": "2 persons", "qty": 2, "rate": "180.00", "amount": "360.00" },
+    { "no": "6", "service": "Fresh Water Supply", "vendor": "Estimated 30 MT", "qty": 30, "rate": "18.00", "amount": "540.00" },
+    { "no": "7", "service": "Bunker Survey", "vendor": "Survey attendance", "qty": 1, "rate": "800.00", "amount": "800.00" },
+    { "no": "8", "service": "Communication / Misc.", "vendor": "Estimated", "qty": 1, "rate": "350.00", "amount": "350.00" }
+  ]
+};
+
+const pdfSampleFdaBtn = document.getElementById('pdfSampleFdaBtn');
+if (pdfSampleFdaBtn) {
+  pdfSampleFdaBtn.addEventListener('click', () => {
+    setComposerMode('pdf');
+    document.getElementById('pdfTitle').value = 'Final Disbursement Account — M/V PACIFIC HORIZON';
+    document.getElementById('pdfTemplate').value = 'Vessel_Call_FDA_Exact_Format';
+    document.getElementById('pdfJson').value = JSON.stringify(PDF_FDA_SAMPLE, null, 2);
+  });
+}
+
+const pdfSamplePdaBtn = document.getElementById('pdfSamplePdaBtn');
+if (pdfSamplePdaBtn) {
+  pdfSamplePdaBtn.addEventListener('click', () => {
+    setComposerMode('pdf');
+    document.getElementById('pdfTitle').value = 'Proforma Disbursement Account — M/V ATLANTIC VOYAGER';
+    document.getElementById('pdfTemplate').value = 'Vessel_Call_PDA_Exact_Format';
+    document.getElementById('pdfJson').value = JSON.stringify(PDF_PDA_SAMPLE, null, 2);
+  });
+}
+
 const pdfSampleInvBtn = document.getElementById('pdfSampleInvoiceBtn');
 if (pdfSampleInvBtn) {
   pdfSampleInvBtn.addEventListener('click', () => {
     setComposerMode('pdf');
     document.getElementById('pdfTitle').value = 'Commercial Invoice INV-2026-0042';
+    document.getElementById('pdfTemplate').value = '';
     document.getElementById('pdfTheme').value = 'corporate_blue';
     document.getElementById('pdfJson').value = JSON.stringify(PDF_INVOICE_SAMPLE, null, 2);
   });
@@ -4244,6 +4337,7 @@ if (pdfSampleRepBtn) {
   pdfSampleRepBtn.addEventListener('click', () => {
     setComposerMode('pdf');
     document.getElementById('pdfTitle').value = 'Monthly Financial & Operational Performance';
+    document.getElementById('pdfTemplate').value = '';
     document.getElementById('pdfTheme').value = 'emerald';
     document.getElementById('pdfJson').value = JSON.stringify(PDF_REPORT_SAMPLE, null, 2);
   });
@@ -4252,7 +4346,7 @@ if (pdfSampleRepBtn) {
 async function sendPdfJob() {
   const jsonRaw = document.getElementById('pdfJson')?.value.trim() || '';
   if (!jsonRaw) {
-    addSystemMessage('Provide JSON data in the box, or click Invoice / Report Sample.');
+    addSystemMessage('Provide JSON data in the box, or click FDA / PDA / Invoice / Report Sample.');
     return;
   }
   let parsedJson;
@@ -4265,10 +4359,12 @@ async function sendPdfJob() {
   const sessionId = sessionIdInput.value.trim() || newSessionId();
   sessionIdInput.value = sessionId;
   const title = document.getElementById('pdfTitle')?.value.trim() || '';
+  const templateName = document.getElementById('pdfTemplate')?.value || undefined;
   const theme = document.getElementById('pdfTheme')?.value || 'corporate_blue';
   const note = messageInput.value.trim();
 
-  addUserMessage(`Generate PDF: ${title || 'Document'} (${theme})`);
+  const labelSuffix = templateName ? `[Template: ${templateName}]` : `(${theme})`;
+  addUserMessage(`Generate PDF: ${title || 'Document'} ${labelSuffix}`);
   const processing = addProcessingMessage('Generating PDF with ReportLab…');
   sendBtn.disabled = true;
   sendBtn.innerHTML = '<span class="spinner"></span> Generating PDF';
@@ -4276,6 +4372,7 @@ async function sendPdfJob() {
   try {
     const payload = {
       pdf_json: parsedJson,
+      template_name: templateName,
       pdf_title: title || undefined,
       pdf_theme: theme,
     };

@@ -105,6 +105,13 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     insights_count = _parse_optional_int(_form_str(form.get("insights_count")), field="insights_count")
     insight_area = _form_str(form.get("insight_area"))
     pdf_json = _parse_optional_json_object_or_list(_form_str(form.get("pdf_json")), field="pdf_json")
+    template_name = _form_str(
+        form.get("template_name")
+        or form.get("templateName")
+        or form.get("template_id")
+        or form.get("templateId")
+        or form.get("template")
+    )
     template_json = _parse_optional_json_object(_form_str(form.get("template_json")), field="template_json")
     pdf_title = _form_str(form.get("pdf_title"))
     pdf_theme = _form_str(form.get("pdf_theme"))
@@ -156,6 +163,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or insights_count is not None
         or insight_area
         or pdf_json
+        or template_name
         or template_json
         or pdf_title
         or pdf_theme
@@ -170,6 +178,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             insights_count=insights_count,
             insight_area=insight_area,
             pdf_json=pdf_json,
+            template_name=template_name,
             template_json=template_json,
             pdf_title=pdf_title,
             pdf_theme=pdf_theme,

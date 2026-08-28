@@ -96,10 +96,10 @@ import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import asyncpg
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -509,6 +509,98 @@ async def preview_pdf(filename: str) -> FileResponse:
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )
+
+
+@app.get("/api/pdf/templates")
+async def list_pdf_templates() -> dict:
+    """Lists all available pre-installed PDF coordinate templates (e.g. Vessel Call FDA/PDA)."""
+    from app.pdf_skills import list_available_templates
+    templates = list_available_templates()
+    return {
+        "status": "success",
+        "count": len(templates),
+        "templates": templates,
+    }
+
+
+@app.post("/api/pdf/generate")
+async def direct_generate_pdf(
+    body: Any = Body(
+        ...,
+        description="Raw JSON array or object for PDF generation (PDA, FDA, or dynamic invoice).",
+        examples=[
+            {
+                "Customer / Principal": "Eastern Maritime Logistics Pte. Ltd.",
+                "Document No.": "PDA-2026-00452",
+                "Shipper / Charterer / Broker": "Global Bulk Chartering Ltd.",
+                "Document Date": "15-Aug-2026",
+                "Vessel Name": "MV Eastern Voyager",
+                "Currency": "SGD",
+                "IMO Number": "9123456",
+                "Payment Terms": "15 Days",
+                "Voyage Number": "EV-1586",
+                "Cost Verified": "Yes",
+                "Port of Call": "Jurong Port",
+                "Related PDA/FDA": "PDA-2026-00376",
+                "Terminal": "Jurong Port Terminal 3",
+                "ETA / ETD": "15-Aug-2026 / 16-Aug-2026",
+                "No. 1": "1",
+                "Service / Cost Item 1": "Pilotage",
+                "Vendor / Basis 1": "MPA / Actual",
+                "Qty 1": "2",
+                "Rate 1": "920.00",
+                "Amount (SGD) 1": "1840.00",
+                "No. 2": "2",
+                "Service / Cost Item 2": "Tug Assistance",
+                "Vendor / Basis 2": "Harbour Tug / Actual",
+                "Qty 2": "3",
+                "Rate 2": "1180.00",
+                "Amount (SGD) 2": "3540.00",
+                "Subtotal": "5380.00",
+                "Estimated Tax (7.45%)": "400.81",
+                "TOTAL PDA": "5780.81",
+                "Remarks": "Proforma account generated for testing."
+            }
+        ],
+    ),
+    template_name: Optional[str] = Query(None, description="Optional template: 'pda', 'fda', or 'none' (dynamic)"),
+    title: Optional[str] = Query(None, description="Optional document title"),
+) -> dict:
+    """Direct PDF generation endpoint — accepts raw JSON array or object directly in the request body."""
+    from app.pdf_skills import generate_pdf_from_json
+    from datetime import datetime
+
+    raw_body = body
+
+    # If body is dict with meta wrapper
+    if isinstance(raw_body, dict) and "data" in raw_body and not ("Customer / Principal" in raw_body or "items" in raw_body):
+        data = raw_body.get("data")
+        template_name = template_name or raw_body.get("template_name") or raw_body.get("template")
+        title = title or raw_body.get("title") or raw_body.get("pdf_title")
+    else:
+        data = raw_body
+
+    now_tag = datetime.now().strftime("%Y%m%d%H%M%S")
+    pdf_filename = f"document_{now_tag}.pdf"
+    static_out = _STATIC_DIR / "generated_pdfs" / pdf_filename
+    static_out.parent.mkdir(parents=True, exist_ok=True)
+
+    result = generate_pdf_from_json(
+        data,
+        template_name=template_name,
+        output_path=str(static_out),
+        title=title,
+    )
+
+    return {
+        "status": "success",
+        "filename": result.filename,
+        "page_count": result.page_count,
+        "file_size_bytes": result.file_size_bytes,
+        "preview_url": f"/api/pdf/preview/{result.filename}",
+        "download_url": f"/api/pdf/download/{result.filename}",
+        "static_url": f"/static/generated_pdfs/{result.filename}",
+    }
 
 
 @app.post("/api/ezDataImport")
@@ -1674,6 +1766,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     elif intent == Intent.PDF:
         document_job = {
             "pdf_json": payload.payload.pdf_json if payload.payload else None,
+            "template_name": payload.payload.template_name if payload.payload else None,
             "template_json": payload.payload.template_json if payload.payload else None,
             "pdf_title": payload.payload.pdf_title if payload.payload else None,
             "pdf_theme": payload.payload.pdf_theme if payload.payload else None,

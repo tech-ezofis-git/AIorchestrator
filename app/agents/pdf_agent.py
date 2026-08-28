@@ -43,6 +43,21 @@ class PdfAgent:
         pdf_json = job.get("pdf_json") or job.get("json_data") or job.get("template_json")
         pdf_title = job.get("pdf_title") or job.get("title")
         pdf_theme = job.get("pdf_theme") or job.get("theme")
+        template_name = (
+            job.get("template_name")
+            or job.get("template_id")
+            or job.get("template")
+            or job.get("templateName")
+        )
+        template_json = job.get("template_json")
+
+        # Infer template from message if not provided
+        if not template_name and message:
+            msg_lower = message.lower()
+            if "fda" in msg_lower or "final disbursement" in msg_lower:
+                template_name = "Vessel_Call_FDA_Exact_Format"
+            elif "pda" in msg_lower or "proforma disbursement" in msg_lower:
+                template_name = "Vessel_Call_PDA_Exact_Format"
 
         # If not in document_job, check if message is a JSON string
         if not pdf_json and message:
@@ -108,6 +123,8 @@ class PdfAgent:
         gen_result: PdfGenerationResult = await asyncio.to_thread(
             generate_pdf_from_json,
             pdf_json,
+            template_name=template_name,
+            template_json=template_json,
             output_path=out_path,
             title=pdf_title,
             theme=pdf_theme,
