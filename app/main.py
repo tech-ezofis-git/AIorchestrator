@@ -1558,7 +1558,14 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             store = getattr(request.app.state, "catalog_store", None)
             if store is not None:
                 try:
-                    custom_agent = await store.get_enabled_custom(explicit)
+                    agent_row = await store.get_agent_by_slug(explicit)
+                    if agent_row and agent_row.get("kind") == "custom":
+                        if not agent_row.get("enabled", True):
+                            raise HTTPException(
+                                status_code=403,
+                                detail=f"Agent '{explicit}' is disabled.",
+                            )
+                        custom_agent = agent_row
                 except CatalogStoreUnavailableError:
                     custom_agent = None
             if custom_agent is None:
@@ -1582,7 +1589,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     if catalog_store is not None:
         try:
             agent_row = await catalog_store.get_agent_by_slug(agent_slug)
-            if agent_row is not None and not agent_row.get("enabled", True):
+            if (
+                agent_row is not None
+                and agent_row.get("kind") == "custom"
+                and not agent_row.get("enabled", True)
+            ):
                 raise HTTPException(status_code=403, detail=f"Agent '{agent_slug}' is disabled.")
         except CatalogStoreUnavailableError:
             pass

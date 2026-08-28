@@ -232,7 +232,8 @@ class CatalogStore:
                 "execute",
                 "INSERT INTO catalog_agents (id, slug, name, description, kind, enabled, system_prompt, trigger_phrases) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
-                "ON CONFLICT (slug) DO NOTHING",
+                "ON CONFLICT (slug) DO UPDATE SET "
+                "name = EXCLUDED.name, description = EXCLUDED.description, enabled = TRUE, updated_at = now()",
                 agent_id,
                 agent["slug"],
                 agent["name"],
@@ -377,10 +378,11 @@ class CatalogStore:
             if not (new_prompt or "").strip():
                 raise ValueError("system_prompt is required for a custom agent.")
         else:
-            # Built-ins: only enabled (and description) are mutable.
+            # Built-ins stay enabled — disabling chat/ap breaks workflow and OCR callers.
             new_prompt = _row_get(row, "system_prompt")
             new_phrases = _as_str_list(_row_get(row, "trigger_phrases"))
             new_name = _row_get(row, "name")
+            new_enabled = True
         updated = await self._run(
             "fetchrow",
             "UPDATE catalog_agents SET name = $1, description = $2, enabled = $3, system_prompt = $4, "
