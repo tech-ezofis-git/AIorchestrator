@@ -228,7 +228,8 @@ class CatalogStore:
                 "execute",
                 "INSERT INTO catalog_agents (id, slug, name, description, kind, enabled, system_prompt, trigger_phrases) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
-                "ON CONFLICT (slug) DO NOTHING",
+                "ON CONFLICT (slug) DO UPDATE SET "
+                "name = EXCLUDED.name, description = EXCLUDED.description, enabled = TRUE, updated_at = now()",
                 agent_id,
                 agent["slug"],
                 agent["name"],
@@ -269,6 +270,18 @@ class CatalogStore:
             "FROM catalog_agents ORDER BY kind ASC, name ASC",
         )
         return [_public_agent(row) for row in rows]
+
+    async def get_agent_by_slug(self, slug: str) -> Optional[dict[str, Any]]:
+        slug = (slug or "").strip()
+        if not slug:
+            return None
+        row = await self._run(
+            "fetchrow",
+            "SELECT id, slug, name, description, kind, enabled, system_prompt, trigger_phrases, created_at, updated_at "
+            "FROM catalog_agents WHERE slug = $1",
+            slug,
+        )
+        return _public_agent(row) if row else None
 
     async def get_enabled_custom(self, slug: str) -> Optional[dict[str, Any]]:
         row = await self._run(
@@ -361,10 +374,11 @@ class CatalogStore:
             if not (new_prompt or "").strip():
                 raise ValueError("system_prompt is required for a custom agent.")
         else:
-            # Built-ins: only enabled (and description) are mutable.
+            # Built-ins stay enabled — disabling chat/ap breaks workflow and OCR callers.
             new_prompt = _row_get(row, "system_prompt")
             new_phrases = _as_str_list(_row_get(row, "trigger_phrases"))
             new_name = _row_get(row, "name")
+            new_enabled = True
         updated = await self._run(
             "fetchrow",
             "UPDATE catalog_agents SET name = $1, description = $2, enabled = $3, system_prompt = $4, "

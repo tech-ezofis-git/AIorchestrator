@@ -258,3 +258,54 @@ def test_unknown_intent_still_400_when_not_a_catalog_agent(client):
     )
     assert response.status_code == 400
     assert "Unknown intent" in response.json()["detail"]
+
+
+def test_disabled_builtin_chat_still_routes(client, monkeypatch):
+    agents = client.get("/console/catalog/agents").json()["agents"]
+    chat = next(row for row in agents if row["slug"] == "chat")
+
+    patched = client.patch(
+        f"/console/catalog/agents/{chat['id']}",
+        json={"enabled": False},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["enabled"] is True
+
+    async def fake_chat_completion(self, messages):
+        return {"content": "hello-back", "usage": None}
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_chat_completion)
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s-disabled-builtin", "message": "hello"},
+    )
+    assert response.status_code == 200
+    assert response.json()["reply"] == "hello-back"
+
+
+def test_disabled_custom_agent_returns_403(client):
+    created = client.post(
+        "/console/catalog/agents",
+        json={
+            "slug": "disabled-custom",
+            "name": "Disabled Custom",
+            "system_prompt": "nope",
+        },
+    )
+    assert created.status_code == 200
+    agent_id = created.json()["id"]
+
+    disabled = client.patch(
+        f"/console/catalog/agents/{agent_id}",
+        json={"enabled": False},
+    )
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s-disabled-custom", "message": "hi", "intent": "disabled-custom"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Agent 'disabled-custom' is disabled."

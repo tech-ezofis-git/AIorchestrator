@@ -134,7 +134,11 @@ class FakeDBPool:
             return None
         if "FROM catalog_agents WHERE slug = $1" in query:
             row = self._catalog_agent_by_slug(args[0])
-            return {"id": row["id"]} if row else None
+            if row is None:
+                return None
+            if "enabled" in query:
+                return row
+            return {"id": row["id"]}
         if "FROM catalog_agents WHERE id = $1" in query:
             return self._catalog_agent_by_id(args[0])
         if "INSERT INTO catalog_models" in query and "RETURNING" in query:
