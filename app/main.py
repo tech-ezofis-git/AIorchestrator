@@ -34,11 +34,12 @@ Request flow for POST /chat:
   ContentFilter (check_content) ->
   RateLimiter (check, keyed by session_id) ->
   ContextManager (load history) ->
-  IntentRouter (classify chat/search/summary/insight/ocr/forecast/ap/mail;
+  IntentRouter (classify chat/search/summary/insight/ocr/forecast/dashboard/ap/mail;
                 prompt is explicit-only) ->
   PermissionCheck (check_permission, per classified intent) ->
   AgentRouter -> ChatAgent | SearchAgent | SummaryAgent | InsightAgent |
-                 OcrAgent | ForecastAgent | ApAgent | MailAgent | PromptAgent ->
+                 OcrAgent | ForecastAgent | DashboardAgent | ApAgent |
+                 MailAgent | PromptAgent ->
     LLMAdapter / HybridSearch /
     Dispatcher(fetch_document|fetch_report_data|run_ocr|run_forecast|
                fetch_invoice_status) / PendingActionStore (Mail only) ->
@@ -116,9 +117,11 @@ from app.agents.forecast_agent import ForecastAgent
 from app.agents.insight_agent import InsightAgent
 from app.agents.mail_agent import MailAgent
 from app.agents.ocr_agent import OcrAgent
+from app.agents.dashboard_agent import DashboardAgent
 from app.agents.prompt_agent import PromptAgent
 from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
+from app.dashboard.store import DashboardStore, DashboardStoreUnavailableError
 from app.config import get_settings
 from app.control.audit import AuditMiddleware, configure_app_logging
 from app.control.audit_store import AuditStore
@@ -396,6 +399,9 @@ async def lifespan(app: FastAPI):
     pending_action_store = PendingActionStore(redis_client, settings.pending_action_ttl_seconds)
     mail_agent = MailAgent(pending_action_store, response_composer)
     prompt_agent = PromptAgent(llm_adapter)
+    dashboard_agent = DashboardAgent(
+        DashboardStore(tenant_pools=tenant_pools, fallback_pool=db_pool)
+    )
 
     rate_limiter = RateLimiter(
         redis_client,
@@ -413,6 +419,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.AP, ap_agent.handle)
     agent_router.register(Intent.MAIL, mail_agent.handle)
     agent_router.register(Intent.PROMPT, prompt_agent.handle)
+    agent_router.register(Intent.DASHBOARD, dashboard_agent.handle)
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
@@ -926,6 +933,7 @@ class CatalogTenantAgentModelUpsert(BaseModel):
     tenant_id: str
     agent_slug: str
     model_id: Optional[str] = None
+    default_model_id: Optional[str] = None
     fallback_model_id: Optional[str] = None
 
 
@@ -1180,6 +1188,7 @@ async def upsert_catalog_tenant_agent_model(payload: CatalogTenantAgentModelUpse
             tenant_id=payload.tenant_id,
             agent_slug=payload.agent_slug,
             model_id=payload.model_id,
+            default_model_id=payload.default_model_id or None,
             fallback_model_id=payload.fallback_model_id or None,
         )
     except Exception as exc:
@@ -1403,6 +1412,35 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "dashboard_schema": {
+                            "summary": "Dashboard call 1 — propose widgets from tenant items table",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "message": "I need an AP dashboard",
+                                "payload": {
+                                    "tenant_id": "ca57657b-0000-0000-0000-000000000001",
+                                    "repository_id": "38b1b6dd-854b-489f-aa44-ac6d4dd691e8",
+                                },
+                            },
+                        },
+                        "dashboard_data": {
+                            "summary": "Dashboard call 2 — hydrate enabled widgets",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "message": "apply",
+                                "payload": {
+                                    "tenant_id": "ca57657b-0000-0000-0000-000000000001",
+                                    "repository_id": "38b1b6dd-854b-489f-aa44-ac6d4dd691e8",
+                                    "dashboard_json": {
+                                        "phase": "schema",
+                                        "kpis": [{"id": "total_ap", "enabled": True}],
+                                        "charts": [{"id": "supplier_risk", "enabled": True}],
+                                    },
+                                },
+                            },
+                        },
                         "insight_json": {
                             "summary": "Insights from arbitrary dashboard JSON",
                             "value": {
@@ -1452,6 +1490,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     has_ocr_text = bool(payload.payload and (payload.payload.ocr_text or "").strip())
     has_summary_json = bool(payload.payload and payload.payload.summary_json)
     has_insight_json = bool(payload.payload and payload.payload.insight_json)
+    has_dashboard_json = bool(payload.payload and payload.payload.dashboard_json)
     message = (payload.message or "").strip()
     explicit = (payload.intent or "").strip().lower()
     prompt_alias = (payload.payload.prompt or "").strip() if payload.payload else ""
@@ -1464,12 +1503,15 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             or has_ocr_text
             or has_summary_json
             or has_insight_json
-            or explicit in {"ocr", "summary", "insight", "ap"}
+            or has_dashboard_json
+            or explicit in {"ocr", "summary", "insight", "ap", "dashboard"}
         ):
             if explicit == "summary":
                 message = "Summarize the document."
             elif explicit == "insight":
                 message = "Generate insights from the supplied data."
+            elif explicit == "dashboard":
+                message = "I need a dashboard."
             else:
                 message = (payload.instruction or "").strip() or "Process the document and generate structured JSON."
         else:
@@ -1684,6 +1726,14 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "form_id": payload.payload.form_id if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,
         }
+    elif intent == Intent.DASHBOARD:
+        document_job = {
+            "tenant_id": payload.payload.tenant_id if payload.payload else None,
+            "repository_id": payload.payload.repository_id if payload.payload else None,
+            "workflow_id": payload.payload.workflow_id if payload.payload else None,
+            "dashboard_json": payload.payload.dashboard_json if payload.payload else None,
+            "model": payload.payload.model if payload.payload else None,
+        }
 
     # Gate 3: permission check — needs the classified intent, so it can
     # only run here, not earlier. The Dispatcher/agent must never be
@@ -1744,6 +1794,10 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         raise HTTPException(
             status_code=503, detail="AP store is currently unavailable, please try again."
         ) from exc
+    except DashboardStoreUnavailableError as exc:
+        raise HTTPException(
+            status_code=503, detail="Dashboard store is currently unavailable, please try again."
+        ) from exc
     except ToolExecutionError as exc:
         raise HTTPException(
             status_code=502, detail="Upstream service error, please try again."
@@ -1794,6 +1848,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         mail_draft=result.get("mail_draft"),
         ap_result=result.get("ap_result"),
         prompt_result=result.get("prompt_result"),
+        dashboard_result=result.get("dashboard_result"),
     )
 
 

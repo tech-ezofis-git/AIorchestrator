@@ -6,7 +6,7 @@ def test_list_catalog_agents_seeds_builtins(client):
 
     assert response.status_code == 200
     slugs = [row["slug"] for row in response.json()["agents"]]
-    assert slugs == ["ap", "chat", "forecast", "insight", "mail", "ocr", "prompt", "search", "summary"]
+    assert slugs == ["ap", "chat", "dashboard", "forecast", "insight", "mail", "ocr", "prompt", "search", "summary"]
     assert all(row["kind"] == "builtin" for row in response.json()["agents"])
 
 

@@ -502,9 +502,55 @@
     min-height: 120px;
     max-height: 280px;
   }
-  .composer #promptFields {
-    margin: 0 8px;
+  .composer #dashboardFields {
+    margin: 0 8px 10px;
+    padding: 10px 12px 4px;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.7);
   }
+  .dash-preview {
+    margin: 12px 0 4px;
+    padding: 16px;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #f6f4fb 0%, #fff 40%);
+    border: 1px solid var(--line);
+  }
+  .dash-preview-kicker { font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--violet); }
+  .dash-preview-title { font-family: var(--display); font-size: 20px; font-weight: 700; margin: 2px 0 4px; }
+  .dash-preview-sub { color: var(--ink-3); font-size: 13px; margin-bottom: 12px; }
+  .dash-ribbon {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    padding: 10px 12px; border-radius: 10px; background: #fff; border: 1px solid var(--line); margin-bottom: 12px;
+  }
+  .dash-ribbon span { font-size: 11px; color: var(--ink-4); text-transform: uppercase; letter-spacing: .06em; }
+  .dash-ribbon b { display: block; font-size: 16px; color: var(--ink); }
+  .dash-ribbon .alert b { color: var(--danger); }
+  .dash-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .dash-kpi-card {
+    background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  }
+  .dash-kpi-card.alert { border-top: 3px solid var(--danger); }
+  .dash-kpi-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); }
+  .dash-kpi-value { font-family: var(--display); font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .dash-empty { color: var(--ink-4); font-size: 12px; margin: 8px 0 0; }
+  .dash-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 12px; }
+  .dash-chart-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .dash-chart-title { font-weight: 700; font-size: 13px; margin-bottom: 8px; }
+  .dash-donut {
+    width: 140px; height: 140px; border-radius: 50%; margin: 8px auto;
+    position: relative;
+  }
+  .dash-donut::after {
+    content: ""; position: absolute; inset: 28px; border-radius: 50%; background: #fff;
+  }
+  .dash-legend { list-style: none; padding: 0; margin: 8px 0 0; font-size: 12px; color: var(--ink-2); }
+  .dash-legend li { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+  .dash-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .dash-bars { display: flex; align-items: flex-end; gap: 10px; height: 120px; padding-top: 8px; }
+  .dash-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+  .dash-bar { width: 100%; max-width: 36px; border-radius: 6px 6px 0 0; background: var(--gradient-brand); min-height: 4px; }
+  .dash-load-data { margin-top: 10px; min-width: auto !important; width: auto !important; height: auto !important; padding: 8px 14px; border-radius: 10px; }
   .composer form {
     position: relative;
     display: flex; gap: 10px; align-items: flex-end;
@@ -1366,38 +1412,7 @@
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
   }
-  .tenant-gate {
-    position: fixed; inset: 0; z-index: 10000;
-    display: flex; align-items: center; justify-content: center;
-    padding: 20px;
-  }
-  .tenant-gate[hidden] { display: none !important; }
-  .tenant-gate-backdrop {
-    position: absolute; inset: 0;
-    background: rgba(24, 18, 43, 0.45);
-    backdrop-filter: blur(4px);
-  }
-  .tenant-gate-card {
-    position: relative; width: min(440px, 100%);
-    background: var(--surface-2); border: 1px solid var(--line);
-    border-radius: 16px; padding: 24px;
-    box-shadow: 0 20px 48px rgba(24, 18, 43, 0.18);
-    animation: toastIn .25s ease;
-  }
-  .tenant-gate-card h2 { margin: 0 0 8px; font-size: 18px; color: var(--ink); }
-  .tenant-gate-card p { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--ink-3); }
-  .tenant-gate-card label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 6px; }
-  .tenant-gate-card input {
-    width: 100%; padding: 10px 12px; font-size: 13px; font-family: inherit;
-    border: 1px solid var(--line); border-radius: var(--radius-sm);
-    color: var(--ink); background: var(--surface-3); box-sizing: border-box;
-  }
-  .tenant-gate-status { font-size: 12px; min-height: 1.2em; margin-top: 8px; color: var(--ink-2); }
-  .tenant-gate-status.fail { color: var(--error-main); }
-  .tenant-gate-actions {
-    display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; flex-wrap: wrap;
-  }
-  .layout.tenant-gate-active { pointer-events: none; user-select: none; opacity: 0.55; }
+  .tenant-setup .row { margin-top: 8px; }
   .btn-danger { background: #fff1f0; color: var(--error-main); padding: 4px 8px; font-size: 11px; }
   .kind-pill { font-size: 10px; padding: 2px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-secondary); }
   @media (max-width: 860px) { .catalog-form { grid-template-columns: 1fr; } .catalog-form .span-2 { grid-column: auto; } }
@@ -1420,26 +1435,24 @@
   <div class="view-toggle" id="viewToggle">
     <button type="button" class="view-btn active" data-view="chat" id="viewChatBtn">Chat</button>
     <button type="button" class="view-btn" data-view="catalog" id="viewCatalogBtn">Catalog</button>
+    <button type="button" class="view-btn" data-view="models" id="viewModelsBtn">Models</button>
   </div>
 </header>
 
-<div class="tenant-gate" id="tenantGate" hidden aria-modal="true" role="dialog" aria-labelledby="tenantGateTitle">
-  <div class="tenant-gate-backdrop"></div>
-  <div class="tenant-gate-card">
-    <h2 id="tenantGateTitle">Enter tenant</h2>
-    <p>Enter a tenant id to load agents and models from Catalog settings saved for that tenant. You can also continue without a tenant — no Catalog rules will be applied.</p>
-    <label for="tenantGateInput">Tenant id</label>
-    <input type="text" id="tenantGateInput" placeholder="2e3b7b37-38a3-4f94-878e-a006dad93230" autocomplete="off" />
-    <div class="tenant-gate-status" id="tenantGateStatus"></div>
-    <div class="tenant-gate-actions">
-      <button type="button" class="btn-ghost" id="tenantGateSkipBtn">Continue without tenant</button>
-      <button type="button" class="btn-primary" id="tenantGateContinueBtn">Continue</button>
-    </div>
-  </div>
-</div>
-
 <div class="layout" id="chatView">
   <aside class="panel sidebar">
+    <div class="sidebar-section tenant-setup">
+      <h2>Tenant</h2>
+      <label for="consoleTenantInput">Tenant id</label>
+      <input type="text" id="consoleTenantInput" placeholder="Paste tenant id saved in Catalog" autocomplete="off" />
+      <div class="row">
+        <button type="button" class="btn-primary" id="consoleTenantLoadBtn" style="flex:1">Load tenant</button>
+      </div>
+      <button type="button" class="btn-ghost" id="consoleTenantSkipBtn" style="margin-top:6px;width:100%">Continue without tenant</button>
+      <div class="field-hint" id="consoleTenantHint">Load a tenant to apply Catalog agent settings, or continue without tenant.</div>
+      <div class="llm-status" id="consoleTenantStatus"></div>
+    </div>
+
     <div class="sidebar-section">
       <h2>Agents</h2>
       <div class="cap-actions" id="capActions"></div>
@@ -1452,11 +1465,6 @@
         <input type="text" id="sessionId" />
         <button class="btn-ghost" id="newSessionBtn" title="New session">New</button>
       </div>
-
-      <label for="consoleTenantId">Tenant</label>
-      <input type="text" id="consoleTenantId" placeholder="Set via tenant prompt" readonly />
-      <button type="button" class="btn-ghost" id="consoleTenantChangeBtn" style="margin-top:6px;width:100%">Change tenant</button>
-      <div class="field-hint" id="consoleTenantHint">Enter a tenant when prompted to apply Catalog settings.</div>
 
       <label for="llmDefaultPreset">Model</label>
       <select id="llmDefaultPreset"></select>
@@ -1710,6 +1718,27 @@ Due Date,DATE</textarea>
         </div>
         <div hidden>Uses <code>skills/prompt/SKILL.md</code> and <code>skills/prompt/rules/*.mdc</code></div>
       </div>
+      <div class="mode-fields" id="dashboardFields" hidden>
+        <div>
+          <label for="dashboardTenant">Tenant id</label>
+          <input type="text" id="dashboardTenant" placeholder="required — or use Load tenant" />
+        </div>
+        <div>
+          <label for="dashboardRepositoryId">Repository id</label>
+          <input type="text" id="dashboardRepositoryId" placeholder="or leave blank if workflow id is set" />
+        </div>
+        <div>
+          <label for="dashboardWorkflowId">Workflow id</label>
+          <input type="text" id="dashboardWorkflowId" placeholder="or leave blank if repository id is set" />
+        </div>
+        <div class="ocr-actions" style="align-self:end">
+          <button type="button" class="btn-ghost" id="dashboardSampleBtn">Load sample</button>
+        </div>
+        <div class="span-all">
+          <label for="dashboardJson">dashboard_json (call 2) — scroll here if you want to edit JSON by hand</label>
+          <textarea id="dashboardJson" placeholder="Filled automatically after call 1. Tick widgets on the result and click Load data, or edit this JSON and Send."></textarea>
+        </div>
+      </div>
       <form id="composerForm">
         <textarea id="messageInput" placeholder="Ask AI anything…" rows="1"></textarea>
         <button type="submit" class="btn-primary btn-send" id="sendBtn" aria-label="Ask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
@@ -1764,7 +1793,7 @@ Due Date,DATE</textarea>
   <div class="catalog-page">
   <section class="card catalog-card">
     <h2>Tenant</h2>
-    <p class="lede">Choose a tenant to view its agents grid and set default / fallback models. Available models can be added or removed below at any time.</p>
+    <p class="lede">Choose a tenant to view its agents grid and set default / fallback models. Manage LLM endpoints on the <strong>Models</strong> page.</p>
     <div class="catalog-tenant-row">
       <div>
         <label for="catTenantSelect">Tenant</label>
@@ -1783,9 +1812,9 @@ Due Date,DATE</textarea>
     <div class="catalog-status" id="catalogTenantPickStatus"></div>
   </section>
 
-  <section class="card catalog-card" id="catalogTenantWorkspace" hidden>
+  <section class="card catalog-card" id="catalogTenantWorkspace">
     <h2>Agents</h2>
-    <p class="lede">Built-in agents are registered in code. Custom agents run as LLM specialists (system prompt + keyword triggers). Pick a <strong>model per agent</strong> and toggle <strong>Enabled</strong>, then click <strong>Save tenant settings</strong>. Disabled agents are hidden from the Chat console sidebar for this tenant.</p>
+    <p class="lede">Built-in agents are registered in code. Set <strong>Model</strong>, <strong>Default</strong>, and <strong>Fallback</strong> for each agent, toggle <strong>Enabled</strong>, then click <strong>Save tenant settings</strong>.</p>
     <form class="catalog-form" id="catalogTenantForm" style="margin-top:0">
       <div>
         <label for="catTenantDefault">default model</label>
@@ -1799,11 +1828,10 @@ Due Date,DATE</textarea>
     <div class="catalog-status" id="catalogTenantStatus"></div>
     <div class="catalog-toolbar">
       <strong style="font-size:13px">Agent list</strong>
-      <button type="button" class="btn-primary" id="catAgentAddBtn">Add agent</button>
     </div>
     <div style="overflow-x:auto">
       <table class="catalog-table" id="catalogAgentsTable">
-        <thead><tr><th>Slug</th><th>Name</th><th>Kind</th><th>Model</th><th>Enabled</th><th>Triggers</th><th></th></tr></thead>
+        <thead><tr><th>Slug</th><th>Name</th><th>Kind</th><th>Model</th><th>Default</th><th>Fallback</th><th>Enabled</th><th>Triggers</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -1811,36 +1839,13 @@ Due Date,DATE</textarea>
       <span></span>
       <button type="button" class="btn-primary" id="catTenantSaveAllBtn">Save tenant settings</button>
     </div>
-    <form class="catalog-form" id="catalogAgentForm" hidden>
-      <input type="hidden" id="catAgentId" />
-      <div>
-        <label for="catAgentSlug">slug (intent)</label>
-        <input type="text" id="catAgentSlug" required placeholder="hr-policy" />
-      </div>
-      <div>
-        <label for="catAgentName">name</label>
-        <input type="text" id="catAgentName" required placeholder="HR Policy" />
-      </div>
-      <div class="span-2">
-        <label for="catAgentDesc">description</label>
-        <input type="text" id="catAgentDesc" placeholder="Answers HR policy questions" />
-      </div>
-      <div class="span-2">
-        <label for="catAgentPrompt">system prompt</label>
-        <textarea id="catAgentPrompt" required placeholder="You are the EZOFIS HR policy assistant..."></textarea>
-      </div>
-      <div class="span-2">
-        <label for="catAgentTriggers">trigger phrases (comma-separated)</label>
-        <input type="text" id="catAgentTriggers" placeholder="leave policy, pto, vacation days" />
-      </div>
-      <div class="span-2">
-        <button type="submit" class="btn-primary" id="catAgentSaveBtn">Save custom agent</button>
-        <button type="button" class="btn-ghost" id="catAgentCancelBtn">Cancel</button>
-      </div>
-    </form>
     <div class="catalog-status" id="catalogAgentStatus"></div>
   </section>
+  </div>
+</div>
 
+<div class="catalog-shell" id="modelsView">
+  <div class="catalog-page">
   <section class="card catalog-card">
     <h2>Available models</h2>
     <p class="lede">Add or remove models (LiteLLM string, API base URL, API key). Keys are stored in the catalog DB and never returned by GET (only <code>has_api_key</code>).</p>
@@ -2067,12 +2072,14 @@ const ICONS = {
   insight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18V9l5 4 5-8 6 10"/></svg>',
   ap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6V4h8v2"/></svg>',
   prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 17 4 12l4-5M16 7l4 5-4 5M13 5l-2 14"/></svg>',
+  dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="4" rx="1"/><rect x="14" y="10" width="7" height="11" rx="1"/><rect x="3" y="13" width="7" height="8" rx="1"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
   { slug: 'summary', label: 'Summary agent', mode: 'summary' },
   { slug: 'insight', label: 'Insight agent', mode: 'insight' },
   { slug: 'ap', label: 'AP agent', mode: 'ap' },
+  { slug: 'dashboard', label: 'Dashboard agent', mode: 'dashboard' },
   { slug: 'prompt', label: 'Prompt agent', mode: 'prompt' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
@@ -2082,6 +2089,7 @@ const MODE_LABELS = {
   summary: 'Summary agent',
   insight: 'Insight agent',
   ap: 'AP agent',
+  dashboard: 'Dashboard agent',
   prompt: 'Prompt agent',
 };
 const capActionsEl = document.getElementById('capActions');
@@ -2090,22 +2098,27 @@ let composerMode = 'chat';
 let consoleAgentsCache = [];
 window.activeCustomIntent = '';
 
+let appliedConsoleTenantId = '';
+
 function consoleTenantId() {
-  const input = document.getElementById('consoleTenantId');
-  const fromInput = input ? input.value.trim() : '';
-  if (fromInput) return fromInput;
-  return sessionStorage.getItem(CONSOLE_TENANT_KEY) || '';
+  return appliedConsoleTenantId || '';
 }
 
-function setConsoleTenantId(tenantId) {
+function setConsoleTenantStatus(kind, text) {
+  const el = document.getElementById('consoleTenantStatus');
+  if (!el) return;
+  el.className = 'llm-status' + (kind ? ' ' + kind : '');
+  el.textContent = text || '';
+}
+
+async function setConsoleTenantId(tenantId) {
   const tid = (tenantId || '').trim();
-  const input = document.getElementById('consoleTenantId');
-  if (input) input.value = tid;
+  appliedConsoleTenantId = tid;
   if (tid) sessionStorage.setItem(CONSOLE_TENANT_KEY, tid);
   else sessionStorage.removeItem(CONSOLE_TENANT_KEY);
-  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant'].forEach(id => {
+  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'dashboardTenant'].forEach(id => {
     const el = document.getElementById(id);
-    if (el && !el.value.trim()) el.value = tid;
+    if (el) el.value = tid;
   });
   return refreshConsoleAgents();
 }
@@ -2132,82 +2145,56 @@ function updateConsoleTenantHint(tenantId, hasCatalogConfig) {
   const hint = document.getElementById('consoleTenantHint');
   if (!hint) return;
   if (!tenantId) {
-    hint.textContent = 'No tenant — all agents shown and no Catalog rules applied.';
+    hint.textContent = 'All agents shown. Load a tenant to filter agents from Catalog settings.';
     return;
   }
   if (hasCatalogConfig) {
-    hint.textContent = 'Catalog settings loaded — sidebar shows enabled agents and chat uses Catalog models.';
+    hint.textContent = 'Catalog settings loaded — agents and models use Catalog for this tenant.';
   } else {
-    hint.textContent = 'Tenant set, but no Catalog settings saved yet — all agents shown and console defaults apply.';
+    hint.textContent = 'Tenant loaded, but no Catalog settings saved yet — all agents shown and console defaults apply.';
   }
 }
 
-let chatGateResolved = false;
-
-function setTenantGateStatus(kind, text) {
-  const el = document.getElementById('tenantGateStatus');
-  if (!el) return;
-  el.className = 'tenant-gate-status' + (kind ? ' ' + kind : '');
-  el.textContent = text || '';
-}
-
-function openTenantGate() {
-  const gate = document.getElementById('tenantGate');
-  const input = document.getElementById('tenantGateInput');
-  const layout = document.getElementById('chatView');
-  if (!gate) return;
-  setTenantGateStatus('', '');
-  if (input) {
-    input.value = consoleTenantId() || sessionStorage.getItem(CONSOLE_TENANT_KEY) || '';
-  }
-  gate.hidden = false;
-  if (layout) layout.classList.add('tenant-gate-active');
-  setTimeout(() => input && input.focus(), 50);
-}
-
-function closeTenantGate() {
-  const gate = document.getElementById('tenantGate');
-  const layout = document.getElementById('chatView');
-  if (gate) gate.hidden = true;
-  if (layout) layout.classList.remove('tenant-gate-active');
-  setTenantGateStatus('', '');
-}
-
-function maybeShowTenantGate() {
-  if (chatGateResolved) return;
-  openTenantGate();
-}
-
-async function confirmTenantGate() {
-  const input = document.getElementById('tenantGateInput');
+async function loadConsoleTenant() {
+  const input = document.getElementById('consoleTenantInput');
   const tid = (input?.value || '').trim();
   if (!tid) {
-    setTenantGateStatus('fail', 'Enter a tenant id, or click Continue without tenant.');
+    setConsoleTenantStatus('fail', 'Enter a tenant id first.');
     return;
   }
-  const continueBtn = document.getElementById('tenantGateContinueBtn');
-  const continueLabel = continueBtn ? continueBtn.textContent : 'Continue';
-  if (continueBtn) {
-    continueBtn.disabled = true;
-    continueBtn.innerHTML = '<span class="spinner dark"></span> Loading…';
+  const loadBtn = document.getElementById('consoleTenantLoadBtn');
+  const loadLabel = loadBtn ? loadBtn.textContent : 'Load tenant';
+  if (loadBtn) {
+    loadBtn.disabled = true;
+    loadBtn.innerHTML = '<span class="spinner dark"></span> Loading…';
   }
-  setTenantGateStatus('', 'Loading tenant settings…');
+  setConsoleTenantStatus('', 'Loading tenant settings…');
   try {
     await setConsoleTenantId(tid);
-    chatGateResolved = true;
-    closeTenantGate();
+    setConsoleTenantStatus('ok', 'Tenant loaded.');
+  } catch (_) {
+    setConsoleTenantStatus('fail', 'Could not load tenant settings.');
   } finally {
-    if (continueBtn) {
-      continueBtn.disabled = false;
-      continueBtn.textContent = continueLabel;
+    if (loadBtn) {
+      loadBtn.disabled = false;
+      loadBtn.textContent = loadLabel;
     }
   }
 }
 
-async function skipTenantGate() {
-  await setConsoleTenantId('');
-  chatGateResolved = true;
-  closeTenantGate();
+async function skipConsoleTenant() {
+  const loadBtn = document.getElementById('consoleTenantLoadBtn');
+  const skipBtn = document.getElementById('consoleTenantSkipBtn');
+  if (loadBtn) loadBtn.disabled = true;
+  if (skipBtn) skipBtn.disabled = true;
+  setConsoleTenantStatus('', 'Starting without tenant…');
+  try {
+    await setConsoleTenantId('');
+    setConsoleTenantStatus('ok', 'Running without tenant — no Catalog rules applied.');
+  } finally {
+    if (loadBtn) loadBtn.disabled = false;
+    if (skipBtn) skipBtn.disabled = false;
+  }
 }
 
 function attachConsoleTenant(payload) {
@@ -2292,26 +2279,17 @@ function syncCapButtonActiveState() {
   });
 }
 
-const consoleTenantChangeBtn = document.getElementById('consoleTenantChangeBtn');
-if (consoleTenantChangeBtn) {
-  consoleTenantChangeBtn.addEventListener('click', () => {
-    chatGateResolved = false;
-    openTenantGate();
+const consoleTenantLoadBtn = document.getElementById('consoleTenantLoadBtn');
+const consoleTenantSkipBtn = document.getElementById('consoleTenantSkipBtn');
+const consoleTenantInput = document.getElementById('consoleTenantInput');
+if (consoleTenantLoadBtn) consoleTenantLoadBtn.addEventListener('click', loadConsoleTenant);
+if (consoleTenantSkipBtn) consoleTenantSkipBtn.addEventListener('click', skipConsoleTenant);
+if (consoleTenantInput) {
+  consoleTenantInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); loadConsoleTenant(); }
   });
 }
-
-const tenantGateContinueBtn = document.getElementById('tenantGateContinueBtn');
-const tenantGateSkipBtn = document.getElementById('tenantGateSkipBtn');
-const tenantGateInput = document.getElementById('tenantGateInput');
-if (tenantGateContinueBtn) tenantGateContinueBtn.addEventListener('click', confirmTenantGate);
-if (tenantGateSkipBtn) tenantGateSkipBtn.addEventListener('click', skipTenantGate);
-if (tenantGateInput) {
-  tenantGateInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); confirmTenantGate(); }
-  });
-}
-
-maybeShowTenantGate();
+refreshConsoleAgents();
 
 const SEND_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h12M13 6l6 6-6 6"/></svg>';
 const ASK_EMPTY_CHIPS = `
@@ -2377,7 +2355,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'dashboard')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -2395,8 +2373,10 @@ function setComposerMode(mode) {
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
   const promptFields = document.getElementById('promptFields');
   if (promptFields) promptFields.hidden = mode !== 'prompt';
+  const dashboardFields = document.getElementById('dashboardFields');
+  if (dashboardFields) dashboardFields.hidden = mode !== 'dashboard';
   if (composerWrap) {
-    composerWrap.classList.toggle('prompt-mode', mode === 'prompt');
+    composerWrap.classList.toggle('prompt-mode', mode === 'prompt' || mode === 'dashboard');
     composerWrap.classList.toggle('ask-mode', mode === 'chat');
   }
   if (modeLabel) {
@@ -2423,6 +2403,8 @@ function setComposerMode(mode) {
     messageInput.placeholder = 'Optional note';
   } else if (mode === 'prompt') {
     messageInput.placeholder = 'Paste the prompt';
+  } else if (mode === 'dashboard') {
+    messageInput.placeholder = 'I need an AP dashboard';
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -3124,6 +3106,155 @@ function renderPromptResult(promptResult, request) {
   return { html, resultJson, curlText };
 }
 
+function dashFormatValue(item) {
+  if (!item || item.value == null) return '—';
+  const n = Number(item.value);
+  const unit = String(item.unit || '');
+  if (!Number.isFinite(n)) return escapeHtml(String(item.value));
+  if (unit && unit !== 'USD' && unit !== 'days') {
+    return escapeHtml(String(item.value) + ' ' + unit);
+  }
+  if (unit === 'days') return n + 'd';
+  const abs = Math.abs(n);
+  const formatted = abs >= 1000
+    ? ((n < 0 ? '-' : '') + '$' + (abs / 1000).toFixed(abs >= 10000 ? 0 : 1) + 'K')
+    : ('$' + n.toLocaleString());
+  return unit && unit !== 'USD' ? formatted + ' ' + escapeHtml(unit) : formatted;
+}
+
+function dashConic(series) {
+  const colors = ['#7c3aed', '#22d3ee', '#f43f5e', '#10b981', '#f97316', '#6366f1'];
+  const total = (series || []).reduce((sum, row) => sum + (Number(row.value) || 0), 0);
+  if (!total) return { style: 'conic-gradient(#e5e7eb 0 100%)', legend: [] };
+  let start = 0;
+  const stops = [];
+  const legend = [];
+  (series || []).forEach((row, i) => {
+    const color = colors[i % colors.length];
+    const frac = ((Number(row.value) || 0) / total) * 100;
+    const end = start + frac;
+    stops.push(color + ' ' + start.toFixed(2) + '% ' + end.toFixed(2) + '%');
+    legend.push({ name: row.name || 'Unknown', value: row.value, color });
+    start = end;
+  });
+  return { style: 'conic-gradient(' + stops.join(', ') + ')', legend };
+}
+
+function renderDashboardPreview(dashboard) {
+  const data = (dashboard && dashboard.data) || {};
+  const kpiMeta = Array.isArray(dashboard.kpis) ? dashboard.kpis : [];
+  const chartMeta = Array.isArray(dashboard.charts) ? dashboard.charts : [];
+  const kpiData = data.kpis || {};
+  const chartData = data.charts || {};
+  const title = dashboard.repository_name || 'Accounts Payable';
+  const source = dashboard.data_source === 'ap_extract'
+    ? 'Amounts from AP extract (items-table fields were empty)'
+    : (dashboard.table || '');
+  let html = '<div class="dash-preview">';
+  html += '<div class="dash-preview-kicker">Sample dashboard</div>';
+  html += `<div class="dash-preview-title">${escapeHtml(title)}</div>`;
+  html += `<div class="dash-preview-sub">${escapeHtml(source)}${dashboard.workflow ? ' · ' + escapeHtml(dashboard.workflow) : ''}</div>`;
+  const cards = kpiMeta.filter((row) => row.enabled !== false && kpiData[row.id]);
+  if (cards.length) {
+    html += '<div class="dash-kpi-row">';
+    cards.forEach((row) => {
+      const item = kpiData[row.id];
+      html += `<div class="dash-kpi-card${item.alert ? ' alert' : ''}"><div class="dash-kpi-label">${escapeHtml(row.label || row.id)}</div><div class="dash-kpi-value">${dashFormatValue(item)}</div></div>`;
+    });
+    html += '</div>';
+  }
+  const enabledCharts = chartMeta.filter((row) => row.enabled !== false);
+  if (enabledCharts.length) {
+    html += '<div class="dash-charts">';
+    enabledCharts.forEach((row) => {
+      const chart = chartData[row.id] || {};
+      html += `<div class="dash-chart-card"><div class="dash-chart-title">${escapeHtml(row.title || row.label || row.id)}</div>`;
+      const series = Array.isArray(chart.series) ? chart.series.filter((item) => Number(item && item.value) > 0) : [];
+      if ((chart.type === 'donut' || row.type === 'donut') && series.length) {
+        const donut = dashConic(series);
+        html += `<div class="dash-donut" style="background:${donut.style}"></div><ul class="dash-legend">`;
+        donut.legend.forEach((item) => {
+          html += `<li><span class="dash-swatch" style="background:${item.color}"></span>${escapeHtml(String(item.name))} · ${escapeHtml(String(item.value))}</li>`;
+        });
+        html += '</ul>';
+      } else if (Array.isArray(chart.bars) && Array.isArray(chart.categories) && chart.categories.length) {
+        const max = Math.max(1, ...chart.bars.map((n) => Number(n) || 0));
+        html += '<div class="dash-bars">';
+        chart.categories.forEach((label, i) => {
+          const h = Math.max(6, ((Number(chart.bars[i]) || 0) / max) * 100);
+          html += `<div class="dash-bar-col"><div class="dash-bar" style="height:${h}%"></div><div class="dash-bar-label">${escapeHtml(String(label))}</div></div>`;
+        });
+        html += '</div>';
+      } else {
+        html += '<p class="dash-empty">No chart values yet.</p>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderDashboardResult(dashboard, request) {
+  const resultJson = JSON.stringify(dashboard || {}, null, 2);
+  const curlText = buildChatCurl(request, 'dashboard');
+  const phase = dashboard && dashboard.phase ? dashboard.phase : '';
+  const isSchema = phase === 'schema';
+  const isData = phase === 'data';
+  const kpis = Array.isArray(dashboard && dashboard.kpis) ? dashboard.kpis : [];
+  const charts = Array.isArray(dashboard && dashboard.charts) ? dashboard.charts : [];
+  let html = `<div class="detail-block dash-card"><div class="dt-title">Dashboard result</div>`;
+  html += `<table>${fieldRow('Phase', phase)}${fieldRow('Table', dashboard && dashboard.table)}${fieldRow('Repository', dashboard && dashboard.repository_id)}</table>`;
+  if (isData) html += renderDashboardPreview(dashboard);
+  if (isSchema) {
+    html += '<p class="lede" style="margin:10px 0 6px">There is no separate Edit screen. Tick the widgets you want, then click <b>Load data</b>.</p>';
+  }
+  if (isSchema && kpis.length) {
+    html += '<table class="ocr-fields-table" style="margin-top:8px"><thead><tr><th>KPI</th><th>Include</th><th>Value</th></tr></thead><tbody>';
+    kpis.forEach((kpi) => {
+      const data = dashboard && dashboard.data && dashboard.data.kpis ? dashboard.data.kpis[kpi.id] : null;
+      const value = data && data.value != null ? data.value : '—';
+      const include = isSchema
+        ? `<input type="checkbox" data-dash-kind="kpi" data-dash-id="${escapeHtml(kpi.id)}" ${kpi.enabled === false ? '' : 'checked'}>`
+        : (kpi.enabled === false ? 'off' : 'on');
+      html += `<tr><td>${escapeHtml(kpi.label || kpi.id || '')}</td><td>${include}</td><td>${escapeHtml(String(value))}</td></tr>`;
+    });
+    html += '</tbody></table>';
+  }
+  if (isSchema && charts.length) {
+    html += '<div style="margin-top:8px;color:var(--text-muted)">Charts</div><ul>';
+    charts.forEach((chart) => {
+      const include = isSchema
+        ? `<label><input type="checkbox" data-dash-kind="chart" data-dash-id="${escapeHtml(chart.id)}" ${chart.enabled === false ? '' : 'checked'}> ${escapeHtml(chart.title || chart.id || '')}</label>`
+        : `${escapeHtml(chart.title || chart.id || '')} (${chart.enabled === false ? 'off' : 'on'})`;
+      html += `<li>${include}</li>`;
+    });
+    html += '</ul>';
+  }
+  if (isSchema) {
+    html += '<button type="button" class="btn-primary dash-load-data">Load data</button>';
+  }
+  html += codePanelHtml();
+  html += `</div>`;
+  return { html, resultJson, curlText };
+}
+
+function applyDashboardCheckboxEdits(root, schema) {
+  const next = JSON.parse(JSON.stringify(schema || {}));
+  const enabled = {};
+  root.querySelectorAll('input[data-dash-id]').forEach((box) => {
+    enabled[box.getAttribute('data-dash-id')] = box.checked;
+  });
+  (next.kpis || []).forEach((row) => {
+    if (row.id in enabled) row.enabled = enabled[row.id];
+  });
+  (next.charts || []).forEach((row) => {
+    if (row.id in enabled) row.enabled = enabled[row.id];
+  });
+  return next;
+}
+
 function renderOcrResult(ocr, request) {
   const fields = Array.isArray(ocr.ocrResult) ? ocr.ocrResult : [];
   const tables = Array.isArray(ocr.tableResult) ? ocr.tableResult : [];
@@ -3390,7 +3521,7 @@ function renderHighlightedText(s) {
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result)
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.dashboard_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -3434,8 +3565,17 @@ function renderAssistantMessage(body, sessionId, request) {
     details += promptCode.html;
     codeBlocks.push(promptCode);
   }
+  if (body.dashboard_result) {
+    const dashCode = renderDashboardResult(body.dashboard_result, request);
+    details += dashCode.html;
+    codeBlocks.push(dashCode);
+    const jsonBox = document.getElementById('dashboardJson');
+    if (jsonBox && body.dashboard_result.phase === 'schema') {
+      jsonBox.value = JSON.stringify(body.dashboard_result, null, 2);
+    }
+  }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.dashboard_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -3472,6 +3612,9 @@ function renderAssistantMessage(body, sessionId, request) {
   if (body.prompt_result) {
     bubbleText = body.reply || 'Prompt executed successfully.';
   }
+  if (body.dashboard_result) {
+    bubbleText = body.reply || (body.dashboard_result.phase === 'data' ? 'Dashboard data loaded.' : 'Suggested dashboard.');
+  }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
   div.innerHTML = `
@@ -3499,6 +3642,23 @@ function renderAssistantMessage(body, sessionId, request) {
 
   transcript.appendChild(div);
   collapseFormsAfterResult(body);
+  if (body.dashboard_result && body.dashboard_result.phase === 'schema') {
+    const loadBtn = div.querySelector('.dash-load-data');
+    if (loadBtn) {
+      loadBtn.addEventListener('click', () => {
+        const edited = applyDashboardCheckboxEdits(div, body.dashboard_result);
+        const tenantEl = document.getElementById('dashboardTenant');
+        const repoEl = document.getElementById('dashboardRepositoryId');
+        const jsonEl = document.getElementById('dashboardJson');
+        if (tenantEl && edited.tenant_id) tenantEl.value = edited.tenant_id;
+        if (repoEl && edited.repository_id) repoEl.value = edited.repository_id;
+        if (jsonEl) jsonEl.value = JSON.stringify(edited, null, 2);
+        composerMode = 'dashboard';
+        messageInput.value = 'apply';
+        sendDashboardJob();
+      });
+    }
+  }
   transcript.scrollTop = transcript.scrollHeight;
 }
 
@@ -4105,12 +4265,101 @@ async function sendPromptJob() {
   }
 }
 
+const DASHBOARD_SAMPLE = {
+  tenant_id: 'ca57657b-e789-4a24-aba4-7fdbf4bb22bd',
+  repository_id: '38b1b6dd-854b-489f-aa44-ac6d4dd691e8',
+  workflow_id: '4cf093e6-8b42-47da-9bf6-3ffadcdb15af',
+  message: 'I need an AP dashboard',
+};
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function loadDashboardSample() {
+  setComposerMode('dashboard');
+  const tenantEl = document.getElementById('dashboardTenant');
+  const repoEl = document.getElementById('dashboardRepositoryId');
+  const wfEl = document.getElementById('dashboardWorkflowId');
+  const jsonEl = document.getElementById('dashboardJson');
+  if (tenantEl) tenantEl.value = DASHBOARD_SAMPLE.tenant_id;
+  if (repoEl) repoEl.value = DASHBOARD_SAMPLE.repository_id;
+  if (wfEl) wfEl.value = '';
+  if (jsonEl) jsonEl.value = '';
+  messageInput.value = DASHBOARD_SAMPLE.message;
+  messageInput.focus();
+}
+
+const dashboardSampleBtn = document.getElementById('dashboardSampleBtn');
+if (dashboardSampleBtn) dashboardSampleBtn.addEventListener('click', loadDashboardSample);
+
+async function sendDashboardJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const tenantId = (
+    (document.getElementById('dashboardTenant') && document.getElementById('dashboardTenant').value) ||
+    consoleTenantId() ||
+    ''
+  ).trim();
+  const repositoryId = (document.getElementById('dashboardRepositoryId').value || '').trim();
+  const workflowRaw = (document.getElementById('dashboardWorkflowId').value || '').trim();
+  const workflowId = UUID_RE.test(workflowRaw) ? workflowRaw : '';
+  const rawJson = (document.getElementById('dashboardJson').value || '').trim();
+  let dashboardJson = null;
+  if (rawJson) {
+    try {
+      dashboardJson = JSON.parse(rawJson);
+    } catch (e) {
+      addSystemMessage('dashboard_json is not valid JSON.');
+      return;
+    }
+  }
+  if (!tenantId) {
+    addSystemMessage('Tenant id is required. Click Load sample, or paste the tenant UUID, or use Load tenant.');
+    return;
+  }
+  if (!repositoryId && !workflowId) {
+    addSystemMessage('Repository id or workflow id is required.');
+    return;
+  }
+  const message = messageInput.value.trim() || (dashboardJson ? 'apply' : 'I need an AP dashboard');
+  addUserMessage(message);
+  const processing = addProcessingMessage(dashboardJson ? 'Loading dashboard data…' : 'Proposing dashboard…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+  try {
+    const payload = { tenant_id: tenantId };
+    if (repositoryId) payload.repository_id = repositoryId;
+    if (workflowId) payload.workflow_id = workflowId;
+    if (dashboardJson) payload.dashboard_json = dashboardJson;
+    const body = attachConsoleTenantBody({ session_id: sessionId, intent: 'dashboard', message, payload });
+    const request = { intent: 'dashboard', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
 async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
   if (composerMode === 'ocr') return sendOcrJob();
   if (composerMode === 'ap') return sendApJob();
   if (composerMode === 'prompt') return sendPromptJob();
+  if (composerMode === 'dashboard') return sendDashboardJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');
@@ -4161,27 +4410,33 @@ autosizeComposer();
 // --- Catalog admin ------------------------------------------------------
 const chatView = document.getElementById('chatView');
 const catalogView = document.getElementById('catalogView');
+const modelsView = document.getElementById('modelsView');
 const viewChatBtn = document.getElementById('viewChatBtn');
 const viewCatalogBtn = document.getElementById('viewCatalogBtn');
+const viewModelsBtn = document.getElementById('viewModelsBtn');
 
 function setView(name) {
-  const catalog = name === 'catalog';
-  document.body.classList.toggle('catalog-open', catalog);
-  if (chatView) chatView.style.display = catalog ? 'none' : '';
-  if (catalogView) catalogView.classList.toggle('visible', catalog);
-  viewChatBtn.classList.toggle('active', !catalog);
-  viewCatalogBtn.classList.toggle('active', catalog);
-  if (catalog) {
-    chatGateResolved = false;
-    closeTenantGate();
+  const isChat = name === 'chat';
+  const isCatalog = name === 'catalog';
+  const isModels = name === 'models';
+  if (chatView) chatView.style.display = isChat ? '' : 'none';
+  if (catalogView) catalogView.classList.toggle('visible', isCatalog);
+  if (modelsView) modelsView.classList.toggle('visible', isModels);
+  viewChatBtn.classList.toggle('active', isChat);
+  viewCatalogBtn.classList.toggle('active', isCatalog);
+  viewModelsBtn.classList.toggle('active', isModels);
+  if (isCatalog) {
     catalogView.scrollTop = 0;
     loadCatalog();
-  } else {
-    maybeShowTenantGate();
+  }
+  if (isModels) {
+    modelsView.scrollTop = 0;
+    loadModelsPage();
   }
 }
 viewChatBtn.addEventListener('click', () => setView('chat'));
 viewCatalogBtn.addEventListener('click', () => setView('catalog'));
+viewModelsBtn.addEventListener('click', () => setView('models'));
 
 function catStatus(el, kind, text) {
   el.className = 'catalog-status ' + (kind || '');
@@ -4219,19 +4474,32 @@ function selectedCatalogTenantId() {
 
 function setCatalogWorkspaceVisible(visible) {
   const workspace = document.getElementById('catalogTenantWorkspace');
-  if (workspace) workspace.hidden = !visible;
+  if (workspace) workspace.hidden = false;
+}
+
+async function loadCatalogTenantData(tenantId) {
+  if (tenantId) {
+    await loadCatalogTenantAgentModels();
+    await loadSelectedTenantModels();
+  } else {
+    catalogTenantAgentModels = {};
+  }
 }
 
 async function loadCatalog() {
   await Promise.all([loadCatalogTenantOptions(), loadCatalogModels()]);
-  const tenantId = selectedCatalogTenantId();
-  setCatalogWorkspaceVisible(Boolean(tenantId));
-  if (tenantId) {
-    await loadCatalogTenantAgentModels();
-    await Promise.all([loadCatalogAgents(), loadSelectedTenantModels()]);
-  } else {
-    catalogTenantAgentModels = {};
+  let tenantId = selectedCatalogTenantId();
+  if (!tenantId) {
+    const select = document.getElementById('catTenantSelect');
+    if (select && select.options.length > 1) {
+      select.selectedIndex = 1;
+      tenantId = selectedCatalogTenantId();
+      if (tenantId) sessionStorage.setItem(CATALOG_TENANT_KEY, tenantId);
+    }
   }
+  setCatalogWorkspaceVisible(true);
+  await loadCatalogTenantData(tenantId);
+  await loadCatalogAgents();
 }
 
 function ensureTenantOption(tenantId, label) {
@@ -4241,6 +4509,10 @@ function ensureTenantOption(tenantId, label) {
   opt.value = tenantId;
   opt.textContent = label || tenantId;
   select.appendChild(opt);
+}
+
+async function loadModelsPage() {
+  await loadCatalogModels();
 }
 
 async function loadCatalogTenantOptions() {
@@ -4280,16 +4552,8 @@ function onCatalogTenantChange() {
   const tenantId = selectedCatalogTenantId();
   if (tenantId) sessionStorage.setItem(CATALOG_TENANT_KEY, tenantId);
   else sessionStorage.removeItem(CATALOG_TENANT_KEY);
-  setCatalogWorkspaceVisible(Boolean(tenantId));
-  if (tenantId) {
-    loadCatalogTenantAgentModels().then(() => {
-      loadCatalogAgents();
-      loadSelectedTenantModels();
-    });
-  } else {
-    catalogTenantAgentModels = {};
-    loadCatalogAgents();
-  }
+  setCatalogWorkspaceVisible(true);
+  loadCatalogTenantData(tenantId).then(() => loadCatalogAgents());
 }
 
 document.getElementById('catTenantSelect').addEventListener('change', onCatalogTenantChange);
@@ -4325,6 +4589,18 @@ async function loadCatalogTenantAgentModels() {
 
 function modelOptionsForSelect() {
   return catalogModelsCache.map(m => ({ id: m.id, label: m.label, region: m.region }));
+}
+
+function appendAgentModelSelect(cell, selectedId, emptyLabel, onChange) {
+  const sel = document.createElement('select');
+  sel.title = emptyLabel;
+  fillPresetSelect(sel, modelOptionsForSelect(), selectedId || '', { includeNone: true });
+  if (sel.options.length && sel.options[0].value === '') {
+    sel.options[0].textContent = emptyLabel;
+  }
+  sel.addEventListener('change', onChange);
+  cell.appendChild(sel);
+  return sel;
 }
 
 async function saveTenantAgentModel(agentSlug, modelId) {
@@ -4375,26 +4651,28 @@ async function loadCatalogAgents() {
         '<td><span class="kind-pill">' + escapeHtml(agent.kind) + '</span></td>' +
         '<td></td>' +
         '<td></td>' +
+        '<td></td>' +
+        '<td></td>' +
         '<td>' + escapeHtml(triggers) + '</td>' +
         '<td class="catalog-actions"></td>';
-      const modelCell = tr.children[3];
-      const modelSel = document.createElement('select');
-      modelSel.title = 'Model for this agent (tenant)';
       const mapped = catalogTenantAgentModels[agent.slug];
       catalogAgentsDraft[agent.slug] = {
         id: agent.id,
         enabled: Boolean(agent.enabled),
         model_id: mapped ? (mapped.model_id || '') : '',
+        default_model_id: mapped ? (mapped.default_model_id || '') : '',
+        fallback_model_id: mapped ? (mapped.fallback_model_id || '') : '',
       };
-      fillPresetSelect(modelSel, modelOptionsForSelect(), catalogAgentsDraft[agent.slug].model_id, { includeNone: true });
-      if (modelSel.options.length && modelSel.options[0].value === '') {
-        modelSel.options[0].textContent = 'Tenant default';
-      }
-      modelSel.addEventListener('change', () => {
-        catalogAgentsDraft[agent.slug].model_id = modelSel.value;
+      appendAgentModelSelect(tr.children[3], catalogAgentsDraft[agent.slug].model_id, 'Select model…', () => {
+        catalogAgentsDraft[agent.slug].model_id = tr.children[3].querySelector('select').value;
       });
-      modelCell.appendChild(modelSel);
-      const enabledCell = tr.children[4];
+      appendAgentModelSelect(tr.children[4], catalogAgentsDraft[agent.slug].default_model_id, 'Use tenant default', () => {
+        catalogAgentsDraft[agent.slug].default_model_id = tr.children[4].querySelector('select').value;
+      });
+      appendAgentModelSelect(tr.children[5], catalogAgentsDraft[agent.slug].fallback_model_id, 'Use tenant default', () => {
+        catalogAgentsDraft[agent.slug].fallback_model_id = tr.children[5].querySelector('select').value;
+      });
+      const enabledCell = tr.children[6];
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = catalogAgentsDraft[agent.slug].enabled;
@@ -4406,14 +4684,8 @@ async function loadCatalogAgents() {
       enabledCell.appendChild(cb);
       const cell = tr.lastElementChild;
       if (agent.kind === 'custom') {
-        const edit = document.createElement('button');
-        edit.className = 'btn-ghost';
-        edit.textContent = 'Edit';
-        edit.addEventListener('click', () => fillAgentForm(agent));
-        cell.appendChild(edit);
         const del = document.createElement('button');
         del.className = 'btn-danger';
-        del.style.marginLeft = '6px';
         del.textContent = 'Delete';
         del.addEventListener('click', () => deleteCatalogAgent(agent.id));
         cell.appendChild(del);
@@ -4426,39 +4698,6 @@ async function loadCatalogAgents() {
   }
 }
 
-function showAgentForm() {
-  document.getElementById('catalogAgentForm').hidden = false;
-}
-
-function resetAgentForm() {
-  const form = document.getElementById('catalogAgentForm');
-  form.reset();
-  document.getElementById('catAgentId').value = '';
-  document.getElementById('catAgentSlug').disabled = false;
-  document.getElementById('catAgentSaveBtn').textContent = 'Save custom agent';
-  form.hidden = true;
-}
-
-function fillAgentForm(agent) {
-  document.getElementById('catAgentId').value = agent.id;
-  document.getElementById('catAgentSlug').value = agent.slug;
-  document.getElementById('catAgentSlug').disabled = true;
-  document.getElementById('catAgentName').value = agent.name || '';
-  document.getElementById('catAgentDesc').value = agent.description || '';
-  document.getElementById('catAgentPrompt').value = agent.system_prompt || '';
-  document.getElementById('catAgentTriggers').value = (agent.trigger_phrases || []).join(', ');
-  document.getElementById('catAgentSaveBtn').textContent = 'Update agent';
-  showAgentForm();
-  document.getElementById('catalogAgentForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-document.getElementById('catAgentAddBtn').addEventListener('click', () => {
-  resetAgentForm();
-  document.getElementById('catalogAgentForm').hidden = false;
-  document.getElementById('catAgentSlug').focus();
-});
-document.getElementById('catAgentCancelBtn').addEventListener('click', resetAgentForm);
-
 async function deleteCatalogAgent(id) {
   const status = document.getElementById('catalogAgentStatus');
   const res = await fetch('/console/catalog/agents/' + id, { method: 'DELETE' });
@@ -4468,53 +4707,8 @@ async function deleteCatalogAgent(id) {
     return;
   }
   catStatus(status, 'ok', 'Deleted.');
-  resetAgentForm();
   loadCatalogAgents();
 }
-
-async function patchCatalogAgent(id, payload) {
-  const status = document.getElementById('catalogAgentStatus');
-  const res = await fetch('/console/catalog/agents/' + id, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await readResponseJson(res);
-  if (!res.ok) {
-    catStatus(status, 'fail', data.detail || 'Update failed');
-    loadCatalogAgents();
-    return;
-  }
-  catStatus(status, 'ok', 'Updated ' + (data.slug || 'agent') + '.');
-}
-
-document.getElementById('catalogAgentForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const status = document.getElementById('catalogAgentStatus');
-  const existingId = document.getElementById('catAgentId').value;
-  const payload = {
-    name: document.getElementById('catAgentName').value,
-    description: document.getElementById('catAgentDesc').value,
-    system_prompt: document.getElementById('catAgentPrompt').value,
-    trigger_phrases: parsePhrases(document.getElementById('catAgentTriggers').value),
-    enabled: true,
-  };
-  if (!existingId) payload.slug = document.getElementById('catAgentSlug').value;
-  const url = existingId ? ('/console/catalog/agents/' + existingId) : '/console/catalog/agents';
-  const res = await fetch(url, {
-    method: existingId ? 'PATCH' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const data = await readResponseJson(res);
-  if (!res.ok) {
-    catStatus(status, 'fail', data.detail || 'Save failed');
-    return;
-  }
-  catStatus(status, 'ok', 'Saved ' + data.slug + '.');
-  resetAgentForm();
-  loadCatalogAgents();
-});
 
 async function loadCatalogModels() {
   const status = document.getElementById('catalogModelStatus');
@@ -4714,6 +4908,8 @@ async function saveAllCatalogTenantSettings() {
           tenant_id: tenantId,
           agent_slug: slug,
           model_id: draft.model_id || null,
+          default_model_id: draft.default_model_id || null,
+          fallback_model_id: draft.fallback_model_id || null,
         }),
       });
       const modelData = await readResponseJson(modelRes);

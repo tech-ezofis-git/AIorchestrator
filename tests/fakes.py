@@ -5,14 +5,14 @@ Postgres(+pgvector) instance.
 
 Understands only the fixed set of query shapes app/knowledge/vector_store.py,
 app/control/audit_store.py, app/control/memory_store.py, app/ap_skills/store.py, and
-app/catalog/store.py issue (matched by distinctive substrings) — not a
-general SQL engine.
+app/catalog/store.py, and app/dashboard/store.py issue (matched by
+distinctive substrings) — not a general SQL engine.
 """
 import json
 import math
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Optional
 
 
@@ -55,6 +55,53 @@ class FakeDBPool:
         self.catalog_models: dict[str, dict[str, Any]] = {}
         self.catalog_tenant_models: dict[str, dict[str, Any]] = {}
         self.catalog_tenant_agent_models: dict[str, dict[str, Any]] = {}
+        self.dashboard_repositories: dict[str, dict[str, Any]] = {
+            "38b1b6dd-854b-489f-aa44-ac6d4dd691e8": {
+                "id": "38b1b6dd-854b-489f-aa44-ac6d4dd691e8",
+                "name": "Accounts Payable",
+                "items_table_name": "items_38b1b6dd",
+            }
+        }
+        self.dashboard_workflows: dict[str, dict[str, Any]] = {
+            "4cf093e6-8b42-47da-9bf6-3ffadcdb15af": {
+                "id": "4cf093e6-8b42-47da-9bf6-3ffadcdb15af",
+                "name": "Accounts Payable",
+                "repository_id": "38b1b6dd-854b-489f-aa44-ac6d4dd691e8",
+                "form_id": "9a117b01-bb6d-4696-a627-a9fa84bb006e",
+            }
+        }
+        self.dashboard_columns: list[str] = [
+            "id",
+            "Supplier",
+            "InvoiceAmount",
+            "DueDate",
+            "MatchedStatus",
+            "InvoiceDate",
+            "Currency",
+            "is_deleted",
+        ]
+        self.dashboard_items: list[dict[str, Any]] = [
+            {
+                "id": "item-1",
+                "Supplier": "Acme",
+                "InvoiceAmount": "6200",
+                "DueDate": date(2020, 1, 1),
+                "MatchedStatus": "MATCHED",
+                "InvoiceDate": date(2025, 7, 1),
+                "Currency": "USD",
+                "is_deleted": False,
+            },
+            {
+                "id": "item-2",
+                "Supplier": "Acme",
+                "InvoiceAmount": "5300",
+                "DueDate": date(2020, 1, 1),
+                "MatchedStatus": "MATCHED",
+                "InvoiceDate": date(2026, 5, 1),
+                "Currency": "USD",
+                "is_deleted": False,
+            },
+        ]
 
     def _catalog_agent_by_id(self, agent_id: Any) -> Optional[dict[str, Any]]:
         return self.catalog_agents.get(str(agent_id))
@@ -232,15 +279,19 @@ class FakeDBPool:
 
     def _join_tenant_agent_row(self, row: dict[str, Any]) -> dict[str, Any]:
         model = self._catalog_model_by_id(row["model_id"]) if row.get("model_id") else None
+        default = self._catalog_model_by_id(row["default_model_id"]) if row.get("default_model_id") else None
         fallback = self._catalog_model_by_id(row["fallback_model_id"]) if row.get("fallback_model_id") else None
         return {
             "tenant_id": row["tenant_id"],
             "agent_slug": row["agent_slug"],
             "model_id": row.get("model_id"),
+            "default_model_id": row.get("default_model_id"),
             "fallback_model_id": row.get("fallback_model_id"),
             "updated_at": row.get("updated_at"),
             "model_slug": model.get("slug") if model else None,
             "model_label": model.get("label") if model else None,
+            "default_slug": default.get("slug") if default else None,
+            "default_label": default.get("label") if default else None,
             "fallback_slug": fallback.get("slug") if fallback else None,
             "fallback_label": fallback.get("label") if fallback else None,
         }
@@ -294,7 +345,7 @@ class FakeDBPool:
 
     def _handle_catalog_execute(self, query: str, args: tuple[Any, ...]) -> None:
         stripped = query.strip().upper()
-        if stripped.startswith("CREATE "):
+        if stripped.startswith("CREATE ") or stripped.startswith("ALTER "):
             return
         if "INSERT INTO catalog_agents" in query:
             (
@@ -364,12 +415,13 @@ class FakeDBPool:
             }
             return
         if "INSERT INTO catalog_tenant_agent_models" in query:
-            tenant_id, agent_slug, model_id, fallback_model_id = args
+            tenant_id, agent_slug, model_id, default_model_id, fallback_model_id = args
             key = f"{tenant_id}:{agent_slug}"
             self.catalog_tenant_agent_models[key] = {
                 "tenant_id": tenant_id,
                 "agent_slug": agent_slug,
                 "model_id": model_id,
+                "default_model_id": default_model_id,
                 "fallback_model_id": fallback_model_id,
                 "updated_at": self._now(),
             }
@@ -419,6 +471,18 @@ class FakeDBPool:
             if not matches:
                 return None
             return {"activity_id": matches[0].get("activity_id")}
+        if "-- dashboard:repo" in query:
+            key = str(args[0] if args else "").strip().lower()
+            for repo_id, row in self.dashboard_repositories.items():
+                if repo_id.lower() == key:
+                    return row
+            return None
+        if "-- dashboard:workflow" in query:
+            key = str(args[0] if args else "").strip().lower()
+            for workflow_id, row in self.dashboard_workflows.items():
+                if workflow_id.lower() == key:
+                    return row
+            return None
         raise AssertionError(f"FakeDBPool.fetchrow: unrecognized query: {query!r}")
 
     async def executemany(self, query: str, args_list: list[tuple]):
@@ -455,6 +519,32 @@ class FakeDBPool:
             matches = [m for m in self.memories if m["user_id"] == user_id]
             matches.reverse()
             return [{"fact": m["fact"]} for m in matches[:limit]]
+        if "-- dashboard:extracts" in query:
+            tenant_id = str(args[0] if args else "")
+            skill_ids = {str(item) for item in (args[1] or [])}
+            item_keys = {str(item) for item in (args[2] or [])}
+            latest: dict[tuple[str, str], dict[str, Any]] = {}
+            for row in self.ap_skill_artifacts:
+                skill_id = str(row.get("skill_id") or "")
+                item_key = str(row.get("item_key") or "")
+                if str(row.get("tenant_id") or "") != tenant_id:
+                    continue
+                if skill_id not in skill_ids or item_key not in item_keys:
+                    continue
+                key = (item_key, skill_id)
+                previous = latest.get(key)
+                if previous is None or (row.get("created_at") or datetime.min.replace(tzinfo=timezone.utc)) >= (
+                    previous.get("created_at") or datetime.min.replace(tzinfo=timezone.utc)
+                ):
+                    latest[key] = row
+            return [
+                {
+                    "item_key": item_key,
+                    "skill_id": skill_id,
+                    "result_json": row.get("result_json"),
+                }
+                for (item_key, skill_id), row in latest.items()
+            ]
         if "FROM ap_skill_artifacts" in query:
             if "AND skill_id" in query:
                 tenant_id, skill_id = args
@@ -487,6 +577,10 @@ class FakeDBPool:
                 {"id": c["id"], "document_id": c["document_id"], "chunk_index": c["chunk_index"], "text": c["text"], "score": score}
                 for c, score in scored[:top_n]
             ]
+        if "-- dashboard:columns" in query:
+            return [{"column_name": name} for name in self.dashboard_columns]
+        if "-- dashboard:items" in query:
+            return list(self.dashboard_items)
         raise AssertionError(f"FakeDBPool.fetch: unrecognized query: {query!r}")
 
     async def execute(self, query: str, *args: Any):

@@ -14,7 +14,9 @@ def test_console_serves_html(client):
     assert "/chat" in response.text  # the page's own fetch() call target
     assert "Ask AI" in response.text
     assert "attachConsoleTenantBody" in response.text
-    assert 'id="consoleTenantId"' in response.text
+    assert 'id="consoleTenantInput"' in response.text
+    assert 'id="consoleTenantLoadBtn"' in response.text
+    assert "Load tenant" in response.text
     assert "refreshConsoleAgents" in response.text
     assert "Save tenant settings" in response.text
     assert "AP agent" in response.text
@@ -32,14 +34,24 @@ def test_console_serves_html(client):
     assert "intent: 'ocr'" in response.text
     assert "intent: 'ap'" in response.text
     assert "intent: 'prompt'" in response.text
+    assert "intent: 'dashboard'" in response.text
     assert "OCR agent" in response.text
     assert "Summary agent" in response.text
     assert "Insight agent" in response.text
+    assert "Dashboard agent" in response.text
     assert 'id="promptFields"' in response.text
-    assert "buildChatCurl" in response.text
+    assert 'id="dashboardFields"' in response.text
+    assert 'id="dashboardTenant"' in response.text
+    assert "Load data" in response.text
+    assert "dash-preview" in response.text
+    assert "Sample dashboard" in response.text
+    assert "data-dash-id" in response.text
+    assert "Load sample" in response.text
     assert "function renderOcrResult" in response.text
     assert "function renderApResult" in response.text
     assert "function renderPromptResult" in response.text
+    assert "function renderDashboardResult" in response.text
+    assert "buildChatCurl" in response.text
     assert "skills/prompt/SKILL.md" in response.text
     assert 'id="summaryPackInspector"' in response.text
     assert 'data-pack-tab="tenant"' in response.text
@@ -52,7 +64,9 @@ def test_console_serves_html(client):
     assert "function restoreEmptyState" in response.text
     assert "function renderChatReply" in response.text
     assert 'id="catalogView"' in response.text
+    assert 'id="modelsView"' in response.text
     assert 'id="viewCatalogBtn"' in response.text
+    assert 'id="viewModelsBtn"' in response.text
     assert 'id="catTenantSelect"' in response.text
     assert 'id="catalogTenantWorkspace"' in response.text
     assert "Available models" in response.text

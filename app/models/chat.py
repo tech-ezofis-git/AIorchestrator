@@ -142,6 +142,14 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("form_id", "formid", "formId"),
         description="PO/document form id (GUID or numeric). Selects ezfb_{token}_items on the tenant DB.",
     )
+    dashboard_json: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("dashboard_json", "dashboardJson"),
+        description=(
+            "Edited dashboard schema from call 1. When set on intent=dashboard, "
+            "call 2 hydrates enabled widgets from the tenant items table."
+        ),
+    )
 
 
 class ChatRequest(BaseModel):
@@ -150,8 +158,9 @@ class ChatRequest(BaseModel):
         default=None,
         description=(
             "Free-text chat message, or the full prompt when intent=prompt. "
-            "Optional when intent=ocr/summary/insight/ap with file, filepath, "
-            "ocr_text, summary_json, insight_json, or invoice_json."
+            "Optional when intent=ocr/summary/insight/ap/dashboard with file, "
+            "filepath, ocr_text, summary_json, insight_json, invoice_json, or "
+            "dashboard_json."
         ),
     )
     intent: Optional[str] = Field(
@@ -179,6 +188,13 @@ class ChatRequest(BaseModel):
             )
         )
         has_prompt = bool(payload and (payload.prompt or "").strip())
+        has_dashboard = bool(
+            payload
+            and (
+                payload.dashboard_json
+                or (payload.tenant_id or "").strip()
+            )
+        )
         msg = (self.message or "").strip()
         if (
             not msg
@@ -188,14 +204,16 @@ class ChatRequest(BaseModel):
             and not has_insight_json
             and not has_ap_doc
             and not has_prompt
+            and not has_dashboard
         ):
             # Multipart uploads attach file bytes outside this model; main.py
             # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap after parsing.
-            if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap"}:
+            if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap", "dashboard"}:
                 return self
             raise ValueError(
                 "Either message, payload.prompt, payload.filepath, payload.ocr_text, "
-                "payload.summary_json, payload.insight_json, or payload.invoice_json is required."
+                "payload.summary_json, payload.insight_json, payload.invoice_json, "
+                "or payload.dashboard_json is required."
             )
         return self
 
@@ -283,5 +301,13 @@ class ChatResponse(BaseModel):
         description=(
             "Prompt agent output. `text` is the raw model string (not parsed or "
             "validated, even when it looks like JSON). `reply` is a short status line."
+        ),
+    )
+    dashboard_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Dashboard intent output. Call 1 is phase=schema (possible widgets, "
+            "data is null). Call 2 sends that JSON back as payload.dashboard_json "
+            "and returns phase=data with live values from the tenant items table."
         ),
     )

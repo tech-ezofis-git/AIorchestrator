@@ -101,6 +101,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     invoice_json = _parse_optional_json_object(_form_str(form.get("invoice_json")), field="invoice_json")
     insight_json = _parse_optional_json_object(_form_str(form.get("insight_json")), field="insight_json")
     summary_json = _parse_optional_json_object(_form_str(form.get("summary_json")), field="summary_json")
+    dashboard_json = _parse_optional_json_object(
+        _form_str(form.get("dashboard_json")) or _form_str(form.get("dashboardJson")),
+        field="dashboard_json",
+    )
     key_facts_count = _parse_optional_int(_form_str(form.get("key_facts_count")), field="key_facts_count")
     insights_count = _parse_optional_int(_form_str(form.get("insights_count")), field="insights_count")
     insight_area = _form_str(form.get("insight_area"))
@@ -148,6 +152,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or has_ap_fields
         or insight_json
         or summary_json
+        or dashboard_json
         or key_facts_count is not None
         or insights_count is not None
         or insight_area
@@ -161,6 +166,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             insight_json=insight_json,
             insights_count=insights_count,
             insight_area=insight_area,
+            dashboard_json=dashboard_json,
             parameters=parameters,
             tableparameters=tableparameters,
             model=model,
