@@ -315,6 +315,16 @@ async def lifespan(app: FastAPI):
         apply_preset(llm_adapter, preset_id)
     embedding_adapter = EmbeddingAdapter(settings)
     ezofis_client = EzofisClient(settings)
+    if not ezofis_client._live_enabled():
+        logger.warning(
+            "ezofis_live_disabled",
+            extra={
+                "hint": (
+                    "Set EZOFIS_LOGIN_EMAIL, EZOFIS_LOGIN_PASSWORD, and EZOFIS_API_BASE "
+                    "on agents — AP metadata will not update ezfb_*_items until then."
+                ),
+            },
+        )
     context_manager = ContextManager(redis_client, settings.session_ttl_seconds, ezofis_client)
     intent_router = IntentRouter()
     try:
