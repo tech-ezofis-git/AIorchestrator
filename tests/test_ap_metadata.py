@@ -137,7 +137,6 @@ async def test_push_extract_metadata_calls_client():
         invoice={"invoice_number": "INV-9", "vendor": "Acme", "po_number": "PO-1"},
     )
     assert result["ok"] is True
-    assert result["ezfb_warning"] == "mock_login_disabled"
     assert seen["tenant_id"] == "tenant-1"
     assert seen["workflow_id"] == "wf"
     assert seen["instance_id"] == "inst"
@@ -169,7 +168,7 @@ async def test_ezofis_apply_metadata_skips_without_form_ids(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ezofis_apply_metadata_mock_when_live_disabled(monkeypatch):
+async def test_ezofis_apply_metadata_requires_login_when_form_ids_present(monkeypatch):
     monkeypatch.delenv("EZOFIS_LOGIN_EMAIL", raising=False)
     monkeypatch.delenv("EZOFIS_LOGIN_PASSWORD", raising=False)
     from app.config import get_settings
@@ -186,7 +185,33 @@ async def test_ezofis_apply_metadata_mock_when_live_disabled(monkeypatch):
         form_id="form",
         form_entry_id=7,
     )
-    assert result["ok"] is True
-    assert result["mock"] is True
-    assert result["formEntryId"] == 7
+    assert result["skipped"] is True
+    assert result["reason"] == "login_not_configured"
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_push_extract_metadata_reports_login_not_configured(monkeypatch):
+    monkeypatch.delenv("EZOFIS_LOGIN_EMAIL", raising=False)
+    monkeypatch.delenv("EZOFIS_LOGIN_PASSWORD", raising=False)
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    result = await push_extract_metadata(
+        ezofis=EzofisClient(),
+        tenant_id="t1",
+        document_job={
+            "workflow_id": "wf",
+            "instance_id": "inst",
+            "repository_id": "repo",
+            "repository_item_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "form_entry_id": "7",
+            "form_id": "9a117b01-bb6d-4696-a627-a9fa84bb006e",
+        },
+        form_id="9a117b01-bb6d-4696-a627-a9fa84bb006e",
+        invoice={"invoice_number": "INV-1", "vendor": "Acme"},
+    )
+    assert result["ok"] is False
+    assert result["reason"] == "login_not_configured"
+    assert result["ezfb_warning"] == "login_not_configured"
     get_settings.cache_clear()

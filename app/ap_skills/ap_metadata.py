@@ -229,12 +229,8 @@ async def push_extract_metadata(
             return {"ok": bool(result), "request": request_summary}
 
         out = {**result, "request": request_summary}
-        if out.get("mock"):
-            logger.warning(
-                "ap_metadata_mock_no_ezfb",
-                extra={"reason": "ezofis_login_not_configured", **request_summary},
-            )
-            out["ezfb_warning"] = "mock_login_disabled"
+        if out.get("reason") == "login_not_configured":
+            out["ezfb_warning"] = "login_not_configured"
 
         ezfb_n = out.get("ezfbFieldsUpdated")
         if out.get("ok") and not out.get("mock") and ezfb_n is not None and int(ezfb_n or 0) == 0:

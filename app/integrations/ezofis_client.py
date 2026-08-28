@@ -516,8 +516,21 @@ class EzofisClient:
             }
 
         if not self._live_enabled():
-            logger.warning("ezofis_metadata_mock", extra={"reason": "login_not_configured"})
-            return {"ok": True, "mock": True, **body}
+            logger.error(
+                "ezofis_metadata_login_not_configured",
+                extra={
+                    "form_id": body.get("formId"),
+                    "form_entry_id": body.get("formEntryId"),
+                },
+            )
+            return {
+                "ok": False,
+                "skipped": True,
+                "reason": "login_not_configured",
+                "hint": "Set EZOFIS_LOGIN_EMAIL and EZOFIS_LOGIN_PASSWORD on the agents service.",
+                "formId": body.get("formId"),
+                "formEntryId": body.get("formEntryId"),
+            }
 
         try:
             headers = await self._auth_headers(tenant_id)
