@@ -664,6 +664,112 @@ if not os.path.exists(TEMPLATES_DIR):
         TEMPLATES_DIR = root_templates
 
 
+def _pick_str(data: dict[str, Any], *keys: str) -> Optional[str]:
+    for key in keys:
+        val = data.get(key)
+        if val is None:
+            continue
+        text = str(val).strip()
+        if text:
+            return text
+    return None
+
+
+def _pick_mapping(data: dict[str, Any], *keys: str) -> Optional[dict[str, Any]]:
+    for key in keys:
+        val = data.get(key)
+        if isinstance(val, dict):
+            return val
+    return None
+
+
+def normalize_direct_pdf_request(body: Any) -> dict[str, Any]:
+    """
+    Normalize POST /api/pdf/generate bodies.
+
+    Preferred workflow contract:
+      { "templateJson": {schemas, basePdf}, "formData": {...}, "fileName": "..." }
+
+    Also accepts pdfTemplate (workflow block), template_json, form_data, legacy flat PDA keys.
+    """
+    template_json: Optional[dict[str, Any]] = None
+    template_name: Optional[str] = None
+    title: Optional[str] = None
+    output_filename: Optional[str] = None
+    data: dict[str, Any] | list[Any]
+
+    if not isinstance(body, dict):
+        if isinstance(body, list):
+            return {
+                "data": body,
+                "template_json": None,
+                "template_name": None,
+                "title": None,
+                "output_filename": None,
+            }
+        raise ValueError("Request body must be a JSON object or array.")
+
+    # Full workflow export: extract pdfTemplate from a block when present.
+    if "blocks" in body and isinstance(body.get("blocks"), list):
+        for block in body["blocks"]:
+            if not isinstance(block, dict):
+                continue
+            settings = block.get("settings") or {}
+            if settings.get("generatePDF") and isinstance(settings.get("pdfTemplate"), dict):
+                template_json = settings["pdfTemplate"]
+                break
+
+    template_json = template_json or _pick_mapping(
+        body,
+        "templateJson",
+        "template_json",
+        "pdfTemplate",
+        "template",
+    )
+    if template_json and not is_pdfme_template(template_json):
+        # String template id/name passed as "template": "pda"
+        if _pick_str(body, "template", "template_name", "templateName", "template_id", "templateId"):
+            template_name = _pick_str(body, "template", "template_name", "templateName", "template_id", "templateId")
+            template_json = None
+
+    form_data = _pick_mapping(body, "formData", "form_data", "formfields", "formFields")
+    if form_data is not None:
+        data = form_data
+    elif is_pdfme_template(body):
+        template_json = body
+        inner = body.get("data")
+        data = inner if isinstance(inner, dict) else {}
+    elif "data" in body and isinstance(body["data"], (dict, list)):
+        data = body["data"]
+        template_name = template_name or _pick_str(body, "template_name", "templateName", "template", "template_id")
+        title = title or _pick_str(body, "title", "pdf_title")
+    else:
+        data = body
+
+    title = title or _pick_str(body, "title", "pdf_title", "documentTitle", "document_title")
+    template_name = template_name or _pick_str(
+        body, "template_name", "templateName", "template_id", "templateId"
+    )
+    if not template_name:
+        template_name = _pick_str(body, "template")
+
+    raw_name = _pick_str(body, "fileName", "filename", "file_name", "outputFilename", "output_filename")
+    if raw_name:
+        base = os.path.basename(raw_name)
+        if not base.lower().endswith(".pdf"):
+            base = f"{base}.pdf"
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", base).strip("._")
+        output_filename = safe or None
+
+    return {
+        "data": data,
+        "template_json": template_json,
+        "template_name": template_name,
+        "title": title,
+        "output_filename": output_filename,
+    }
+
+
 def list_available_templates(templates_dir: Optional[str] = None) -> list[dict[str, Any]]:
     """Discovers and lists all pre-installed PDF templates."""
     search_dir = templates_dir or TEMPLATES_DIR

@@ -537,79 +537,100 @@ async def list_pdf_templates() -> dict:
 async def direct_generate_pdf(
     body: Any = Body(
         ...,
-        description="Raw JSON array or object for PDF generation (PDA, FDA, or dynamic invoice).",
-        examples=[
-            {
-                "Customer / Principal": "Eastern Maritime Logistics Pte. Ltd.",
-                "Document No.": "PDA-2026-00452",
-                "Shipper / Charterer / Broker": "Global Bulk Chartering Ltd.",
-                "Document Date": "15-Aug-2026",
-                "Vessel Name": "MV Eastern Voyager",
-                "Currency": "SGD",
-                "IMO Number": "9123456",
-                "Payment Terms": "15 Days",
-                "Voyage Number": "EV-1586",
-                "Cost Verified": "Yes",
-                "Port of Call": "Jurong Port",
-                "Related PDA/FDA": "PDA-2026-00376",
-                "Terminal": "Jurong Port Terminal 3",
-                "ETA / ETD": "15-Aug-2026 / 16-Aug-2026",
-                "No. 1": "1",
-                "Service / Cost Item 1": "Pilotage",
-                "Vendor / Basis 1": "MPA / Actual",
-                "Qty 1": "2",
-                "Rate 1": "920.00",
-                "Amount (SGD) 1": "1840.00",
-                "No. 2": "2",
-                "Service / Cost Item 2": "Tug Assistance",
-                "Vendor / Basis 2": "Harbour Tug / Actual",
-                "Qty 2": "3",
-                "Rate 2": "1180.00",
-                "Amount (SGD) 2": "3540.00",
-                "Subtotal": "5380.00",
-                "Estimated Tax (7.45%)": "400.81",
-                "TOTAL PDA": "5780.81",
-                "Remarks": "Proforma account generated for testing."
+        description=(
+            "PDF generate body. Preferred: "
+            "{ templateJson: {schemas, basePdf}, formData: {...}, fileName: \"...pdf\" }. "
+            "Legacy flat PDA/FDA field maps still supported."
+        ),
+        examples={
+            "workflow_template": {
+                "summary": "Workflow pdfTemplate + formData (recommended)",
+                "value": {
+                    "templateJson": {
+                        "schemas": [
+                            [
+                                {
+                                    "name": "CustomerValue",
+                                    "type": "text",
+                                    "dataKey": "Customer / Principal",
+                                    "position": {"x": 10, "y": 20},
+                                    "width": 80,
+                                    "height": 8,
+                                    "fontSize": 10,
+                                }
+                            ]
+                        ],
+                        "basePdf": {
+                            "width": 210,
+                            "height": 297,
+                            "padding": [20, 10, 20, 10],
+                        },
+                    },
+                    "formData": {
+                        "Customer / Principal": "ACME Shipping",
+                        "Document No.": "PDA-2026-001",
+                        "Service / Cost Item 1": "Port dues",
+                    },
+                    "fileName": "PDA-VesselCall-REQ-2026-001.pdf",
+                },
             }
-        ],
+        },
     ),
-    template_name: Optional[str] = Query(None, description="Optional template: 'pda', 'fda', or 'none' (dynamic)"),
+    template_name: Optional[str] = Query(
+        None, description="Optional built-in template: 'pda', 'fda' (ignored when templateJson is sent)"
+    ),
     title: Optional[str] = Query(None, description="Optional document title"),
 ) -> dict:
-    """Direct PDF generation endpoint — accepts raw JSON array or object directly in the request body."""
-    from app.pdf_skills import generate_pdf_from_json
-    from datetime import datetime
+    """Direct PDF generation — templateJson + formData or legacy flat JSON."""
+    from app.pdf_skills import generate_pdf_from_json, is_pdfme_template, normalize_direct_pdf_request
 
-    raw_body = body
+    try:
+        parsed = normalize_direct_pdf_request(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # If body is dict with meta wrapper
-    if isinstance(raw_body, dict) and "data" in raw_body and not ("Customer / Principal" in raw_body or "items" in raw_body):
-        data = raw_body.get("data")
-        template_name = template_name or raw_body.get("template_name") or raw_body.get("template")
-        title = title or raw_body.get("title") or raw_body.get("pdf_title")
+    data = parsed["data"]
+    tpl_json = parsed["template_json"]
+    tpl_name = template_name or parsed["template_name"]
+    doc_title = title or parsed["title"]
+
+    if tpl_json is None and not tpl_name:
+        if isinstance(data, dict) and is_pdfme_template(data):
+            tpl_json = data
+            inner = data.get("data")
+            data = inner if isinstance(inner, dict) else {}
+
+    if parsed["output_filename"]:
+        pdf_filename = parsed["output_filename"]
     else:
-        data = raw_body
+        from datetime import datetime
 
-    now_tag = datetime.now().strftime("%Y%m%d%H%M%S")
-    pdf_filename = f"document_{now_tag}.pdf"
+        pdf_filename = f"document_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+
     static_out = _STATIC_DIR / "generated_pdfs" / pdf_filename
     static_out.parent.mkdir(parents=True, exist_ok=True)
 
-    result = generate_pdf_from_json(
-        data,
-        template_name=template_name,
-        output_path=str(static_out),
-        title=title,
-    )
+    try:
+        result = generate_pdf_from_json(
+            data,
+            template_name=tpl_name,
+            template_json=tpl_json,
+            output_path=str(static_out),
+            title=doc_title,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("direct_pdf_generate_failed")
+        raise HTTPException(status_code=500, detail="PDF generation failed.") from exc
 
     return {
         "status": "success",
         "filename": result.filename,
         "page_count": result.page_count,
         "file_size_bytes": result.file_size_bytes,
-        "preview_url": f"/api/pdf/preview/{result.filename}",
-        "download_url": f"/api/pdf/download/{result.filename}",
-        "static_url": f"/static/generated_pdfs/{result.filename}",
+        "title": result.title,
+        "pdf_base64": result.pdf_base64,
     }
 
 
