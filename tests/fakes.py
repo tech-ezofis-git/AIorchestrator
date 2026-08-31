@@ -415,6 +415,8 @@ class FakeDBPool:
         if "FROM ap_tenant_plans" in query:
             tenant_id = args[0]
             return self.ap_tenant_plans.get(str(tenant_id))
+        if "information_schema.tables" in query.lower():
+            return None
         if "WorkflowSteps" in query or "workflowsteps" in query:
             step_name = str(args[0]) if args else ""
             workflow_id = str(args[1]) if len(args) > 1 and args[1] is not None else None
@@ -498,6 +500,8 @@ class FakeDBPool:
             ]
         if "wformcontrol" in query.lower():
             return []
+        if "information_schema" in query.lower():
+            return []
         raise AssertionError(f"FakeDBPool.fetch: unrecognized query: {query!r}")
 
     async def execute(self, query: str, *args: Any):
@@ -566,6 +570,8 @@ class FakeDBPool:
                     "status": status,
                 }
             )
+            return
+        if "UPDATE " in query.upper() and "ezfb_" in query.lower():
             return
         raise AssertionError(f"FakeDBPool.execute: unrecognized query: {query!r}")
 

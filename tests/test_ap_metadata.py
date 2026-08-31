@@ -124,6 +124,51 @@ def test_resolve_metadata_ids_reads_nested_form_data():
     assert ids["form_entry_id"] == 9
 
 
+def test_map_header_to_ezfb_columns_matches_underscore_and_jsonid():
+    from app.ap_skills.store import _map_header_to_ezfb_columns
+
+    assignments = _map_header_to_ezfb_columns(
+        header={"Invoice No": "INV-10", "PO Number": "PO-10", "Supplier": "Acme"},
+        columns=["item_id", "Invoice_No", "PO_Number", "Vendor_Name", "createdat"],
+        form_controls=[
+            {"name": "Vendor Name", "column_name": "Vendor_Name", "json_id": "vnd"},
+            {"name": "Supplier", "column_name": "Vendor_Name", "json_id": "vnd"},
+        ],
+    )
+    assert assignments["Invoice_No"] == "INV-10"
+    assert assignments["PO_Number"] == "PO-10"
+    assert assignments["Vendor_Name"] == "Acme"
+    assert "createdat" not in assignments
+    assert "item_id" not in assignments
+
+
+@pytest.mark.asyncio
+async def test_push_writes_ezfb_even_when_workflow_ids_missing():
+    seen = {}
+
+    class FakeStore:
+        async def apply_ezfb_item_fields(self, **kwargs):
+            seen.update(kwargs)
+            return {"ok": True, "updated": 1, "table": "ezfb_formguid_items", "columns": ["Invoice_No"]}
+
+    class FakeEz:
+        async def apply_ap_agent_metadata(self, **kwargs):
+            raise AssertionError("PATCH should not run without workflow ids")
+
+    result = await push_extract_metadata(
+        ezofis=FakeEz(),
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+        document_job={"form_id": "form-guid", "form_entry_id": "10"},
+        form_id="form-guid",
+        invoice={"invoice_number": "INV-10", "po_number": "PO-10", "vendor": "Acme"},
+        store=FakeStore(),
+    )
+    assert result["ok"] is True
+    assert result["ezfb"]["updated"] == 1
+    assert seen["form_entry_id"] == 10
+    assert seen["header"]["Invoice No"] == "INV-10"
+
+
 def test_build_ap_metadata_fields_empty_invoice():
     assert build_ap_metadata_fields({}) == {}
     assert build_ap_metadata_fields({"line_items": []}) == {}

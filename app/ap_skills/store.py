@@ -7,6 +7,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 
+from app.ap_skills.tenant_db import ezfb_items_table
+from app.data_import.ident import quote_ident
+
 logger = logging.getLogger("orchestrator.ap_store")
 
 
@@ -42,6 +45,90 @@ def _row_get(row: Any, key: str) -> Any:
     if isinstance(row, dict):
         return row.get(key)
     return row[key]
+
+
+_EZFB_SKIP_COLS = frozenset(
+    {
+        "item_id",
+        "itemid",
+        "id",
+        "createdat",
+        "created_at",
+        "createdby",
+        "created_by",
+        "modifiedat",
+        "modified_at",
+        "modifiedby",
+        "modified_by",
+        "isdeleted",
+        "is_deleted",
+        "todaytask",
+        "ismarked",
+        "is_marked",
+    }
+)
+
+
+def _norm_col(value: str) -> str:
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+def _map_header_to_ezfb_columns(
+    *,
+    header: dict[str, Any],
+    columns: list[str],
+    form_controls: list[dict[str, str]],
+    line_items: Optional[list[Any]] = None,
+) -> dict[str, Any]:
+    by_lower = {c.lower(): c for c in columns}
+    by_norm = {_norm_col(c): c for c in columns if _norm_col(c)}
+    skip = {c.lower() for c in _EZFB_SKIP_COLS}
+    assignments: dict[str, Any] = {}
+
+    def _assign(column: Optional[str], value: Any) -> None:
+        if not column or column.lower() in skip or value is None:
+            return
+        actual = by_lower.get(column.lower()) or by_norm.get(_norm_col(column))
+        if actual and actual.lower() not in skip:
+            assignments[actual] = value
+
+    for key, value in (header or {}).items():
+        if value is None or str(value).strip() == "":
+            continue
+        _assign(str(key), value)
+        if " " in str(key):
+            _assign(str(key).replace(" ", "_"), value)
+
+    for control in form_controls or []:
+        names = [
+            str(control.get("name") or "").strip(),
+            str(control.get("column_name") or "").strip(),
+            str(control.get("json_id") or "").strip(),
+        ]
+        value = None
+        for name in names:
+            if name and header.get(name) not in (None, ""):
+                value = header.get(name)
+                break
+            if name and _norm_col(name) in {_norm_col(k): header.get(k) for k in header}:
+                value = next(
+                    (header[k] for k in header if _norm_col(k) == _norm_col(name) and header.get(k) not in (None, "")),
+                    None,
+                )
+                if value is not None:
+                    break
+        if value is None:
+            continue
+        for name in names:
+            _assign(name, value)
+        if names[0]:
+            _assign(names[0].replace(" ", "_"), value)
+
+    if line_items:
+        table_col = next((c for c in columns if "line" in c.lower() and "item" in c.lower()), None)
+        if table_col:
+            _assign(table_col, json.dumps(line_items, default=str))
+    return assignments
 
 
 class ApStore:
@@ -267,6 +354,104 @@ class ApStore:
             if out:
                 return out
         return []
+
+    async def apply_ezfb_item_fields(
+        self,
+        *,
+        tenant_id: str,
+        form_id: str,
+        form_entry_id: int,
+        header: dict[str, Any],
+        line_items: Optional[list[Any]] = None,
+        form_controls: Optional[list[dict[str, str]]] = None,
+    ) -> dict[str, Any]:
+        """UPDATE ezfb_{token}_items for the ticket formEntryId. Does not insert a new row."""
+        table = ezfb_items_table(form_id)
+        if not table or not header:
+            return {"ok": False, "updated": 0, "reason": "missing_table_or_header", "table": table}
+        try:
+            db = await self._db(tenant_id)
+            loc = await db.fetchrow(
+                """
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE lower(table_name) = lower($1)
+                  AND table_type = 'BASE TABLE'
+                  AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY CASE WHEN table_schema = 'dbo' THEN 0 ELSE 1 END, table_schema
+                LIMIT 1
+                """,
+                table,
+            )
+            if loc is None:
+                return {"ok": False, "updated": 0, "reason": "table_not_found", "table": table}
+            schema = str(_row_get(loc, "table_schema") or "dbo")
+            real_table = str(_row_get(loc, "table_name") or table)
+            col_rows = await db.fetch(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = $1 AND table_name = $2
+                ORDER BY ordinal_position
+                """,
+                schema,
+                real_table,
+            )
+            columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
+            assignments = _map_header_to_ezfb_columns(
+                header=header,
+                columns=columns,
+                form_controls=form_controls or [],
+                line_items=line_items,
+            )
+            if not assignments:
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "reason": "no_column_match",
+                    "table": real_table,
+                    "columns": columns[:40],
+                }
+            pk = next(
+                (name for name in ("item_id", "itemid", "id") if name.lower() in {c.lower() for c in columns}),
+                None,
+            )
+            if pk is None:
+                return {"ok": False, "updated": 0, "reason": "no_pk", "table": real_table}
+            pk_actual = next(c for c in columns if c.lower() == pk.lower())
+            sets = []
+            args: list[Any] = []
+            for index, (col, value) in enumerate(assignments.items(), start=1):
+                sets.append(f"{quote_ident(col)} = ${index}")
+                args.append(value)
+            args.append(int(form_entry_id))
+            sql = (
+                f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
+                f"SET {', '.join(sets)} "
+                f"WHERE {quote_ident(pk_actual)} = ${len(args)}"
+            )
+            await db.execute(sql, *args)
+            logger.info(
+                "ap_ezfb_item_updated",
+                extra={
+                    "table": real_table,
+                    "form_entry_id": form_entry_id,
+                    "columns": sorted(assignments.keys()),
+                },
+            )
+            return {
+                "ok": True,
+                "updated": 1,
+                "table": real_table,
+                "columns": sorted(assignments.keys()),
+                "form_entry_id": form_entry_id,
+            }
+        except Exception as exc:
+            logger.warning(
+                "ap_ezfb_item_update_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200], "table": table},
+            )
+            return {"ok": False, "updated": 0, "reason": type(exc).__name__, "table": table}
 
     async def fetch_workflow_activity_id(
         self,

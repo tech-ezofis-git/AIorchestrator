@@ -164,6 +164,7 @@ class ApSkillRunner:
                     extras=extras_from_artifacts(ctx.artifacts, skill_id),
                     skill_id=skill_id,
                     form_controls=form_controls,
+                    store=self._store,
                 )
                 artifact["metadata_push"] = meta
                 ctx.artifacts[skill_id] = artifact

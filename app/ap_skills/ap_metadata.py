@@ -375,6 +375,7 @@ async def push_extract_metadata(
     extras: Optional[dict[str, Any]] = None,
     skill_id: Optional[str] = None,
     form_controls: Optional[list[dict[str, Any]]] = None,
+    store: Any = None,
 ) -> dict[str, Any]:
     """Best-effort metadata PATCH after each AP skill (non-fatal upstream)."""
     ids = resolve_metadata_ids(document_job, form_id)
@@ -398,26 +399,57 @@ async def push_extract_metadata(
         "line_item_count": len(fields.get(_LINE_ITEM_KEY_PREFERRED) or []),
     }
 
-    if not workflow_id or not instance_id or not repository_id or not item_id:
-        logger.warning("ap_metadata_skipped", extra={"reason": "missing_ids", **request_summary})
-        return {"ok": False, "skipped": True, "reason": "missing_ids", "request": request_summary}
+    ezfb_write: Optional[dict[str, Any]] = None
+    header = (fields.get("invoice_header") or {}) if isinstance(fields, dict) else {}
+    if store is not None and resolved_form_id and form_entry_id is not None and header:
+        try:
+            ezfb_write = await store.apply_ezfb_item_fields(
+                tenant_id=tenant_id,
+                form_id=resolved_form_id,
+                form_entry_id=int(form_entry_id),
+                header=header,
+                line_items=fields.get(_LINE_ITEM_KEY_PREFERRED) or fields.get(_LINE_ITEM_KEY_LEGACY),
+                form_controls=form_controls,
+            )
+        except Exception as exc:
+            logger.warning("ap_ezfb_write_error", extra={"error_type": type(exc).__name__})
+            ezfb_write = {"ok": False, "reason": type(exc).__name__}
 
-    # V6 controller requires formId + formEntryId; without them PATCH is 400 and ezfb is untouched.
+    can_patch = bool(workflow_id and instance_id and repository_id and item_id)
+    if not can_patch:
+        logger.warning("ap_metadata_skipped", extra={"reason": "missing_ids", **request_summary})
+        if ezfb_write and ezfb_write.get("ok"):
+            return {
+                "ok": True,
+                "skipped": False,
+                "reason": "missing_ids",
+                "ezfb": ezfb_write,
+                "request": request_summary,
+            }
+        return {"ok": False, "skipped": True, "reason": "missing_ids", "ezfb": ezfb_write, "request": request_summary}
+
     if not resolved_form_id or form_entry_id is None:
         logger.warning(
             "ap_metadata_skipped",
             extra={"reason": "missing_form_ids", **request_summary},
         )
         return {
-            "ok": False,
+            "ok": bool(ezfb_write and ezfb_write.get("ok")),
             "skipped": True,
             "reason": "missing_form_ids",
+            "ezfb": ezfb_write,
             "request": request_summary,
         }
 
     if not fields:
         logger.warning("ap_metadata_skipped", extra={"reason": "empty_fields", **request_summary})
-        return {"ok": False, "skipped": True, "reason": "empty_fields", "request": request_summary}
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "empty_fields",
+            "ezfb": ezfb_write,
+            "request": request_summary,
+        }
 
     try:
         result = await ezofis.apply_ap_agent_metadata(
@@ -431,11 +463,13 @@ async def push_extract_metadata(
             form_entry_id=form_entry_id,
         )
         if not isinstance(result, dict):
-            return {"ok": bool(result), "request": request_summary}
+            return {"ok": bool(result), "ezfb": ezfb_write, "request": request_summary}
 
-        out = {**result, "request": request_summary}
+        out = {**result, "request": request_summary, "ezfb": ezfb_write}
         if out.get("reason") == "login_not_configured":
             out["ezfb_warning"] = "login_not_configured"
+            if ezfb_write and ezfb_write.get("ok"):
+                out["ok"] = True
 
         ezfb_n = out.get("ezfbFieldsUpdated")
         if out.get("ok") and not out.get("mock") and ezfb_n is not None and int(ezfb_n or 0) == 0:
@@ -452,10 +486,17 @@ async def push_extract_metadata(
                     "detail": (out.get("detail") or "")[:200],
                 },
             )
+            if ezfb_write and ezfb_write.get("ok"):
+                out["ok"] = True
         return out
     except Exception as exc:
         logger.warning(
             "ap_metadata_push_error",
             extra={"error_type": type(exc).__name__},
         )
-        return {"ok": False, "error_type": type(exc).__name__, "request": request_summary}
+        return {
+            "ok": bool(ezfb_write and ezfb_write.get("ok")),
+            "error_type": type(exc).__name__,
+            "ezfb": ezfb_write,
+            "request": request_summary,
+        }
