@@ -11,12 +11,12 @@ def test_get_llm_config_reflects_startup_settings(client):
 
     assert response.status_code == 200
     body = response.json()
-    # Lifespan applies the default Qwen ACI preset when LLM_API_BASE is unset.
-    assert body["model"] == "openai/qwen3.5-9b"
-    assert body["api_base"] == "http://ezqwenmac-aci.canadacentral.azurecontainer.io:8080/v1"
-    assert body["api_version"] is None
-    assert body["preset_id"] == "ezofis-gpu-box"
-    assert body["default_preset_id"] == "ezofis-gpu-box"
+    # Lifespan applies the default gpt-5-nano preset when LLM_API_BASE is unset.
+    assert body["model"] == "azure/gpt-5-nano"
+    assert body["api_base"] == "https://ezazopenai.openai.azure.com"
+    assert body["api_version"] == "2025-01-01-preview"
+    assert body["preset_id"] == "gpt-5-nano"
+    assert body["default_preset_id"] == "gpt-5-nano"
     assert body["fallback_preset_id"] in (None, "gpt-4.1-mini")
     assert body["has_api_key"] is True
 
@@ -28,7 +28,7 @@ def test_get_llm_presets_lists_hardcoded_models_without_keys(client):
     body = response.json()
     ids = [p["id"] for p in body["presets"]]
     assert ids == ["ezofis-gpu-box", "gpt-4.1-nano", "gpt-5-nano", "gpt-4.1-mini", "gpt-4o-mini"]
-    assert body["default_preset_id"] == "ezofis-gpu-box"
+    assert body["default_preset_id"] == "gpt-5-nano"
     assert all("api_key" not in p for p in body["presets"])
     assert "test-south-india-key" not in response.text
     assert "test-east-us-key" not in response.text

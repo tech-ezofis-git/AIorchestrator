@@ -308,6 +308,12 @@ async def lifespan(app: FastAPI):
     # in Redis so hosting restarts keep the last manual Save.
     runtime_models = RuntimeModelSelection(default_preset_id=DEFAULT_PRESET_ID)
     loaded_selection = await runtime_models.load_from_redis(redis_client)
+    if runtime_models.default_preset_id == "ezofis-gpu-box":
+        runtime_models.default_preset_id = DEFAULT_PRESET_ID
+        try:
+            await runtime_models.save_to_redis(redis_client)
+        except Exception:
+            logger.warning("runtime_models_default_migrate_failed", extra={"error_type": "redis"})
     if not loaded_selection and runtime_models.fallback_preset_id is None:
         env_fallback = (settings.ocr_fallback_model or "").strip()
         if env_fallback and get_preset(env_fallback):

@@ -72,7 +72,7 @@ MODEL_PRESETS: list[dict[str, Any]] = [
     },
 ]
 
-DEFAULT_PRESET_ID = "ezofis-gpu-box"
+DEFAULT_PRESET_ID = "gpt-5-nano"
 
 # Populated from catalog_models at startup (and after Catalog UI edits).
 # None => use the hardcoded MODEL_PRESETS list.

@@ -139,7 +139,7 @@ def test_ocr_uses_tenant_catalog_default_model(client, monkeypatch):
     )
     assert response.status_code == 200, response.text
     assert captured == ["gpt-4.1-nano"]
-    assert client.get("/console/llm-config").json()["preset_id"] == "ezofis-gpu-box"
+    assert client.get("/console/llm-config").json()["preset_id"] == "gpt-5-nano"
 
 
 def test_ocr_fail_returns_null_fields_no_hallucination(client, monkeypatch):
