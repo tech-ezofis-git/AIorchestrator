@@ -502,8 +502,25 @@ def test_embedded_pdf_text_rejects_form_labels():
 
     labels = "PO Number\nInvoice No\nTerms\nCurrency\nMatched Status\nVendor Name"
     assert embedded_pdf_text_is_usable(labels) is False
+    overlay = (
+        "APC-T001\ninvoice\nTerms\nCurrency\nUSD\nPO Number\nInvoice No\n"
+        "Vendor Name\n2026-08-31T12:23:24.291Z\nMatched Status\nNot Matched"
+    )
+    assert embedded_pdf_text_is_usable(overlay) is False
     invoice = (
         "ACME Supplies\nInvoice No: INV-100\nPO Number: PO-1\n"
         "Amount: 1234.56\nDate: 2026-08-31\nQty 10 widgets"
     )
     assert embedded_pdf_text_is_usable(invoice) is True
+
+
+def test_hollow_extract_does_not_write_defaults():
+    fields = build_ap_metadata_fields(
+        {
+            "doc_type": "invoice",
+            "currency": "USD",
+            "invoice_header": {"Terms": "Terms", "Currency": "USD", "Document Type": "invoice"},
+        },
+        extras={"Matched Status": "Not Matched"},
+    )
+    assert fields == {}

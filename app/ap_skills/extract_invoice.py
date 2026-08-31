@@ -34,7 +34,9 @@ _EXTRACT_PROMPT = (
     "Extract AP invoice fields from the OCR text. Reply with JSON only, no markdown: "
     '{"doc_type":"invoice"|"other","invoice_number":"","invoice_date":"","due_date":"",'
     '"vendor":"","po_number":"","total":null,"currency":"","line_items":'
-    '[{"description":"","qty":null,"price":null,"amount":null}]}'
+    '[{"description":"","qty":null,"price":null,"amount":null}]} '
+    "If the text is only form labels (Terms, Currency, PO Number, Invoice No) or a ticket "
+    "id, leave every field empty. Do not guess USD, Terms, or invoice numbers."
 )
 
 
@@ -145,11 +147,12 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
         "currency": field_text(src, "currency", "Currency"),
         "line_items": normalized_lines,
     }
-    if not out["currency"] and (
-        out["invoice_number"] or out["po_number"] or out["vendor"] or total is not None
-    ):
-        out["currency"] = "USD"
-    header = dict(orig_header) if orig_header else {}
+    header: dict[str, Any] = {}
+    if orig_header:
+        for key, raw in orig_header.items():
+            value = field_text({str(key): raw}, str(key))
+            if value:
+                header[str(key)] = value
     if out["invoice_number"]:
         header.setdefault("Invoice No", out["invoice_number"])
     if out["po_number"]:
@@ -287,6 +290,22 @@ async def run(ctx: ApContext) -> ApSkillResult:
     if labeled:
         merged_header = {**(invoice.get("invoice_header") or {}), **labeled}
         invoice = _as_invoice({**invoice, "invoice_header": merged_header})
+    if not (
+        invoice.get("invoice_number")
+        or invoice.get("po_number")
+        or invoice.get("vendor")
+        or invoice.get("total") is not None
+    ):
+        invoice["currency"] = ""
+        header = {
+            key: value
+            for key, value in (invoice.get("invoice_header") or {}).items()
+            if field_text({str(key): value}, str(key))
+        }
+        if header:
+            invoice["invoice_header"] = header
+        else:
+            invoice.pop("invoice_header", None)
     if not invoice.get("invoice_number") and not ocr_text:
         raise ApSkillError("OCR returned no text and no invoice_json was provided.")
     ctx.invoice_json = invoice

@@ -97,14 +97,48 @@ def invoice_from(ctx: ApContext) -> dict[str, Any]:
     )
 
 
+def _norm_token(value: str) -> str:
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+_PLACEHOLDER_VALUES = frozenset(
+    {
+        "terms",
+        "currency",
+        "ponumber",
+        "invoiceno",
+        "invoicenumber",
+        "vendorname",
+        "vendor",
+        "supplier",
+        "matchedstatus",
+        "documenttype",
+        "invoicedate",
+        "duedate",
+        "invoiceamount",
+        "buyer",
+        "shiptoaddress",
+        "invoice",
+        "number",
+        "na",
+        "none",
+        "null",
+    }
+)
+
+
 def field_text(data: dict[str, Any], *keys: str) -> str:
     for key in keys:
         value = data.get(key)
         if value is None:
             continue
         text = str(value).strip()
-        if text:
-            return text
+        if not text:
+            continue
+        token = _norm_token(text)
+        if token in _PLACEHOLDER_VALUES or token == _norm_token(key):
+            continue
+        return text
     return ""
 
 

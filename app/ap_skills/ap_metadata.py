@@ -101,6 +101,32 @@ def _skip_empty(value: Any) -> bool:
     return False
 
 
+_PLACEHOLDER_VALUE_NORMS = frozenset(
+    {
+        "terms",
+        "currency",
+        "ponumber",
+        "invoiceno",
+        "invoicenumber",
+        "vendorname",
+        "vendor",
+        "supplier",
+        "matchedstatus",
+        "documenttype",
+        "invoicedate",
+        "duedate",
+        "invoiceamount",
+        "buyer",
+        "shiptoaddress",
+        "invoice",
+        "number",
+        "na",
+        "none",
+        "null",
+    }
+)
+
+
 def _stringify_header_value(value: Any, key: str = "") -> Optional[str]:
     """V6 form columns are strings; JSON numbers often land as null in ezfb."""
     if _skip_empty(value) or isinstance(value, (dict, list)):
@@ -110,9 +136,27 @@ def _stringify_header_value(value: Any, key: str = "") -> Optional[str]:
     text = str(value).strip()
     if not text:
         return None
-    if key and _norm_label(key) == _norm_label(text):
+    token = _norm_label(text)
+    if key and token == _norm_label(key):
+        return None
+    if token in _PLACEHOLDER_VALUE_NORMS:
         return None
     return text
+
+
+def _has_extracted_values(header_src: dict[str, Any]) -> bool:
+    """True when extract found a real invoice/PO/vendor/amount — not form chrome."""
+    checks = (
+        ("invoice_number", "Invoice No", "invoice_no", "invoiceNumber"),
+        ("po_number", "PO Number", "poNumber", "po"),
+        ("vendor", "Vendor Name", "VENDOR Name", "Supplier", "supplier", "vendor_name"),
+        ("total", "Invoice Amount", "amount", "invoice_amount"),
+    )
+    for keys in checks:
+        value = _stringify_header_value(_first_value(header_src, *keys), keys[0])
+        if value:
+            return True
+    return False
 
 
 def _unwrap_invoice(invoice: dict[str, Any]) -> dict[str, Any]:
@@ -249,22 +293,24 @@ def build_ap_metadata_fields(
 
     header_src = _header_source(invoice)
     header: dict[str, Any] = {}
+    has_real = _has_extracted_values(header_src)
 
-    for key, raw in header_src.items():
-        if key in _INTERNAL_KEYS:
-            continue
-        value = _stringify_header_value(raw, str(key))
-        if value is None:
-            continue
-        header[str(key)] = value
+    if has_real:
+        for key, raw in header_src.items():
+            if key in _INTERNAL_KEYS:
+                continue
+            value = _stringify_header_value(raw, str(key))
+            if value is None:
+                continue
+            header[str(key)] = value
 
-    for label, keys in _HEADER_LABELS:
-        value = _stringify_header_value(_first_value(header_src, *keys), label)
-        if value is None:
-            continue
-        header[label] = value
+        for label, keys in _HEADER_LABELS:
+            value = _stringify_header_value(_first_value(header_src, *keys), label)
+            if value is None:
+                continue
+            header[label] = value
 
-    if extras:
+    if extras and has_real:
         for key, raw in extras.items():
             value = _stringify_header_value(raw, str(key))
             if value is None:

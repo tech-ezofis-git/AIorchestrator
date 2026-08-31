@@ -379,29 +379,79 @@ def _extract_text_from_response(payload: Any, *, response_text: str) -> Optional
 _FORM_LABEL_LINE = re.compile(
     r"^(po\s*number|invoice\s*no\.?|invoice\s*number|terms|currency|supplier|"
     r"vendor\s*name|matched\s*status|due\s*date|invoice\s*date|invoice\s*amount|"
-    r"ship\s*to\s*address|buyer)$",
+    r"ship\s*to\s*address|buyer|document\s*type|ticket\s*(?:no\.?|number)?)$",
+    re.I,
+)
+_CHROME_LINE = re.compile(
+    r"^(usd|inr|eur|gbp|sgd|aed|invoice|other|not\s*matched|matched|"
+    r"partially\s*matched|non-?invoice|n/?a|none|null)$",
+    re.I,
+)
+_DATE_ONLY_LINE = re.compile(
+    r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[t\s]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?z?)?$",
+    re.I,
+)
+_TICKET_LINE = re.compile(r"^[A-Z]{2,5}-?T?\d{2,6}$", re.I)
+_INVOICE_ID = re.compile(r"\bINV[\s\-/#]*[A-Z0-9]*\d[A-Z0-9\-/]*", re.I)
+_PO_ID = re.compile(r"\bPO[\s\-/#]*\d[A-Z0-9\-/]*", re.I)
+_MONEY = re.compile(r"\b\d{1,3}(?:,\d{3})+\.\d{2}\b|\b\d+\.\d{2}\b")
+_TOTAL_HINT = re.compile(
+    r"(?:total|amount|balance\s*due)\s*[:\-]?\s*[\$£€]?\s*\d",
     re.I,
 )
 
 
+def _line_is_form_chrome(line: str) -> bool:
+    text = (line or "").strip().strip(":").strip()
+    if not text:
+        return True
+    if _FORM_LABEL_LINE.match(text) or _CHROME_LINE.match(text):
+        return True
+    if _DATE_ONLY_LINE.match(text) or _TICKET_LINE.match(text):
+        return True
+    return False
+
+
+def _labeled_value_is_evidence(key: str, value: str) -> bool:
+    key_n = "".join(ch for ch in key.lower() if ch.isalnum())
+    val = (value or "").strip()
+    if not val or _line_is_form_chrome(val):
+        return False
+    val_n = "".join(ch for ch in val.lower() if ch.isalnum())
+    if key_n and key_n == val_n:
+        return False
+    if _INVOICE_ID.search(val) or _PO_ID.search(val) or _MONEY.search(val):
+        return True
+    if key_n in {
+        "invoiceno",
+        "invoicenumber",
+        "ponumber",
+        "vendor",
+        "vendorname",
+        "supplier",
+        "invoiceamount",
+        "total",
+        "amount",
+    }:
+        return True
+    return False
+
+
 def embedded_pdf_text_is_usable(text: str) -> bool:
-    """Skip label-only / scanned PDFs so paddle OCR can run."""
+    """Skip label-only / form-overlay / scanned PDFs so paddle OCR can run."""
     raw = (text or "").strip()
     if len(raw) < 40:
         return False
+    if _INVOICE_ID.search(raw) or _PO_ID.search(raw) or _MONEY.search(raw) or _TOTAL_HINT.search(raw):
+        return True
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-    content_lines = 0
     for line in lines:
-        if ":" in line:
-            key, value = line.split(":", 1)
-            if value.strip() and value.strip().lower() != key.strip().lower():
-                content_lines += 1
-                continue
-        if _FORM_LABEL_LINE.match(line):
+        if ":" not in line:
             continue
-        content_lines += 1
-    digits = sum(ch.isdigit() for ch in raw)
-    return digits >= 6 and content_lines >= 3
+        key, value = line.split(":", 1)
+        if _labeled_value_is_evidence(key, value):
+            return True
+    return False
 
 
 def _extract_pdf_text(data: bytes, *, page_selection: PageSelection) -> Optional[str]:
@@ -417,13 +467,24 @@ def _extract_pdf_text(data: bytes, *, page_selection: PageSelection) -> Optional
             start = max(page_selection.start - 1, 0)
             end = min(page_selection.end, doc.page_count)
             parts: list[str] = []
+            image_pages = 0
             for idx in range(start, end):
-                text = (doc.load_page(idx).get_text("text") or "").strip()
+                page = doc.load_page(idx)
+                text = (page.get_text("text") or "").strip()
                 if text:
                     parts.append(text)
+                try:
+                    if page.get_images():
+                        image_pages += 1
+                except Exception:
+                    pass
     except Exception:
         logger.warning("pdf_local_extract_failed", exc_info=False)
         return None
 
     merged = "\n\n".join(parts).strip()
-    return merged or None
+    if not merged:
+        return None
+    if image_pages and not embedded_pdf_text_is_usable(merged):
+        return None
+    return merged
