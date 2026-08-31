@@ -506,18 +506,50 @@ async def push_extract_metadata(
             logger.warning("ap_ezfb_write_error", extra={"error_type": type(exc).__name__})
             ezfb_write = {"ok": False, "reason": type(exc).__name__}
 
+    repo_write: Optional[dict[str, Any]] = None
+    if store is not None and repository_id and header:
+        repo_item = item_id if item_id and _is_guid(item_id) else ""
+        if not repo_item:
+            try:
+                latest_repo = await store.latest_empty_repository_item(
+                    tenant_id=tenant_id,
+                    repository_id=repository_id,
+                )
+            except Exception as exc:
+                logger.warning("ap_repo_latest_lookup_failed", extra={"error_type": type(exc).__name__})
+                latest_repo = None
+            if latest_repo:
+                repo_item = str(latest_repo).strip()
+                item_id = repo_item
+                request_summary["item_id"] = item_id
+                request_summary["repository_item_source"] = "latest_empty_row"
+        if repo_item:
+            try:
+                repo_write = await store.apply_repository_item_fields(
+                    tenant_id=tenant_id,
+                    repository_id=repository_id,
+                    item_id=repo_item,
+                    header=header,
+                    line_items=fields.get(_LINE_ITEM_KEY_PREFERRED) or fields.get(_LINE_ITEM_KEY_LEGACY),
+                    form_controls=form_controls,
+                )
+            except Exception as exc:
+                logger.warning("ap_repo_write_error", extra={"error_type": type(exc).__name__})
+                repo_write = {"ok": False, "reason": type(exc).__name__}
+
+    sql_ok = bool((ezfb_write and ezfb_write.get("ok")) or (repo_write and repo_write.get("ok")))
+
     can_patch = bool(workflow_id and instance_id and repository_id and item_id)
     if not can_patch:
         logger.warning("ap_metadata_skipped", extra={"reason": "missing_ids", **request_summary})
-        if ezfb_write and ezfb_write.get("ok"):
-            return {
-                "ok": True,
-                "skipped": False,
-                "reason": "missing_ids",
-                "ezfb": ezfb_write,
-                "request": request_summary,
-            }
-        return {"ok": False, "skipped": True, "reason": "missing_ids", "ezfb": ezfb_write, "request": request_summary}
+        return {
+            "ok": sql_ok,
+            "skipped": not sql_ok,
+            "reason": "missing_ids",
+            "ezfb": ezfb_write,
+            "repository": repo_write,
+            "request": request_summary,
+        }
 
     if not resolved_form_id or form_entry_id is None:
         logger.warning(
@@ -525,10 +557,11 @@ async def push_extract_metadata(
             extra={"reason": "missing_form_ids", **request_summary},
         )
         return {
-            "ok": bool(ezfb_write and ezfb_write.get("ok")),
+            "ok": sql_ok,
             "skipped": True,
             "reason": "missing_form_ids",
             "ezfb": ezfb_write,
+            "repository": repo_write,
             "request": request_summary,
         }
 
@@ -539,6 +572,7 @@ async def push_extract_metadata(
             "skipped": True,
             "reason": "empty_fields",
             "ezfb": ezfb_write,
+            "repository": repo_write,
             "request": request_summary,
         }
 
@@ -554,20 +588,32 @@ async def push_extract_metadata(
             form_entry_id=form_entry_id,
         )
         if not isinstance(result, dict):
-            return {"ok": bool(result), "ezfb": ezfb_write, "request": request_summary}
+            return {
+                "ok": bool(result) or sql_ok,
+                "ezfb": ezfb_write,
+                "repository": repo_write,
+                "request": request_summary,
+            }
 
-        out = {**result, "request": request_summary, "ezfb": ezfb_write}
+        out = {**result, "request": request_summary, "ezfb": ezfb_write, "repository": repo_write}
         if out.get("reason") == "login_not_configured":
             out["ezfb_warning"] = "login_not_configured"
-            if ezfb_write and ezfb_write.get("ok"):
+            if sql_ok:
                 out["ok"] = True
 
         ezfb_n = out.get("ezfbFieldsUpdated")
-        if out.get("ok") and not out.get("mock") and ezfb_n is not None and int(ezfb_n or 0) == 0:
-            logger.warning(
-                "ap_metadata_zero_ezfb_fields",
-                extra={"form_entry_id": form_entry_id, "form_id": resolved_form_id},
-            )
+        repo_n = out.get("repositoryFieldsUpdated")
+        if out.get("ok") and not out.get("mock"):
+            if ezfb_n is not None and int(ezfb_n or 0) == 0:
+                logger.warning(
+                    "ap_metadata_zero_ezfb_fields",
+                    extra={"form_entry_id": form_entry_id, "form_id": resolved_form_id},
+                )
+            if repo_n is not None and int(repo_n or 0) == 0:
+                logger.warning(
+                    "ap_metadata_zero_repository_fields",
+                    extra={"item_id": item_id, "repository_id": repository_id},
+                )
 
         if not out.get("ok", True) and not out.get("mock"):
             logger.warning(
@@ -577,7 +623,7 @@ async def push_extract_metadata(
                     "detail": (out.get("detail") or "")[:200],
                 },
             )
-            if ezfb_write and ezfb_write.get("ok"):
+            if sql_ok:
                 out["ok"] = True
         return out
     except Exception as exc:
@@ -586,8 +632,9 @@ async def push_extract_metadata(
             extra={"error_type": type(exc).__name__},
         )
         return {
-            "ok": bool(ezfb_write and ezfb_write.get("ok")),
+            "ok": sql_ok,
             "error_type": type(exc).__name__,
             "ezfb": ezfb_write,
+            "repository": repo_write,
             "request": request_summary,
         }

@@ -102,6 +102,17 @@ def ezfb_items_table(form_id: Optional[str]) -> Optional[str]:
     return None
 
 
+def repository_items_table(repository_id: Optional[str]) -> Optional[str]:
+    """Map repositoryId GUID to items_{first 8 hex} (e.g. items_38b1b6dd)."""
+    raw = str(repository_id or "").strip()
+    if not raw:
+        return None
+    compact = raw.replace("-", "").lower()
+    if len(compact) >= 8 and all(c in "0123456789abcdef" for c in compact[:8]):
+        return f"items_{compact[:8]}"
+    return None
+
+
 CreatePool = Callable[..., Awaitable[Any]]
 
 

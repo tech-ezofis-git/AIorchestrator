@@ -5,6 +5,7 @@ from app.ap_skills.tenant_db import (
     ApTenantDbPools,
     ezfb_items_table,
     replace_database_name,
+    repository_items_table,
     tenant_database_name,
 )
 from tests.fakes import FakeDBPool
@@ -25,6 +26,16 @@ def test_ezfb_items_table_from_guid_and_numeric():
     assert ezfb_items_table("98") == "ezfb_98_items"
     assert ezfb_items_table("  ") is None
     assert ezfb_items_table(None) is None
+
+
+def test_repository_items_table_from_guid():
+    assert (
+        repository_items_table("38b1b6dd-854b-489f-aa44-ac6d4dd691e8")
+        == "items_38b1b6dd"
+    )
+    assert repository_items_table("98") is None
+    assert repository_items_table("") is None
+    assert repository_items_table(None) is None
 
 
 def test_short_hex_prefix_maps_to_tenant_db():

@@ -201,6 +201,42 @@ async def test_push_writes_ezfb_even_when_workflow_ids_missing():
 
 
 @pytest.mark.asyncio
+async def test_push_writes_repository_items_table():
+    seen = {}
+
+    class FakeStore:
+        async def apply_ezfb_item_fields(self, **kwargs):
+            return {"ok": True, "updated": 1, "table": "ezfb_9a117b01_items"}
+
+        async def apply_repository_item_fields(self, **kwargs):
+            seen.update(kwargs)
+            return {"ok": True, "updated": 1, "table": "repository.items_38b1b6dd"}
+
+    class FakeEz:
+        async def apply_ap_agent_metadata(self, **kwargs):
+            raise AssertionError("PATCH should not run without workflow ids")
+
+    result = await push_extract_metadata(
+        ezofis=FakeEz(),
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+        document_job={
+            "form_id": "9a117b01-bb6d-4696-a627-a9fa84bb006e",
+            "form_entry_id": "12",
+            "repository_id": "38b1b6dd-854b-489f-aa44-ac6d4dd691e8",
+            "repository_item_id": "4283e687-f32f-40c0-a67e-c213724b1702",
+        },
+        form_id="9a117b01-bb6d-4696-a627-a9fa84bb006e",
+        invoice={"invoice_number": "INV-12", "po_number": "PO-12", "vendor": "Acme"},
+        store=FakeStore(),
+    )
+    assert result["ok"] is True
+    assert result["repository"]["table"] == "repository.items_38b1b6dd"
+    assert seen["item_id"] == "4283e687-f32f-40c0-a67e-c213724b1702"
+    assert seen["repository_id"] == "38b1b6dd-854b-489f-aa44-ac6d4dd691e8"
+    assert seen["header"]["Invoice No"] == "INV-12"
+
+
+@pytest.mark.asyncio
 async def test_push_uses_latest_empty_ezfb_row_when_form_entry_missing():
     seen = {}
 

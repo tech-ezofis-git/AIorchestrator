@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 
-from app.ap_skills.tenant_db import ezfb_items_table
+from app.ap_skills.tenant_db import ezfb_items_table, repository_items_table
 from app.data_import.ident import quote_ident
 
 logger = logging.getLogger("orchestrator.ap_store")
@@ -790,6 +790,199 @@ class ApStore:
         except Exception as exc:
             logger.warning(
                 "ap_ezfb_item_update_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200], "table": table},
+            )
+            return {"ok": False, "updated": 0, "reason": type(exc).__name__, "table": table}
+
+    async def _locate_table_by_name(self, db: Any, table_name: str) -> Optional[dict[str, Any]]:
+        try:
+            loc = await db.fetchrow(
+                """
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE lower(table_name) = lower($1)
+                  AND table_type = 'BASE TABLE'
+                  AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY CASE
+                    WHEN lower(table_schema) = 'repository' THEN 0
+                    WHEN table_schema = 'dbo' THEN 1
+                    ELSE 2
+                END, table_schema
+                LIMIT 1
+                """,
+                table_name,
+            )
+        except Exception:
+            return None
+        if loc is None:
+            return None
+        return {
+            "schema": str(_row_get(loc, "table_schema") or "repository"),
+            "table": str(_row_get(loc, "table_name") or table_name),
+        }
+
+    async def latest_empty_repository_item(
+        self, *, tenant_id: str, repository_id: str
+    ) -> Optional[str]:
+        """Newest blank row in repository.items_{token} (the ticket item just created)."""
+        table = repository_items_table(repository_id)
+        if not table:
+            return None
+        try:
+            db = await self._db(tenant_id)
+            loc = await self._locate_table_by_name(db, table)
+            if loc is None:
+                return None
+            schema, real_table = loc["schema"], loc["table"]
+            col_rows = await db.fetch(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = $1 AND table_name = $2
+                ORDER BY ordinal_position
+                """,
+                schema,
+                real_table,
+            )
+            columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
+            pk = next((c for c in columns if c.lower() in {"id", "itemid", "item_id"}), None)
+            if pk is None:
+                return None
+            order_col = next(
+                (c for c in columns if c.lower() in {"createdat", "created_at", pk.lower()}),
+                pk,
+            )
+            order_actual = next(c for c in columns if c.lower() == order_col.lower())
+            row = await db.fetchrow(
+                f"SELECT * FROM {quote_ident(schema)}.{quote_ident(real_table)} "
+                f"ORDER BY {quote_ident(order_actual)} DESC LIMIT 1"
+            )
+            if row is None:
+                return None
+            data = _row_as_dict(row)
+            if not _row_mostly_empty(data):
+                return None
+            pk_val = _ci_get(data, pk, "id", "itemid", "item_id")
+            text = str(pk_val).strip() if pk_val not in (None, "") else ""
+            return text or None
+        except Exception as exc:
+            logger.warning(
+                "ap_repo_latest_empty_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
+            return None
+
+    async def apply_repository_item_fields(
+        self,
+        *,
+        tenant_id: str,
+        repository_id: str,
+        item_id: str,
+        header: dict[str, Any],
+        line_items: Optional[list[Any]] = None,
+        form_controls: Optional[list[dict[str, str]]] = None,
+    ) -> dict[str, Any]:
+        """UPDATE repository.items_{token} for the ticket item GUID. Does not insert."""
+        table = repository_items_table(repository_id)
+        item_guid = str(item_id or "").strip()
+        if not table or not header or not item_guid:
+            return {
+                "ok": False,
+                "updated": 0,
+                "reason": "missing_table_or_header",
+                "table": table,
+            }
+        try:
+            db = await self._db(tenant_id)
+            loc = await self._locate_table_by_name(db, table)
+            if loc is None:
+                return {"ok": False, "updated": 0, "reason": "table_not_found", "table": table}
+            schema = loc["schema"]
+            real_table = loc["table"]
+            col_rows = await db.fetch(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = $1 AND table_name = $2
+                ORDER BY ordinal_position
+                """,
+                schema,
+                real_table,
+            )
+            columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
+            assignments = _map_header_to_ezfb_columns(
+                header=header,
+                columns=columns,
+                form_controls=form_controls or [],
+                line_items=line_items,
+            )
+            if not assignments:
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "reason": "no_column_match",
+                    "table": f"{schema}.{real_table}",
+                    "columns": columns[:40],
+                }
+            pk = next(
+                (name for name in ("id", "itemid", "item_id") if name.lower() in {c.lower() for c in columns}),
+                None,
+            )
+            if pk is None:
+                return {"ok": False, "updated": 0, "reason": "no_pk", "table": real_table}
+            pk_actual = next(c for c in columns if c.lower() == pk.lower())
+            sets = []
+            args: list[Any] = []
+            for index, (col, value) in enumerate(assignments.items(), start=1):
+                sets.append(f"{quote_ident(col)} = ${index}")
+                args.append(
+                    value
+                    if isinstance(value, str)
+                    else (
+                        json.dumps(value, default=str)
+                        if isinstance(value, (dict, list))
+                        else str(value)
+                    )
+                )
+            args.append(item_guid)
+            sql = (
+                f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
+                f"SET {', '.join(sets)} "
+                f"WHERE CAST({quote_ident(pk_actual)} AS text) = ${len(args)}"
+            )
+            status = await db.execute(sql, *args)
+            updated = _execute_rowcount(status)
+            if updated == 0:
+                logger.warning(
+                    "ap_repo_item_update_zero_rows",
+                    extra={"table": real_table, "item_id": item_guid},
+                )
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "reason": "row_not_found",
+                    "table": f"{schema}.{real_table}",
+                    "item_id": item_guid,
+                }
+            logger.info(
+                "ap_repo_item_updated",
+                extra={
+                    "table": f"{schema}.{real_table}",
+                    "item_id": item_guid,
+                    "columns": sorted(assignments.keys()),
+                    "updated": updated if updated is not None else 1,
+                },
+            )
+            return {
+                "ok": True,
+                "updated": updated if updated is not None else 1,
+                "table": f"{schema}.{real_table}",
+                "columns": sorted(assignments.keys()),
+                "item_id": item_guid,
+            }
+        except Exception as exc:
+            logger.warning(
+                "ap_repo_item_update_failed",
                 extra={"error_type": type(exc).__name__, "error": str(exc)[:200], "table": table},
             )
             return {"ok": False, "updated": 0, "reason": type(exc).__name__, "table": table}

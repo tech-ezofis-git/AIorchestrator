@@ -575,7 +575,7 @@ class FakeDBPool:
                 }
             )
             return
-        if "UPDATE " in query.upper() and "ezfb_" in query.lower():
+        if "UPDATE " in query.upper() and ("ezfb_" in query.lower() or "items_" in query.lower()):
             return "UPDATE 1"
         raise AssertionError(f"FakeDBPool.execute: unrecognized query: {query!r}")
 
