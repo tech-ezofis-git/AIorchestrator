@@ -476,7 +476,7 @@ class EzofisClient:
         item_id: str,
         fields: dict[str, Any],
         form_id: Optional[str] = None,
-        form_entry_id: Optional[int] = None,
+        form_entry_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """PATCH .../ap-agent/metadata — persist extracted header/lines (not move-next)."""
         wf_id = str(workflow_id or "").strip()
@@ -496,7 +496,7 @@ class EzofisClient:
         if form_id:
             body["formId"] = str(form_id).strip()
         if form_entry_id is not None:
-            body["formEntryId"] = int(form_entry_id)
+            body["formEntryId"] = str(form_entry_id).strip()
         # V6 ParseApAgentMetadataBody requires formId + formEntryId (exact casing).
         if "formId" not in body or "formEntryId" not in body:
             logger.warning(

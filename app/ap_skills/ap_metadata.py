@@ -358,14 +358,16 @@ def build_ap_metadata_fields(
     return fields
 
 
-def _parse_form_entry_id(raw: Any) -> Optional[int]:
+def _parse_form_entry_id(raw: Any) -> Optional[str]:
+    """Return canonical GUID string for ezfb form entry id, or None."""
     if raw is None or raw == "":
         return None
-    try:
-        value = int(str(raw).strip())
-    except (TypeError, ValueError):
+    text = str(raw).strip()
+    if not text:
         return None
-    return value if value > 0 else None
+    if _is_guid(text):
+        return _hyphenate_guid(text)
+    return None
 
 
 def _is_guid(value: str) -> bool:
@@ -538,15 +540,17 @@ async def push_extract_metadata(
             logger.warning("ap_ezfb_latest_lookup_failed", extra={"error_type": type(exc).__name__})
             latest = None
         if latest is not None:
-            form_entry_id = int(latest)
-            request_summary["form_entry_id"] = form_entry_id
-            request_summary["form_entry_source"] = "latest_empty_row"
+            parsed_latest = _parse_form_entry_id(latest)
+            if parsed_latest:
+                form_entry_id = parsed_latest
+                request_summary["form_entry_id"] = form_entry_id
+                request_summary["form_entry_source"] = "latest_empty_row"
     if store is not None and resolved_form_id and form_entry_id is not None and header:
         try:
             ezfb_write = await store.apply_ezfb_item_fields(
                 tenant_id=tenant_id,
                 form_id=resolved_form_id,
-                form_entry_id=int(form_entry_id),
+                form_entry_id=form_entry_id,
                 header=header,
                 line_items=fields.get(_LINE_ITEM_KEY_PREFERRED) or fields.get(_LINE_ITEM_KEY_LEGACY),
                 form_controls=form_controls,

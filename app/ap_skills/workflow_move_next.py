@@ -43,10 +43,8 @@ def _job_str(job: dict[str, Any], *keys: str) -> Optional[str]:
 def _form_entry_id(raw: Optional[str]) -> Any:
     if raw is None:
         return None
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return raw
+    text = str(raw).strip()
+    return text or None
 
 
 async def _resolve_activity_id(ctx: ApContext, job: dict[str, Any], workflow_id: Optional[str]) -> Optional[str]:

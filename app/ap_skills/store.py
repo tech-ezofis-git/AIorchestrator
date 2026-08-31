@@ -753,11 +753,9 @@ class ApStore:
         if text_item:
             out["item_id"] = text_item
         if entry not in (None, ""):
-            try:
-                out["form_entry_id"] = int(str(entry).strip())
-            except (TypeError, ValueError):
-                if str(entry).strip().isdigit():
-                    out["form_entry_id"] = int(str(entry).strip())
+            text_entry = str(entry).strip()
+            if text_entry:
+                out["form_entry_id"] = guid_hyphenate(text_entry) if len("".join(ch for ch in text_entry if ch.isalnum())) == 32 else text_entry
         return out
 
     async def fetch_ticket_context(
@@ -892,7 +890,7 @@ class ApStore:
         db: Any,
         *,
         form_id: str,
-        form_entry_id: Optional[int] = None,
+        form_entry_id: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
         guessed = ezfb_items_table(form_id)
         candidates: list[tuple[str, str]] = []
@@ -966,8 +964,8 @@ class ApStore:
                     continue
                 hit = await db.fetchrow(
                     f"SELECT 1 AS ok FROM {quote_ident(schema)}.{quote_ident(name)} "
-                    f"WHERE {quote_ident(pk)} = $1 LIMIT 1",
-                    int(form_entry_id),
+                    f"WHERE {quote_ident(pk)} = $1::uuid LIMIT 1",
+                    str(form_entry_id).strip(),
                 )
             except Exception:
                 continue
@@ -975,7 +973,7 @@ class ApStore:
                 return {"schema": schema, "table": name}
         return None
 
-    async def latest_empty_ezfb_item(self, *, tenant_id: str, form_id: str) -> Optional[int]:
+    async def latest_empty_ezfb_item(self, *, tenant_id: str, form_id: str) -> Optional[str]:
         """Return the newest blank ezfb row for this form (the ticket the workflow just created)."""
         fid = str(form_id or "").strip()
         if not fid:
@@ -1010,7 +1008,10 @@ class ApStore:
             if not _row_mostly_empty(data):
                 return None
             pk_val = _ci_get(data, pk, "item_id", "itemid", "id")
-            return int(pk_val) if pk_val is not None else None
+            if pk_val is None:
+                return None
+            text = str(pk_val).strip()
+            return guid_hyphenate(text) if text else None
         except Exception as exc:
             logger.warning(
                 "ap_ezfb_latest_empty_failed",
@@ -1023,7 +1024,7 @@ class ApStore:
         *,
         tenant_id: str,
         form_id: str,
-        form_entry_id: int,
+        form_entry_id: str,
         header: dict[str, Any],
         line_items: Optional[list[Any]] = None,
         form_controls: Optional[list[dict[str, str]]] = None,
@@ -1035,7 +1036,7 @@ class ApStore:
         try:
             db = await self._db(tenant_id)
             loc = await self._locate_ezfb_table(
-                db, form_id=form_id, form_entry_id=int(form_entry_id)
+                db, form_id=form_id, form_entry_id=str(form_entry_id).strip()
             )
             if loc is None:
                 return {"ok": False, "updated": 0, "reason": "table_not_found", "table": table}
@@ -1080,11 +1081,11 @@ class ApStore:
                 args.append(value if isinstance(value, str) else (
                     json.dumps(value, default=str) if isinstance(value, (dict, list)) else str(value)
                 ))
-            args.append(int(form_entry_id))
+            args.append(str(form_entry_id).strip())
             sql = (
                 f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
                 f"SET {', '.join(sets)} "
-                f"WHERE {quote_ident(pk_actual)} = ${len(args)}"
+                f"WHERE {quote_ident(pk_actual)} = ${len(args)}::uuid"
             )
             status = await db.execute(sql, *args)
             updated = _execute_rowcount(status)
