@@ -174,9 +174,10 @@ def test_map_header_to_ezfb_columns_matches_underscore_and_jsonid():
 
 
 def test_pick_repository_pk_skips_integer_id():
-    from app.ap_skills.store import guid_compact, pick_repository_item_pk
+    from app.ap_skills.store import guid_compact, guid_hyphenate, pick_repository_item_pk
 
     assert guid_compact("9c06f762-16f5-4c00-9560-d50e1f6b3eac") == "9c06f76216f54c009560d50e1f6b3eac"
+    assert guid_hyphenate("9c06f76216f54c009560d50e1f6b3eac") == "9c06f762-16f5-4c00-9560-d50e1f6b3eac"
     assert (
         pick_repository_item_pk(
             ["id", "itemid", "Invoice_No", "FileName"],
@@ -185,6 +186,51 @@ def test_pick_repository_pk_skips_integer_id():
         == "itemid"
     )
     assert pick_repository_item_pk(["id", "Invoice_No"], {"id": "uuid", "Invoice_No": "text"}) == "id"
+    assert (
+        pick_repository_item_pk(
+            ["id", "itemid", "Invoice_No"],
+            {
+                "id": "integer int4",
+                "itemid": "USER-DEFINED uniqueidentifier",
+                "Invoice_No": "text text",
+            },
+        )
+        == "itemid"
+    )
+
+
+def test_repository_item_match_sql_uses_itemid_and_filepath():
+    from app.ap_skills.store import repository_guid_columns, repository_item_match_sql
+
+    columns = ["id", "itemid", "Invoice_No", "FilePath"]
+    types = {
+        "id": "integer int4",
+        "itemid": "USER-DEFINED uniqueidentifier",
+        "Invoice_No": "text text",
+        "FilePath": "text text",
+    }
+    assert repository_guid_columns(columns, types) == ["itemid"]
+    sql = repository_item_match_sql(columns, types, param=5)
+    assert "regexp_replace" not in sql
+    assert "replace(" in sql
+    assert '"itemid"' in sql
+    assert "FilePath" in sql or '"FilePath"' in sql
+    assert "$5" in sql
+
+
+def test_row_mostly_empty_ignores_repository_file_columns():
+    from app.ap_skills.store import _REPO_SKIP_COLS, _row_mostly_empty
+
+    row = {
+        "id": 1,
+        "itemid": "9c06f762-16f5-4c00-9560-d50e1f6b3eac",
+        "FileName": "INV-2026-6001.pdf",
+        "FilePath": "repository/048f6cfc/9c06f76216f54c009560d50e1f6b3eac.pdf",
+        "Invoice_No": None,
+        "PO_Number": None,
+    }
+    assert _row_mostly_empty(row, skip_columns=_REPO_SKIP_COLS) is True
+    assert _row_mostly_empty(row) is False
 
 
 def test_map_header_skips_repository_file_columns():
@@ -262,6 +308,103 @@ async def test_push_writes_repository_items_table():
     assert seen["item_id"] == "4283e687-f32f-40c0-a67e-c213724b1702"
     assert seen["repository_id"] == "38b1b6dd-854b-489f-aa44-ac6d4dd691e8"
     assert seen["header"]["Invoice No"] == "INV-12"
+
+
+@pytest.mark.asyncio
+async def test_push_writes_repository_with_compact_item_guid():
+    seen = {}
+
+    class FakeStore:
+        async def apply_ezfb_item_fields(self, **kwargs):
+            return {"ok": True, "updated": 1}
+
+        async def apply_repository_item_fields(self, **kwargs):
+            seen.update(kwargs)
+            return {"ok": True, "updated": 1, "table": "repository.items_048f6cfc"}
+
+    class FakeEz:
+        async def apply_ap_agent_metadata(self, **kwargs):
+            raise AssertionError("PATCH should not run without workflow ids")
+
+    result = await push_extract_metadata(
+        ezofis=FakeEz(),
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+        document_job={
+            "form_id": "36b59e8d-1dd3-400c-9ab5-7c887841f343",
+            "form_entry_id": "2",
+            "repository_id": "048f6cfc-7eb0-471c-aa54-cbb5f504c951",
+            "item_id": "9c06f76216f54c009560d50e1f6b3eac",
+        },
+        form_id="36b59e8d-1dd3-400c-9ab5-7c887841f343",
+        invoice={"invoice_number": "INV-2026-6001", "po_number": "PO-60001", "vendor": "Acme"},
+        store=FakeStore(),
+    )
+    assert result["ok"] is True
+    assert seen["item_id"] == "9c06f762-16f5-4c00-9560-d50e1f6b3eac"
+    assert result["request"]["item_id"] == "9c06f762-16f5-4c00-9560-d50e1f6b3eac"
+
+
+def test_resolve_metadata_ids_accepts_compact_item_guid():
+    ids = resolve_metadata_ids(
+        {
+            "repository_id": "048f6cfc-7eb0-471c-aa54-cbb5f504c951",
+            "item_id": "9c06f76216f54c009560d50e1f6b3eac",
+            "form_id": "36b59e8d-1dd3-400c-9ab5-7c887841f343",
+            "form_entry_id": 2,
+        },
+        form_id=None,
+    )
+    assert ids["item_id"] == "9c06f762-16f5-4c00-9560-d50e1f6b3eac"
+    assert ids["form_entry_id"] == 2
+
+
+@pytest.mark.asyncio
+async def test_apply_repository_item_fields_matches_uniqueidentifier_and_filepath():
+    from app.ap_skills.store import ApStore
+
+    executed = {}
+
+    class FakeDb:
+        async def fetch(self, query, *args):
+            q = query.lower()
+            if "information_schema.columns" in q:
+                return [
+                    {"column_name": "id", "data_type": "integer", "udt_name": "int4"},
+                    {
+                        "column_name": "itemid",
+                        "data_type": "USER-DEFINED",
+                        "udt_name": "uniqueidentifier",
+                    },
+                    {"column_name": "Invoice_No", "data_type": "text", "udt_name": "text"},
+                    {"column_name": "FilePath", "data_type": "text", "udt_name": "text"},
+                ]
+            return []
+
+        async def fetchrow(self, query, *args):
+            if "information_schema.tables" in query.lower():
+                return {"table_schema": "repository", "table_name": "items_048f6cfc"}
+            return None
+
+        async def execute(self, query, *args):
+            executed["sql"] = query
+            executed["args"] = args
+            return "UPDATE 1"
+
+    result = await ApStore(FakeDb()).apply_repository_item_fields(
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+        repository_id="048f6cfc-7eb0-471c-aa54-cbb5f504c951",
+        item_id="9c06f762-16f5-4c00-9560-d50e1f6b3eac",
+        header={"Invoice No": "INV-2026-6001", "PO Number": "PO-60001"},
+    )
+    assert result["ok"] is True
+    assert result["updated"] == 1
+    sql = executed["sql"]
+    assert "regexp_replace" not in sql
+    assert "replace(" in sql
+    assert "itemid" in sql
+    assert "FilePath" in sql
+    assert executed["args"][-1] == "9c06f76216f54c009560d50e1f6b3eac"
+    assert "INV-2026-6001" in executed["args"]
 
 
 @pytest.mark.asyncio

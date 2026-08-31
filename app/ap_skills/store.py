@@ -94,6 +94,42 @@ _REPO_SKIP_COLS = _EZFB_SKIP_COLS | {
     "fileextension",
 }
 
+_GUID_COL_NAMES = (
+    "itemid",
+    "item_id",
+    "id",
+    "itemguid",
+    "item_guid",
+    "guid",
+    "uuid",
+)
+_GUID_SKIP_COL_NORMS = {
+    "repositoryid",
+    "repository_id",
+    "createdby",
+    "created_by",
+    "modifiedby",
+    "modified_by",
+    "parentid",
+    "parent_id",
+    "workflowid",
+    "workflow_id",
+    "instanceid",
+    "instance_id",
+    "formid",
+    "form_id",
+    "tenantid",
+    "tenant_id",
+}
+_PATH_COL_NORMS = {
+    "filepath",
+    "file_path",
+    "blobpath",
+    "blob_path",
+    "filename",
+    "file_name",
+}
+
 
 def _norm_col(value: str) -> str:
     return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
@@ -104,11 +140,60 @@ def guid_compact(value: str) -> str:
     return "".join(ch for ch in str(value or "") if ch.isalnum()).lower()
 
 
+def guid_hyphenate(value: str) -> str:
+    """Canonical 8-4-4-4-12 UUID text, or empty if not 32 hex chars."""
+    compact = guid_compact(value)
+    if len(compact) != 32 or any(ch not in "0123456789abcdef" for ch in compact):
+        return ""
+    return f"{compact[:8]}-{compact[8:12]}-{compact[12:16]}-{compact[16:20]}-{compact[20:]}"
+
+
 def _is_guid_column_type(data_type: str, udt_name: str = "") -> bool:
+    """True for uuid / uniqueidentifier / text keys. Integer identity is False.
+
+    Babelfish reports uniqueidentifier as data_type USER-DEFINED + udt uniqueidentifier.
+    Looking only at USER-DEFINED would skip the real item GUID column (no_pk → no UPDATE).
+    """
     blob = f"{data_type} {udt_name}".lower()
-    if "int" in blob and "uuid" not in blob:
+    if any(token in blob for token in ("uuid", "uniqueidentifier", "guid")):
+        return True
+    if "int" in blob:
         return False
-    return any(token in blob for token in ("uuid", "text", "char", "name"))
+    if "user-defined" in blob or "user defined" in blob:
+        return True
+    return any(token in blob for token in ("text", "char", "name", "string"))
+
+
+def repository_guid_columns(
+    columns: list[str],
+    types: Optional[dict[str, str]] = None,
+) -> list[str]:
+    """Columns that can hold the repository item GUID (not repositoryId / audit users)."""
+    types = types or {}
+    type_lookup = {str(k).lower(): str(v or "") for k, v in types.items()}
+    lower_map = {c.lower(): c for c in columns}
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def _add(actual: Optional[str]) -> None:
+        if not actual or actual.lower() in seen:
+            return
+        if _norm_col(actual) in {_norm_col(n) for n in _GUID_SKIP_COL_NORMS}:
+            return
+        col_type = type_lookup.get(actual.lower()) or ""
+        if col_type and not _is_guid_column_type(col_type):
+            return
+        out.append(actual)
+        seen.add(actual.lower())
+
+    for candidate in _GUID_COL_NAMES:
+        _add(lower_map.get(candidate))
+    for col in columns:
+        col_type = type_lookup.get(col.lower()) or ""
+        lowered = col_type.lower()
+        if any(token in lowered for token in ("uuid", "uniqueidentifier", "guid")):
+            _add(col)
+    return out
 
 
 def pick_repository_item_pk(
@@ -116,18 +201,31 @@ def pick_repository_item_pk(
     types: Optional[dict[str, str]] = None,
 ) -> Optional[str]:
     """Prefer a GUID/text item key. Do not match a hyphenated UUID against integer id."""
-    types = types or {}
-    lower_map = {c.lower(): c for c in columns}
-    type_lookup = {str(k).lower(): str(v or "") for k, v in types.items()}
-    for candidate in ("itemid", "item_id", "id"):
-        actual = lower_map.get(candidate)
-        if not actual:
+    found = repository_guid_columns(columns, types)
+    return found[0] if found else None
+
+
+def _sql_compact_guid_expr(ident: str) -> str:
+    """Strip hyphens/braces/spaces from CAST(col AS text). Avoid regexp_replace (Babelfish)."""
+    return (
+        f"lower(replace(replace(replace(replace("
+        f"CAST({ident} AS text), '-', ''), '{{', ''), '}}', ''), ' ', ''))"
+    )
+
+
+def repository_item_match_sql(columns: list[str], types: Optional[dict[str, str]], param: int) -> str:
+    """WHERE compact GUID equals any item-key column, or appears in FilePath/FileName."""
+    clauses: list[str] = []
+    for col in repository_guid_columns(columns, types):
+        clauses.append(f"{_sql_compact_guid_expr(quote_ident(col))} = ${param}")
+    for col in columns:
+        if _norm_col(col) not in {_norm_col(n) for n in _PATH_COL_NORMS}:
             continue
-        col_type = type_lookup.get(actual.lower()) or ""
-        if col_type and not _is_guid_column_type(col_type):
-            continue
-        return actual
-    return None
+        ident = quote_ident(col)
+        clauses.append(f"position(${param} in lower(CAST({ident} AS text))) > 0")
+    if not clauses:
+        return "FALSE"
+    return "(" + " OR ".join(clauses) + ")"
 
 
 def _map_header_to_ezfb_columns(
@@ -223,8 +321,26 @@ def _execute_rowcount(status: Any) -> Optional[int]:
         return None
 
 
-def _row_mostly_empty(row: dict[str, Any]) -> bool:
-    skip_norm = {_norm_col(c) for c in _EZFB_SKIP_COLS} | {"itemid", "id"}
+def _column_meta(col_rows: Optional[list[Any]]) -> tuple[list[str], dict[str, str]]:
+    """column_name list + data_type+udt_name so uniqueidentifier is visible."""
+    columns: list[str] = []
+    types: dict[str, str] = {}
+    for row in col_rows or []:
+        name = str(_row_get(row, "column_name") or "")
+        if not name:
+            continue
+        columns.append(name)
+        data_type = str(_row_get(row, "data_type") or "")
+        udt_name = str(_row_get(row, "udt_name") or "")
+        types[name] = f"{data_type} {udt_name}".strip()
+    return columns, types
+
+
+def _row_mostly_empty(
+    row: dict[str, Any],
+    skip_columns: Optional[set[str]] = None,
+) -> bool:
+    skip_norm = {_norm_col(c) for c in (skip_columns or _EZFB_SKIP_COLS)} | {"itemid", "id"}
     filled = 0
     for key, value in row.items():
         if _norm_col(key) in skip_norm:
@@ -468,6 +584,17 @@ class ApStore:
         rid = str(repository_id or "").strip()
         if not rid:
             return []
+        try:
+            db = await self._db(tenant_id)
+        except Exception as exc:
+            logger.warning(
+                "ap_repo_fields_db_failed",
+                extra={"error_type": type(exc).__name__},
+            )
+            return []
+        located = await self._fetch_repository_fields_from_catalog(db, rid)
+        if located:
+            return located
         queries = (
             (
                 'SELECT "name" AS name, "columnName" AS column_name, "jsonId" AS json_id '
@@ -487,14 +614,6 @@ class ApStore:
                 (rid,),
             ),
         )
-        try:
-            db = await self._db(tenant_id)
-        except Exception as exc:
-            logger.warning(
-                "ap_repo_fields_db_failed",
-                extra={"error_type": type(exc).__name__},
-            )
-            return []
         for sql, params in queries:
             try:
                 rows = await db.fetch(sql, *params)
@@ -507,6 +626,108 @@ class ApStore:
                 json_id = str(_row_get(row, "json_id") or "").strip()
                 if name or column_name or json_id:
                     out.append({"name": name, "column_name": column_name, "json_id": json_id})
+            if out:
+                return out
+        return []
+
+    async def _fetch_repository_fields_from_catalog(
+        self, db: Any, repository_id: str
+    ) -> list[dict[str, str]]:
+        """Resolve wRepositoryField / Fields via information_schema (any schema/casing)."""
+        try:
+            tables = await db.fetch(
+                """
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE lower(table_name) IN (
+                    'wrepositoryfield', 'repositoryfields', 'repositoryfield', 'fields'
+                )
+                  AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY CASE
+                    WHEN lower(table_name) = 'wrepositoryfield' THEN 0
+                    WHEN lower(table_name) = 'repositoryfields' THEN 1
+                    WHEN lower(table_name) = 'repositoryfield' THEN 2
+                    ELSE 3
+                END,
+                CASE
+                    WHEN lower(table_schema) = 'repository' THEN 0
+                    WHEN table_schema = 'dbo' THEN 1
+                    ELSE 2
+                END
+                """
+            )
+        except Exception:
+            return []
+        rid_compact = guid_compact(repository_id)
+        for table in tables or []:
+            schema = str(_row_get(table, "table_schema") or "")
+            name = str(_row_get(table, "table_name") or "")
+            if not schema or not name:
+                continue
+            try:
+                col_rows = await db.fetch(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = $1 AND table_name = $2
+                    """,
+                    schema,
+                    name,
+                )
+            except Exception:
+                continue
+            by_lower = {
+                str(_row_get(row, "column_name") or "").lower(): str(
+                    _row_get(row, "column_name") or ""
+                )
+                for row in col_rows or []
+                if _row_get(row, "column_name")
+            }
+            name_col = by_lower.get("name")
+            column_col = by_lower.get("columnname") or by_lower.get("column_name")
+            json_col = by_lower.get("jsonid") or by_lower.get("json_id")
+            repo_col = next(
+                (
+                    by_lower[key]
+                    for key in (
+                        "wrepositoryid",
+                        "repositoryid",
+                        "repository_id",
+                        "w_repository_id",
+                    )
+                    if key in by_lower
+                ),
+                None,
+            )
+            if not name_col or not repo_col or not (column_col or json_col):
+                continue
+            deleted = by_lower.get("isdeleted") or by_lower.get("is_deleted")
+            select_parts = [
+                f"{quote_ident(name_col)} AS name",
+                f"{quote_ident(column_col)} AS column_name" if column_col else "NULL AS column_name",
+                f"{quote_ident(json_col)} AS json_id" if json_col else "NULL AS json_id",
+            ]
+            sql = (
+                f"SELECT {', '.join(select_parts)} "
+                f"FROM {quote_ident(schema)}.{quote_ident(name)} "
+                f"WHERE {_sql_compact_guid_expr(quote_ident(repo_col))} = $1"
+            )
+            args: list[Any] = [rid_compact]
+            if deleted:
+                sql += f" AND COALESCE(CAST({quote_ident(deleted)} AS integer), 0) = 0"
+            try:
+                rows = await db.fetch(sql, *args)
+            except Exception:
+                continue
+            out: list[dict[str, str]] = []
+            for row in rows or []:
+                field_name = str(_row_get(row, "name") or "").strip()
+                column_name = str(_row_get(row, "column_name") or "").strip()
+                json_id = str(_row_get(row, "json_id") or "").strip()
+                if field_name or column_name or json_id:
+                    out.append(
+                        {"name": field_name, "column_name": column_name, "json_id": json_id}
+                    )
             if out:
                 return out
         return []
@@ -528,8 +749,8 @@ class ApStore:
             out["repository_id"] = str(repository_id).strip()
         if form_id:
             out["form_id"] = str(form_id).strip()
-        text_item = str(item or "").strip()
-        if text_item and len(text_item) == 36 and text_item.count("-") == 4:
+        text_item = guid_hyphenate(str(item or "").strip())
+        if text_item:
             out["item_id"] = text_item
         if entry not in (None, ""):
             try:
@@ -903,31 +1124,45 @@ class ApStore:
             return {"ok": False, "updated": 0, "reason": type(exc).__name__, "table": table}
 
     async def _locate_table_by_name(self, db: Any, table_name: str) -> Optional[dict[str, Any]]:
-        try:
-            loc = await db.fetchrow(
-                """
-                SELECT table_schema, table_name
-                FROM information_schema.tables
-                WHERE lower(table_name) = lower($1)
-                  AND table_type = 'BASE TABLE'
-                  AND table_schema NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY CASE
-                    WHEN lower(table_schema) = 'repository' THEN 0
-                    WHEN table_schema = 'dbo' THEN 1
-                    ELSE 2
-                END, table_schema
-                LIMIT 1
-                """,
-                table_name,
-            )
-        except Exception:
-            return None
-        if loc is None:
-            return None
-        return {
-            "schema": str(_row_get(loc, "table_schema") or "repository"),
-            "table": str(_row_get(loc, "table_name") or table_name),
-        }
+        queries = (
+            """
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE lower(table_name) = lower($1)
+              AND table_type IN ('BASE TABLE', 'TABLE')
+              AND table_schema NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY CASE
+                WHEN lower(table_schema) = 'repository' THEN 0
+                WHEN table_schema = 'dbo' THEN 1
+                ELSE 2
+            END, table_schema
+            LIMIT 1
+            """,
+            """
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE lower(table_name) = lower($1)
+              AND table_schema NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY CASE
+                WHEN lower(table_schema) = 'repository' THEN 0
+                WHEN table_schema = 'dbo' THEN 1
+                ELSE 2
+            END, table_schema
+            LIMIT 1
+            """,
+        )
+        for sql in queries:
+            try:
+                loc = await db.fetchrow(sql, table_name)
+            except Exception:
+                loc = None
+            if loc is None:
+                continue
+            return {
+                "schema": str(_row_get(loc, "table_schema") or "repository"),
+                "table": str(_row_get(loc, "table_name") or table_name),
+            }
+        return None
 
     async def latest_empty_repository_item(
         self, *, tenant_id: str, repository_id: str
@@ -952,13 +1187,7 @@ class ApStore:
                 schema,
                 real_table,
             )
-            columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
-            types = {
-                str(_row_get(row, "column_name")): str(
-                    _row_get(row, "data_type") or _row_get(row, "udt_name") or ""
-                )
-                for row in col_rows or []
-            }
+            columns, types = _column_meta(col_rows)
             pk = pick_repository_item_pk(columns, types)
             if pk is None:
                 return None
@@ -974,11 +1203,11 @@ class ApStore:
             if row is None:
                 return None
             data = _row_as_dict(row)
-            if not _row_mostly_empty(data):
+            if not _row_mostly_empty(data, skip_columns=_REPO_SKIP_COLS):
                 return None
             pk_val = _ci_get(data, pk, "id", "itemid", "item_id")
-            text = str(pk_val).strip() if pk_val not in (None, "") else ""
-            return text or None
+            text = guid_hyphenate(str(pk_val).strip() if pk_val not in (None, "") else "")
+            return text or (str(pk_val).strip() if pk_val not in (None, "") else None)
         except Exception as exc:
             logger.warning(
                 "ap_repo_latest_empty_failed",
@@ -1023,13 +1252,7 @@ class ApStore:
                 schema,
                 real_table,
             )
-            columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
-            types = {
-                str(_row_get(row, "column_name")): str(
-                    _row_get(row, "data_type") or _row_get(row, "udt_name") or ""
-                )
-                for row in col_rows or []
-            }
+            columns, types = _column_meta(col_rows)
             repo_fields = await self.fetch_repository_fields(
                 tenant_id=tenant_id, repository_id=repository_id
             )
@@ -1049,9 +1272,24 @@ class ApStore:
                     "table": f"{schema}.{real_table}",
                     "columns": columns[:40],
                 }
-            pk_actual = pick_repository_item_pk(columns, types)
-            if pk_actual is None:
-                return {"ok": False, "updated": 0, "reason": "no_pk", "table": real_table}
+            compact = guid_compact(item_guid)
+            if len(compact) != 32:
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "reason": "invalid_item_guid",
+                    "table": f"{schema}.{real_table}",
+                    "item_id": item_guid,
+                }
+            match_sql = repository_item_match_sql(columns, types, param=len(assignments) + 1)
+            if match_sql == "FALSE":
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "reason": "no_pk",
+                    "table": f"{schema}.{real_table}",
+                    "columns": columns[:40],
+                }
             sets = []
             args: list[Any] = []
             for index, (col, value) in enumerate(assignments.items(), start=1):
@@ -1065,21 +1303,11 @@ class ApStore:
                         else str(value)
                     )
                 )
-            compact = guid_compact(item_guid)
-            if len(compact) != 32:
-                return {
-                    "ok": False,
-                    "updated": 0,
-                    "reason": "invalid_item_guid",
-                    "table": f"{schema}.{real_table}",
-                    "item_id": item_guid,
-                }
             args.append(compact)
             sql = (
                 f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
                 f"SET {', '.join(sets)} "
-                f"WHERE lower(regexp_replace(CAST({quote_ident(pk_actual)} AS text), "
-                f"'[^0-9a-fA-F]', '', 'g')) = ${len(args)}"
+                f"WHERE {match_sql}"
             )
             status = await db.execute(sql, *args)
             updated = _execute_rowcount(status)
@@ -1094,6 +1322,7 @@ class ApStore:
                     "reason": "row_not_found",
                     "table": f"{schema}.{real_table}",
                     "item_id": item_guid,
+                    "pk_columns": repository_guid_columns(columns, types),
                 }
             logger.info(
                 "ap_repo_item_updated",

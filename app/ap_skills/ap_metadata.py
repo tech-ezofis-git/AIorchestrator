@@ -9,7 +9,6 @@ V6 ApplyApAgentMetadata **requires** formId + formEntryId (400 otherwise) and up
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Optional
 
 logger = logging.getLogger("orchestrator.ap.metadata")
@@ -73,10 +72,6 @@ _MATCH_LABELS = {
     "NON_INVOICE": "Non-Invoice",
     "DUPLICATE": "Not Matched",
 }
-_GUID_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
-
 
 def _first_value(data: dict[str, Any], *keys: str) -> Any:
     for key in keys:
@@ -374,7 +369,15 @@ def _parse_form_entry_id(raw: Any) -> Optional[int]:
 
 
 def _is_guid(value: str) -> bool:
-    return bool(_GUID_RE.match((value or "").strip()))
+    compact = "".join(ch for ch in str(value or "") if ch.isalnum()).lower()
+    return len(compact) == 32 and all(ch in "0123456789abcdef" for ch in compact)
+
+
+def _hyphenate_guid(value: str) -> str:
+    compact = "".join(ch for ch in str(value or "") if ch.isalnum()).lower()
+    if len(compact) != 32 or any(ch not in "0123456789abcdef" for ch in compact):
+        return (value or "").strip()
+    return f"{compact[:8]}-{compact[8:12]}-{compact[12:16]}-{compact[16:20]}-{compact[20:]}"
 
 
 def _job_id(job: dict[str, Any], *keys: str) -> str:
@@ -433,12 +436,12 @@ def resolve_metadata_ids(document_job: dict[str, Any], form_id: Optional[str]) -
         str(form_id or _job_id(job, "form_id", "formId", "FormId", "formid") or "").strip() or None
     )
 
-    # V6 body.itemId must be the repository item GUID.
+    # V6 body.itemId must be the repository item GUID (hyphenated or compact 32-hex).
     item_guid = ""
     if _is_guid(repo_item):
-        item_guid = repo_item
+        item_guid = _hyphenate_guid(repo_item)
     elif _is_guid(raw_item):
-        item_guid = raw_item
+        item_guid = _hyphenate_guid(raw_item)
 
     # If formentryId was omitted but item_id is a positive int, treat it as form entry PK.
     if form_entry_id is None and raw_item and not _is_guid(raw_item):
@@ -555,6 +558,8 @@ async def push_extract_metadata(
     repo_write: Optional[dict[str, Any]] = None
     if store is not None and repository_id and header:
         repo_item = item_id if item_id and _is_guid(item_id) else ""
+        if repo_item:
+            repo_item = _hyphenate_guid(repo_item)
         if not repo_item:
             try:
                 latest_repo = await store.latest_empty_repository_item(
