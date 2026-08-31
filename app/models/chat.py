@@ -186,6 +186,33 @@ class DocumentPayload(BaseModel):
         return str(value).strip() or None
 
 
+_HANGFIRE_ID_KEYS = (
+    "repositoryId",
+    "repository_id",
+    "itemId",
+    "item_id",
+    "repositoryItemId",
+    "repository_item_id",
+    "formId",
+    "form_id",
+    "formid",
+    "formEntryId",
+    "formentryId",
+    "form_entry_id",
+    "workflowId",
+    "workflow_id",
+    "instanceId",
+    "instance_id",
+    "tenantId",
+    "tenant_id",
+    "blobPath",
+    "filepath",
+    "transactionId",
+    "processId",
+    "formData",
+)
+
+
 class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Client-supplied session identifier.")
     message: Optional[str] = Field(
@@ -209,7 +236,7 @@ class ChatRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _flatten_hangfire_start_payload(cls, data: Any) -> Any:
-        """V6 Hangfire sends IDs on startPayload; merge into payload so AP metadata can write ezfb."""
+        """Merge V6 Hangfire IDs (startPayload or request root) into payload for ezfb write-back."""
         if not isinstance(data, dict):
             return data
         payload = data.get("payload")
@@ -220,11 +247,14 @@ class ChatRequest(BaseModel):
             blob.update(start)
         if isinstance(nested, dict):
             blob.update(nested)
+        for key in _HANGFIRE_ID_KEYS:
+            if data.get(key) not in (None, "") and blob.get(key) in (None, ""):
+                blob[key] = data[key]
         if not blob:
             return data
         merged = dict(payload) if isinstance(payload, dict) else {}
         for key, value in blob.items():
-            if key in ("startPayload", "start_payload"):
+            if key in ("startPayload", "start_payload", "session_id", "intent", "message", "instruction"):
                 continue
             if merged.get(key) in (None, ""):
                 merged[key] = value
@@ -233,6 +263,12 @@ class ChatRequest(BaseModel):
             entry = form_data.get("formEntryId") or form_data.get("formentryId")
             if entry not in (None, ""):
                 merged["formentryId"] = str(entry)
+        # Hangfire itemId is the repository item GUID; keep it for V6 body.itemId.
+        raw_item = merged.get("itemId") or merged.get("item_id")
+        if raw_item and merged.get("repositoryItemId") in (None, "") and merged.get("repository_item_id") in (None, ""):
+            text = str(raw_item).strip()
+            if len(text) == 36 and text.count("-") == 4:
+                merged["repositoryItemId"] = text
         out = dict(data)
         out["payload"] = merged
         return out

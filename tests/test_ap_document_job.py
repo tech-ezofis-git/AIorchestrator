@@ -802,3 +802,59 @@ def test_hangfire_start_payload_aliases_reach_metadata(client, monkeypatch):
     assert header["Invoice No"] == "INV-100"
     assert header["PO_Number"] == "PO-1"
     assert None not in header.values()
+
+
+def test_v6_root_ticket_ids_reach_metadata_patch(client, monkeypatch):
+    seen = []
+
+    async def capture_meta(self, **kwargs):
+        seen.append(kwargs)
+        return {
+            "ok": True,
+            "mock": True,
+            "ezfbFieldsUpdated": 9,
+            "repositoryFieldsUpdated": 7,
+            "lineItemsUpdated": True,
+        }
+
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.apply_ap_agent_metadata",
+        capture_meta,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-root-ids",
+            "intent": "ap",
+            "workflowId": "967f9423-ac93-4c70-93cb-df500f0d4cc9",
+            "instanceId": "a96efa0d-28f1-4b48-afc2-c9791a346ce9",
+            "repositoryId": "38b1b6dd-854b-489f-aa44-ac6d4dd691e8",
+            "itemId": "4283e687-f32f-40c0-a67e-c213724b1702",
+            "formId": "9a117b01-bb6d-4696-a627-a9fa84bb006e",
+            "formEntryId": 10,
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "invoice_json": SAMPLE_INVOICE,
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert seen
+    call = seen[0]
+    assert call["repository_id"] == "38b1b6dd-854b-489f-aa44-ac6d4dd691e8"
+    assert call["item_id"] == "4283e687-f32f-40c0-a67e-c213724b1702"
+    assert call["form_id"] == "9a117b01-bb6d-4696-a627-a9fa84bb006e"
+    assert call["form_entry_id"] == 10
+    assert call["workflow_id"] == "967f9423-ac93-4c70-93cb-df500f0d4cc9"
+    assert call["instance_id"] == "a96efa0d-28f1-4b48-afc2-c9791a346ce9"
+    assert call["fields"]["invoice_header"]["Invoice No"] == "INV-100"
+    assert call["fields"]["invoice_header"]["PO Number"] == "PO-1"
+    assert call["fields"]["Invoice Extracted Line Item"][0]["description"] == "Widget"
