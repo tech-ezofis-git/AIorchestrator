@@ -6,6 +6,7 @@ tests can run without the remote OCR service.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 
 import httpx
@@ -169,7 +170,10 @@ class OcrEngineClient:
             return text or None
 
         if lowered.endswith(".pdf") or ctype == "application/pdf":
-            return _extract_pdf_text(data, page_selection=page_selection)
+            text = _extract_pdf_text(data, page_selection=page_selection)
+            if text and embedded_pdf_text_is_usable(text):
+                return text
+            return None
 
         return None
 
@@ -370,6 +374,34 @@ def _extract_text_from_response(payload: Any, *, response_text: str) -> Optional
             if parts:
                 return "\n".join(parts)
     return None
+
+
+_FORM_LABEL_LINE = re.compile(
+    r"^(po\s*number|invoice\s*no\.?|invoice\s*number|terms|currency|supplier|"
+    r"vendor\s*name|matched\s*status|due\s*date|invoice\s*date|invoice\s*amount|"
+    r"ship\s*to\s*address|buyer)$",
+    re.I,
+)
+
+
+def embedded_pdf_text_is_usable(text: str) -> bool:
+    """Skip label-only / scanned PDFs so paddle OCR can run."""
+    raw = (text or "").strip()
+    if len(raw) < 40:
+        return False
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    content_lines = 0
+    for line in lines:
+        if ":" in line:
+            key, value = line.split(":", 1)
+            if value.strip() and value.strip().lower() != key.strip().lower():
+                content_lines += 1
+                continue
+        if _FORM_LABEL_LINE.match(line):
+            continue
+        content_lines += 1
+    digits = sum(ch.isdigit() for ch in raw)
+    return digits >= 6 and content_lines >= 3
 
 
 def _extract_pdf_text(data: bytes, *, page_selection: PageSelection) -> Optional[str]:

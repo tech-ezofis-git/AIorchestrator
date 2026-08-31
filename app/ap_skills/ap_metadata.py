@@ -101,14 +101,18 @@ def _skip_empty(value: Any) -> bool:
     return False
 
 
-def _stringify_header_value(value: Any) -> Optional[str]:
+def _stringify_header_value(value: Any, key: str = "") -> Optional[str]:
     """V6 form columns are strings; JSON numbers often land as null in ezfb."""
     if _skip_empty(value) or isinstance(value, (dict, list)):
         return None
     if isinstance(value, bool):
         return "true" if value else "false"
     text = str(value).strip()
-    return text or None
+    if not text:
+        return None
+    if key and _norm_label(key) == _norm_label(text):
+        return None
+    return text
 
 
 def _unwrap_invoice(invoice: dict[str, Any]) -> dict[str, Any]:
@@ -249,20 +253,20 @@ def build_ap_metadata_fields(
     for key, raw in header_src.items():
         if key in _INTERNAL_KEYS:
             continue
-        value = _stringify_header_value(raw)
+        value = _stringify_header_value(raw, str(key))
         if value is None:
             continue
         header[str(key)] = value
 
     for label, keys in _HEADER_LABELS:
-        value = _stringify_header_value(_first_value(header_src, *keys))
+        value = _stringify_header_value(_first_value(header_src, *keys), label)
         if value is None:
             continue
         header[label] = value
 
     if extras:
         for key, raw in extras.items():
-            value = _stringify_header_value(raw)
+            value = _stringify_header_value(raw, str(key))
             if value is None:
                 continue
             header[str(key)] = value

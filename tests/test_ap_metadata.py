@@ -427,3 +427,47 @@ def test_as_invoice_reads_nested_header_labels():
     assert fields["invoice_header"]["Vendor Name"] == "Acme"
     assert None not in fields["invoice_header"].values()
     assert "" not in fields["invoice_header"].values()
+
+
+def test_metadata_skips_label_used_as_value():
+    fields = build_ap_metadata_fields(
+        {"invoice_header": {"Terms": "Terms", "Currency": "USD", "Invoice No": "INV-12"}}
+    )
+    header = fields["invoice_header"]
+    assert "Terms" not in header
+    assert header["Currency"] == "USD"
+    assert header["Invoice No"] == "INV-12"
+
+
+def test_as_invoice_does_not_default_usd_when_extract_is_empty():
+    from app.ap_skills.extract_invoice import _as_invoice
+
+    inv = _as_invoice({"doc_type": "invoice"})
+    assert not inv.get("invoice_number")
+    assert not inv.get("currency")
+    fields = build_ap_metadata_fields(inv)
+    assert "Currency" not in (fields.get("invoice_header") or {})
+
+
+def test_header_from_labeled_text_keeps_real_values():
+    from app.ap_skills.extract_invoice import _header_from_labeled_text
+
+    header = _header_from_labeled_text(
+        "Invoice No: INV-12\nPO Number: PO-9\nTerms: Terms\nCurrency: USD\n"
+    )
+    assert header["Invoice No"] == "INV-12"
+    assert header["PO Number"] == "PO-9"
+    assert "Terms" not in header
+    assert header["Currency"] == "USD"
+
+
+def test_embedded_pdf_text_rejects_form_labels():
+    from app.integrations.ocr_engine import embedded_pdf_text_is_usable
+
+    labels = "PO Number\nInvoice No\nTerms\nCurrency\nMatched Status\nVendor Name"
+    assert embedded_pdf_text_is_usable(labels) is False
+    invoice = (
+        "ACME Supplies\nInvoice No: INV-100\nPO Number: PO-1\n"
+        "Amount: 1234.56\nDate: 2026-08-31\nQty 10 widgets"
+    )
+    assert embedded_pdf_text_is_usable(invoice) is True

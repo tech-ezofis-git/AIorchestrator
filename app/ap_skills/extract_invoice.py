@@ -142,11 +142,31 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
             src, "matter_id", "matterId", "Matter ID", "MatterId", "matter_no", "Matter No"
         ),
         "total": total,
-        "currency": field_text(src, "currency", "Currency") or "USD",
+        "currency": field_text(src, "currency", "Currency"),
         "line_items": normalized_lines,
     }
-    if orig_header:
-        out["invoice_header"] = orig_header
+    if not out["currency"] and (
+        out["invoice_number"] or out["po_number"] or out["vendor"] or total is not None
+    ):
+        out["currency"] = "USD"
+    header = dict(orig_header) if orig_header else {}
+    if out["invoice_number"]:
+        header.setdefault("Invoice No", out["invoice_number"])
+    if out["po_number"]:
+        header.setdefault("PO Number", out["po_number"])
+    if out["vendor"]:
+        header.setdefault("Vendor Name", out["vendor"])
+        header.setdefault("Supplier", out["vendor"])
+    if out["invoice_date"]:
+        header.setdefault("Invoice Date", out["invoice_date"])
+    if out["due_date"]:
+        header.setdefault("Due Date", out["due_date"])
+    if out["currency"]:
+        header.setdefault("Currency", out["currency"])
+    if total is not None:
+        header.setdefault("Invoice Amount", str(total))
+    if header:
+        out["invoice_header"] = header
     if raw_lines and orig_key != "line_items":
         out[orig_key] = raw_lines
     return out
@@ -171,6 +191,25 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
             "vendor": _search(r"(?:vendor|supplier)\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})"),
         }
     )
+
+
+def _header_from_labeled_text(text: str) -> dict[str, Any]:
+    """Parse 'Invoice No: INV-1' lines; ignore label-only values like Terms: Terms."""
+    header: dict[str, Any] = {}
+    for line in (text or "").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if not key or not value:
+            continue
+        key_norm = "".join(ch for ch in key.lower() if ch.isalnum())
+        val_norm = "".join(ch for ch in value.lower() if ch.isalnum())
+        if key_norm == val_norm:
+            continue
+        header[key] = value
+    return header
 
 
 async def _structure_with_llm(ctx: ApContext, ocr_text: str) -> Optional[dict[str, Any]]:
@@ -243,7 +282,11 @@ async def run(ctx: ApContext) -> ApSkillResult:
         raise ApSkillError("OCR extraction failed for this document.") from exc
 
     ocr_text = (ocr_tool.get("text") or "").strip() if isinstance(ocr_tool, dict) else ""
+    labeled = _header_from_labeled_text(ocr_text)
     invoice = await _structure_with_llm(ctx, ocr_text) or _heuristic_from_text(ocr_text)
+    if labeled:
+        merged_header = {**(invoice.get("invoice_header") or {}), **labeled}
+        invoice = _as_invoice({**invoice, "invoice_header": merged_header})
     if not invoice.get("invoice_number") and not ocr_text:
         raise ApSkillError("OCR returned no text and no invoice_json was provided.")
     ctx.invoice_json = invoice
