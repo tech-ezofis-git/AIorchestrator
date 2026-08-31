@@ -327,22 +327,61 @@ def _is_guid(value: str) -> bool:
     return bool(_GUID_RE.match((value or "").strip()))
 
 
+def _job_id(job: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        raw = job.get(key)
+        if raw in (None, ""):
+            continue
+        text = str(raw).strip()
+        if text and text.lower() != "none":
+            return text
+    return ""
+
+
+def merge_ids_into_job(document_job: dict[str, Any], ids: dict[str, Any]) -> dict[str, Any]:
+    """Copy resolved ticket IDs onto document_job (snake_case) for later skills."""
+    job = document_job if isinstance(document_job, dict) else {}
+    mapping = {
+        "workflow_id": ids.get("workflow_id"),
+        "instance_id": ids.get("instance_id"),
+        "repository_id": ids.get("repository_id"),
+        "repository_item_id": ids.get("item_id") if _is_guid(str(ids.get("item_id") or "")) else ids.get("repository_item_id"),
+        "form_id": ids.get("form_id"),
+        "form_entry_id": ids.get("form_entry_id"),
+    }
+    for key, value in mapping.items():
+        if value in (None, "") or job.get(key) not in (None, ""):
+            continue
+        job[key] = str(value)
+    return job
+
+
 def resolve_metadata_ids(document_job: dict[str, Any], form_id: Optional[str]) -> dict[str, Any]:
     """Resolve IDs V6 ApplyApAgentMetadata requires."""
     job = document_job or {}
-    workflow_id = str(job.get("workflow_id") or "").strip()
-    instance_id = str(job.get("instance_id") or "").strip()
-    repository_id = str(job.get("repository_id") or "").strip()
-    repo_item = str(job.get("repository_item_id") or "").strip()
-    raw_item = str(job.get("item_id") or "").strip()
-    form_entry_id = _parse_form_entry_id(job.get("form_entry_id"))
+    workflow_id = _job_id(job, "workflow_id", "workflowId", "WorkflowId")
+    instance_id = _job_id(job, "instance_id", "instanceId", "InstanceId")
+    repository_id = _job_id(job, "repository_id", "repositoryId", "RepositoryId", "repository")
+    repo_item = _job_id(job, "repository_item_id", "repositoryItemId", "RepositoryItemId")
+    raw_item = _job_id(job, "item_id", "itemId", "ItemId")
+    form_entry_id = _parse_form_entry_id(
+        job.get("form_entry_id")
+        or job.get("formEntryId")
+        or job.get("formentryId")
+        or job.get("FormEntryId")
+    )
     if form_entry_id is None:
         form_data = job.get("formData") or job.get("form_data")
         if isinstance(form_data, dict):
             form_entry_id = _parse_form_entry_id(
-                form_data.get("formEntryId") or form_data.get("formentryId") or form_data.get("form_entry_id")
+                form_data.get("formEntryId")
+                or form_data.get("formentryId")
+                or form_data.get("FormEntryId")
+                or form_data.get("form_entry_id")
             )
-    resolved_form_id = str(form_id or job.get("form_id") or "").strip() or None
+    resolved_form_id = (
+        str(form_id or _job_id(job, "form_id", "formId", "FormId", "formid") or "").strip() or None
+    )
 
     # V6 body.itemId must be the repository item GUID.
     item_guid = ""
@@ -401,6 +440,54 @@ async def push_extract_metadata(
 
     ezfb_write: Optional[dict[str, Any]] = None
     header = (fields.get("invoice_header") or {}) if isinstance(fields, dict) else {}
+    if store is not None and (not resolved_form_id or form_entry_id is None or not item_id):
+        try:
+            looked = await store.fetch_ticket_context(
+                tenant_id=tenant_id,
+                instance_id=instance_id or None,
+                repository_item_id=item_id or None,
+                form_id=resolved_form_id,
+            )
+        except Exception as exc:
+            logger.warning("ap_ticket_lookup_failed", extra={"error_type": type(exc).__name__})
+            looked = None
+        if isinstance(looked, dict) and looked:
+            if not workflow_id:
+                workflow_id = str(looked.get("workflow_id") or "").strip()
+            if not instance_id:
+                instance_id = str(looked.get("instance_id") or "").strip()
+            if not repository_id:
+                repository_id = str(looked.get("repository_id") or "").strip()
+            if not item_id:
+                item_id = str(looked.get("item_id") or "").strip()
+            if not resolved_form_id:
+                resolved_form_id = str(looked.get("form_id") or "").strip() or None
+            if form_entry_id is None:
+                form_entry_id = _parse_form_entry_id(looked.get("form_entry_id"))
+            request_summary.update(
+                {
+                    "workflow_id": workflow_id or None,
+                    "instance_id": instance_id or None,
+                    "repository_id": repository_id or None,
+                    "item_id": item_id or None,
+                    "form_id": resolved_form_id,
+                    "form_entry_id": form_entry_id,
+                    "looked_up": True,
+                }
+            )
+    if store is not None and resolved_form_id and form_entry_id is None:
+        try:
+            latest = await store.latest_empty_ezfb_item(
+                tenant_id=tenant_id,
+                form_id=resolved_form_id,
+            )
+        except Exception as exc:
+            logger.warning("ap_ezfb_latest_lookup_failed", extra={"error_type": type(exc).__name__})
+            latest = None
+        if latest is not None:
+            form_entry_id = int(latest)
+            request_summary["form_entry_id"] = form_entry_id
+            request_summary["form_entry_source"] = "latest_empty_row"
     if store is not None and resolved_form_id and form_entry_id is not None and header:
         try:
             ezfb_write = await store.apply_ezfb_item_fields(

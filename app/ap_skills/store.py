@@ -131,6 +131,54 @@ def _map_header_to_ezfb_columns(
     return assignments
 
 
+def _row_as_dict(row: Any) -> dict[str, Any]:
+    if row is None:
+        return {}
+    if isinstance(row, dict):
+        return dict(row)
+    keys = getattr(row, "keys", None)
+    if callable(keys):
+        return {str(k): row[k] for k in keys()}
+    return {}
+
+
+def _ci_get(data: dict[str, Any], *names: str) -> Any:
+    if not data:
+        return None
+    lower = {str(k).lower().replace("_", ""): v for k, v in data.items()}
+    for name in names:
+        key = str(name).lower().replace("_", "")
+        if key in lower and lower[key] not in (None, ""):
+            return lower[key]
+    return None
+
+
+def _execute_rowcount(status: Any) -> Optional[int]:
+    if not isinstance(status, str):
+        return None
+    parts = status.replace("\t", " ").split()
+    if not parts:
+        return None
+    try:
+        return int(parts[-1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _row_mostly_empty(row: dict[str, Any]) -> bool:
+    skip_norm = {_norm_col(c) for c in _EZFB_SKIP_COLS} | {"itemid", "id"}
+    filled = 0
+    for key, value in row.items():
+        if _norm_col(key) in skip_norm:
+            continue
+        if value in (None, "", b""):
+            continue
+        filled += 1
+        if filled >= 2:
+            return False
+    return True
+
+
 class ApStore:
     def __init__(self, db: DBExecutor, *, tenant_pools: Any = None):
         self._fallback = db
@@ -355,6 +403,292 @@ class ApStore:
                 return out
         return []
 
+    def _ticket_from_row(self, row: Any) -> dict[str, Any]:
+        data = _row_as_dict(row)
+        item = _ci_get(data, "itemid", "repositoryitemid", "item_id", "id")
+        entry = _ci_get(data, "formentryid", "form_entry_id")
+        out: dict[str, Any] = {}
+        workflow_id = _ci_get(data, "workflowid", "workflow_id")
+        instance_id = _ci_get(data, "instanceid", "instance_id")
+        repository_id = _ci_get(data, "repositoryid", "repository_id")
+        form_id = _ci_get(data, "formid", "form_id", "wformid")
+        if workflow_id:
+            out["workflow_id"] = str(workflow_id).strip()
+        if instance_id:
+            out["instance_id"] = str(instance_id).strip()
+        if repository_id:
+            out["repository_id"] = str(repository_id).strip()
+        if form_id:
+            out["form_id"] = str(form_id).strip()
+        text_item = str(item or "").strip()
+        if text_item and len(text_item) == 36 and text_item.count("-") == 4:
+            out["item_id"] = text_item
+        if entry not in (None, ""):
+            try:
+                out["form_entry_id"] = int(str(entry).strip())
+            except (TypeError, ValueError):
+                if str(entry).strip().isdigit():
+                    out["form_entry_id"] = int(str(entry).strip())
+        return out
+
+    async def fetch_ticket_context(
+        self,
+        *,
+        tenant_id: str,
+        instance_id: Optional[str] = None,
+        repository_item_id: Optional[str] = None,
+        form_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Best-effort lookup of formId / formEntryId / repository item from the tenant DB."""
+        inst = str(instance_id or "").strip()
+        repo_item = str(repository_item_id or "").strip()
+        fid = str(form_id or "").strip()
+        if not inst and not repo_item:
+            return {}
+        try:
+            db = await self._db(tenant_id)
+        except Exception as exc:
+            logger.warning("ap_ticket_context_db_failed", extra={"error_type": type(exc).__name__})
+            return {}
+
+        queries: list[tuple[str, tuple[Any, ...]]] = []
+        if inst:
+            queries.extend(
+                [
+                    (
+                        'SELECT * FROM workflow."WorkflowInstances" '
+                        'WHERE CAST("Id" AS text) = $1 LIMIT 1',
+                        (inst,),
+                    ),
+                    (
+                        "SELECT * FROM workflow.workflowinstances "
+                        "WHERE id::text = $1 LIMIT 1",
+                        (inst,),
+                    ),
+                    (
+                        'SELECT * FROM dbo."WorkflowInstances" '
+                        'WHERE CAST("Id" AS text) = $1 LIMIT 1',
+                        (inst,),
+                    ),
+                ]
+            )
+        if repo_item:
+            queries.extend(
+                [
+                    (
+                        'SELECT * FROM dbo."RepositoryItem" WHERE CAST("Id" AS text) = $1 LIMIT 1',
+                        (repo_item,),
+                    ),
+                    (
+                        "SELECT * FROM dbo.repositoryitem WHERE id::text = $1 LIMIT 1",
+                        (repo_item,),
+                    ),
+                    (
+                        'SELECT * FROM dbo."RepositoryItems" WHERE CAST("Id" AS text) = $1 LIMIT 1',
+                        (repo_item,),
+                    ),
+                ]
+            )
+        merged: dict[str, Any] = {}
+        for sql, params in queries:
+            try:
+                row = await db.fetchrow(sql, *params)
+            except Exception:
+                continue
+            if row is None:
+                continue
+            found = self._ticket_from_row(row)
+            for key, value in found.items():
+                if value not in (None, "") and merged.get(key) in (None, ""):
+                    merged[key] = value
+            if merged.get("form_id") and merged.get("form_entry_id") is not None:
+                break
+
+        if (not merged.get("form_id") or merged.get("form_entry_id") is None) and inst:
+            try:
+                col_rows = await db.fetch(
+                    """
+                    SELECT table_schema, table_name, column_name
+                    FROM information_schema.columns
+                    WHERE lower(column_name) IN (
+                        'formentryid', 'form_entry_id', 'formid', 'form_id',
+                        'instanceid', 'instance_id'
+                    )
+                    AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                    """
+                )
+            except Exception:
+                col_rows = []
+            tables: dict[tuple[str, str], set[str]] = {}
+            for row in col_rows or []:
+                schema = str(_row_get(row, "table_schema") or "")
+                name = str(_row_get(row, "table_name") or "")
+                col = str(_row_get(row, "column_name") or "").lower()
+                if schema and name:
+                    tables.setdefault((schema, name), set()).add(col)
+            for (schema, name), cols in list(tables.items())[:12]:
+                has_entry = bool(cols & {"formentryid", "form_entry_id"})
+                has_inst = bool(cols & {"instanceid", "instance_id", "id"})
+                if not has_entry:
+                    continue
+                inst_col = "instanceid" if "instanceid" in cols else (
+                    "instance_id" if "instance_id" in cols else "id"
+                )
+                try:
+                    row = await db.fetchrow(
+                        f"SELECT * FROM {quote_ident(schema)}.{quote_ident(name)} "
+                        f"WHERE CAST({quote_ident(inst_col)} AS text) = $1 LIMIT 1",
+                        inst,
+                    )
+                except Exception:
+                    continue
+                if row is None:
+                    continue
+                found = self._ticket_from_row(row)
+                for key, value in found.items():
+                    if value not in (None, "") and merged.get(key) in (None, ""):
+                        merged[key] = value
+                if merged.get("form_entry_id") is not None:
+                    break
+        if fid and not merged.get("form_id"):
+            merged["form_id"] = fid
+        if merged:
+            logger.info("ap_ticket_context_resolved", extra={k: merged.get(k) for k in (
+                "form_id", "form_entry_id", "item_id", "repository_id"
+            )})
+        return merged
+
+    async def _locate_ezfb_table(
+        self,
+        db: Any,
+        *,
+        form_id: str,
+        form_entry_id: Optional[int] = None,
+    ) -> Optional[dict[str, Any]]:
+        guessed = ezfb_items_table(form_id)
+        candidates: list[tuple[str, str]] = []
+        if guessed:
+            try:
+                loc = await db.fetchrow(
+                    """
+                    SELECT table_schema, table_name
+                    FROM information_schema.tables
+                    WHERE lower(table_name) = lower($1)
+                      AND table_type = 'BASE TABLE'
+                      AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                    ORDER BY CASE WHEN table_schema = 'dbo' THEN 0 ELSE 1 END, table_schema
+                    LIMIT 1
+                    """,
+                    guessed,
+                )
+            except Exception:
+                loc = None
+            if loc is not None:
+                return {
+                    "schema": str(_row_get(loc, "table_schema") or "dbo"),
+                    "table": str(_row_get(loc, "table_name") or guessed),
+                }
+        try:
+            rows = await db.fetch(
+                """
+                SELECT table_schema, table_name
+                FROM information_schema.tables
+                WHERE table_type = 'BASE TABLE'
+                  AND lower(table_name) LIKE 'ezfb_%_items'
+                  AND table_schema NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY CASE WHEN table_schema = 'dbo' THEN 0 ELSE 1 END, table_schema
+                """
+            )
+        except Exception:
+            rows = []
+        token = (guessed or "").lower()
+        for row in rows or []:
+            schema = str(_row_get(row, "table_schema") or "dbo")
+            name = str(_row_get(row, "table_name") or "")
+            if not name:
+                continue
+            if token and name.lower() == token:
+                candidates.insert(0, (schema, name))
+            else:
+                candidates.append((schema, name))
+        if form_entry_id is None:
+            return (
+                {"schema": candidates[0][0], "table": candidates[0][1]}
+                if len(candidates) == 1
+                else None
+            )
+        for schema, name in candidates:
+            try:
+                col_rows = await db.fetch(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = $1 AND table_name = $2
+                    """,
+                    schema,
+                    name,
+                )
+                columns = [str(_row_get(r, "column_name")) for r in col_rows or []]
+                pk = next(
+                    (c for c in columns if c.lower() in {"item_id", "itemid", "id"}),
+                    None,
+                )
+                if pk is None:
+                    continue
+                hit = await db.fetchrow(
+                    f"SELECT 1 AS ok FROM {quote_ident(schema)}.{quote_ident(name)} "
+                    f"WHERE {quote_ident(pk)} = $1 LIMIT 1",
+                    int(form_entry_id),
+                )
+            except Exception:
+                continue
+            if hit is not None:
+                return {"schema": schema, "table": name}
+        return None
+
+    async def latest_empty_ezfb_item(self, *, tenant_id: str, form_id: str) -> Optional[int]:
+        """Return the newest blank ezfb row for this form (the ticket the workflow just created)."""
+        fid = str(form_id or "").strip()
+        if not fid:
+            return None
+        try:
+            db = await self._db(tenant_id)
+            loc = await self._locate_ezfb_table(db, form_id=fid)
+            if loc is None:
+                return None
+            schema, real_table = loc["schema"], loc["table"]
+            col_rows = await db.fetch(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = $1 AND table_name = $2
+                ORDER BY ordinal_position
+                """,
+                schema,
+                real_table,
+            )
+            columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
+            pk = next((c for c in columns if c.lower() in {"item_id", "itemid", "id"}), None)
+            if pk is None:
+                return None
+            row = await db.fetchrow(
+                f"SELECT * FROM {quote_ident(schema)}.{quote_ident(real_table)} "
+                f"ORDER BY {quote_ident(pk)} DESC LIMIT 1"
+            )
+            if row is None:
+                return None
+            data = _row_as_dict(row)
+            if not _row_mostly_empty(data):
+                return None
+            pk_val = _ci_get(data, pk, "item_id", "itemid", "id")
+            return int(pk_val) if pk_val is not None else None
+        except Exception as exc:
+            logger.warning(
+                "ap_ezfb_latest_empty_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
+            return None
+
     async def apply_ezfb_item_fields(
         self,
         *,
@@ -367,26 +701,17 @@ class ApStore:
     ) -> dict[str, Any]:
         """UPDATE ezfb_{token}_items for the ticket formEntryId. Does not insert a new row."""
         table = ezfb_items_table(form_id)
-        if not table or not header:
+        if not header:
             return {"ok": False, "updated": 0, "reason": "missing_table_or_header", "table": table}
         try:
             db = await self._db(tenant_id)
-            loc = await db.fetchrow(
-                """
-                SELECT table_schema, table_name
-                FROM information_schema.tables
-                WHERE lower(table_name) = lower($1)
-                  AND table_type = 'BASE TABLE'
-                  AND table_schema NOT IN ('pg_catalog', 'information_schema')
-                ORDER BY CASE WHEN table_schema = 'dbo' THEN 0 ELSE 1 END, table_schema
-                LIMIT 1
-                """,
-                table,
+            loc = await self._locate_ezfb_table(
+                db, form_id=form_id, form_entry_id=int(form_entry_id)
             )
             if loc is None:
                 return {"ok": False, "updated": 0, "reason": "table_not_found", "table": table}
-            schema = str(_row_get(loc, "table_schema") or "dbo")
-            real_table = str(_row_get(loc, "table_name") or table)
+            schema = loc["schema"]
+            real_table = loc["table"]
             col_rows = await db.fetch(
                 """
                 SELECT column_name
@@ -423,25 +748,41 @@ class ApStore:
             args: list[Any] = []
             for index, (col, value) in enumerate(assignments.items(), start=1):
                 sets.append(f"{quote_ident(col)} = ${index}")
-                args.append(value)
+                args.append(value if isinstance(value, str) else (
+                    json.dumps(value, default=str) if isinstance(value, (dict, list)) else str(value)
+                ))
             args.append(int(form_entry_id))
             sql = (
                 f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
                 f"SET {', '.join(sets)} "
                 f"WHERE {quote_ident(pk_actual)} = ${len(args)}"
             )
-            await db.execute(sql, *args)
+            status = await db.execute(sql, *args)
+            updated = _execute_rowcount(status)
+            if updated == 0:
+                logger.warning(
+                    "ap_ezfb_item_update_zero_rows",
+                    extra={"table": real_table, "form_entry_id": form_entry_id},
+                )
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "reason": "row_not_found",
+                    "table": real_table,
+                    "form_entry_id": form_entry_id,
+                }
             logger.info(
                 "ap_ezfb_item_updated",
                 extra={
                     "table": real_table,
                     "form_entry_id": form_entry_id,
                     "columns": sorted(assignments.keys()),
+                    "updated": updated if updated is not None else 1,
                 },
             )
             return {
                 "ok": True,
-                "updated": 1,
+                "updated": updated if updated is not None else 1,
                 "table": real_table,
                 "columns": sorted(assignments.keys()),
                 "form_entry_id": form_entry_id,

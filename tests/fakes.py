@@ -417,6 +417,10 @@ class FakeDBPool:
             return self.ap_tenant_plans.get(str(tenant_id))
         if "information_schema.tables" in query.lower():
             return None
+        if "workflowinstance" in query.lower() or "repositoryitem" in query.lower():
+            return None
+        if query.strip().upper().startswith("SELECT * FROM") or "SELECT 1 AS ok" in query:
+            return None
         if "WorkflowSteps" in query or "workflowsteps" in query:
             step_name = str(args[0]) if args else ""
             workflow_id = str(args[1]) if len(args) > 1 and args[1] is not None else None
@@ -572,7 +576,7 @@ class FakeDBPool:
             )
             return
         if "UPDATE " in query.upper() and "ezfb_" in query.lower():
-            return
+            return "UPDATE 1"
         raise AssertionError(f"FakeDBPool.execute: unrecognized query: {query!r}")
 
     async def close(self):

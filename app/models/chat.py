@@ -1,4 +1,6 @@
 """Pydantic models for the /chat endpoint."""
+import json
+import re
 from typing import Any, Optional
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
@@ -9,7 +11,9 @@ class DocumentPayload(BaseModel):
 
     filepath: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("filepath", "blobPath", "blobpath", "blobpathapi", "file_path"),
+        validation_alias=AliasChoices(
+            "filepath", "blobPath", "blobpath", "blobpathapi", "file_path", "BlobPath", "FilePath"
+        ),
         description="Blob URL, or folder/file path inside container ezts{tenantid}. Ignored when a multipart file is uploaded.",
     )
     pageno: Optional[str] = Field(
@@ -102,7 +106,7 @@ class DocumentPayload(BaseModel):
     )
     tenant_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("tenant_id", "tenantId", "tenantid"),
+        validation_alias=AliasChoices("tenant_id", "tenantId", "tenantid", "TenantId"),
         description="Tenant UUID. Required for relative blob filepath (container ezts{tenantid}).",
     )
     skills: Optional[list[str]] = Field(
@@ -115,42 +119,46 @@ class DocumentPayload(BaseModel):
     )
     item_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("item_id", "itemId", "ItemId"),
+        validation_alias=AliasChoices("item_id", "itemId", "ItemId", "ItemID"),
         description="Stable AP document key for artifact re-runs. Alias: itemId. Defaults to filepath/filename/hash.",
     )
     repository_item_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("repository_item_id", "repositoryItemId", "repositoryItemID"),
+        validation_alias=AliasChoices(
+            "repository_item_id", "repositoryItemId", "repositoryItemID", "RepositoryItemId"
+        ),
         description="Repository item UUID (move-next itemId). Alias: repositoryItemId.",
     )
     workflow_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("workflow_id", "workflowId"),
+        validation_alias=AliasChoices("workflow_id", "workflowId", "WorkflowId"),
         description="AP workflow id (progress / move-next).",
     )
     instance_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("instance_id", "instanceId"),
+        validation_alias=AliasChoices("instance_id", "instanceId", "InstanceId"),
         description="AP workflow instance id (progress/move-next).",
     )
     repository_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("repository_id", "repositoryId", "repository"),
+        validation_alias=AliasChoices("repository_id", "repositoryId", "repository", "RepositoryId"),
         description="Repository UUID for workflow move-next. Alias: repository, repositoryId.",
     )
     transaction_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("transaction_id", "transactionId"),
+        validation_alias=AliasChoices("transaction_id", "transactionId", "TransactionId"),
         description="Workflow transaction id for move-next.",
     )
     form_entry_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("form_entry_id", "formentryId", "formEntryId"),
+        validation_alias=AliasChoices(
+            "form_entry_id", "formentryId", "formEntryId", "FormEntryId", "FormEntryID"
+        ),
         description="Form entry id (numeric or string) for move-next and ezfb row write-back.",
     )
     process_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("process_id", "processId"),
+        validation_alias=AliasChoices("process_id", "processId", "ProcessId"),
         description="Workflow process id for move-next.",
     )
     activity_id: Optional[str] = Field(
@@ -166,7 +174,7 @@ class DocumentPayload(BaseModel):
     matter_master_id: Optional[str] = Field(default=None, description="Matter master id for matter_validate.")
     form_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("form_id", "formid", "formId"),
+        validation_alias=AliasChoices("form_id", "formid", "formId", "FormId", "FormID"),
         description="PO/document form id (GUID or numeric). Selects ezfb_{token}_items on the tenant DB.",
     )
 
@@ -186,35 +194,123 @@ class DocumentPayload(BaseModel):
         return str(value).strip() or None
 
 
-_HANGFIRE_ID_KEYS = (
-    "repositoryId",
-    "repository_id",
-    "itemId",
-    "item_id",
-    "repositoryItemId",
-    "repository_item_id",
-    "formId",
-    "form_id",
-    "formid",
-    "formEntryId",
-    "formentryId",
-    "form_entry_id",
-    "workflowId",
-    "workflow_id",
-    "instanceId",
-    "instance_id",
-    "tenantId",
-    "tenant_id",
-    "blobPath",
-    "filepath",
-    "transactionId",
-    "processId",
-    "formData",
+_GUID_SHAPE_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+# Normalized (alnum lowercase) Hangfire/.NET keys → DocumentPayload aliases.
+_TICKET_ID_CANON: dict[str, str] = {
+    "workflowid": "workflowId",
+    "instanceid": "instanceId",
+    "repositoryid": "repositoryId",
+    "itemid": "itemId",
+    "repositoryitemid": "repositoryItemId",
+    "formid": "formId",
+    "formentryid": "formEntryId",
+    "tenantid": "tenantId",
+    "blobpath": "blobPath",
+    "blobpathapi": "blobPath",
+    "filepath": "filepath",
+    "transactionid": "transactionId",
+    "processid": "processId",
+    "activityid": "activityId",
+    "sessionid": "session_id",
+}
+_TICKET_WRAPPERS = frozenset(
+    {
+        "startpayload",
+        "payload",
+        "config",
+        "data",
+        "formdata",
+        "job",
+        "parameters",
+        "args",
+        "arguments",
+    }
+)
+_TICKET_SKIP_RECURSE = frozenset(
+    {
+        "invoicejson",
+        "invoice",
+        "fields",
+        "skills",
+        "message",
+        "history",
+        "lineitem",
+        "lineitems",
+        "invoiceheader",
+    }
 )
 
 
+def _norm_hangfire_key(key: Any) -> str:
+    return "".join(ch for ch in str(key or "").lower() if ch.isalnum())
+
+
+def _maybe_json_obj(value: Any) -> Any:
+    if isinstance(value, (dict, list)):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or text[0] not in "{[":
+        return None
+    try:
+        parsed = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, (dict, list)) else None
+
+
+def harvest_hangfire_ticket_ids(root: Any) -> dict[str, Any]:
+    """Pull workflow/form IDs from Hangfire camelCase, PascalCase, or nested JSON."""
+    found: dict[str, Any] = {}
+
+    def _set(canon: str, value: Any) -> None:
+        if value in (None, "") or found.get(canon) not in (None, ""):
+            return
+        found[canon] = value
+
+    def walk(obj: Any, depth: int) -> None:
+        if depth > 6 or obj is None:
+            return
+        parsed = _maybe_json_obj(obj)
+        if parsed is not None:
+            obj = parsed
+        if isinstance(obj, list):
+            for item in obj[:20]:
+                walk(item, depth + 1)
+            return
+        if not isinstance(obj, dict):
+            return
+        for key, value in obj.items():
+            nk = _norm_hangfire_key(key)
+            canon = _TICKET_ID_CANON.get(nk)
+            if canon:
+                _set(canon, value)
+            if nk in _TICKET_WRAPPERS:
+                walk(value, depth + 1)
+
+    walk(root, 0)
+    raw_item = found.get("itemId")
+    if raw_item not in (None, "") and found.get("repositoryItemId") in (None, ""):
+        text = str(raw_item).strip()
+        if _GUID_SHAPE_RE.match(text):
+            found["repositoryItemId"] = text
+    if found.get("formEntryId") in (None, "") and raw_item not in (None, ""):
+        text = str(raw_item).strip()
+        if text.isdigit():
+            found["formEntryId"] = text
+    return found
+
+
 class ChatRequest(BaseModel):
-    session_id: str = Field(..., description="Client-supplied session identifier.")
+    session_id: str = Field(
+        ...,
+        validation_alias=AliasChoices("session_id", "sessionId", "SessionId"),
+        description="Client-supplied session identifier.",
+    )
     message: Optional[str] = Field(
         default=None,
         description=(
@@ -236,41 +332,43 @@ class ChatRequest(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _flatten_hangfire_start_payload(cls, data: Any) -> Any:
-        """Merge V6 Hangfire IDs (startPayload or request root) into payload for ezfb write-back."""
+        """Merge V6 Hangfire IDs (any casing / nesting / JSON string) into payload."""
         if not isinstance(data, dict):
             return data
         payload = data.get("payload")
-        start = data.get("startPayload") or data.get("start_payload")
-        nested = payload.get("startPayload") if isinstance(payload, dict) else None
-        blob: dict[str, Any] = {}
-        if isinstance(start, dict):
-            blob.update(start)
-        if isinstance(nested, dict):
-            blob.update(nested)
-        for key in _HANGFIRE_ID_KEYS:
-            if data.get(key) not in (None, "") and blob.get(key) in (None, ""):
-                blob[key] = data[key]
-        if not blob:
-            return data
+        parsed_payload = _maybe_json_obj(payload)
+        if isinstance(parsed_payload, dict):
+            payload = parsed_payload
         merged = dict(payload) if isinstance(payload, dict) else {}
-        for key, value in blob.items():
-            if key in ("startPayload", "start_payload", "session_id", "intent", "message", "instruction"):
+        wrappers: list[Any] = [
+            data.get("startPayload"),
+            data.get("start_payload"),
+            data.get("config"),
+            merged.get("startPayload") if isinstance(merged, dict) else None,
+            merged.get("start_payload") if isinstance(merged, dict) else None,
+        ]
+        for blob in wrappers:
+            parsed = blob if isinstance(blob, dict) else _maybe_json_obj(blob)
+            if not isinstance(parsed, dict):
                 continue
-            if merged.get(key) in (None, ""):
+            for key, value in parsed.items():
+                if key in ("startPayload", "start_payload", "session_id", "intent", "message", "instruction"):
+                    continue
+                if merged.get(key) in (None, "") and value not in (None, ""):
+                    merged[key] = value
+        harvested = harvest_hangfire_ticket_ids(data)
+        for key, value in harvested.items():
+            if key == "session_id":
+                continue
+            if merged.get(key) in (None, "") and value not in (None, ""):
                 merged[key] = value
-        form_data = merged.get("formData") or merged.get("form_data") or blob.get("formData")
-        if isinstance(form_data, dict) and merged.get("formentryId") in (None, "") and merged.get("formEntryId") in (None, "") and merged.get("form_entry_id") in (None, ""):
-            entry = form_data.get("formEntryId") or form_data.get("formentryId")
-            if entry not in (None, ""):
-                merged["formentryId"] = str(entry)
-        # Hangfire itemId is the repository item GUID; keep it for V6 body.itemId.
-        raw_item = merged.get("itemId") or merged.get("item_id")
-        if raw_item and merged.get("repositoryItemId") in (None, "") and merged.get("repository_item_id") in (None, ""):
-            text = str(raw_item).strip()
-            if len(text) == 36 and text.count("-") == 4:
-                merged["repositoryItemId"] = text
+        if not harvested and not merged:
+            return data
         out = dict(data)
-        out["payload"] = merged
+        if harvested.get("session_id") not in (None, "") and out.get("session_id") in (None, ""):
+            out["session_id"] = harvested["session_id"]
+        if merged:
+            out["payload"] = merged
         return out
 
     @model_validator(mode="after")

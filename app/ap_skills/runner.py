@@ -21,7 +21,7 @@ from app.ap_skills import (
     workflow_move_next,
     workflow_progress,
 )
-from app.ap_skills.ap_metadata import extras_from_artifacts, push_extract_metadata
+from app.ap_skills.ap_metadata import extras_from_artifacts, merge_ids_into_job, push_extract_metadata, resolve_metadata_ids
 from app.ap_skills.planner import maybe_reorder, resolve_skills
 from app.ap_skills.store import ApStore
 from app.ap_skills.types import (
@@ -132,6 +132,29 @@ class ApSkillRunner:
             thresholds=thresholds,
             form_id=(str(document_job.get("form_id") or "").strip() or None),
         )
+        try:
+            ids = resolve_metadata_ids(document_job, ctx.form_id)
+            looked = await self._store.fetch_ticket_context(
+                tenant_id=tenant_id,
+                instance_id=ids.get("instance_id") or None,
+                repository_item_id=ids.get("item_id") or None,
+                form_id=ids.get("form_id") or ctx.form_id,
+            )
+            if isinstance(looked, dict) and looked:
+                merge_ids_into_job(document_job, looked)
+                ids = resolve_metadata_ids(document_job, document_job.get("form_id") or ctx.form_id)
+            if ids.get("form_id") and ids.get("form_entry_id") is None:
+                latest = await self._store.latest_empty_ezfb_item(
+                    tenant_id=tenant_id,
+                    form_id=str(ids["form_id"]),
+                )
+                if latest is not None:
+                    document_job["form_entry_id"] = str(latest)
+            merge_ids_into_job(document_job, resolve_metadata_ids(document_job, document_job.get("form_id")))
+            ctx.form_id = str(document_job.get("form_id") or "").strip() or ctx.form_id
+            ctx.document_job = document_job
+        except Exception as exc:
+            logger.warning("ap_ticket_hydrate_failed", extra={"error_type": type(exc).__name__})
         form_controls = await self._store.fetch_form_controls(
             tenant_id=tenant_id,
             form_id=ctx.form_id,

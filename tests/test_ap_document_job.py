@@ -858,3 +858,51 @@ def test_v6_root_ticket_ids_reach_metadata_patch(client, monkeypatch):
     assert call["fields"]["invoice_header"]["Invoice No"] == "INV-100"
     assert call["fields"]["invoice_header"]["PO Number"] == "PO-1"
     assert call["fields"]["Invoice Extracted Line Item"][0]["description"] == "Widget"
+
+
+def test_hangfire_pascal_case_ids_reach_metadata_patch(client, monkeypatch):
+    seen = []
+
+    async def capture_meta(self, **kwargs):
+        seen.append(kwargs)
+        return {"ok": True, "mock": True, "ezfbFieldsUpdated": 9}
+
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.apply_ap_agent_metadata",
+        capture_meta,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "sessionId": "s-ap-pascal",
+            "intent": "ap",
+            "WorkflowId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee1",
+            "InstanceId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee2",
+            "RepositoryId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee3",
+            "ItemId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee4",
+            "FormId": "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+            "FormEntryId": 11,
+            "payload": {
+                "tenantId": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "invoice_json": SAMPLE_INVOICE,
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert seen
+    call = seen[0]
+    assert call["workflow_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee1"
+    assert call["instance_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee2"
+    assert call["repository_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee3"
+    assert call["item_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeee4"
+    assert call["form_id"] == "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+    assert call["form_entry_id"] == 11
+    assert call["fields"]["invoice_header"]["Invoice No"] == "INV-100"

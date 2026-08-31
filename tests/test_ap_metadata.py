@@ -1,4 +1,6 @@
 """AP metadata PATCH payload builder + client wiring."""
+import json
+
 import pytest
 
 from app.ap_skills.ap_metadata import (
@@ -124,6 +126,35 @@ def test_resolve_metadata_ids_reads_nested_form_data():
     assert ids["form_entry_id"] == 9
 
 
+def test_harvest_hangfire_pascal_case_and_json_string():
+    from app.models.chat import harvest_hangfire_ticket_ids
+
+    nested = json.dumps(
+        {
+            "FormId": "9a117b01-bb6d-4696-a627-a9fa84bb006e",
+            "FormEntryId": 11,
+            "ItemId": "4283e687-f32f-40c0-a67e-c213724b1702",
+        }
+    )
+    found = harvest_hangfire_ticket_ids(
+        {
+            "SessionId": "s-1",
+            "WorkflowId": "wf",
+            "InstanceId": "inst",
+            "RepositoryId": "repo",
+            "startPayload": nested,
+        }
+    )
+    assert found["session_id"] == "s-1"
+    assert found["workflowId"] == "wf"
+    assert found["instanceId"] == "inst"
+    assert found["repositoryId"] == "repo"
+    assert found["formId"] == "9a117b01-bb6d-4696-a627-a9fa84bb006e"
+    assert found["formEntryId"] == 11
+    assert found["itemId"] == "4283e687-f32f-40c0-a67e-c213724b1702"
+    assert found["repositoryItemId"] == "4283e687-f32f-40c0-a67e-c213724b1702"
+
+
 def test_map_header_to_ezfb_columns_matches_underscore_and_jsonid():
     from app.ap_skills.store import _map_header_to_ezfb_columns
 
@@ -167,6 +198,38 @@ async def test_push_writes_ezfb_even_when_workflow_ids_missing():
     assert result["ezfb"]["updated"] == 1
     assert seen["form_entry_id"] == 10
     assert seen["header"]["Invoice No"] == "INV-10"
+
+
+@pytest.mark.asyncio
+async def test_push_uses_latest_empty_ezfb_row_when_form_entry_missing():
+    seen = {}
+
+    class FakeStore:
+        async def fetch_ticket_context(self, **kwargs):
+            return {}
+
+        async def latest_empty_ezfb_item(self, **kwargs):
+            return 11
+
+        async def apply_ezfb_item_fields(self, **kwargs):
+            seen.update(kwargs)
+            return {"ok": True, "updated": 1, "table": "ezfb_9a117b01_items", "form_entry_id": 11}
+
+    class FakeEz:
+        async def apply_ap_agent_metadata(self, **kwargs):
+            raise AssertionError("PATCH should not run without workflow ids")
+
+    result = await push_extract_metadata(
+        ezofis=FakeEz(),
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+        document_job={"form_id": "9a117b01-bb6d-4696-a627-a9fa84bb006e"},
+        form_id="9a117b01-bb6d-4696-a627-a9fa84bb006e",
+        invoice={"invoice_number": "INV-11", "po_number": "PO-11", "vendor": "Acme"},
+        store=FakeStore(),
+    )
+    assert result["ok"] is True
+    assert seen["form_entry_id"] == 11
+    assert result["request"]["form_entry_source"] == "latest_empty_row"
 
 
 def test_build_ap_metadata_fields_empty_invoice():
