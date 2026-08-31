@@ -497,6 +497,66 @@ def test_header_from_labeled_text_keeps_real_values():
     assert header["Currency"] == "USD"
 
 
+def test_heuristic_reads_split_label_value_invoice_table():
+    from app.ap_skills.ap_metadata import build_ap_metadata_fields
+    from app.ap_skills.extract_invoice import _coalesce_invoice, _heuristic_from_text
+
+    ocr_text = """
+APEX INDUSTRIAL COMPONENTS LTD
+615 Enterprise Parkway
+Windsor, ON N8W 5K3
+Canada
+INVOICE
+Bill To:
+STERLING MANUFACTURING GROUP LTD.
+Invoice #
+PO #
+Terms
+Ship Via
+Shipped
+Due Date
+INV-2026-6001
+PO-60001
+31
+Fed Ground
+05/20/26
+06/20/26
+Subtotal
+4605.00
+Tax (13%)
+598.65
+Invoice Total
+5203.65
+Canada CAD
+"""
+    inv = _heuristic_from_text(ocr_text)
+    assert inv["invoice_number"] == "INV-2026-6001"
+    assert inv["po_number"] == "PO-60001"
+    assert inv["vendor"] == "APEX INDUSTRIAL COMPONENTS LTD"
+    assert str(inv["total"]).replace(",", "") == "5203.65"
+    assert inv["currency"] == "CAD"
+
+    llm_miss = {
+        "doc_type": "invoice",
+        "invoice_number": "",
+        "po_number": "",
+        "vendor": "",
+        "total": None,
+        "currency": "",
+        "invoice_header": {"Supplier #": "APC-T001", "INCOTERM": "FCA"},
+    }
+    merged = _coalesce_invoice(llm_miss, inv)
+    assert merged["invoice_number"] == "INV-2026-6001"
+    assert merged["po_number"] == "PO-60001"
+    fields = build_ap_metadata_fields(merged)
+    header = fields["invoice_header"]
+    assert header["Invoice No"] == "INV-2026-6001"
+    assert header["PO Number"] == "PO-60001"
+    assert header["Vendor Name"] == "APEX INDUSTRIAL COMPONENTS LTD"
+    assert header["Invoice Amount"] == "5203.65"
+
+
+
 def test_embedded_pdf_text_rejects_form_labels():
     from app.integrations.ocr_engine import embedded_pdf_text_is_usable
 

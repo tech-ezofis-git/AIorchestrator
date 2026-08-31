@@ -35,8 +35,13 @@ _EXTRACT_PROMPT = (
     '{"doc_type":"invoice"|"other","invoice_number":"","invoice_date":"","due_date":"",'
     '"vendor":"","po_number":"","total":null,"currency":"","line_items":'
     '[{"description":"","qty":null,"price":null,"amount":null}]} '
-    "If the text is only form labels (Terms, Currency, PO Number, Invoice No) or a ticket "
-    "id, leave every field empty. Do not guess USD, Terms, or invoice numbers."
+    "PDF OCR often puts table headers and values on separate lines. "
+    "If you see 'Invoice #' or 'Invoice No' then later a token like INV-2026-6001, "
+    "that token is invoice_number. Same for 'PO #' / PO-60001 → po_number. "
+    "Vendor is the seller letterhead (not Bill To). "
+    "Invoice Total / Amount Due is total. "
+    "If the text is only form labels (Terms, Currency, PO Number) with no values, "
+    "leave every field empty. Do not guess USD or copy a label as a value."
 )
 
 
@@ -113,6 +118,8 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
         total = src.get("Invoice Amount")
     if total is None:
         total = src.get("invoice_amount")
+    if total is None:
+        total = src.get("Invoice Total")
     orig_header = None
     unwrapped = _unwrap_ocr(data)
     for key in _HEADER_WRAPPERS:
@@ -123,7 +130,13 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "doc_type": (src.get("doc_type") or src.get("Document Type") or "invoice"),
         "invoice_number": field_text(
-            src, "invoice_number", "invoice_no", "invoiceNumber", "Invoice No"
+            src,
+            "invoice_number",
+            "invoice_no",
+            "invoiceNumber",
+            "Invoice No",
+            "Invoice #",
+            "Invoice Number",
         ),
         "invoice_date": field_text(src, "invoice_date", "invoiceDate", "Invoice Date", "date"),
         "due_date": field_text(src, "due_date", "dueDate", "Due Date"),
@@ -138,7 +151,7 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
             "Supplier",
             "Supplier Name",
         ),
-        "po_number": field_text(src, "po_number", "poNumber", "po", "PO Number"),
+        "po_number": field_text(src, "po_number", "poNumber", "PO Number", "PO #", "PO No"),
         "grn_number": field_text(src, "grn_number", "grn", "GRN Number", "receipt_number"),
         "matter_id": field_text(
             src, "matter_id", "matterId", "Matter ID", "MatterId", "matter_no", "Matter No"
@@ -175,25 +188,129 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _heuristic_from_text(text: str) -> dict[str, Any]:
-    def _search(*patterns: str) -> str:
-        for pattern in patterns:
-            match = re.search(pattern, text, flags=re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-        return ""
+_INV_TOKEN = re.compile(r"\bINV[\s\-/#]*[A-Z0-9]*\d[A-Z0-9\-/]*", re.I)
+_PO_TOKEN = re.compile(r"\bPO[\s\-/#]*\d[A-Z0-9\-/]*", re.I)
+_MONEY_TOKEN = re.compile(r"\b\d{1,3}(?:,\d{3})+\.\d{2}\b|\b\d+\.\d{2}\b")
+_TOTAL_LABEL = re.compile(
+    r"(?:invoice\s*total|amount\s*due|balance\s*due|total\s*due)\s*[:\-]?\s*",
+    re.I,
+)
+_CURRENCY_TOKEN = re.compile(r"\b(CAD|USD|EUR|GBP|INR|SGD|AED)\b", re.I)
+_VENDOR_ENTITY = re.compile(r"\b(ltd|limited|inc|corp|llc|gmbh|plc|co\.?)\b", re.I)
+_SKIP_VENDOR_LINE = re.compile(
+    r"^(invoice|bill\s*to|ship\s*to|phone|fax|page|accounts\s*payable|"
+    r"canada|united\s*states)\b",
+    re.I,
+)
+_COLUMN_LABELS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^invoice\s*(?:#|no\.?|number)$", re.I), "Invoice No"),
+    (re.compile(r"^po\s*(?:#|no\.?|number)?$", re.I), "PO Number"),
+    (re.compile(r"^terms$", re.I), "Terms"),
+    (re.compile(r"^ship\s*via$", re.I), "Ship Via"),
+    (re.compile(r"^shipped$", re.I), "Shipped"),
+    (re.compile(r"^due\s*date$", re.I), "Due Date"),
+    (re.compile(r"^invoice\s*date$", re.I), "Invoice Date"),
+    (re.compile(r"^currency$", re.I), "Currency"),
+)
 
-    return _as_invoice(
-        {
-            "doc_type": "invoice" if re.search(r"\binvoice\b", text, re.I) else "other",
-            "invoice_number": _search(
-                r"invoice\s*(?:no|number|#)\s*[:\-]?\s*([A-Z0-9][A-Z0-9/\-]{2,})",
-            ),
-            "due_date": _search(r"due\s*date\s*[:\-]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})"),
-            "po_number": _search(r"\bpo(?:\s*number|\s*#)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9/\-]{1,})"),
-            "vendor": _search(r"(?:vendor|supplier)\s*[:\-]?\s*([A-Za-z0-9 .,&-]{3,80})"),
-        }
+
+def _clean_token(match: Optional[re.Match[str]]) -> str:
+    if not match:
+        return ""
+    return re.sub(r"\s+", "", match.group(0)).strip()
+
+
+def _map_column_label(line: str) -> Optional[str]:
+    text = (line or "").strip().strip(":")
+    if not text:
+        return None
+    for pattern, label in _COLUMN_LABELS:
+        if pattern.match(text):
+            return label
+    return None
+
+
+def _header_from_column_layout(text: str) -> dict[str, Any]:
+    """Map a block of header labels followed by the same number of value lines.
+
+    OCR of invoice tables often yields:
+    Invoice # / PO # / Terms / ... then INV-2026-6001 / PO-60001 / ...
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    header: dict[str, Any] = {}
+    index = 0
+    while index < len(lines):
+        labels: list[str] = []
+        cursor = index
+        while cursor < len(lines):
+            mapped = _map_column_label(lines[cursor])
+            if mapped is None:
+                break
+            labels.append(mapped)
+            cursor += 1
+        if len(labels) >= 2 and cursor + len(labels) <= len(lines):
+            values = lines[cursor : cursor + len(labels)]
+            if not any(_map_column_label(value) for value in values):
+                for label, value in zip(labels, values):
+                    token = field_text({label: value}, label)
+                    if token:
+                        header[label] = token
+                index = cursor + len(labels)
+                continue
+        index += 1
+    return header
+
+
+def _guess_vendor(text: str) -> str:
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if len(line) < 4 or _SKIP_VENDOR_LINE.match(line) or "@" in line:
+            continue
+        if _VENDOR_ENTITY.search(line):
+            return line
+    return ""
+
+
+def _guess_total(text: str) -> Any:
+    match = _TOTAL_LABEL.search(text or "")
+    if match:
+        money = _MONEY_TOKEN.search(text[match.end() :])
+        if money:
+            return money.group(0)
+    return None
+
+
+def _heuristic_from_text(text: str) -> dict[str, Any]:
+    column = _header_from_column_layout(text)
+    labeled = _header_from_labeled_text(text)
+    merged = {**labeled, **column}
+    invoice_number = field_text(
+        merged, "Invoice No", "Invoice #", "Invoice Number", "invoice_number"
+    ) or _clean_token(_INV_TOKEN.search(text or ""))
+    po_number = field_text(merged, "PO Number", "PO #", "po_number") or _clean_token(
+        _PO_TOKEN.search(text or "")
     )
+    vendor = field_text(merged, "Vendor Name", "Supplier", "vendor") or _guess_vendor(text)
+    total = merged.get("Invoice Amount") or merged.get("Invoice Total") or _guess_total(text)
+    currency = field_text(merged, "Currency", "currency")
+    if not currency:
+        found = _CURRENCY_TOKEN.search(text or "")
+        if found:
+            currency = found.group(1).upper()
+    due_date = field_text(merged, "Due Date", "due_date")
+    invoice_date = field_text(merged, "Invoice Date", "invoice_date", "Shipped")
+    payload = {
+        "doc_type": "invoice" if re.search(r"\binvoice\b", text or "", re.I) else "other",
+        "invoice_number": invoice_number,
+        "po_number": po_number,
+        "vendor": vendor,
+        "total": total,
+        "currency": currency,
+        "due_date": due_date,
+        "invoice_date": invoice_date,
+        "invoice_header": merged,
+    }
+    return _as_invoice(payload)
 
 
 def _header_from_labeled_text(text: str) -> dict[str, Any]:
@@ -213,6 +330,35 @@ def _header_from_labeled_text(text: str) -> dict[str, Any]:
             continue
         header[key] = value
     return header
+
+
+def _filled(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    if isinstance(value, (list, dict)) and not value:
+        return False
+    return True
+
+
+def _coalesce_invoice(primary: Optional[dict[str, Any]], fallback: dict[str, Any]) -> dict[str, Any]:
+    """Keep LLM values when present; fill blanks from OCR heuristics."""
+    if not primary:
+        return fallback
+    merged = dict(fallback)
+    for key, value in primary.items():
+        if key == "invoice_header":
+            continue
+        if _filled(value):
+            merged[key] = value
+    header = {
+        **(fallback.get("invoice_header") or {}),
+        **(primary.get("invoice_header") or {}),
+    }
+    if header:
+        merged["invoice_header"] = header
+    return _as_invoice(merged)
 
 
 async def _structure_with_llm(ctx: ApContext, ocr_text: str) -> Optional[dict[str, Any]]:
@@ -285,11 +431,9 @@ async def run(ctx: ApContext) -> ApSkillResult:
         raise ApSkillError("OCR extraction failed for this document.") from exc
 
     ocr_text = (ocr_tool.get("text") or "").strip() if isinstance(ocr_tool, dict) else ""
-    labeled = _header_from_labeled_text(ocr_text)
-    invoice = await _structure_with_llm(ctx, ocr_text) or _heuristic_from_text(ocr_text)
-    if labeled:
-        merged_header = {**(invoice.get("invoice_header") or {}), **labeled}
-        invoice = _as_invoice({**invoice, "invoice_header": merged_header})
+    heuristic = _heuristic_from_text(ocr_text) if ocr_text else _as_invoice({})
+    llm_invoice = await _structure_with_llm(ctx, ocr_text)
+    invoice = _coalesce_invoice(llm_invoice, heuristic)
     if not (
         invoice.get("invoice_number")
         or invoice.get("po_number")
