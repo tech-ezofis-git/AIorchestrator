@@ -496,6 +496,8 @@ class FakeDBPool:
                 {"id": c["id"], "document_id": c["document_id"], "chunk_index": c["chunk_index"], "text": c["text"], "score": score}
                 for c, score in scored[:top_n]
             ]
+        if "wformcontrol" in query.lower():
+            return []
         raise AssertionError(f"FakeDBPool.fetch: unrecognized query: {query!r}")
 
     async def execute(self, query: str, *args: Any):

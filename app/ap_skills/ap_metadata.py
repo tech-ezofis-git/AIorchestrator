@@ -138,6 +138,66 @@ def _header_source(invoice: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _norm_label(value: str) -> str:
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+def _underscore_label(value: str) -> str:
+    text = str(value or "").strip()
+    if not text or " " not in text:
+        return ""
+    return "_".join(text.split())
+
+
+def apply_form_control_aliases(
+    header: dict[str, Any],
+    form_controls: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """Copy each value onto wFormControl name, columnName, and jsonId so V6 can map ezfb columns."""
+    if not header:
+        return header
+    expanded = dict(header)
+    for key, value in list(header.items()):
+        underscored = _underscore_label(key)
+        if underscored and underscored not in expanded:
+            expanded[underscored] = value
+    if not form_controls:
+        return expanded
+    by_norm: dict[str, Any] = {}
+    for key, value in expanded.items():
+        norm = _norm_label(key)
+        if norm and norm not in by_norm:
+            by_norm[norm] = value
+    for control in form_controls:
+        if not isinstance(control, dict):
+            continue
+        names = [
+            str(control.get("name") or "").strip(),
+            str(control.get("column_name") or control.get("columnName") or "").strip(),
+            str(control.get("json_id") or control.get("jsonId") or "").strip(),
+        ]
+        value = None
+        for name in names:
+            if not name:
+                continue
+            value = expanded.get(name)
+            if value is not None:
+                break
+            value = by_norm.get(_norm_label(name))
+            if value is not None:
+                break
+        if value is None:
+            continue
+        for name in names:
+            if name:
+                expanded[name] = value
+        display = names[0]
+        underscored = _underscore_label(display)
+        if underscored:
+            expanded[underscored] = value
+    return expanded
+
+
 def extras_from_artifacts(artifacts: dict[str, Any], skill_id: str) -> dict[str, Any]:
     """Header overlays from later AP skills (Matched Status, vendor, …)."""
     artifacts = artifacts if isinstance(artifacts, dict) else {}
@@ -173,6 +233,7 @@ def build_ap_metadata_fields(
     invoice: dict[str, Any],
     *,
     extras: Optional[dict[str, Any]] = None,
+    form_controls: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Map extract_invoice / OCR payload → V6 metadata ``fields`` object.
 
@@ -205,6 +266,8 @@ def build_ap_metadata_fields(
             if value is None:
                 continue
             header[str(key)] = value
+
+    header = apply_form_control_aliases(header, form_controls)
 
     invoice = _unwrap_invoice(invoice)
     lines_raw: list[Any] = []
@@ -273,6 +336,12 @@ def resolve_metadata_ids(document_job: dict[str, Any], form_id: Optional[str]) -
     repo_item = str(job.get("repository_item_id") or "").strip()
     raw_item = str(job.get("item_id") or "").strip()
     form_entry_id = _parse_form_entry_id(job.get("form_entry_id"))
+    if form_entry_id is None:
+        form_data = job.get("formData") or job.get("form_data")
+        if isinstance(form_data, dict):
+            form_entry_id = _parse_form_entry_id(
+                form_data.get("formEntryId") or form_data.get("formentryId") or form_data.get("form_entry_id")
+            )
     resolved_form_id = str(form_id or job.get("form_id") or "").strip() or None
 
     # V6 body.itemId must be the repository item GUID.
@@ -305,6 +374,7 @@ async def push_extract_metadata(
     invoice: dict[str, Any],
     extras: Optional[dict[str, Any]] = None,
     skill_id: Optional[str] = None,
+    form_controls: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Best-effort metadata PATCH after each AP skill (non-fatal upstream)."""
     ids = resolve_metadata_ids(document_job, form_id)
@@ -315,7 +385,7 @@ async def push_extract_metadata(
     form_entry_id = ids["form_entry_id"]
     resolved_form_id = ids["form_id"]
 
-    fields = build_ap_metadata_fields(invoice, extras=extras)
+    fields = build_ap_metadata_fields(invoice, extras=extras, form_controls=form_controls)
     request_summary = {
         "skill_id": skill_id,
         "workflow_id": workflow_id or None,

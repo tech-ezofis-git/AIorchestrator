@@ -1,7 +1,7 @@
 """Pydantic models for the /chat endpoint."""
 from typing import Any, Optional
 
-from pydantic import AliasChoices, BaseModel, Field, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 
 class DocumentPayload(BaseModel):
@@ -9,6 +9,7 @@ class DocumentPayload(BaseModel):
 
     filepath: Optional[str] = Field(
         default=None,
+        validation_alias=AliasChoices("filepath", "blobPath", "blobpath", "blobpathapi", "file_path"),
         description="Blob URL, or folder/file path inside container ezts{tenantid}. Ignored when a multipart file is uploaded.",
     )
     pageno: Optional[str] = Field(
@@ -101,6 +102,7 @@ class DocumentPayload(BaseModel):
     )
     tenant_id: Optional[str] = Field(
         default=None,
+        validation_alias=AliasChoices("tenant_id", "tenantId", "tenantid"),
         description="Tenant UUID. Required for relative blob filepath (container ezts{tenantid}).",
     )
     skills: Optional[list[str]] = Field(
@@ -168,6 +170,21 @@ class DocumentPayload(BaseModel):
         description="PO/document form id (GUID or numeric). Selects ezfb_{token}_items on the tenant DB.",
     )
 
+    @field_validator(
+        "form_entry_id",
+        "process_id",
+        "transaction_id",
+        "matter_master_id",
+        "item_id",
+        "form_id",
+        mode="before",
+    )
+    @classmethod
+    def _stringify_hangfire_ids(cls, value: Any) -> Optional[str]:
+        if value is None or value == "":
+            return None
+        return str(value).strip() or None
+
 
 class ChatRequest(BaseModel):
     session_id: str = Field(..., description="Client-supplied session identifier.")
@@ -188,6 +205,37 @@ class ChatRequest(BaseModel):
         description="OCR structuring hints (region/date format). Optional.",
     )
     payload: Optional[DocumentPayload] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flatten_hangfire_start_payload(cls, data: Any) -> Any:
+        """V6 Hangfire sends IDs on startPayload; merge into payload so AP metadata can write ezfb."""
+        if not isinstance(data, dict):
+            return data
+        payload = data.get("payload")
+        start = data.get("startPayload") or data.get("start_payload")
+        nested = payload.get("startPayload") if isinstance(payload, dict) else None
+        blob: dict[str, Any] = {}
+        if isinstance(start, dict):
+            blob.update(start)
+        if isinstance(nested, dict):
+            blob.update(nested)
+        if not blob:
+            return data
+        merged = dict(payload) if isinstance(payload, dict) else {}
+        for key, value in blob.items():
+            if key in ("startPayload", "start_payload"):
+                continue
+            if merged.get(key) in (None, ""):
+                merged[key] = value
+        form_data = merged.get("formData") or merged.get("form_data") or blob.get("formData")
+        if isinstance(form_data, dict) and merged.get("formentryId") in (None, "") and merged.get("formEntryId") in (None, "") and merged.get("form_entry_id") in (None, ""):
+            entry = form_data.get("formEntryId") or form_data.get("formentryId")
+            if entry not in (None, ""):
+                merged["formentryId"] = str(entry)
+        out = dict(data)
+        out["payload"] = merged
+        return out
 
     @model_validator(mode="after")
     def _require_message_or_document(self) -> "ChatRequest":

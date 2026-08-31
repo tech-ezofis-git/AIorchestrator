@@ -30,6 +30,8 @@ def test_build_ap_metadata_fields_maps_labels_and_line_items():
     assert header["Vendor Name"] == "Acme"
     assert header["Invoice Amount"] == "100.5"
     assert header["Currency"] == "USD"
+    assert header["PO_Number"] == "PO-9"
+    assert header["Invoice_No"] == "INV-1"
     assert "Matched Status" not in header
     lines = fields["Invoice Extracted Line Item"]
     assert lines == fields["Line Item"]
@@ -89,6 +91,37 @@ def test_extras_from_artifacts_uses_finalize_decision():
         "finalize_decision",
     )
     assert extras["Matched Status"] == "Partially Matched"
+
+
+def test_form_control_aliases_copy_value_onto_column_and_jsonid():
+    fields = build_ap_metadata_fields(
+        {"invoice_number": "INV-5", "po_number": "PO-5"},
+        form_controls=[
+            {"name": "Invoice No", "column_name": "Invoice_No", "json_id": "invJson"},
+            {"name": "PO Number", "column_name": "PO_Number", "json_id": "poJson"},
+        ],
+    )
+    header = fields["invoice_header"]
+    assert header["Invoice No"] == "INV-5"
+    assert header["Invoice_No"] == "INV-5"
+    assert header["invJson"] == "INV-5"
+    assert header["PO Number"] == "PO-5"
+    assert header["poJson"] == "PO-5"
+
+
+def test_resolve_metadata_ids_reads_nested_form_data():
+    ids = resolve_metadata_ids(
+        {
+            "workflow_id": "wf",
+            "instance_id": "inst",
+            "repository_id": "repo",
+            "repository_item_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "form_id": "form-guid",
+            "formData": {"formEntryId": "9"},
+        },
+        form_id=None,
+    )
+    assert ids["form_entry_id"] == 9
 
 
 def test_build_ap_metadata_fields_empty_invoice():

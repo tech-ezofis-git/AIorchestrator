@@ -132,6 +132,10 @@ class ApSkillRunner:
             thresholds=thresholds,
             form_id=(str(document_job.get("form_id") or "").strip() or None),
         )
+        form_controls = await self._store.fetch_form_controls(
+            tenant_id=tenant_id,
+            form_id=ctx.form_id,
+        )
 
         skills_run: list[str] = []
         credits_charged = 0
@@ -159,6 +163,7 @@ class ApSkillRunner:
                     invoice=ctx.invoice_json or {},
                     extras=extras_from_artifacts(ctx.artifacts, skill_id),
                     skill_id=skill_id,
+                    form_controls=form_controls,
                 )
                 artifact["metadata_push"] = meta
                 ctx.artifacts[skill_id] = artifact

@@ -221,6 +221,53 @@ class ApStore:
             "thresholds": thresholds,
         }
 
+    async def fetch_form_controls(self, *, tenant_id: str, form_id: Optional[str]) -> list[dict[str, str]]:
+        """Load wFormControl name/columnName/jsonId for AP metadata key aliases."""
+        fid = str(form_id or "").strip()
+        if not fid:
+            return []
+        queries = (
+            (
+                'SELECT "name" AS name, "columnName" AS column_name, "jsonId" AS json_id '
+                'FROM dbo.wformcontrol WHERE lower(CAST("wFormId" AS text)) = lower($1) '
+                'AND COALESCE("isDeleted", 0) = 0',
+                (fid,),
+            ),
+            (
+                "SELECT name, columnname AS column_name, jsonid AS json_id "
+                "FROM wformcontrol WHERE lower(wformid::text) = lower($1) "
+                "AND COALESCE(isdeleted, 0) = 0",
+                (fid,),
+            ),
+        )
+        try:
+            db = await self._db(tenant_id)
+        except Exception as exc:
+            logger.warning(
+                "ap_form_controls_db_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
+            return []
+        for sql, params in queries:
+            try:
+                rows = await db.fetch(sql, *params)
+            except Exception as exc:
+                logger.warning(
+                    "ap_form_controls_lookup_failed",
+                    extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+                )
+                continue
+            out: list[dict[str, str]] = []
+            for row in rows or []:
+                name = str(_row_get(row, "name") or "").strip()
+                column_name = str(_row_get(row, "column_name") or "").strip()
+                json_id = str(_row_get(row, "json_id") or "").strip()
+                if name or column_name or json_id:
+                    out.append({"name": name, "column_name": column_name, "json_id": json_id})
+            if out:
+                return out
+        return []
+
     async def fetch_workflow_activity_id(
         self,
         *,

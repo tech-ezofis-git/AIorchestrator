@@ -755,3 +755,50 @@ def test_metadata_push_runs_after_every_skill_with_non_null_values(client, monke
         assert None not in header.values()
         assert "" not in header.values()
     assert seen[-1]["fields"]["invoice_header"]["Matched Status"] == "Matched"
+
+
+def test_hangfire_start_payload_aliases_reach_metadata(client, monkeypatch):
+    seen = []
+
+    async def capture_meta(self, **kwargs):
+        seen.append(kwargs)
+        return {"ok": True, "mock": True, "ezfbFieldsUpdated": 4}
+
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.apply_ap_agent_metadata",
+        capture_meta,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-hangfire",
+            "intent": "ap",
+            "startPayload": {
+                "tenantId": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "workflowId": "wf",
+                "instanceId": "inst",
+                "repositoryId": "repo",
+                "itemId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "formId": "form-guid",
+                "formData": {"formEntryId": 9},
+                "invoice_json": SAMPLE_INVOICE,
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert seen
+    assert seen[0]["form_id"] == "form-guid"
+    assert seen[0]["form_entry_id"] == 9
+    assert seen[0]["item_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    header = seen[0]["fields"]["invoice_header"]
+    assert header["Invoice No"] == "INV-100"
+    assert header["PO_Number"] == "PO-1"
+    assert None not in header.values()
