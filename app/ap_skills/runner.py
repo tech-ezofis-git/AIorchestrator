@@ -21,7 +21,7 @@ from app.ap_skills import (
     workflow_move_next,
     workflow_progress,
 )
-from app.ap_skills.ap_metadata import push_extract_metadata
+from app.ap_skills.ap_metadata import extras_from_artifacts, push_extract_metadata
 from app.ap_skills.planner import maybe_reorder, resolve_skills
 from app.ap_skills.store import ApStore
 from app.ap_skills.types import (
@@ -146,16 +146,22 @@ class ApSkillRunner:
                 ctx.artifacts[skill_id] = artifact
                 if skill_id == "extract_invoice" and isinstance(artifact.get("invoice"), dict):
                     ctx.invoice_json = artifact["invoice"]
-                    identify = artifact["invoice"].get("invoice_number") or identify
-                    meta = await push_extract_metadata(
-                        ezofis=self._ezofis,
-                        tenant_id=tenant_id,
-                        document_job=document_job,
-                        form_id=ctx.form_id,
-                        invoice=artifact["invoice"],
+                    identify = (
+                        artifact["invoice"].get("invoice_number")
+                        or (artifact["invoice"].get("invoice_header") or {}).get("Invoice No")
+                        or identify
                     )
-                    artifact["metadata_push"] = meta
-                    ctx.artifacts[skill_id] = artifact
+                meta = await push_extract_metadata(
+                    ezofis=self._ezofis,
+                    tenant_id=tenant_id,
+                    document_job=document_job,
+                    form_id=ctx.form_id,
+                    invoice=ctx.invoice_json or {},
+                    extras=extras_from_artifacts(ctx.artifacts, skill_id),
+                    skill_id=skill_id,
+                )
+                artifact["metadata_push"] = meta
+                ctx.artifacts[skill_id] = artifact
                 await self._store.save_artifact(
                     run_id=run_id,
                     tenant_id=tenant_id,

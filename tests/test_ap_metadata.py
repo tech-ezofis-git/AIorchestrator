@@ -3,6 +3,7 @@ import pytest
 
 from app.ap_skills.ap_metadata import (
     build_ap_metadata_fields,
+    extras_from_artifacts,
     push_extract_metadata,
     resolve_metadata_ids,
 )
@@ -23,10 +24,11 @@ def test_build_ap_metadata_fields_maps_labels_and_line_items():
     )
     header = fields["invoice_header"]
     assert header["Invoice No"] == "INV-1"
+    assert header["invoice_number"] == "INV-1"
     assert header["PO Number"] == "PO-9"
     assert header["Supplier"] == "Acme"
     assert header["Vendor Name"] == "Acme"
-    assert header["Invoice Amount"] == 100.5
+    assert header["Invoice Amount"] == "100.5"
     assert header["Currency"] == "USD"
     assert "Matched Status" not in header
     lines = fields["Invoice Extracted Line Item"]
@@ -49,6 +51,44 @@ def test_build_ap_metadata_fields_preserves_nested_invoice_header():
     assert "empty" not in fields["invoice_header"]
     assert fields["Invoice Extracted Line Item"][0]["description"] == "A"
     assert fields["Line Item"][0]["description"] == "A"
+
+
+def test_build_ap_metadata_fields_skips_null_and_empty():
+    fields = build_ap_metadata_fields(
+        {
+            "invoice_header": {
+                "Invoice No": "INV-3",
+                "PO Number": None,
+                "Supplier": "",
+                "Due Date": "   ",
+            }
+        }
+    )
+    header = fields["invoice_header"]
+    assert header["Invoice No"] == "INV-3"
+    assert "PO Number" not in header
+    assert "Supplier" not in header
+    assert "Due Date" not in header
+
+
+def test_build_ap_metadata_fields_merges_skill_extras():
+    fields = build_ap_metadata_fields(
+        {"invoice_number": "INV-4", "vendor": "Acme"},
+        extras={"Matched Status": "Matched"},
+    )
+    assert fields["invoice_header"]["Invoice No"] == "INV-4"
+    assert fields["invoice_header"]["Matched Status"] == "Matched"
+
+
+def test_extras_from_artifacts_uses_finalize_decision():
+    extras = extras_from_artifacts(
+        {
+            "po_match": {"decision": "MATCHED"},
+            "finalize_decision": {"decision": "PARTIALLY_MATCHED"},
+        },
+        "finalize_decision",
+    )
+    assert extras["Matched Status"] == "Partially Matched"
 
 
 def test_build_ap_metadata_fields_empty_invoice():
@@ -215,3 +255,34 @@ async def test_push_extract_metadata_reports_login_not_configured(monkeypatch):
     assert result["reason"] == "login_not_configured"
     assert result["ezfb_warning"] == "login_not_configured"
     get_settings.cache_clear()
+
+
+def test_as_invoice_reads_nested_header_labels():
+    from app.ap_skills.extract_invoice import _as_invoice
+
+    inv = _as_invoice(
+        {
+            "invoice_header": {
+                "Invoice No": "INV-9",
+                "PO Number": "PO-1",
+                "Vendor Name": "Acme",
+                "Invoice Amount": 50,
+            },
+            "Line Item": [{"Description": "Widget", "Quantity": 2, "Extended": 50}],
+        }
+    )
+    assert inv["invoice_number"] == "INV-9"
+    assert inv["po_number"] == "PO-1"
+    assert inv["vendor"] == "Acme"
+    assert inv["total"] == 50
+    assert inv["invoice_header"]["Invoice No"] == "INV-9"
+    assert inv["line_items"][0]["description"] == "Widget"
+    assert inv["line_items"][0]["qty"] == 2
+
+    fields = build_ap_metadata_fields(inv)
+    assert fields["invoice_header"]["Invoice No"] == "INV-9"
+    assert fields["invoice_header"]["PO Number"] == "PO-1"
+    assert fields["invoice_header"]["Invoice Amount"] == "50"
+    assert fields["invoice_header"]["Vendor Name"] == "Acme"
+    assert None not in fields["invoice_header"].values()
+    assert "" not in fields["invoice_header"].values()

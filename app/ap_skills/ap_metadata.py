@@ -39,6 +39,40 @@ _HEADER_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 _LINE_ITEM_KEY_PREFERRED = "Invoice Extracted Line Item"
 _LINE_ITEM_KEY_LEGACY = "Line Item"
+_HEADER_WRAPPERS = (
+    "invoice_header",
+    "invoiceHeader",
+    "header",
+    "po_row",
+    "Extracted Invoice JSON",
+)
+_LINE_KEYS = (
+    "Invoice Extracted Line Item",
+    "Line Item",
+    "Line Items",
+    "line_items",
+    "lines",
+)
+_INTERNAL_KEYS = frozenset(
+    {
+        *_HEADER_WRAPPERS,
+        *_LINE_KEYS,
+        "output",
+        "tokens",
+        "invoice",
+        "metadata_push",
+        "ocr_text",
+        "source",
+        "ocr_mock",
+    }
+)
+_MATCH_LABELS = {
+    "MATCHED": "Matched",
+    "PARTIALLY_MATCHED": "Partially Matched",
+    "NOT_MATCHED": "Not Matched",
+    "NON_INVOICE": "Non-Invoice",
+    "DUPLICATE": "Not Matched",
+}
 _GUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
@@ -67,35 +101,130 @@ def _skip_empty(value: Any) -> bool:
     return False
 
 
-def build_ap_metadata_fields(invoice: dict[str, Any]) -> dict[str, Any]:
-    """Map extract_invoice / OCR payload → V6 metadata ``fields`` object."""
-    if not isinstance(invoice, dict) or not invoice:
+def _stringify_header_value(value: Any) -> Optional[str]:
+    """V6 form columns are strings; JSON numbers often land as null in ezfb."""
+    if _skip_empty(value) or isinstance(value, (dict, list)):
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = str(value).strip()
+    return text or None
+
+
+def _unwrap_invoice(invoice: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(invoice, dict):
         return {}
+    for key in ("output", "invoice"):
+        inner = invoice.get(key)
+        if isinstance(inner, dict) and (
+            inner.get("invoice_header") or inner.get("line_items") or inner.get("Line Item")
+        ):
+            return inner
+    return invoice
 
-    header_src = invoice.get("invoice_header")
-    if not isinstance(header_src, dict):
-        header_src = invoice
 
-    header: dict[str, Any] = {}
-    for label, keys in _HEADER_LABELS:
-        value = _first_value(header_src, *keys)
-        if _skip_empty(value):
+def _header_source(invoice: dict[str, Any]) -> dict[str, Any]:
+    invoice = _unwrap_invoice(invoice)
+    merged: dict[str, Any] = {}
+    for key in _HEADER_WRAPPERS:
+        header = invoice.get(key)
+        if isinstance(header, dict) and header:
+            merged.update(header)
+            break
+    for key, value in invoice.items():
+        if key in _INTERNAL_KEYS:
             continue
-        header[label] = value if not isinstance(value, str) else value.strip()
+        merged[key] = value
+    return merged
 
-    lines_raw = (
-        invoice.get(_LINE_ITEM_KEY_PREFERRED)
-        or invoice.get(_LINE_ITEM_KEY_LEGACY)
-        or invoice.get("line_items")
-        or invoice.get("lines")
-        or []
+
+def extras_from_artifacts(artifacts: dict[str, Any], skill_id: str) -> dict[str, Any]:
+    """Header overlays from later AP skills (Matched Status, vendor, …)."""
+    artifacts = artifacts if isinstance(artifacts, dict) else {}
+    extras: dict[str, Any] = {}
+    finalize = artifacts.get("finalize_decision") if isinstance(artifacts.get("finalize_decision"), dict) else {}
+    duplicate = artifacts.get("duplicate_detect") if isinstance(artifacts.get("duplicate_detect"), dict) else {}
+    po_match = artifacts.get("po_match") if isinstance(artifacts.get("po_match"), dict) else {}
+    gl_match = artifacts.get("gl_match") if isinstance(artifacts.get("gl_match"), dict) else {}
+    grn_match = artifacts.get("grn_match") if isinstance(artifacts.get("grn_match"), dict) else {}
+    vendor = artifacts.get("vendor_validate") if isinstance(artifacts.get("vendor_validate"), dict) else {}
+    current = artifacts.get(skill_id) if isinstance(artifacts.get(skill_id), dict) else {}
+
+    decision = (
+        finalize.get("decision")
+        or current.get("decision")
+        or po_match.get("decision")
+        or gl_match.get("decision")
+        or grn_match.get("decision")
     )
+    if duplicate.get("is_duplicate_invoice") and not finalize.get("decision"):
+        extras["Matched Status"] = "Not Matched"
+    elif decision:
+        extras["Matched Status"] = _MATCH_LABELS.get(str(decision).strip().upper(), str(decision).strip())
+
+    vendor_name = vendor.get("vendor") or vendor.get("expected")
+    if vendor_name:
+        extras["Supplier"] = vendor_name
+        extras["Vendor Name"] = vendor_name
+    return extras
+
+
+def build_ap_metadata_fields(
+    invoice: dict[str, Any],
+    *,
+    extras: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Map extract_invoice / OCR payload → V6 metadata ``fields`` object.
+
+    Keeps original form labels (so wFormControl Label/jsonId/columnName match)
+    and overlays canonical aliases. Empty values are omitted — never sent as null.
+    """
+    if not isinstance(invoice, dict) or not invoice:
+        invoice = {}
+
+    header_src = _header_source(invoice)
+    header: dict[str, Any] = {}
+
+    for key, raw in header_src.items():
+        if key in _INTERNAL_KEYS:
+            continue
+        value = _stringify_header_value(raw)
+        if value is None:
+            continue
+        header[str(key)] = value
+
+    for label, keys in _HEADER_LABELS:
+        value = _stringify_header_value(_first_value(header_src, *keys))
+        if value is None:
+            continue
+        header[label] = value
+
+    if extras:
+        for key, raw in extras.items():
+            value = _stringify_header_value(raw)
+            if value is None:
+                continue
+            header[str(key)] = value
+
+    invoice = _unwrap_invoice(invoice)
+    lines_raw: list[Any] = []
+    for key in _LINE_KEYS:
+        candidate = invoice.get(key)
+        if isinstance(candidate, list) and candidate:
+            lines_raw = candidate
+            break
+
     lines: list[dict[str, Any]] = []
     if isinstance(lines_raw, list):
         for idx, line in enumerate(lines_raw, start=1):
             if not isinstance(line, dict):
                 continue
-            mapped = {
+            mapped: dict[str, Any] = {}
+            for key, raw in line.items():
+                if _skip_empty(raw) or isinstance(raw, (dict, list)):
+                    continue
+                mapped[str(key)] = raw
+            aliases = {
                 "line_no": _first_value(line, "line_no", "line", "Line") or idx,
                 "item_no": _first_value(line, "item_no", "part_number", "Part Number", "sku"),
                 "description": _first_value(line, "description", "item", "name", "Description"),
@@ -105,9 +234,12 @@ def build_ap_metadata_fields(invoice: dict[str, Any]) -> dict[str, Any]:
                 "price": _first_value(line, "price", "unit_price"),
                 "line_amount": _first_value(line, "line_amount", "amount", "Extended"),
             }
-            cleaned = {k: v for k, v in mapped.items() if not _skip_empty(v)}
-            if cleaned:
-                lines.append(cleaned)
+            for key, raw in aliases.items():
+                if _skip_empty(raw):
+                    continue
+                mapped[key] = raw
+            if mapped:
+                lines.append(mapped)
 
     fields: dict[str, Any] = {}
     if header:
@@ -171,8 +303,10 @@ async def push_extract_metadata(
     document_job: dict[str, Any],
     form_id: Optional[str],
     invoice: dict[str, Any],
+    extras: Optional[dict[str, Any]] = None,
+    skill_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Best-effort metadata PATCH after extract_invoice (non-fatal upstream)."""
+    """Best-effort metadata PATCH after each AP skill (non-fatal upstream)."""
     ids = resolve_metadata_ids(document_job, form_id)
     workflow_id = ids["workflow_id"]
     instance_id = ids["instance_id"]
@@ -181,8 +315,9 @@ async def push_extract_metadata(
     form_entry_id = ids["form_entry_id"]
     resolved_form_id = ids["form_id"]
 
-    fields = build_ap_metadata_fields(invoice)
+    fields = build_ap_metadata_fields(invoice, extras=extras)
     request_summary = {
+        "skill_id": skill_id,
         "workflow_id": workflow_id or None,
         "instance_id": instance_id or None,
         "repository_id": repository_id or None,

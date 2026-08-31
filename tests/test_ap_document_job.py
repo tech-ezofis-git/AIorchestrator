@@ -704,3 +704,54 @@ def test_quickbooks_connector_lookup_feeds_po_match(client, monkeypatch):
     artifacts = response.json()["ap_result"]["artifacts"]
     assert artifacts["po_lookup_quickbooks"]["po"]["source"] == "quickbooks"
     assert artifacts["po_match"]["decision"] == "MATCHED"
+
+
+def test_metadata_push_runs_after_every_skill_with_non_null_values(client, monkeypatch):
+    seen = []
+
+    async def capture_meta(self, **kwargs):
+        seen.append(kwargs)
+        return {"ok": True, "mock": True, "ezfbFieldsUpdated": 4}
+
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.apply_ap_agent_metadata",
+        capture_meta,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    skills = ["extract_invoice", "po_match", "finalize_decision"]
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-meta-all",
+            "intent": "ap",
+            "payload": _ap_payload(
+                workflow_id="wf",
+                instance_id="inst",
+                repository_id="repo",
+                repository_item_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                form_entry_id="42",
+                form_id="form-guid",
+                skills=skills,
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["ap_result"]["artifacts"]
+    assert [call["fields"]["invoice_header"]["Invoice No"] for call in seen] == ["INV-100"] * 3
+    assert len(seen) == 3
+    for skill_id in skills:
+        assert artifacts[skill_id]["metadata_push"]["ok"] is True
+        header = seen[skills.index(skill_id)]["fields"]["invoice_header"]
+        assert header["Invoice No"] == "INV-100"
+        assert header["PO Number"] == "PO-1"
+        assert header["Supplier"] == "ACME Supplies"
+        assert None not in header.values()
+        assert "" not in header.values()
+    assert seen[-1]["fields"]["invoice_header"]["Matched Status"] == "Matched"

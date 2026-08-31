@@ -15,6 +15,21 @@ logger = logging.getLogger("orchestrator.ap.extract_invoice")
 
 SKILL_ID = "extract_invoice"
 
+_HEADER_WRAPPERS = (
+    "invoice_header",
+    "invoiceHeader",
+    "header",
+    "po_row",
+    "Extracted Invoice JSON",
+)
+_LINE_KEYS = (
+    "Invoice Extracted Line Item",
+    "Line Item",
+    "Line Items",
+    "line_items",
+    "lines",
+)
+
 _EXTRACT_PROMPT = (
     "Extract AP invoice fields from the OCR text. Reply with JSON only, no markdown: "
     '{"doc_type":"invoice"|"other","invoice_number":"","invoice_date":"","due_date":"",'
@@ -23,41 +38,118 @@ _EXTRACT_PROMPT = (
 )
 
 
-def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
-    lines = data.get("line_items") or data.get("lines") or []
-    if not isinstance(lines, list):
-        lines = []
-    normalized_lines = []
-    for line in lines:
-        if not isinstance(line, dict):
+def _unwrap_ocr(data: dict[str, Any]) -> dict[str, Any]:
+    """Strip GetOCRJSON wrappers (`output`, `invoice`) used by apagentv6."""
+    if not isinstance(data, dict):
+        return {}
+    for key in ("output", "invoice"):
+        inner = data.get(key)
+        if not isinstance(inner, dict) or not inner:
             continue
+        if inner.get("invoice_header") or inner.get("line_items") or inner.get("Line Item"):
+            return inner
+    return data
+
+
+def _merged_header_source(data: dict[str, Any]) -> dict[str, Any]:
+    """Flatten nested invoice_header labels onto a single lookup dict."""
+    data = _unwrap_ocr(data)
+    merged: dict[str, Any] = {}
+    for key in _HEADER_WRAPPERS:
+        header = data.get(key)
+        if isinstance(header, dict) and header:
+            merged.update(header)
+            break
+    for key, value in data.items():
+        if key in _HEADER_WRAPPERS or key in _LINE_KEYS:
+            continue
+        merged[key] = value
+    return merged
+
+
+def _raw_line_items(data: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    data = _unwrap_ocr(data)
+    for key in _LINE_KEYS:
+        lines = data.get(key)
+        if isinstance(lines, list) and lines:
+            return key, [row for row in lines if isinstance(row, dict)]
+    return "line_items", []
+
+
+def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
+    src = _merged_header_source(data)
+    orig_key, raw_lines = _raw_line_items(data)
+    normalized_lines = []
+    for line in raw_lines:
+        qty = line.get("qty")
+        if qty is None:
+            qty = line.get("quantity")
+        if qty is None:
+            qty = line.get("Quantity")
+        price = line.get("price")
+        if price is None:
+            price = line.get("unit_price")
+        if price is None:
+            price = line.get("rate")
+        amount = line.get("amount")
+        if amount is None:
+            amount = line.get("line_amount")
+        if amount is None:
+            amount = line.get("Extended")
         normalized_lines.append(
             {
-                "description": field_text(line, "description", "item", "name"),
-                "qty": line.get("qty") if line.get("qty") is not None else line.get("quantity"),
-                "price": line.get("price") if line.get("price") is not None else line.get("unit_price"),
-                "amount": line.get("amount") if line.get("amount") is not None else line.get("line_amount"),
+                "description": field_text(line, "description", "item", "name", "Description"),
+                "qty": qty,
+                "price": price,
+                "amount": amount,
             }
         )
-    return {
-        "doc_type": (data.get("doc_type") or "invoice"),
+    total = src.get("total")
+    if total is None:
+        total = src.get("amount")
+    if total is None:
+        total = src.get("Invoice Amount")
+    if total is None:
+        total = src.get("invoice_amount")
+    orig_header = None
+    unwrapped = _unwrap_ocr(data)
+    for key in _HEADER_WRAPPERS:
+        header = unwrapped.get(key)
+        if isinstance(header, dict) and header:
+            orig_header = header
+            break
+    out: dict[str, Any] = {
+        "doc_type": (src.get("doc_type") or src.get("Document Type") or "invoice"),
         "invoice_number": field_text(
-            data, "invoice_number", "invoice_no", "invoiceNumber", "Invoice No"
+            src, "invoice_number", "invoice_no", "invoiceNumber", "Invoice No"
         ),
-        "invoice_date": field_text(data, "invoice_date", "invoiceDate", "date"),
-        "due_date": field_text(data, "due_date", "dueDate", "Due Date"),
+        "invoice_date": field_text(src, "invoice_date", "invoiceDate", "Invoice Date", "date"),
+        "due_date": field_text(src, "due_date", "dueDate", "Due Date"),
         "vendor": field_text(
-            data, "vendor", "supplier", "vendor_name", "supplier_name", "Vendor Name"
+            src,
+            "vendor",
+            "supplier",
+            "vendor_name",
+            "supplier_name",
+            "Vendor Name",
+            "VENDOR Name",
+            "Supplier",
+            "Supplier Name",
         ),
-        "po_number": field_text(data, "po_number", "poNumber", "po", "PO Number"),
-        "grn_number": field_text(data, "grn_number", "grn", "GRN Number", "receipt_number"),
+        "po_number": field_text(src, "po_number", "poNumber", "po", "PO Number"),
+        "grn_number": field_text(src, "grn_number", "grn", "GRN Number", "receipt_number"),
         "matter_id": field_text(
-            data, "matter_id", "matterId", "Matter ID", "MatterId", "matter_no", "Matter No"
+            src, "matter_id", "matterId", "Matter ID", "MatterId", "matter_no", "Matter No"
         ),
-        "total": data.get("total") if data.get("total") is not None else data.get("amount"),
-        "currency": field_text(data, "currency") or "USD",
+        "total": total,
+        "currency": field_text(src, "currency", "Currency") or "USD",
         "line_items": normalized_lines,
     }
+    if orig_header:
+        out["invoice_header"] = orig_header
+    if raw_lines and orig_key != "line_items":
+        out[orig_key] = raw_lines
+    return out
 
 
 def _heuristic_from_text(text: str) -> dict[str, Any]:
