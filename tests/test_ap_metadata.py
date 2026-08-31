@@ -173,6 +173,34 @@ def test_map_header_to_ezfb_columns_matches_underscore_and_jsonid():
     assert "item_id" not in assignments
 
 
+def test_pick_repository_pk_skips_integer_id():
+    from app.ap_skills.store import guid_compact, pick_repository_item_pk
+
+    assert guid_compact("9c06f762-16f5-4c00-9560-d50e1f6b3eac") == "9c06f76216f54c009560d50e1f6b3eac"
+    assert (
+        pick_repository_item_pk(
+            ["id", "itemid", "Invoice_No", "FileName"],
+            {"id": "integer", "itemid": "uuid", "Invoice_No": "text", "FileName": "text"},
+        )
+        == "itemid"
+    )
+    assert pick_repository_item_pk(["id", "Invoice_No"], {"id": "uuid", "Invoice_No": "text"}) == "id"
+
+
+def test_map_header_skips_repository_file_columns():
+    from app.ap_skills.store import _REPO_SKIP_COLS, _map_header_to_ezfb_columns
+
+    assignments = _map_header_to_ezfb_columns(
+        header={"Invoice No": "INV-1", "FileName": "scan.pdf", "FilePath": "repository/x/y.pdf"},
+        columns=["id", "Invoice_No", "FileName", "FilePath"],
+        form_controls=[],
+        skip_columns=_REPO_SKIP_COLS,
+    )
+    assert assignments["Invoice_No"] == "INV-1"
+    assert "FileName" not in assignments
+    assert "FilePath" not in assignments
+
+
 @pytest.mark.asyncio
 async def test_push_writes_ezfb_even_when_workflow_ids_missing():
     seen = {}

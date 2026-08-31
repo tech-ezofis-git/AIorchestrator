@@ -69,8 +69,65 @@ _EZFB_SKIP_COLS = frozenset(
 )
 
 
+_REPO_SKIP_COLS = _EZFB_SKIP_COLS | {
+    "filename",
+    "filepath",
+    "file_path",
+    "file_name",
+    "contenttype",
+    "content_type",
+    "filesize",
+    "size",
+    "mimetype",
+    "mime_type",
+    "repositoryid",
+    "repository_id",
+    "parentid",
+    "parent_id",
+    "blobpath",
+    "blob_path",
+    "version",
+    "versionno",
+    "islatest",
+    "is_latest",
+    "extension",
+    "fileextension",
+}
+
+
 def _norm_col(value: str) -> str:
     return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+def guid_compact(value: str) -> str:
+    """Hyphens/braces stripped so UUID text matches compact blob ids."""
+    return "".join(ch for ch in str(value or "") if ch.isalnum()).lower()
+
+
+def _is_guid_column_type(data_type: str, udt_name: str = "") -> bool:
+    blob = f"{data_type} {udt_name}".lower()
+    if "int" in blob and "uuid" not in blob:
+        return False
+    return any(token in blob for token in ("uuid", "text", "char", "name"))
+
+
+def pick_repository_item_pk(
+    columns: list[str],
+    types: Optional[dict[str, str]] = None,
+) -> Optional[str]:
+    """Prefer a GUID/text item key. Do not match a hyphenated UUID against integer id."""
+    types = types or {}
+    lower_map = {c.lower(): c for c in columns}
+    type_lookup = {str(k).lower(): str(v or "") for k, v in types.items()}
+    for candidate in ("itemid", "item_id", "id"):
+        actual = lower_map.get(candidate)
+        if not actual:
+            continue
+        col_type = type_lookup.get(actual.lower()) or ""
+        if col_type and not _is_guid_column_type(col_type):
+            continue
+        return actual
+    return None
 
 
 def _map_header_to_ezfb_columns(
@@ -79,10 +136,11 @@ def _map_header_to_ezfb_columns(
     columns: list[str],
     form_controls: list[dict[str, str]],
     line_items: Optional[list[Any]] = None,
+    skip_columns: Optional[set[str]] = None,
 ) -> dict[str, Any]:
     by_lower = {c.lower(): c for c in columns}
     by_norm = {_norm_col(c): c for c in columns if _norm_col(c)}
-    skip = {c.lower() for c in _EZFB_SKIP_COLS}
+    skip = {c.lower() for c in (skip_columns or _EZFB_SKIP_COLS)}
     assignments: dict[str, Any] = {}
 
     def _assign(column: Optional[str], value: Any) -> None:
@@ -391,6 +449,56 @@ class ApStore:
                     "ap_form_controls_lookup_failed",
                     extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
                 )
+                continue
+            out: list[dict[str, str]] = []
+            for row in rows or []:
+                name = str(_row_get(row, "name") or "").strip()
+                column_name = str(_row_get(row, "column_name") or "").strip()
+                json_id = str(_row_get(row, "json_id") or "").strip()
+                if name or column_name or json_id:
+                    out.append({"name": name, "column_name": column_name, "json_id": json_id})
+            if out:
+                return out
+        return []
+
+    async def fetch_repository_fields(
+        self, *, tenant_id: str, repository_id: Optional[str]
+    ) -> list[dict[str, str]]:
+        """Load repository field name/columnName/jsonId for items_* column aliases."""
+        rid = str(repository_id or "").strip()
+        if not rid:
+            return []
+        queries = (
+            (
+                'SELECT "name" AS name, "columnName" AS column_name, "jsonId" AS json_id '
+                'FROM dbo.wrepositoryfield WHERE lower(CAST("wRepositoryId" AS text)) = lower($1) '
+                'AND COALESCE("isDeleted", 0) = 0',
+                (rid,),
+            ),
+            (
+                "SELECT name, columnname AS column_name, jsonid AS json_id "
+                "FROM dbo.wrepositoryfield WHERE lower(wrepositoryid::text) = lower($1) "
+                "AND COALESCE(isdeleted, 0) = 0",
+                (rid,),
+            ),
+            (
+                'SELECT "Name" AS name, "ColumnName" AS column_name, "JsonId" AS json_id '
+                'FROM repository."Fields" WHERE lower(CAST("RepositoryId" AS text)) = lower($1)',
+                (rid,),
+            ),
+        )
+        try:
+            db = await self._db(tenant_id)
+        except Exception as exc:
+            logger.warning(
+                "ap_repo_fields_db_failed",
+                extra={"error_type": type(exc).__name__},
+            )
+            return []
+        for sql, params in queries:
+            try:
+                rows = await db.fetch(sql, *params)
+            except Exception:
                 continue
             out: list[dict[str, str]] = []
             for row in rows or []:
@@ -836,7 +944,7 @@ class ApStore:
             schema, real_table = loc["schema"], loc["table"]
             col_rows = await db.fetch(
                 """
-                SELECT column_name
+                SELECT column_name, data_type, udt_name
                 FROM information_schema.columns
                 WHERE table_schema = $1 AND table_name = $2
                 ORDER BY ordinal_position
@@ -845,7 +953,13 @@ class ApStore:
                 real_table,
             )
             columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
-            pk = next((c for c in columns if c.lower() in {"id", "itemid", "item_id"}), None)
+            types = {
+                str(_row_get(row, "column_name")): str(
+                    _row_get(row, "data_type") or _row_get(row, "udt_name") or ""
+                )
+                for row in col_rows or []
+            }
+            pk = pick_repository_item_pk(columns, types)
             if pk is None:
                 return None
             order_col = next(
@@ -901,7 +1015,7 @@ class ApStore:
             real_table = loc["table"]
             col_rows = await db.fetch(
                 """
-                SELECT column_name
+                SELECT column_name, data_type, udt_name
                 FROM information_schema.columns
                 WHERE table_schema = $1 AND table_name = $2
                 ORDER BY ordinal_position
@@ -910,11 +1024,22 @@ class ApStore:
                 real_table,
             )
             columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
+            types = {
+                str(_row_get(row, "column_name")): str(
+                    _row_get(row, "data_type") or _row_get(row, "udt_name") or ""
+                )
+                for row in col_rows or []
+            }
+            repo_fields = await self.fetch_repository_fields(
+                tenant_id=tenant_id, repository_id=repository_id
+            )
+            controls = list(form_controls or []) + repo_fields
             assignments = _map_header_to_ezfb_columns(
                 header=header,
                 columns=columns,
-                form_controls=form_controls or [],
+                form_controls=controls,
                 line_items=line_items,
+                skip_columns=_REPO_SKIP_COLS,
             )
             if not assignments:
                 return {
@@ -924,13 +1049,9 @@ class ApStore:
                     "table": f"{schema}.{real_table}",
                     "columns": columns[:40],
                 }
-            pk = next(
-                (name for name in ("id", "itemid", "item_id") if name.lower() in {c.lower() for c in columns}),
-                None,
-            )
-            if pk is None:
+            pk_actual = pick_repository_item_pk(columns, types)
+            if pk_actual is None:
                 return {"ok": False, "updated": 0, "reason": "no_pk", "table": real_table}
-            pk_actual = next(c for c in columns if c.lower() == pk.lower())
             sets = []
             args: list[Any] = []
             for index, (col, value) in enumerate(assignments.items(), start=1):
@@ -944,11 +1065,21 @@ class ApStore:
                         else str(value)
                     )
                 )
-            args.append(item_guid)
+            compact = guid_compact(item_guid)
+            if len(compact) != 32:
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "reason": "invalid_item_guid",
+                    "table": f"{schema}.{real_table}",
+                    "item_id": item_guid,
+                }
+            args.append(compact)
             sql = (
                 f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
                 f"SET {', '.join(sets)} "
-                f"WHERE CAST({quote_ident(pk_actual)} AS text) = ${len(args)}"
+                f"WHERE lower(regexp_replace(CAST({quote_ident(pk_actual)} AS text), "
+                f"'[^0-9a-fA-F]', '', 'g')) = ${len(args)}"
             )
             status = await db.execute(sql, *args)
             updated = _execute_rowcount(status)
