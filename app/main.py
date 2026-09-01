@@ -1985,7 +1985,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     # legacy AP invoice-status Q&A) still reads the shared adapter's
     # ambient `self._model` etc. — unchanged, pre-existing behavior; only
     # AP/OCR document jobs are hardened against the race here.
-    resolved_tenant_llm: dict = {"default_slug": None, "fallback_slug": None, "overrides": None, "fallback_overrides": None}
+    # (ultrareview simplification fix: dropped the pre-declared
+    # `resolved_tenant_llm` default dict — it was only ever read inside
+    # the `elif` branch below that immediately reassigns it, so the
+    # "default" value was dead code a reader had to trace all three
+    # branches to realize was unused.)
     llm_overrides: Optional[dict] = None
     llm_fallback_overrides: Optional[dict] = None
     if explicit_model.strip():

@@ -115,7 +115,12 @@ def invoice_from(ctx: ApContext) -> dict[str, Any]:
     )
 
 
-def _norm_token(value: str) -> str:
+def norm_token(value: str) -> str:
+    """Lowercased, alnum-only normalization — the shared primitive several
+    ap_skills modules each used to hand-roll their own copy of (ultrareview
+    reuse fix): duplicate_detect/finalize_decision use it via `field_text`
+    below, and extract_invoice's LLM-groundedness check (finding #6)
+    imports it directly instead of re-defining it a fourth time."""
     return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
 
 
@@ -153,8 +158,8 @@ def field_text(data: dict[str, Any], *keys: str) -> str:
         text = str(value).strip()
         if not text:
             continue
-        token = _norm_token(text)
-        if token in _PLACEHOLDER_VALUES or token == _norm_token(key):
+        token = norm_token(text)
+        if token in _PLACEHOLDER_VALUES or token == norm_token(key):
             continue
         return text
     return ""

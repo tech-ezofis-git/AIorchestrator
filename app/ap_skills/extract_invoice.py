@@ -4,10 +4,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from functools import lru_cache
 from typing import Any, Optional
 
 from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
-from app.ap_skills.types import ApContext, ApSkillError, ApSkillResult, field_text
+from app.ap_skills.types import ApContext, ApSkillError, ApSkillResult, field_text, norm_token
 
 logger = logging.getLogger("orchestrator.ap.extract_invoice")
 
@@ -81,6 +82,7 @@ def _raw_line_items(data: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     return "line_items", []
 
 
+@lru_cache(maxsize=256)
 def _normalize_date(raw: str) -> Optional[str]:
     """Best-effort normalization to ISO YYYY-MM-DD, or None on failure.
 
@@ -91,7 +93,12 @@ def _normalize_date(raw: str) -> Optional[str]:
     (dayfirst=False) to match this codebase's existing date fixtures/docs
     (e.g. "05/20/26" = May 20, 2026); a genuinely ambiguous or unparseable
     string is left to the caller (_as_invoice keeps the raw text and flags
-    it as unparsed rather than silently substituting/guessing)."""
+    it as unparsed rather than silently substituting/guessing). Memoized
+    (ultrareview efficiency fix): on the column-layout heuristic path, the
+    same raw date string is parsed once by `_shape_ok` to validate it and
+    again by `_as_invoice` to actually normalize it — `dateutil.parser
+    .parse` isn't free, and this is a pure function of a short string, so
+    caching avoids doing that work twice for no behavioral difference."""
     text = str(raw or "").strip()
     if not text:
         return None
@@ -448,8 +455,33 @@ _GROUNDABLE_FIELDS = frozenset(
 )
 
 
-def _norm_for_grounding(value: str) -> str:
-    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+def _ocr_grounding_haystacks(ocr_text: str) -> tuple[str, str]:
+    """(normalized alnum text, digit-only text) for the WHOLE OCR document
+    — computed once per _coalesce_invoice call and reused across every
+    groundable field it checks (ultrareview efficiency fix: this used to
+    be recomputed by re-normalizing the full OCR text on every single
+    field check — up to 9x O(len(ocr_text)) work per extraction — instead
+    of once)."""
+    text = ocr_text or ""
+    return norm_token(text), "".join(ch for ch in text if ch.isdigit())
+
+
+def _is_grounded_in(value: Any, *, norm_text: str, digit_text: str) -> bool:
+    if not norm_text or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        digits = "".join(ch for ch in str(value) if ch.isdigit())
+        if len(digits) < 3:
+            # Too short to mean anything against a substring search —
+            # treat as ungrounded rather than risk a trivial false accept.
+            return False
+        return digits in digit_text
+    if not isinstance(value, str):
+        return True
+    norm_value = norm_token(value)
+    if not norm_value:
+        return False
+    return norm_value in norm_text
 
 
 def _is_grounded(value: Any, ocr_text: str) -> bool:
@@ -460,22 +492,12 @@ def _is_grounded(value: Any, ocr_text: str) -> bool:
     invoice number/vendor/total was accepted purely because it was
     non-empty. Deliberately lenient (normalized substring match, not exact)
     to tolerate OCR/LLM formatting differences — this catches clear
-    fabrication, not minor rendering variance."""
-    if not ocr_text or value is None:
-        return False
-    if isinstance(value, (int, float)):
-        digits = "".join(ch for ch in str(value) if ch.isdigit())
-        if len(digits) < 3:
-            # Too short to mean anything against a substring search —
-            # treat as ungrounded rather than risk a trivial false accept.
-            return False
-        return digits in "".join(ch for ch in ocr_text if ch.isdigit())
-    if not isinstance(value, str):
-        return True
-    norm_value = _norm_for_grounding(value)
-    if not norm_value:
-        return False
-    return norm_value in _norm_for_grounding(ocr_text)
+    fabrication, not minor rendering variance. Single-value convenience
+    wrapper around `_is_grounded_in`; `_coalesce_invoice` calls
+    `_is_grounded_in` directly with pre-computed haystacks instead, since
+    it checks many values against the same OCR text."""
+    norm_text, digit_text = _ocr_grounding_haystacks(ocr_text)
+    return _is_grounded_in(value, norm_text=norm_text, digit_text=digit_text)
 
 
 def _coalesce_invoice(
@@ -490,12 +512,13 @@ def _coalesce_invoice(
         return fallback, []
     merged = dict(fallback)
     ungrounded: list[str] = []
+    norm_text, digit_text = _ocr_grounding_haystacks(ocr_text)
     for key, value in primary.items():
         if key == "invoice_header":
             continue
         if not _filled(value):
             continue
-        if key in _GROUNDABLE_FIELDS and not _is_grounded(value, ocr_text):
+        if key in _GROUNDABLE_FIELDS and not _is_grounded_in(value, norm_text=norm_text, digit_text=digit_text):
             ungrounded.append(key)
             continue
         merged[key] = value

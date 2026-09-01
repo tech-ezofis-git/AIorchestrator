@@ -60,7 +60,10 @@ def _match_lines(
             score = name_similarity(po_desc, _description(inv_line))
             if score > best_score:
                 best_index, best_score = index, score
-        if best_index is not None and best_score >= _MATCH_FLOOR:
+        # best_index and best_score are always assigned together above, and
+        # best_score starts below _MATCH_FLOOR — so best_score >= _MATCH_FLOOR
+        # already implies best_index is not None (ultrareview simplification).
+        if best_score >= _MATCH_FLOOR:
             used.add(best_index)
             matches.append(best_index)
         else:
