@@ -310,13 +310,26 @@ class ApSkillRunner:
                 )
                 artifact["metadata_push"] = meta
                 ctx.artifacts[skill_id] = artifact
-                await self._store.save_artifact(
-                    run_id=run_id,
-                    tenant_id=tenant_id,
-                    item_key=item_key,
-                    skill_id=skill_id,
-                    result=artifact,
-                )
+                try:
+                    await self._store.save_artifact(
+                        run_id=run_id,
+                        tenant_id=tenant_id,
+                        item_key=item_key,
+                        skill_id=skill_id,
+                        result=artifact,
+                    )
+                except Exception as exc:
+                    # Metadata was already pushed. Failing the run here would
+                    # retry the skill and PATCH V6 a second time.
+                    logger.error(
+                        "ap_artifact_persist_orphaned",
+                        extra={
+                            "run_id": run_id,
+                            "tenant_id": tenant_id,
+                            "skill_id": skill_id,
+                            "error_type": type(exc).__name__,
+                        },
+                    )
                 if result.credits > 0:
                     charge_status = await self._charge(
                         tenant_id=tenant_id,
