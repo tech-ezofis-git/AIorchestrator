@@ -41,6 +41,7 @@ services:
       - ./db/migrations/0004_create_ap_tables.sql:/docker-entrypoint-initdb.d/05-create-ap-tables.sql
       - ./db/migrations/0005_create_catalog_tables.sql:/docker-entrypoint-initdb.d/06-create-catalog-tables.sql
       - ./db/migrations/0006_create_catalog_tenant_agent_models.sql:/docker-entrypoint-initdb.d/07-create-catalog-tenant-agent-models.sql
+      - ./db/migrations/0007_ap_runs_dedupe_and_quality.sql:/docker-entrypoint-initdb.d/08-ap-runs-dedupe-and-quality.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U orchestrator -d orchestrator"]
       interval: 5s

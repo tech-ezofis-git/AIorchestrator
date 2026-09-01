@@ -8,8 +8,6 @@ from typing import Any, Optional
 
 from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
 from app.ap_skills.types import ApContext, ApSkillError, ApSkillResult, field_text
-from app.core.dispatcher import ToolExecutionError
-from app.integrations.ocr_engine import OcrEngineError
 
 logger = logging.getLogger("orchestrator.ap.extract_invoice")
 
@@ -83,6 +81,29 @@ def _raw_line_items(data: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     return "line_items", []
 
 
+def _normalize_date(raw: str) -> Optional[str]:
+    """Best-effort normalization to ISO YYYY-MM-DD, or None on failure.
+
+    Code-review finding #13: there was previously no date parsing or
+    validation anywhere in AP extraction — a raw OCR/LLM string (any
+    format, or garbage) flowed straight into ezfb DATE-typed columns and
+    the EZOFIS metadata PATCH unchecked. Deliberately month-first
+    (dayfirst=False) to match this codebase's existing date fixtures/docs
+    (e.g. "05/20/26" = May 20, 2026); a genuinely ambiguous or unparseable
+    string is left to the caller (_as_invoice keeps the raw text and flags
+    it as unparsed rather than silently substituting/guessing)."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        from dateutil import parser as date_parser
+
+        parsed = date_parser.parse(text, fuzzy=False, dayfirst=False)
+    except (ValueError, OverflowError, TypeError):
+        return None
+    return parsed.date().isoformat()
+
+
 def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
     src = _merged_header_source(data)
     orig_key, raw_lines = _raw_line_items(data)
@@ -127,6 +148,10 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(header, dict) and header:
             orig_header = header
             break
+    invoice_date_raw = field_text(src, "invoice_date", "invoiceDate", "Invoice Date", "date")
+    due_date_raw = field_text(src, "due_date", "dueDate", "Due Date")
+    invoice_date_norm = _normalize_date(invoice_date_raw) if invoice_date_raw else None
+    due_date_norm = _normalize_date(due_date_raw) if due_date_raw else None
     out: dict[str, Any] = {
         "doc_type": (src.get("doc_type") or src.get("Document Type") or "invoice"),
         "invoice_number": field_text(
@@ -138,8 +163,11 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
             "Invoice #",
             "Invoice Number",
         ),
-        "invoice_date": field_text(src, "invoice_date", "invoiceDate", "Invoice Date", "date"),
-        "due_date": field_text(src, "due_date", "dueDate", "Due Date"),
+        # Normalized (YYYY-MM-DD) when the raw text parses; otherwise kept
+        # as-is (never silently dropped) but flagged below so callers can
+        # tell "clean ISO date" apart from "unparsed source text".
+        "invoice_date": invoice_date_norm or invoice_date_raw,
+        "due_date": due_date_norm or due_date_raw,
         "vendor": field_text(
             src,
             "vendor",
@@ -160,6 +188,10 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
         "currency": field_text(src, "currency", "Currency"),
         "line_items": normalized_lines,
     }
+    if invoice_date_raw and not invoice_date_norm:
+        out["invoice_date_unparsed"] = True
+    if due_date_raw and not due_date_norm:
+        out["due_date_unparsed"] = True
     header: dict[str, Any] = {}
     if orig_header:
         for key, raw in orig_header.items():
@@ -230,6 +262,23 @@ def _map_column_label(line: str) -> Optional[str]:
     return None
 
 
+# Code-review finding #15: per-label plausibility check for
+# _header_from_column_layout's zipped (label, value) pairing, which
+# otherwise assumes the label block and value block line up 1:1 with no
+# OCR-dropped/reordered line in either — a single missed/extra line
+# silently shifts every subsequent value onto the wrong label (e.g. a PO
+# number landing under "Invoice No"). Labels not listed here (Terms, Ship
+# Via, Shipped) have no strong expected shape and are left unchecked.
+def _shape_ok(label: str, value: str) -> bool:
+    if label in ("Invoice No", "PO Number"):
+        return any(ch.isdigit() for ch in value)
+    if label in ("Due Date", "Invoice Date"):
+        return _normalize_date(value) is not None
+    if label == "Currency":
+        return bool(_CURRENCY_TOKEN.fullmatch(value.strip()))
+    return True
+
+
 def _header_from_column_layout(text: str) -> dict[str, Any]:
     """Map a block of header labels followed by the same number of value lines.
 
@@ -253,17 +302,55 @@ def _header_from_column_layout(text: str) -> dict[str, Any]:
             if not any(_map_column_label(value) for value in values):
                 for label, value in zip(labels, values):
                     token = field_text({label: value}, label)
-                    if token:
-                        header[label] = token
+                    if not token:
+                        continue
+                    if not _shape_ok(label, token):
+                        logger.warning(
+                            "ap_extract_column_layout_shape_mismatch",
+                            extra={"label": label, "value": token[:50]},
+                        )
+                        continue
+                    header[label] = token
                 index = cursor + len(labels)
                 continue
         index += 1
     return header
 
 
+# Code-review finding #14: how many lines of a "Bill To"/"Ship To" block
+# to keep skipping after the header line, as a safety cap in case a
+# malformed/unusual layout never hits a blank line or a recognized column
+# label to end the block naturally.
+_BUYER_BLOCK_MAX_LINES = 5
+_BUYER_BLOCK_START = re.compile(r"^(bill\s*to|ship\s*to)\b", re.I)
+
+
 def _guess_vendor(text: str) -> str:
-    for line in (text or "").splitlines():
-        line = line.strip()
+    """First entity-suffixed line NOT inside a "Bill To"/"Ship To" block.
+
+    Previously only the label line itself ("Bill To:") was skipped — the
+    buyer's company name on the following line(s) (the actual address
+    block) was not, so it could win as the "vendor" if it also happened to
+    contain an entity suffix (Ltd/Inc/Corp/...), swapping buyer and seller.
+    Now the whole block is skipped until a blank line, a recognized column
+    label, or the line-count cap ends it."""
+    in_buyer_block = False
+    buyer_block_lines = 0
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            in_buyer_block = False
+            continue
+        if _BUYER_BLOCK_START.match(line):
+            in_buyer_block = True
+            buyer_block_lines = 0
+            continue
+        if in_buyer_block:
+            buyer_block_lines += 1
+            if buyer_block_lines > _BUYER_BLOCK_MAX_LINES or _map_column_label(line):
+                in_buyer_block = False
+            else:
+                continue
         if len(line) < 4 or _SKIP_VENDOR_LINE.match(line) or "@" in line:
             continue
         if _VENDOR_ENTITY.search(line):
@@ -342,46 +429,136 @@ def _filled(value: Any) -> bool:
     return True
 
 
-def _coalesce_invoice(primary: Optional[dict[str, Any]], fallback: dict[str, Any]) -> dict[str, Any]:
-    """Keep LLM values when present; fill blanks from OCR heuristics."""
+# Top-level fields gated by _is_grounded — plain text/number values that
+# should plausibly trace back to the source OCR text. `doc_type` (a
+# classification, not an extracted value) and `line_items` (structural,
+# not meaningfully "grounded" the same way) are deliberately excluded.
+_GROUNDABLE_FIELDS = frozenset(
+    {
+        "invoice_number",
+        "po_number",
+        "vendor",
+        "total",
+        "currency",
+        "due_date",
+        "invoice_date",
+        "grn_number",
+        "matter_id",
+    }
+)
+
+
+def _norm_for_grounding(value: str) -> str:
+    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+
+
+def _is_grounded(value: Any, ocr_text: str) -> bool:
+    """Best-effort check that `value` plausibly traces back to the OCR
+    source text — a defense against LLM hallucination (code-review finding
+    #6). The extraction prompt already instructs the model not to invent
+    values, but nothing previously verified that server-side; a fabricated
+    invoice number/vendor/total was accepted purely because it was
+    non-empty. Deliberately lenient (normalized substring match, not exact)
+    to tolerate OCR/LLM formatting differences — this catches clear
+    fabrication, not minor rendering variance."""
+    if not ocr_text or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        digits = "".join(ch for ch in str(value) if ch.isdigit())
+        if len(digits) < 3:
+            # Too short to mean anything against a substring search —
+            # treat as ungrounded rather than risk a trivial false accept.
+            return False
+        return digits in "".join(ch for ch in ocr_text if ch.isdigit())
+    if not isinstance(value, str):
+        return True
+    norm_value = _norm_for_grounding(value)
+    if not norm_value:
+        return False
+    return norm_value in _norm_for_grounding(ocr_text)
+
+
+def _coalesce_invoice(
+    primary: Optional[dict[str, Any]], fallback: dict[str, Any], ocr_text: str = ""
+) -> tuple[dict[str, Any], list[str]]:
+    """Keep LLM values when present AND grounded in the OCR text; fill
+    blanks (or reject ungrounded LLM values) from OCR heuristics instead.
+    Returns (invoice, ungrounded_field_names) — the caller logs/records
+    the rejected fields; they never appear inside the invoice dict itself
+    (which flows straight into ezfb/EZOFIS metadata writes)."""
     if not primary:
-        return fallback
+        return fallback, []
     merged = dict(fallback)
+    ungrounded: list[str] = []
     for key, value in primary.items():
         if key == "invoice_header":
             continue
-        if _filled(value):
-            merged[key] = value
+        if not _filled(value):
+            continue
+        if key in _GROUNDABLE_FIELDS and not _is_grounded(value, ocr_text):
+            ungrounded.append(key)
+            continue
+        merged[key] = value
     header = {
         **(fallback.get("invoice_header") or {}),
         **(primary.get("invoice_header") or {}),
     }
     if header:
         merged["invoice_header"] = header
-    return _as_invoice(merged)
+    return _as_invoice(merged), ungrounded
 
 
-async def _structure_with_llm(ctx: ApContext, ocr_text: str) -> Optional[dict[str, Any]]:
+async def _structure_with_llm(
+    ctx: ApContext, ocr_text: str
+) -> tuple[Optional[dict[str, Any]], Optional[dict[str, Any]]]:
+    """Returns (invoice_or_None, usage_or_None). `usage` is populated
+    whenever the LLM call itself succeeded — even if the response content
+    couldn't be parsed into an invoice — so token spend is never silently
+    dropped (code-review finding #5: this call's usage previously wasn't
+    captured anywhere, and EzofisClient.charge_activity_credit hardcoded
+    inputTokens/outputTokens/totalTokens to 0 regardless)."""
     if ctx.llm is None or not ocr_text.strip():
-        return None
+        return None, None
+    usage: Optional[dict[str, Any]] = None
     try:
         result = await ctx.llm.chat_completion(
             [
                 {"role": "system", "content": _EXTRACT_PROMPT},
                 {"role": "user", "content": ocr_text[:12000]},
-            ]
+            ],
+            **(ctx.llm_overrides or {}),
         )
+        usage = (result or {}).get("usage")
         content = (result or {}).get("content") or ""
         start = content.find("{")
         end = content.rfind("}")
         if start < 0 or end <= start:
-            return None
+            return None, usage
         parsed = json.loads(content[start : end + 1])
         if isinstance(parsed, dict):
-            return _as_invoice(parsed)
+            return _as_invoice(parsed), usage
     except Exception:
         logger.warning("ap_extract_llm_failed", extra={"error_type": "llm"})
-    return None
+    return None, usage
+
+
+def _completeness(invoice: dict[str, Any]) -> dict[str, Any]:
+    """How much of a usable invoice extraction actually found — read by
+    ApSkillRunner.run to decide whether a run should report "completed" or
+    "completed_low_confidence" (code-review finding #3: a near-empty
+    extraction was previously reported identically to a clean one)."""
+    has_invoice_number = bool(field_text(invoice, "invoice_number"))
+    has_vendor = bool(field_text(invoice, "vendor"))
+    has_po_number = bool(field_text(invoice, "po_number"))
+    has_total = invoice.get("total") is not None
+    return {
+        "has_invoice_number": has_invoice_number,
+        "has_vendor": has_vendor,
+        "has_po_number": has_po_number,
+        "has_total": has_total,
+        "fields_found": sum((has_invoice_number, has_vendor, has_po_number, has_total)),
+        "fields_checked": 4,
+    }
 
 
 async def run(ctx: ApContext) -> ApSkillResult:
@@ -391,7 +568,13 @@ async def run(ctx: ApContext) -> ApSkillResult:
         ctx.invoice_json = invoice
         return ApSkillResult(
             skill_id=SKILL_ID,
-            data={"invoice": invoice, "source": "invoice_json", "ocr_text": ""},
+            data={
+                "invoice": invoice,
+                "source": "invoice_json",
+                "ocr_text": "",
+                "data_quality": _completeness(invoice),
+                "usage": None,
+            },
         )
 
     job = ctx.document_job or {}
@@ -426,14 +609,26 @@ async def run(ctx: ApContext) -> ApSkillResult:
                 "page_raw": pages.raw,
             },
         )
-    except (ToolExecutionError, OcrEngineError, Exception) as exc:
+    except Exception as exc:
+        # Code-review finding #18: ToolExecutionError/OcrEngineError are
+        # both already subclasses of Exception — listing them alongside it
+        # was a redundant no-op that just obscured which failures are
+        # "expected" (an OCR/tool integration error) vs. genuinely
+        # unexpected (a bug). Both still land here either way; the intent
+        # (OCR failure -> ApSkillError, never crash the whole run) is
+        # unchanged.
         logger.warning("ap_extract_ocr_failed", extra={"error_type": type(exc).__name__})
         raise ApSkillError("OCR extraction failed for this document.") from exc
 
     ocr_text = (ocr_tool.get("text") or "").strip() if isinstance(ocr_tool, dict) else ""
     heuristic = _heuristic_from_text(ocr_text) if ocr_text else _as_invoice({})
-    llm_invoice = await _structure_with_llm(ctx, ocr_text)
-    invoice = _coalesce_invoice(llm_invoice, heuristic)
+    llm_invoice, llm_usage = await _structure_with_llm(ctx, ocr_text)
+    invoice, ungrounded_fields = _coalesce_invoice(llm_invoice, heuristic, ocr_text)
+    if ungrounded_fields:
+        logger.warning(
+            "ap_extract_llm_ungrounded_field",
+            extra={"fields": ungrounded_fields},
+        )
     if not (
         invoice.get("invoice_number")
         or invoice.get("po_number")
@@ -460,5 +655,8 @@ async def run(ctx: ApContext) -> ApSkillResult:
             "source": source,
             "ocr_text": ocr_text,
             "ocr_mock": bool(ocr_tool.get("mock")) if isinstance(ocr_tool, dict) else False,
+            "data_quality": _completeness(invoice),
+            "usage": llm_usage,
+            "llm_ungrounded_fields": ungrounded_fields,
         },
     )

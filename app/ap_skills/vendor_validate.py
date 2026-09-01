@@ -47,6 +47,12 @@ async def run(ctx: ApContext) -> ApSkillResult:
                     "match_score": round(name_similarity(vendor, expected) * 100, 2),
                     "source": "vendor_master",
                     "reason": f"Vendor master status {status}.",
+                    # Code-review finding #4: EzofisClient.lookup_vendor
+                    # returns a fabricated record when live EZOFIS login
+                    # isn't configured — surfaced here so finalize_decision
+                    # can avoid treating a mocked vendor match as reliable
+                    # enough to auto-approve/post to the real workflow.
+                    "mock": bool(master.get("mock")),
                 },
             )
 

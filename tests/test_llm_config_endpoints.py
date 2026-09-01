@@ -308,6 +308,119 @@ async def test_llm_adapter_passes_api_version_for_azure(monkeypatch):
     assert captured["drop_params"] is True
 
 
+async def test_chat_completion_per_call_override_does_not_mutate_adapter(monkeypatch):
+    """`model=`/`api_base=`/`api_key=`/`api_version=` passed into
+    chat_completion() apply to that call only — the adapter's own
+    configured default (self._model etc.) is left untouched. This is what
+    lets per-tenant/per-request model selection (app/catalog/tenant_llm.py,
+    AP/OCR document jobs) work without calling configure()."""
+    from app.config import Settings
+    from app.llm.adapter import LLMAdapter
+
+    captured = {}
+
+    async def fake_acompletion(**kwargs):
+        captured.update(kwargs)
+
+        class _Choice:
+            class message:
+                content = "ok"
+
+        class _Response:
+            choices = [_Choice()]
+            usage = None
+
+        return _Response()
+
+    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+
+    adapter = LLMAdapter(Settings())
+    adapter.configure(model="gpt-5-nano", api_base="https://default/v1", api_key="default-key")
+
+    await adapter.chat_completion(
+        [{"role": "user", "content": "hi"}],
+        model="azure/gpt-4.1-nano",
+        api_base="https://tenant-a/v1",
+        api_key="tenant-a-key",
+        api_version="2025-01-01-preview",
+    )
+
+    assert captured["model"] == "azure/gpt-4.1-nano"
+    assert captured["api_base"] == "https://tenant-a/v1"
+    assert captured["api_key"] == "tenant-a-key"
+    # The adapter's own configured default is unchanged by the override.
+    described = adapter.describe()
+    assert described["model"] == "gpt-5-nano"
+    assert described["api_base"] == "https://default/v1"
+
+
+async def test_concurrent_chat_completion_calls_never_cross_contaminate_overrides(monkeypatch):
+    """Two concurrent chat_completion() calls on the SAME shared adapter,
+    each with a different per-call override, must each see only their own
+    model/api_base/api_key — never the other's. This is the exact race
+    that used to exist when tenant/preset selection mutated the shared
+    adapter (`configure()`) before making the call: between the mutate and
+    the actual provider call, a concurrent request for a different
+    tenant could reconfigure the same adapter first."""
+    import asyncio
+
+    from app.config import Settings
+    from app.llm.adapter import LLMAdapter
+
+    calls: list[dict] = []
+    release = asyncio.Event()
+
+    async def fake_acompletion(**kwargs):
+        # Force both calls to be in-flight at the same time before either
+        # returns, so any shared-state mutation between them would show up.
+        if len(calls) == 0:
+            calls.append(kwargs)
+            await release.wait()
+        else:
+            calls.append(kwargs)
+            release.set()
+
+        class _Choice:
+            class message:
+                content = "ok"
+
+        class _Response:
+            choices = [_Choice()]
+            usage = None
+
+        return _Response()
+
+    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
+
+    adapter = LLMAdapter(Settings())
+    adapter.configure(model="gpt-5-nano", api_base="https://default/v1", api_key="default-key")
+
+    tenant_a = adapter.chat_completion(
+        [{"role": "user", "content": "a"}],
+        model="azure/gpt-4.1-nano",
+        api_base="https://tenant-a/v1",
+        api_key="tenant-a-key",
+    )
+    tenant_b = adapter.chat_completion(
+        [{"role": "user", "content": "b"}],
+        model="azure/gpt-4o-mini",
+        api_base="https://tenant-b/v1",
+        api_key="tenant-b-key",
+    )
+    await asyncio.gather(tenant_a, tenant_b)
+
+    assert len(calls) == 2
+    models_used = {c["model"] for c in calls}
+    assert models_used == {"azure/gpt-4.1-nano", "azure/gpt-4o-mini"}
+    for call in calls:
+        if call["model"] == "azure/gpt-4.1-nano":
+            assert call["api_base"] == "https://tenant-a/v1"
+            assert call["api_key"] == "tenant-a-key"
+        else:
+            assert call["api_base"] == "https://tenant-b/v1"
+            assert call["api_key"] == "tenant-b-key"
+
+
 async def test_llm_adapter_does_not_double_prefix_an_already_prefixed_model(monkeypatch):
     from app.config import Settings
     from app.llm.adapter import LLMAdapter

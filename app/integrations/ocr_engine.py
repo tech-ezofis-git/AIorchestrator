@@ -235,6 +235,12 @@ class OcrEngineClient:
                 "AZURE_STORAGE_CONNECTION_STRING is required for relative blob paths."
             )
         url = f"https://{blob_ref.account_url_host}/{blob_ref.container}/{blob_ref.blob_name}"
+        if blob_ref.query:
+            # Code-review finding #8: a SAS token (sv=...&sig=...) lives in
+            # this query string — dropping it here made every SAS-secured
+            # blob URL 401/403 unless AZURE_STORAGE_CONNECTION_STRING was
+            # also set (in which case this HTTP path isn't even used).
+            url = f"{url}?{blob_ref.query}"
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 response = await client.get(url)
@@ -262,6 +268,17 @@ class OcrEngineClient:
             async with service:
                 blob = service.get_blob_client(blob_ref.container, blob_ref.blob_name)
                 stream = await blob.download_blob()
+                # Code-review finding #7: `download_blob()` returns as soon
+                # as the initial response headers arrive — `.size` (from
+                # Content-Length) is known here, BEFORE `readall()` pulls
+                # the actual body into memory. Reject an oversized blob at
+                # this point instead of buffering the whole thing first
+                # and only then discovering it's too big (a resource-
+                # exhaustion / wasted-bandwidth risk for any caller-
+                # supplied filepath).
+                blob_size = getattr(stream, "size", None)
+                if blob_size is not None and blob_size > max_bytes:
+                    raise OcrEngineError("Blob exceeds size limit.")
                 data = await stream.readall()
         except OcrEngineError:
             raise
@@ -269,6 +286,8 @@ class OcrEngineClient:
             logger.warning("blob_sdk_download_failed", extra={"error_type": type(exc).__name__})
             raise OcrEngineError("Failed to download blob from Azure Storage.") from exc
 
+        # Backstop in case `.size` wasn't available (older SDK versions,
+        # or a stream without a known Content-Length up front).
         if len(data) > max_bytes:
             raise OcrEngineError("Downloaded blob exceeds size limit.")
         if not data:

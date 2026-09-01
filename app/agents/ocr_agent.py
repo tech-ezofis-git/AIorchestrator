@@ -17,7 +17,7 @@ from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
 from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
-from app.llm.model_presets import apply_preset, get_preset, preset_has_api_key
+from app.llm.model_presets import resolve_preset_overrides
 from app.llm.runtime_models import RuntimeModelSelection
 from app.ocr_skills.extract_fields import run as extract_fields_skill
 
@@ -40,6 +40,10 @@ class OcrAgent:
         self._settings = settings
         self._llm = llm_adapter
         self._runtime_models = runtime_models
+        # Kept for constructor back-compat; catalog tenant/agent model
+        # resolution now happens once, centrally, in app/main.py's chat()
+        # handler (document_job["llm_overrides"]/["llm_fallback_overrides"])
+        # rather than being re-resolved (and re-applied by mutation) here.
         self._catalog = catalog_store
 
     def _llm_for_skill(self) -> LLMAdapter:
@@ -144,45 +148,42 @@ class OcrAgent:
         if self._composer is None and self._llm is None:
             raise RuntimeError("ResponseComposer or LLM adapter is required for OCR document jobs.")
 
-        model = (job.get("model") or "").strip() or None
-        # Prefer explicit payload.model; otherwise keep the shared adapter
-        # (default preset chosen in the Test Console / startup).
-        primary = model
-        restore_preset = (
-            self._runtime_models.default_preset_id if self._runtime_models else None
-        )
-        tenant_fallback = job.get("catalog_fallback_preset")
-        if not tenant_fallback:
-            tenant_fallback = await self._apply_tenant_models(job.get("tenant_id"))
+        # Resolved once, up front, by app/main.py's chat() handler (explicit
+        # payload.model, tenant/catalog selection, or a snapshot of the
+        # adapter's current default) — passed straight into
+        # chat_completion(**overrides) per call, never by mutating the
+        # shared adapter (see app/llm/adapter.py's chat_completion
+        # docstring for why that used to be unsafe under concurrency).
+        overrides = dict(job.get("llm_overrides") or {})
+        fallback_overrides = job.get("llm_fallback_overrides")
 
         try:
-            try:
-                synthesized = await extract_fields_skill(
-                    llm=self._llm_for_skill(),
-                    instruction=instruction,
-                    ocr_text=ocr_text,
-                    parameters=parameters,
-                    tableparameters=tableparameters,
-                    page_label=pages.label(),
-                    model=primary,
-                    max_recommended_fields=settings.ocr_max_recommended_fields,
-                )
-            except Exception as exc:
-                logger.warning("ocr_structuring_primary_failed", extra={"model": primary or "default"})
-                synthesized = await self._structure_with_fallback(
-                    instruction=instruction,
-                    ocr_text=ocr_text,
-                    parameters=parameters,
-                    tableparameters=tableparameters,
-                    page_label=pages.label(),
-                    primary=primary,
-                    max_recommended_fields=settings.ocr_max_recommended_fields,
-                    error=exc,
-                    fallback_preset=tenant_fallback,
-                )
-        finally:
-            if restore_preset and self._llm is not None and get_preset(restore_preset):
-                apply_preset(self._llm, restore_preset)
+            synthesized = await extract_fields_skill(
+                llm=self._llm_for_skill(),
+                instruction=instruction,
+                ocr_text=ocr_text,
+                parameters=parameters,
+                tableparameters=tableparameters,
+                page_label=pages.label(),
+                max_recommended_fields=settings.ocr_max_recommended_fields,
+                llm_overrides=overrides,
+            )
+        except Exception as exc:
+            logger.warning(
+                "ocr_structuring_primary_failed",
+                extra={"model": overrides.get("model") or "default"},
+            )
+            synthesized = await self._structure_with_fallback(
+                instruction=instruction,
+                ocr_text=ocr_text,
+                parameters=parameters,
+                tableparameters=tableparameters,
+                page_label=pages.label(),
+                primary_overrides=overrides,
+                max_recommended_fields=settings.ocr_max_recommended_fields,
+                error=exc,
+                fallback_overrides=fallback_overrides,
+            )
 
         fields = synthesized["ocrResult"]
         table_result = synthesized.get("tableResult")
@@ -207,31 +208,6 @@ class OcrAgent:
             "ocr_result": body,
         }
 
-    async def _apply_tenant_models(self, tenant_id: Optional[str]) -> Optional[str]:
-        """Switch the shared adapter to this tenant's catalog default. Returns fallback slug."""
-        tenant_id = (tenant_id or "").strip()
-        if not tenant_id or self._catalog is None or self._llm is None:
-            return None
-        try:
-            mapping = await self._catalog.resolve_tenant_agent_llm_slugs(tenant_id, "ocr")
-        except Exception:
-            logger.warning("ocr_tenant_models_lookup_failed")
-            return None
-        if not mapping:
-            return None
-        default_slug = (mapping.get("default_slug") or "").strip()
-        fallback_slug = (mapping.get("fallback_slug") or "").strip() or None
-        if default_slug and get_preset(default_slug) and preset_has_api_key(default_slug):
-            apply_preset(self._llm, default_slug)
-        else:
-            logger.warning(
-                "ocr_tenant_default_skipped",
-                extra={"default_slug": default_slug or None},
-            )
-        if fallback_slug and get_preset(fallback_slug) and preset_has_api_key(fallback_slug):
-            return fallback_slug
-        return None
-
     async def _structure_with_fallback(
         self,
         *,
@@ -240,25 +216,28 @@ class OcrAgent:
         parameters: list[str],
         tableparameters: list[str],
         page_label: str,
-        primary: Optional[str],
+        primary_overrides: dict[str, Any],
         max_recommended_fields: int,
         error: Exception,
-        fallback_preset: Optional[str] = None,
+        fallback_overrides: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """Retry OCR structuring on the tenant/console/env fallback model."""
+        """Retry OCR structuring on the tenant/console/env fallback model.
+
+        Every tier here is a plain overrides dict passed into
+        `chat_completion(**overrides)` for that one retry call — none of
+        this mutates the shared adapter (see app/llm/adapter.py)."""
         settings = self._cfg()
-        if not fallback_preset:
-            fallback_preset = (
+        if not fallback_overrides:
+            console_fallback = (
                 self._runtime_models.fallback_preset_id if self._runtime_models else None
             )
-        env_fallback = (settings.ocr_fallback_model or "").strip() or None
+            fallback_overrides = resolve_preset_overrides(console_fallback) if console_fallback else None
 
-        if fallback_preset and self._llm is not None and get_preset(fallback_preset):
+        if fallback_overrides:
             logger.warning(
                 "ocr_structuring_fallback_preset",
-                extra={"fallback_preset_id": fallback_preset},
+                extra={"model": fallback_overrides.get("model")},
             )
-            apply_preset(self._llm, fallback_preset)
             return await extract_fields_skill(
                 llm=self._llm_for_skill(),
                 instruction=instruction,
@@ -266,15 +245,20 @@ class OcrAgent:
                 parameters=parameters,
                 tableparameters=tableparameters,
                 page_label=page_label,
-                model=None,
                 max_recommended_fields=max_recommended_fields,
+                llm_overrides=fallback_overrides,
             )
 
-        if env_fallback and env_fallback != primary:
+        env_fallback = (settings.ocr_fallback_model or "").strip() or None
+        primary_model = primary_overrides.get("model")
+        if env_fallback and env_fallback != primary_model:
             logger.warning(
                 "ocr_structuring_fallback_model",
                 extra={"model": env_fallback},
             )
+            # Keep the primary call's api_base/api_key/api_version (if any
+            # were explicitly resolved) and only swap the model name.
+            env_overrides = {**primary_overrides, "model": env_fallback}
             return await extract_fields_skill(
                 llm=self._llm_for_skill(),
                 instruction=instruction,
@@ -282,8 +266,8 @@ class OcrAgent:
                 parameters=parameters,
                 tableparameters=tableparameters,
                 page_label=page_label,
-                model=env_fallback,
                 max_recommended_fields=max_recommended_fields,
+                llm_overrides=env_overrides,
             )
 
         raise error

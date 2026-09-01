@@ -11,7 +11,35 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+import httpx
+
+from app.ap_skills.store import ApStoreUnavailableError
+
 logger = logging.getLogger("orchestrator.ap.metadata")
+
+# Code-review finding #18: every `store.*` call in this module is wrapped
+# in a best-effort `except Exception` (by design — a lookup/write failure
+# here degrades gracefully rather than aborting the AP run), but that
+# previously logged EVERY failure at `warning`, indistinguishable from a
+# genuinely unexpected bug (e.g. an AttributeError from a code defect).
+# `ApStore` itself already catches its own DB errors and either returns a
+# soft value or raises `ApStoreUnavailableError` — so that (an expected,
+# "the store/DB is down" shape) is the only thing that should land here at
+# `warning`; anything else logs louder and with a traceback.
+_EXPECTED_BEST_EFFORT_ERRORS = (
+    ApStoreUnavailableError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+    httpx.HTTPError,
+)
+
+
+def _log_best_effort_failure(event: str, exc: Exception, **extra: Any) -> None:
+    if isinstance(exc, _EXPECTED_BEST_EFFORT_ERRORS):
+        logger.warning(event, extra={"error_type": type(exc).__name__, **extra})
+    else:
+        logger.error(event, extra={"error_type": type(exc).__name__, **extra}, exc_info=True)
 
 # (output label, source keys). Duplicate labels for aliasing across form styles.
 _HEADER_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -358,8 +386,8 @@ def build_ap_metadata_fields(
     return fields
 
 
-def _parse_form_entry_id(raw: Any) -> Optional[str]:
-    """Return canonical GUID string for ezfb form entry id, or None."""
+def _parse_form_entry_id(raw: Any) -> Optional[str | int]:
+    """GUID string for V6 uuid PK, or positive int for legacy numeric ezfb item_id."""
     if raw is None or raw == "":
         return None
     text = str(raw).strip()
@@ -367,7 +395,11 @@ def _parse_form_entry_id(raw: Any) -> Optional[str]:
         return None
     if _is_guid(text):
         return _hyphenate_guid(text)
-    return None
+    try:
+        value = int(text)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 def _is_guid(value: str) -> bool:
@@ -504,7 +536,7 @@ async def push_extract_metadata(
                 form_id=resolved_form_id,
             )
         except Exception as exc:
-            logger.warning("ap_ticket_lookup_failed", extra={"error_type": type(exc).__name__})
+            _log_best_effort_failure("ap_ticket_lookup_failed", exc)
             looked = None
         if isinstance(looked, dict) and looked:
             if not workflow_id:
@@ -537,9 +569,9 @@ async def push_extract_metadata(
                 form_id=resolved_form_id,
             )
         except Exception as exc:
-            logger.warning("ap_ezfb_latest_lookup_failed", extra={"error_type": type(exc).__name__})
+            _log_best_effort_failure("ap_ezfb_latest_lookup_failed", exc)
             latest = None
-        if latest is not None:
+        if latest:
             parsed_latest = _parse_form_entry_id(latest)
             if parsed_latest:
                 form_entry_id = parsed_latest
@@ -556,7 +588,7 @@ async def push_extract_metadata(
                 form_controls=form_controls,
             )
         except Exception as exc:
-            logger.warning("ap_ezfb_write_error", extra={"error_type": type(exc).__name__})
+            _log_best_effort_failure("ap_ezfb_write_error", exc)
             ezfb_write = {"ok": False, "reason": type(exc).__name__}
 
     repo_write: Optional[dict[str, Any]] = None
@@ -571,7 +603,7 @@ async def push_extract_metadata(
                     repository_id=repository_id,
                 )
             except Exception as exc:
-                logger.warning("ap_repo_latest_lookup_failed", extra={"error_type": type(exc).__name__})
+                _log_best_effort_failure("ap_repo_latest_lookup_failed", exc)
                 latest_repo = None
             if latest_repo:
                 repo_item = str(latest_repo).strip()
@@ -589,7 +621,7 @@ async def push_extract_metadata(
                     form_controls=form_controls,
                 )
             except Exception as exc:
-                logger.warning("ap_repo_write_error", extra={"error_type": type(exc).__name__})
+                _log_best_effort_failure("ap_repo_write_error", exc)
                 repo_write = {"ok": False, "reason": type(exc).__name__}
 
     sql_ok = bool((ezfb_write and ezfb_write.get("ok")) or (repo_write and repo_write.get("ok")))
@@ -613,7 +645,7 @@ async def push_extract_metadata(
         )
         return {
             "ok": sql_ok,
-            "skipped": True,
+            "skipped": not sql_ok,
             "reason": "missing_form_ids",
             "ezfb": ezfb_write,
             "repository": repo_write,
@@ -682,10 +714,7 @@ async def push_extract_metadata(
                 out["ok"] = True
         return out
     except Exception as exc:
-        logger.warning(
-            "ap_metadata_push_error",
-            extra={"error_type": type(exc).__name__},
-        )
+        _log_best_effort_failure("ap_metadata_push_error", exc)
         return {
             "ok": sql_ok,
             "error_type": type(exc).__name__,

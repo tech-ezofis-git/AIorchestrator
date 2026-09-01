@@ -218,6 +218,18 @@ def test_repository_item_match_sql_uses_itemid_and_filepath():
     assert "$5" in sql
 
 
+def test_ezfb_pk_match_guid_and_integer():
+    from app.ap_skills.store import ezfb_pk_match
+
+    guid_sql, guid_val = ezfb_pk_match('"item_id"', "bbbbbbbb-1111-2222-3333-444444444444", 3)
+    assert "::uuid" not in guid_sql
+    assert "replace(" in guid_sql
+    assert guid_val == "bbbbbbbb111122223333444444444444"
+    int_sql, int_val = ezfb_pk_match('"item_id"', "12", 3)
+    assert int_sql == '"item_id" = $3'
+    assert int_val == 12
+
+
 def test_row_mostly_empty_ignores_repository_file_columns():
     from app.ap_skills.store import _REPO_SKIP_COLS, _row_mostly_empty
 
@@ -405,6 +417,49 @@ async def test_apply_repository_item_fields_matches_uniqueidentifier_and_filepat
     assert "FilePath" in sql
     assert executed["args"][-1] == "9c06f76216f54c009560d50e1f6b3eac"
     assert "INV-2026-6001" in executed["args"]
+
+
+@pytest.mark.asyncio
+async def test_apply_ezfb_item_fields_matches_guid_without_uuid_cast():
+    from app.ap_skills.store import ApStore
+
+    executed = {}
+
+    class FakeDb:
+        async def fetch(self, query, *args):
+            q = query.lower()
+            if "information_schema.columns" in q:
+                return [
+                    {"column_name": "item_id", "data_type": "USER-DEFINED", "udt_name": "uniqueidentifier"},
+                    {"column_name": "Invoice_No", "data_type": "text", "udt_name": "text"},
+                ]
+            if "information_schema.tables" in q:
+                return [{"table_schema": "dbo", "table_name": "ezfb_36b59e8d_items"}]
+            return []
+
+        async def fetchrow(self, query, *args):
+            q = query.lower()
+            if "information_schema.tables" in q:
+                return {"table_schema": "dbo", "table_name": "ezfb_36b59e8d_items"}
+            if "select 1" in q:
+                return {"ok": 1}
+            return None
+
+        async def execute(self, query, *args):
+            executed["sql"] = query
+            executed["args"] = args
+            return "UPDATE 1"
+
+    result = await ApStore(FakeDb()).apply_ezfb_item_fields(
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+        form_id="36b59e8d-1dd3-400c-9ab5-7c887841f343",
+        form_entry_id="bbbbbbbb-1111-2222-3333-444444444444",
+        header={"Invoice No": "INV-2026-6001"},
+    )
+    assert result["ok"] is True
+    assert "::uuid" not in executed["sql"]
+    assert "replace(" in executed["sql"]
+    assert executed["args"][-1] == "bbbbbbbb111122223333444444444444"
 
 
 @pytest.mark.asyncio
@@ -716,7 +771,8 @@ Canada CAD
         "currency": "",
         "invoice_header": {"Supplier #": "APC-T001", "INCOTERM": "FCA"},
     }
-    merged = _coalesce_invoice(llm_miss, inv)
+    merged, ungrounded = _coalesce_invoice(llm_miss, inv, ocr_text)
+    assert ungrounded == []
     assert merged["invoice_number"] == "INV-2026-6001"
     assert merged["po_number"] == "PO-60001"
     fields = build_ap_metadata_fields(merged)

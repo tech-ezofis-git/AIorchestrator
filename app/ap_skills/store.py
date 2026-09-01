@@ -7,7 +7,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional, Protocol
 
+import asyncpg
+
 from app.ap_skills.tenant_db import ezfb_items_table, repository_items_table
+from app.ap_skills.types import ApRunInProgressError
 from app.data_import.ident import quote_ident
 
 logger = logging.getLogger("orchestrator.ap_store")
@@ -213,6 +216,17 @@ def _sql_compact_guid_expr(ident: str) -> str:
     )
 
 
+def ezfb_pk_match(pk_ident: str, form_entry_id: Any, param: int) -> tuple[str, Any]:
+    """WHERE for ezfb item PK: compact GUID (Babelfish uniqueidentifier) or integer."""
+    text = str(form_entry_id or "").strip()
+    compact = guid_compact(text)
+    if len(compact) == 32 and all(ch in "0123456789abcdef" for ch in compact):
+        return f"{_sql_compact_guid_expr(pk_ident)} = ${param}", compact
+    if text.isdigit() and int(text) > 0:
+        return f"{pk_ident} = ${param}", int(text)
+    return f"CAST({pk_ident} AS text) = ${param}", text
+
+
 def repository_item_match_sql(columns: list[str], types: Optional[dict[str, str]], param: int) -> str:
     """WHERE compact GUID equals any item-key column, or appears in FilePath/FileName."""
     clauses: list[str] = []
@@ -393,6 +407,20 @@ class ApStore:
                 _json_dump(requested_skills),
                 "running",
             )
+        except asyncpg.exceptions.UniqueViolationError as exc:
+            # ap_runs_tenant_item_active_idx (partial unique index on
+            # (tenant_id, item_key) WHERE status='running') — a genuinely
+            # concurrent duplicate submission for the same item, not a
+            # store outage. See ApSkillRunner.run for the sequential-retry
+            # (dedupe-window) case, which is handled separately via
+            # get_latest_run below and never reaches this INSERT at all.
+            logger.info(
+                "ap_run_conflict_detected",
+                extra={"tenant_id": tenant_id, "item_key": item_key},
+            )
+            raise ApRunInProgressError(
+                "An AP run is already in progress for this item."
+            ) from exc
         except Exception as exc:
             logger.warning(
                 "ap_run_insert_failed",
@@ -400,6 +428,40 @@ class ApStore:
             )
             raise ApStoreUnavailableError("AP store is currently unavailable.") from exc
         return run_id
+
+    async def get_latest_run(self, *, tenant_id: str, item_key: str) -> Optional[dict[str, Any]]:
+        """Most recent ap_runs row for this item, or None. Used by
+        ApSkillRunner.run's dedupe-window short-circuit — a soft-fail
+        lookup (never raises ApStoreUnavailableError): if it can't be
+        answered, the caller just proceeds as if there were no prior run,
+        same conservative default as list_skill_artifacts."""
+        try:
+            db = await self._db(tenant_id)
+            row = await db.fetchrow(
+                "SELECT id, status, decision, credits_charged, data_quality, "
+                "created_at, finished_at FROM ap_runs "
+                "WHERE tenant_id = $1 AND item_key = $2 "
+                "ORDER BY created_at DESC LIMIT 1",
+                tenant_id,
+                item_key,
+            )
+        except Exception as exc:
+            logger.warning(
+                "ap_run_latest_lookup_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
+            return None
+        if row is None:
+            return None
+        return {
+            "id": str(_row_get(row, "id")),
+            "status": _row_get(row, "status"),
+            "decision": _row_get(row, "decision"),
+            "credits_charged": _row_get(row, "credits_charged") or 0,
+            "data_quality": _json_load(_row_get(row, "data_quality")),
+            "created_at": _row_get(row, "created_at"),
+            "finished_at": _row_get(row, "finished_at"),
+        }
 
     async def finish_run(
         self,
@@ -409,16 +471,18 @@ class ApStore:
         status: str,
         decision: Optional[str],
         credits_charged: int,
+        data_quality: Optional[dict[str, Any]] = None,
     ) -> None:
         try:
             db = await self._db(tenant_id)
             await db.execute(
                 "UPDATE ap_runs SET status = $2, decision = $3, credits_charged = $4, "
-                "finished_at = now() WHERE id = $1",
+                "data_quality = $5::jsonb, finished_at = now() WHERE id = $1",
                 run_id,
                 status,
                 decision,
                 credits_charged,
+                _json_dump(data_quality) if data_quality is not None else None,
             )
         except Exception as exc:
             logger.warning(
@@ -755,7 +819,11 @@ class ApStore:
         if entry not in (None, ""):
             text_entry = str(entry).strip()
             if text_entry:
-                out["form_entry_id"] = guid_hyphenate(text_entry) if len("".join(ch for ch in text_entry if ch.isalnum())) == 32 else text_entry
+                hyphenated = guid_hyphenate(text_entry)
+                if hyphenated:
+                    out["form_entry_id"] = hyphenated
+                elif text_entry.isdigit() and int(text_entry) > 0:
+                    out["form_entry_id"] = int(text_entry)
         return out
 
     async def fetch_ticket_context(
@@ -962,10 +1030,11 @@ class ApStore:
                 )
                 if pk is None:
                     continue
+                clause, value = ezfb_pk_match(quote_ident(pk), form_entry_id, 1)
                 hit = await db.fetchrow(
                     f"SELECT 1 AS ok FROM {quote_ident(schema)}.{quote_ident(name)} "
-                    f"WHERE {quote_ident(pk)} = $1::uuid LIMIT 1",
-                    str(form_entry_id).strip(),
+                    f"WHERE {clause} LIMIT 1",
+                    value,
                 )
             except Exception:
                 continue
@@ -998,9 +1067,14 @@ class ApStore:
             pk = next((c for c in columns if c.lower() in {"item_id", "itemid", "id"}), None)
             if pk is None:
                 return None
+            order_col = next(
+                (c for c in columns if c.lower() in {"createdat", "created_at", pk.lower()}),
+                pk,
+            )
+            order_actual = next(c for c in columns if c.lower() == order_col.lower())
             row = await db.fetchrow(
                 f"SELECT * FROM {quote_ident(schema)}.{quote_ident(real_table)} "
-                f"ORDER BY {quote_ident(pk)} DESC LIMIT 1"
+                f"ORDER BY {quote_ident(order_actual)} DESC LIMIT 1"
             )
             if row is None:
                 return None
@@ -1011,7 +1085,12 @@ class ApStore:
             if pk_val is None:
                 return None
             text = str(pk_val).strip()
-            return guid_hyphenate(text) if text else None
+            hyphenated = guid_hyphenate(text)
+            if hyphenated:
+                return hyphenated
+            if text.isdigit() and int(text) > 0:
+                return text
+            return None
         except Exception as exc:
             logger.warning(
                 "ap_ezfb_latest_empty_failed",
@@ -1074,6 +1153,9 @@ class ApStore:
             if pk is None:
                 return {"ok": False, "updated": 0, "reason": "no_pk", "table": real_table}
             pk_actual = next(c for c in columns if c.lower() == pk.lower())
+            clause, pk_value = ezfb_pk_match(
+                quote_ident(pk_actual), form_entry_id, len(assignments) + 1
+            )
             sets = []
             args: list[Any] = []
             for index, (col, value) in enumerate(assignments.items(), start=1):
@@ -1081,11 +1163,11 @@ class ApStore:
                 args.append(value if isinstance(value, str) else (
                     json.dumps(value, default=str) if isinstance(value, (dict, list)) else str(value)
                 ))
-            args.append(str(form_entry_id).strip())
+            args.append(pk_value)
             sql = (
                 f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
                 f"SET {', '.join(sets)} "
-                f"WHERE {quote_ident(pk_actual)} = ${len(args)}::uuid"
+                f"WHERE {clause}"
             )
             status = await db.execute(sql, *args)
             updated = _execute_rowcount(status)

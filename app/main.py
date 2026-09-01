@@ -113,6 +113,7 @@ from app.catalog.store import CatalogConflictError, CatalogStore, CatalogStoreUn
 from app.catalog.tenant_llm import apply_tenant_agent_llm, restore_runtime_llm
 from app.catalog.url import catalog_pool_kwargs, normalize_catalog_url
 from app.ap_skills.store import ApStoreUnavailableError
+from app.ap_skills.types import ApRunInProgressError
 from app.ap_skills.tenant_db import ApTenantDbPools
 from app.agents.forecast_agent import ForecastAgent
 from app.agents.insight_agent import InsightAgent
@@ -208,6 +209,7 @@ _EVENT_TYPE_BY_STATUS_CODE = {
     400: "content_filtered",
     403: "permission_denied",
     404: "action_not_found",
+    409: "ap_run_conflict",
     429: "rate_limited",
     501: "not_implemented",
     502: "upstream_error",
@@ -218,7 +220,7 @@ _EVENT_TYPE_BY_STATUS_CODE = {
 def _status_bucket(status_code: int) -> str:
     if status_code < 300:
         return "success"
-    if status_code in (400, 403, 404, 429):
+    if status_code in (400, 403, 404, 409, 429):
         return "rejected"
     return "error"
 
@@ -1950,6 +1952,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "matter_master_id": payload.payload.matter_master_id if payload.payload else None,
             "form_id": payload.payload.form_id if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,
+            "force_rerun": bool(payload.payload.force_rerun) if payload.payload else False,
         }
 
     # Gate 3: permission check — needs the classified intent, so it can
@@ -1968,13 +1971,51 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     explicit_model = (payload.payload.model if payload.payload else None) or ""
     if document_job is not None and document_job.get("model"):
         explicit_model = str(document_job.get("model") or explicit_model)
-    catalog_fallback_preset = None
-    if tenant_id and catalog_store is not None and not (explicit_model or "").strip():
-        catalog_fallback_preset = await apply_tenant_agent_llm(
-            catalog_store, llm_adapter, tenant_id, agent_slug
-        )
-        if catalog_fallback_preset and document_job is not None:
-            document_job["catalog_fallback_preset"] = catalog_fallback_preset
+
+    # Resolve this request's tenant/agent model selection once, up front.
+    # Document-job agents (AP, OCR) get a frozen override dict carried on
+    # document_job, passed straight into LLMAdapter.chat_completion(...,
+    # **overrides) for that call only — never by mutating the one shared
+    # LLMAdapter instance, which used to race against any other concurrent
+    # request touching the same adapter (a different tenant, a different
+    # intent, a Console Save) between the mutate and the actual
+    # chat_completion() call, many awaits later. See
+    # app/catalog/tenant_llm.py's module docstring for the full reasoning.
+    # Every OTHER intent (Chat/Search/Summary/Insight/Prompt/Mail, and
+    # legacy AP invoice-status Q&A) still reads the shared adapter's
+    # ambient `self._model` etc. — unchanged, pre-existing behavior; only
+    # AP/OCR document jobs are hardened against the race here.
+    resolved_tenant_llm: dict = {"default_slug": None, "fallback_slug": None, "overrides": None, "fallback_overrides": None}
+    llm_overrides: Optional[dict] = None
+    llm_fallback_overrides: Optional[dict] = None
+    if explicit_model.strip():
+        llm_overrides = {"model": explicit_model.strip()}
+    elif tenant_id and catalog_store is not None:
+        resolved_tenant_llm = await apply_tenant_agent_llm(catalog_store, tenant_id, agent_slug)
+        llm_overrides = resolved_tenant_llm["overrides"]
+        llm_fallback_overrides = resolved_tenant_llm["fallback_overrides"]
+        # Code-review (ultrareview) finding: this used to mutate the shared
+        # adapter unconditionally here, with a comment claiming it only
+        # applied to "non-document-job" intents — but nothing actually
+        # gated it on `document_job is None`, so an AP/OCR request (which
+        # always carries a tenant_id) mutated the ONE shared LLMAdapter too,
+        # even though it doesn't need to (it already gets a race-safe
+        # explicit override via document_job["llm_overrides"] below). That
+        # mutation was pure liability for any OTHER concurrent request
+        # relying on the adapter's ambient default (Chat/Search/Summary/
+        # Insight/Prompt/Mail, and legacy AP invoice-status Q&A) — exactly
+        # the race this whole mechanism exists to close. Only mutate for
+        # the non-document-job intents that still need it.
+        if document_job is None and resolved_tenant_llm["default_slug"]:
+            apply_preset(llm_adapter, resolved_tenant_llm["default_slug"])
+    if llm_overrides is None:
+        # No explicit/tenant selection — freeze the adapter's current
+        # process-wide default so a document-job request's LLM call(s) are
+        # immune to a concurrent request changing that default mid-flight.
+        llm_overrides = llm_adapter.snapshot_overrides()
+    if document_job is not None:
+        document_job["llm_overrides"] = llm_overrides
+        document_job["llm_fallback_overrides"] = llm_fallback_overrides
 
     try:
         if custom_agent:
@@ -1993,6 +2034,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 history=history,
                 document_job=document_job,
             )
+    except ApRunInProgressError as exc:
+        # More specific than ValueError (its own base) — must be caught
+        # first. A genuinely concurrent duplicate AP submission for the
+        # same item, not a validation error or a store outage.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMAdapterError as exc:
@@ -2018,6 +2064,9 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     except NotImplementedError as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     finally:
+        # Only undoes the backward-compat mutation above (tenant catalog
+        # default applied for non-document-job intents) — AP/OCR never
+        # depend on this, since they always pass explicit overrides.
         restore_runtime_llm(llm_adapter, runtime_models)
 
     try:

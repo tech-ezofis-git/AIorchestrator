@@ -28,6 +28,13 @@ async def run(ctx: ApContext) -> ApSkillResult:
 
     duplicate_of = None
     score = 0.0
+    # Code-review finding #11: same-vendor-but-different-invoice-number
+    # (a likely typo'd/reformatted duplicate) — a real, distinct, weaker
+    # signal from an exact invoice-number match, tracked separately so
+    # finalize_decision can downgrade a decision on it without treating it
+    # as a certain duplicate the way an exact match is.
+    possible_duplicate_of = None
+    possible_duplicate_score = 0.0
     for prior in history:
         if not isinstance(prior, dict):
             continue
@@ -41,7 +48,13 @@ async def run(ctx: ApContext) -> ApSkillResult:
             break
         prior_vendor = field_text(prior_inv, "vendor", "supplier")
         if invoice_number and prior_no and name_similarity(vendor, prior_vendor) >= 0.85:
-            continue
+            combined = round(
+                (name_similarity(vendor, prior_vendor) + name_similarity(invoice_number, prior_no)) / 2,
+                4,
+            )
+            if combined > possible_duplicate_score:
+                possible_duplicate_of = prior_no
+                possible_duplicate_score = combined
 
     return ApSkillResult(
         skill_id=SKILL_ID,
@@ -49,6 +62,8 @@ async def run(ctx: ApContext) -> ApSkillResult:
             "is_duplicate_invoice": bool(duplicate_of),
             "duplicate_of": duplicate_of,
             "duplicate_score": score,
+            "possible_duplicate_of": possible_duplicate_of,
+            "possible_duplicate_score": possible_duplicate_score,
             "checked_history": len(history),
         },
     )

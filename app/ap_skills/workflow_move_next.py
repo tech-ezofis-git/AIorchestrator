@@ -1,9 +1,12 @@
 """workflow_move_next — complete workflow step / Non-Invoice route."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from app.ap_skills.types import ApContext, ApSkillResult, invoice_from
+
+logger = logging.getLogger("orchestrator.ap.workflow_move_next")
 
 SKILL_ID = "workflow_move_next"
 
@@ -84,6 +87,27 @@ async def run(ctx: ApContext) -> ApSkillResult:
             data={
                 "skipped": True,
                 "reason": "no finalize_decision artifact",
+                "instance_id": instance_id,
+                "ok": True,
+            },
+        )
+
+    if finalize.get("used_mock_data"):
+        # Code-review findings #3/#4: never advance the real workflow off
+        # a decision that finalize_decision itself flagged as reached
+        # using a mocked PO/vendor master record (EZOFIS live login not
+        # configured, or the live lookup came back empty) — same
+        # not-reliable-enough-to-post treatment as a missing instance_id.
+        logger.warning(
+            "ap_move_next_skipped_mock_data",
+            extra={"instance_id": instance_id},
+        )
+        return ApSkillResult(
+            skill_id=SKILL_ID,
+            credits=0,
+            data={
+                "skipped": True,
+                "reason": "used_mock_data",
                 "instance_id": instance_id,
                 "ok": True,
             },

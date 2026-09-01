@@ -77,7 +77,10 @@ class ApAgent:
             result = await self._skill_runner().run(session_id=session_id, document_job=document_job)
             return {
                 "reply": json.dumps(result, default=str),
-                "usage": None,
+                # Code-review finding #5: real per-run LLM token usage
+                # (extract_invoice's structuring call), not a hardcoded
+                # None — see ApSkillRunner.run's token_usage_total.
+                "usage": result.get("token_usage"),
                 "ap_result": result,
                 "invoice_reference": None,
             }

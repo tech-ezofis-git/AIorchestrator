@@ -154,7 +154,7 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices(
             "form_entry_id", "formentryId", "formEntryId", "FormEntryId", "FormEntryID"
         ),
-        description="Form entry id (numeric or string) for move-next and ezfb row write-back.",
+        description="Form entry id (GUID or positive integer) for move-next and ezfb row write-back.",
     )
     process_id: Optional[str] = Field(
         default=None,
@@ -176,6 +176,18 @@ class DocumentPayload(BaseModel):
         default=None,
         validation_alias=AliasChoices("form_id", "formid", "formId", "FormId", "FormID"),
         description="PO/document form id (GUID or numeric). Selects ezfb_{token}_items on the tenant DB.",
+    )
+    force_rerun: Optional[bool] = Field(
+        default=None,
+        description=(
+            "AP only. Bypasses the default-pipeline dedupe window "
+            "(a resubmission for the same tenant_id+item_id shortly after "
+            "a prior run completed normally short-circuits to that run's "
+            "stored result instead of re-running skills/re-charging "
+            "credits) — set true for a deliberate re-extraction, e.g. "
+            "after fixing bad source data. Never needed for payload.skills "
+            "re-runs of specific skills, which always actually run."
+        ),
     )
 
     @field_validator(

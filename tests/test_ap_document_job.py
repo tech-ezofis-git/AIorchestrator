@@ -1,5 +1,6 @@
 """AP document job on POST /chat intent=ap — skills, credits, re-runs, legacy Q&A."""
 import json
+from datetime import datetime, timezone
 
 SAMPLE_INVOICE = {
     "invoice_number": "INV-100",
@@ -484,7 +485,7 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
     assert body["instanceId"] == "inst-guid"
     assert body["repositoryId"] == "repo-guid"
     assert body["transactionId"] == "100"
-    assert body["formEntryId"] == 42
+    assert body["formEntryId"] == "42"
     assert body["itemId"] == "item-guid"
     assert body["processId"] == "200"
     assert body["activityid"] == "DR97uPaylMtwahvi3XYr_"
@@ -906,3 +907,269 @@ def test_hangfire_pascal_case_ids_reach_metadata_patch(client, monkeypatch):
     assert call["form_id"] == "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
     assert call["form_entry_id"] == 11
     assert call["fields"]["invoice_header"]["Invoice No"] == "INV-100"
+
+
+def test_extract_invoice_llm_token_usage_is_captured_and_billed(client, monkeypatch):
+    """Code-review finding #5: extract_invoice's LLM structuring call's
+    real token usage must reach both ap_result.token_usage and the credit
+    charge sent for that skill — previously always hardcoded to 0/None."""
+    charge_calls = []
+
+    async def tracking_charge(self, **kwargs):
+        charge_calls.append(kwargs)
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    async def fake_completion(self, messages, **_kwargs):
+        return {
+            "content": json.dumps(
+                {
+                    "invoice_number": "INV-9",
+                    "vendor": "Acme",
+                    "po_number": "PO-1",
+                    "total": 42.0,
+                }
+            ),
+            "usage": {"prompt_tokens": 123, "completion_tokens": 45, "total_tokens": 168},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-token-usage",
+            "intent": "ap",
+            "payload": {"tenant_id": "t-ap", "item_id": "doc-tokens", "filepath": "invoice.pdf"},
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["ap_result"]
+    assert result["token_usage"] == {
+        "prompt_tokens": 123,
+        "completion_tokens": 45,
+        "total_tokens": 168,
+    }
+
+    extract_charge = next(c for c in charge_calls if c["skill_id"] == "extract_invoice")
+    assert extract_charge["usage"] == {"prompt_tokens": 123, "completion_tokens": 45, "total_tokens": 168}
+    # Skills that made no LLM call bill no tokens.
+    other_charge = next(c for c in charge_calls if c["skill_id"] == "po_match")
+    assert other_charge["usage"] is None
+
+
+def test_credit_ledger_write_failure_does_not_abort_the_run(client, monkeypatch):
+    """Code-review finding #9: the external credit charge already happened
+    by the time record_credit() runs — a local DB failure there must not
+    abort/fail the whole run (which would risk a double-charge on retry).
+    It's logged for reconciliation and the run completes normally."""
+    charges = []
+
+    async def tracking_charge(self, **kwargs):
+        charges.append(kwargs["skill_id"])
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    from app.ap_skills.store import ApStore
+
+    original_record_credit = ApStore.record_credit
+    calls = {"n": 0}
+
+    async def flaky_record_credit(self, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated ledger write failure")
+        return await original_record_credit(self, **kwargs)
+
+    monkeypatch.setattr(ApStore, "record_credit", flaky_record_credit)
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s-orphan", "intent": "ap", "payload": _ap_payload(item_id="doc-orphan")},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["ap_result"]
+    assert result["status"] == "completed"
+    # All 6 skills still charged externally despite the first ledger write failing.
+    assert len(charges) == 6
+    assert result["credits_charged"] == 6
+
+
+def test_empty_extraction_reports_completed_low_confidence(client, monkeypatch):
+    """Code-review finding #3: a run whose extraction found none of
+    {invoice_number, vendor, po_number, total} must not report the same
+    "completed" status as a clean run — it should degrade to
+    "completed_low_confidence" instead of silently looking fully processed."""
+    charges = []
+
+    async def tracking_charge(self, **kwargs):
+        charges.append(kwargs["skill_id"])
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-low-confidence",
+            "intent": "ap",
+            "payload": _ap_payload(item_id="doc-empty", invoice_json={"doc_type": "invoice"}),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["ap_result"]
+    assert result["status"] == "completed_low_confidence"
+    assert result["data_quality"]["low_confidence"] is True
+    assert result["data_quality"]["extract"]["fields_found"] == 0
+
+    run_row = client.fake_db_pool.ap_runs[result["run_id"]]
+    assert run_row["status"] == "completed_low_confidence"
+    assert run_row["data_quality"]["low_confidence"] is True
+
+
+def test_normal_extraction_still_reports_completed(client, monkeypatch):
+    """A clean extraction (all 4 key fields found) keeps reporting plain
+    "completed" — the quality gate must not downgrade a good run."""
+
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    response = client.post(
+        "/chat",
+        json={"session_id": "s-normal-quality", "intent": "ap", "payload": _ap_payload(item_id="doc-good")},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["ap_result"]
+    assert result["status"] == "completed"
+    assert result["data_quality"]["low_confidence"] is False
+
+
+def test_duplicate_default_pipeline_submission_is_deduplicated_within_window(client, monkeypatch):
+    """Code-review finding #2: resubmitting the SAME default pipeline for
+    the same (tenant_id, item_id) shortly after it already completed must
+    not re-run skills, re-push metadata, or re-charge credits — it should
+    short-circuit to the prior run's stored result."""
+    charges = []
+
+    async def tracking_charge(self, **kwargs):
+        charges.append(kwargs["skill_id"])
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    first = client.post(
+        "/chat",
+        json={"session_id": "s-dedupe-1", "intent": "ap", "payload": _ap_payload(item_id="doc-dedupe")},
+    )
+    assert first.status_code == 200, first.text
+    first_result = first.json()["ap_result"]
+    assert len(charges) == 6
+    charges.clear()
+
+    second = client.post(
+        "/chat",
+        # Different session_id — AP identity is (tenant_id, item_key), not
+        # session_id, so this is exactly the "retried by a different
+        # caller/session" scenario the finding describes.
+        json={"session_id": "s-dedupe-2", "intent": "ap", "payload": _ap_payload(item_id="doc-dedupe")},
+    )
+    assert second.status_code == 200, second.text
+    second_result = second.json()["ap_result"]
+
+    assert second_result["deduplicated"] is True
+    assert second_result["run_id"] == first_result["run_id"]
+    assert second_result["decision"] == first_result["decision"]
+    assert second_result["credits_charged"] == first_result["credits_charged"]
+    # No skill re-executed, no credit re-charged, no metadata re-pushed.
+    assert charges == []
+
+
+def test_force_rerun_bypasses_dedupe_window(client, monkeypatch):
+    """payload.force_rerun explicitly opts out of the dedupe short-circuit
+    — a legitimate re-extraction (e.g. after fixing bad source data) must
+    still actually run."""
+    charges = []
+
+    async def tracking_charge(self, **kwargs):
+        charges.append(kwargs["skill_id"])
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    first = client.post(
+        "/chat",
+        json={"session_id": "s-force-1", "intent": "ap", "payload": _ap_payload(item_id="doc-force")},
+    )
+    assert first.status_code == 200, first.text
+    charges.clear()
+
+    second = client.post(
+        "/chat",
+        json={
+            "session_id": "s-force-2",
+            "intent": "ap",
+            "payload": _ap_payload(item_id="doc-force", force_rerun=True),
+        },
+    )
+    assert second.status_code == 200, second.text
+    second_result = second.json()["ap_result"]
+
+    assert "deduplicated" not in second_result
+    assert len(charges) == 6
+
+
+def test_concurrent_duplicate_ap_submission_returns_409(client):
+    """Code-review finding #2: a genuinely concurrent duplicate — a second
+    submission for the same (tenant_id, item_id) while the first is still
+    "running" — is rejected outright (409), never silently double-run."""
+    client.fake_db_pool.ap_runs["already-running"] = {
+        "id": "already-running",
+        "session_id": "s-race-1",
+        "tenant_id": "t-ap",
+        "item_key": "doc-race",
+        "requested_skills": [],
+        "status": "running",
+        "decision": None,
+        "credits_charged": 0,
+        "data_quality": None,
+        "created_at": datetime.now(timezone.utc),
+        "finished_at": None,
+    }
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-race-2",
+            "intent": "ap",
+            "payload": _ap_payload(item_id="doc-race"),
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert "already in progress" in response.json()["detail"]

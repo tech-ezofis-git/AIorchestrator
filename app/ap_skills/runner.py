@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from app.ap_skills import (
@@ -30,9 +31,61 @@ from app.ap_skills.types import (
     ApSkillResult,
 )
 
+# ApRunInProgressError (raised by ApStore.create_run on a concurrent
+# duplicate) is intentionally not imported/caught here — it propagates
+# straight through ApSkillRunner.run to the caller (app/main.py maps it to
+# HTTP 409), same as ApStoreUnavailableError does.
+
 logger = logging.getLogger("orchestrator.ap_runner")
 
 SkillFn = Callable[[ApContext], Awaitable[ApSkillResult]]
+
+# Statuses a prior run can be in for it to be eligible for the
+# dedupe-window short-circuit below — a "running" run is handled entirely
+# by the DB-level unique-index conflict in ApStore.create_run instead (a
+# genuinely concurrent duplicate, rejected outright, no window involved).
+_DEDUPE_ELIGIBLE_STATUSES = frozenset({"completed", "completed_low_confidence"})
+
+
+def _run_status_and_quality(
+    artifacts: dict[str, Any], finalize: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
+    """Decide ap_runs.status + the data_quality summary persisted with it.
+
+    Code-review finding #3: a run used to report "completed" regardless of
+    whether the extraction/decision was actually usable. Now reports
+    "completed_low_confidence" instead when either: the extraction found
+    none of {invoice_number, vendor, po_number, total} (extract_invoice's
+    own `data_quality`, see app/ap_skills/extract_invoice.py's
+    `_completeness`), or finalize_decision flagged that a mocked PO/vendor
+    master record was used to reach its decision (finding #4,
+    `finalize_decision`'s `used_mock_data`). `workflow_move_next` reads
+    `finalize_decision.used_mock_data` directly to decide whether to skip
+    posting to the real workflow off unreliable data."""
+    extract = artifacts.get("extract_invoice") or {}
+    extract_quality = extract.get("data_quality") or {}
+    ocr_mock = bool(extract.get("ocr_mock"))
+    used_mock_data = bool(finalize.get("used_mock_data"))
+    low_confidence = bool(extract_quality) and extract_quality.get("fields_found", 0) == 0
+    status = "completed_low_confidence" if (low_confidence or used_mock_data) else "completed"
+    data_quality = {
+        "extract": extract_quality or None,
+        "ocr_mock": ocr_mock,
+        "used_mock_data": used_mock_data,
+        "low_confidence": low_confidence,
+    }
+    return status, data_quality
+
+
+def _within_dedupe_window(finished_at: Any, window_seconds: float) -> bool:
+    if finished_at is None or window_seconds <= 0:
+        return False
+    if not isinstance(finished_at, datetime):
+        return False
+    if finished_at.tzinfo is None:
+        finished_at = finished_at.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - finished_at).total_seconds()
+    return 0 <= age <= window_seconds
 
 REGISTRY: dict[str, SkillFn] = {
     extract_invoice.SKILL_ID: extract_invoice.run,
@@ -94,12 +147,67 @@ class ApSkillRunner:
         if requested is not None and not isinstance(requested, list):
             raise ApSkillError("payload.skills must be a list of skill ids.")
 
+        # Code-review finding #2: a retried/duplicate submission of the
+        # DEFAULT pipeline (payload.skills omitted) for the same item
+        # shortly after a prior run already completed re-runs every skill,
+        # re-pushes metadata, and re-charges credits. Short-circuit to
+        # that prior run's stored result instead, unless the caller
+        # explicitly asks to force a fresh run (payload.force_rerun) — e.g.
+        # a legitimate re-extraction after fixing bad source data. Never
+        # applies when `skills` was explicitly requested: that's AP's
+        # documented "re-run one skill from stored artifacts" feature
+        # (a deliberately different operation, not a duplicate submission)
+        # and must always actually run. A genuinely concurrent duplicate
+        # (still "running") is a separate case, handled below by
+        # create_run's unique-index conflict, not by this window.
+        #
+        # (ultrareview fix: this now runs BEFORE resolve_skills/
+        # maybe_reorder — it used to run after, so a duplicate submission
+        # still paid for the optional LLM planner reorder call
+        # (AP_LLM_PLANNER) every time before being short-circuited, only
+        # to discard the reordered list on the dedupe path.)
+        if requested is None and not document_job.get("force_rerun"):
+            latest_run = await self._store.get_latest_run(tenant_id=tenant_id, item_key=item_key)
+            if (
+                latest_run
+                and latest_run.get("status") in _DEDUPE_ELIGIBLE_STATUSES
+                and _within_dedupe_window(
+                    latest_run.get("finished_at"),
+                    float(getattr(self._settings, "ap_dedupe_window_seconds", 300) or 300),
+                )
+            ):
+                artifacts = await self._store.load_artifacts(tenant_id=tenant_id, item_key=item_key)
+                logger.info(
+                    "ap_run_deduplicated",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "item_key": item_key,
+                        "source_run_id": latest_run["id"],
+                    },
+                )
+                return {
+                    "run_id": latest_run["id"],
+                    "tenant_id": tenant_id,
+                    "item_key": item_key,
+                    "skills_run": list(artifacts.keys()),
+                    "credits_charged": latest_run.get("credits_charged") or 0,
+                    "decision": latest_run.get("decision"),
+                    "status": latest_run.get("status"),
+                    "data_quality": latest_run.get("data_quality"),
+                    # No new LLM call was made — this run's own token spend
+                    # is 0 by definition, not a lost/uncaptured figure.
+                    "token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    "artifacts": artifacts,
+                    "deduplicated": True,
+                }
+
         # null skills → DEFAULT_SKILL_ORDER; list → exactly those ids.
         skills = resolve_skills(requested=requested)
         skills = await maybe_reorder(
             skills,
             llm=self._llm,
             use_planner=bool(getattr(self._settings, "ap_llm_planner", False)) and requested is None,
+            llm_overrides=document_job.get("llm_overrides"),
         )
         if not skills:
             raise ApSkillError("No skills to run.")
@@ -131,6 +239,8 @@ class ApSkillRunner:
             document_job=document_job,
             thresholds=thresholds,
             form_id=(str(document_job.get("form_id") or "").strip() or None),
+            llm_overrides=document_job.get("llm_overrides"),
+            llm_fallback_overrides=document_job.get("llm_fallback_overrides"),
         )
         try:
             ids = resolve_metadata_ids(document_job, ctx.form_id)
@@ -148,7 +258,7 @@ class ApSkillRunner:
                     tenant_id=tenant_id,
                     form_id=str(ids["form_id"]),
                 )
-                if latest is not None:
+                if latest:
                     document_job["form_entry_id"] = str(latest)
             merge_ids_into_job(document_job, resolve_metadata_ids(document_job, document_job.get("form_id")))
             ctx.form_id = str(document_job.get("form_id") or "").strip() or ctx.form_id
@@ -163,6 +273,11 @@ class ApSkillRunner:
         skills_run: list[str] = []
         credits_charged = 0
         identify = item_key
+        # Code-review finding #5: sums every skill's own real LLM usage
+        # (today, only extract_invoice makes an LLM call) into the run's
+        # total instead of the previous hardcoded 0 — see ApAgent.handle
+        # and EzofisClient.charge_activity_credit.
+        token_usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         try:
             for skill_id in skills:
                 handler = REGISTRY.get(skill_id)
@@ -171,6 +286,10 @@ class ApSkillRunner:
                 result = await handler(ctx)
                 artifact = dict(result.data)
                 ctx.artifacts[skill_id] = artifact
+                skill_usage = artifact.get("usage") if isinstance(artifact.get("usage"), dict) else None
+                if skill_usage:
+                    for key in token_usage_total:
+                        token_usage_total[key] += int(skill_usage.get(key) or 0)
                 if skill_id == "extract_invoice" and isinstance(artifact.get("invoice"), dict):
                     ctx.invoice_json = artifact["invoice"]
                     identify = (
@@ -204,26 +323,51 @@ class ApSkillRunner:
                         skill_id=skill_id,
                         identify=str(identify),
                         credits=result.credits,
+                        usage=skill_usage,
                     )
-                    await self._store.record_credit(
-                        run_id=run_id,
-                        tenant_id=tenant_id,
-                        skill_id=skill_id,
-                        credits=result.credits,
-                        identify=str(identify),
-                        status=charge_status,
-                    )
+                    try:
+                        await self._store.record_credit(
+                            run_id=run_id,
+                            tenant_id=tenant_id,
+                            skill_id=skill_id,
+                            credits=result.credits,
+                            identify=str(identify),
+                            status=charge_status,
+                        )
+                    except Exception as exc:
+                        # Code-review finding #9: the external credit
+                        # charge above already happened (or was
+                        # attempted) — if the LOCAL ledger write then
+                        # fails, the worse outcome is letting this
+                        # exception abort the whole run (marks it
+                        # "failed", and a caller retry would charge this
+                        # skill's credit AGAIN). Log loudly for manual
+                        # reconciliation instead and keep going; a missing
+                        # ledger row is recoverable, a double charge isn't.
+                        logger.error(
+                            "ap_credit_orphaned",
+                            extra={
+                                "run_id": run_id,
+                                "tenant_id": tenant_id,
+                                "skill_id": skill_id,
+                                "credits": result.credits,
+                                "charge_status": charge_status,
+                                "error_type": type(exc).__name__,
+                            },
+                        )
                     credits_charged += result.credits
                 skills_run.append(skill_id)
 
             finalize = ctx.artifacts.get("finalize_decision") or {}
             decision = finalize.get("decision") or (ctx.artifacts.get("po_match") or {}).get("decision")
+            status, data_quality = _run_status_and_quality(ctx.artifacts, finalize)
             await self._store.finish_run(
                 run_id=run_id,
                 tenant_id=tenant_id,
-                status="completed",
+                status=status,
                 decision=decision,
                 credits_charged=credits_charged,
+                data_quality=data_quality,
             )
             return {
                 "run_id": run_id,
@@ -232,6 +376,9 @@ class ApSkillRunner:
                 "skills_run": skills_run,
                 "credits_charged": credits_charged,
                 "decision": decision,
+                "status": status,
+                "data_quality": data_quality,
+                "token_usage": token_usage_total,
                 "artifacts": {k: ctx.artifacts[k] for k in skills_run},
             }
         except Exception:
@@ -247,13 +394,22 @@ class ApSkillRunner:
                 logger.warning("ap_run_fail_status_update_failed")
             raise
 
-    async def _charge(self, *, tenant_id: str, skill_id: str, identify: str, credits: int) -> str:
+    async def _charge(
+        self,
+        *,
+        tenant_id: str,
+        skill_id: str,
+        identify: str,
+        credits: int,
+        usage: Optional[dict[str, Any]] = None,
+    ) -> str:
         try:
             result = await self._ezofis.charge_activity_credit(
                 tenant_id=tenant_id,
                 skill_id=skill_id,
                 identify=identify,
                 credit=credits,
+                usage=usage,
             )
             if isinstance(result, dict) and result.get("status") == "failed":
                 return "failed"

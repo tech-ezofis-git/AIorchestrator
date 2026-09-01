@@ -58,6 +58,13 @@ class BlobRef:
     container: str
     blob_name: str
     account_url_host: Optional[str] = None  # e.g. v6storage.blob.core.windows.net
+    # Original query string (SAS token: sv=...&sig=...), if the caller
+    # supplied a full blob URL carrying one. Code-review finding #8: this
+    # used to be silently discarded, so the HTTP fallback path in
+    # OcrEngineClient._download_blob (used whenever
+    # AZURE_STORAGE_CONNECTION_STRING isn't set) reconstructed the URL
+    # with NO auth at all — any SAS-secured blob URL would 401/403.
+    query: Optional[str] = None
 
 
 _BLOB_URL_RE = re.compile(
@@ -110,10 +117,17 @@ def parse_blob_filepath(
         if not any(host.endswith(suffix.lower()) for suffix in allowed_host_suffixes if suffix):
             raise InvalidBlobPathError("Blob host is not allowlisted.")
         container = unquote(match.group("container"))
-        blob_name = unquote(match.group("blob").split("?", 1)[0])
+        raw_blob = match.group("blob")
+        blob_name, _, query = raw_blob.partition("?")
+        blob_name = unquote(blob_name)
         if not container or not blob_name:
             raise InvalidBlobPathError("Blob URL missing container or blob name.")
-        return BlobRef(container=container, blob_name=blob_name, account_url_host=host)
+        return BlobRef(
+            container=container,
+            blob_name=blob_name,
+            account_url_host=host,
+            query=query or None,
+        )
 
     blob_name = unquote(path.lstrip("/"))
     if not blob_name:

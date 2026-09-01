@@ -39,7 +39,7 @@ def test_legacy_ocr_keyword_path_still_works(client, monkeypatch):
 
 
 def test_explicit_ocr_document_job_locked_json_shape(client, monkeypatch):
-    async def fake_completion(self, messages):
+    async def fake_completion(self, messages, **_kwargs):
         return {
             "content": json.dumps(
                 {
@@ -106,8 +106,12 @@ def test_ocr_uses_tenant_catalog_default_model(client, monkeypatch):
 
     captured = []
 
-    async def fake_completion(self, messages):
-        captured.append(getattr(self, "_preset_id", None))
+    async def fake_completion(self, messages, **kwargs):
+        # Model selection is now passed explicitly per-call (never by
+        # mutating the shared adapter — see app/llm/adapter.py), so the
+        # tenant's resolved model shows up in the call's own kwargs, not
+        # in the adapter's own (unmutated) `_preset_id`/`_model`.
+        captured.append(kwargs.get("model"))
         return {
             "content": json.dumps(
                 {
@@ -138,7 +142,9 @@ def test_ocr_uses_tenant_catalog_default_model(client, monkeypatch):
         },
     )
     assert response.status_code == 200, response.text
-    assert captured == ["gpt-4.1-nano"]
+    assert captured == ["azure/gpt-4.1-nano"]
+    # The shared adapter's own process-wide default was never mutated by
+    # this tenant-scoped request — the console default is unaffected.
     assert client.get("/console/llm-config").json()["preset_id"] == "gpt-5-nano"
 
 
@@ -206,7 +212,7 @@ def test_unknown_intent_rejected(client):
 
 
 def test_multipart_file_upload_ocr(client, monkeypatch):
-    async def fake_completion(self, messages):
+    async def fake_completion(self, messages, **_kwargs):
         return {
             "content": json.dumps(
                 {

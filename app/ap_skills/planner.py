@@ -45,6 +45,7 @@ async def maybe_reorder(
     *,
     llm: Any,
     use_planner: bool,
+    llm_overrides: Optional[dict[str, Any]] = None,
 ) -> list[str]:
     if not use_planner or llm is None or len(skills) < 2:
         return skills
@@ -57,7 +58,8 @@ async def maybe_reorder(
                     "role": "user",
                     "content": json.dumps({"allowed_skills": skills}, default=str),
                 },
-            ]
+            ],
+            **(llm_overrides or {}),
         )
         content = (result or {}).get("content") or ""
         start = content.find("{")

@@ -212,8 +212,16 @@ class EzofisClient:
         identify: str,
         credit: int = 1,
         remarks: str = "",
+        usage: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """POST /billing/credits/update — 1 credit per executed AP skill."""
+        """POST /billing/credits/update — 1 credit per executed AP skill.
+
+        `usage` (prompt_tokens/completion_tokens/total_tokens, as returned
+        by LLMAdapter.chat_completion) is real per-skill token spend when
+        the skill made an LLM call — e.g. extract_invoice's structuring
+        call — and correctly 0 for every skill that made none. Previously
+        this always hardcoded 0 regardless (code-review finding #5)."""
+        usage = usage or {}
         payload = {
             "activityType": "AP_AGENT",
             "subActivity": skill_id,
@@ -221,9 +229,9 @@ class EzofisClient:
             "remarks": remarks or skill_id,
             "credit": int(credit),
             "env": self._cfg().ezofis_env,
-            "inputTokens": 0,
-            "outputTokens": 0,
-            "totalTokens": 0,
+            "inputTokens": int(usage.get("prompt_tokens") or 0),
+            "outputTokens": int(usage.get("completion_tokens") or 0),
+            "totalTokens": int(usage.get("total_tokens") or 0),
         }
         self.credit_charges.append({"tenant_id": tenant_id, **payload})
         if not self._live_enabled():

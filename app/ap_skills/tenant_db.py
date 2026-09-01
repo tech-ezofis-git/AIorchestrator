@@ -33,6 +33,7 @@ _AP_SCHEMA_SQL = (
         status TEXT NOT NULL DEFAULT 'running',
         decision TEXT,
         credits_charged INT NOT NULL DEFAULT 0,
+        data_quality JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         finished_at TIMESTAMPTZ
     )
@@ -40,6 +41,20 @@ _AP_SCHEMA_SQL = (
     """
     CREATE INDEX IF NOT EXISTS ap_runs_tenant_item_idx
         ON ap_runs (tenant_id, item_key, created_at DESC)
+    """,
+    # Code-review finding #2: at most one "running" ap_runs row per
+    # (tenant_id, item_key) at a time — a second concurrent create_run()
+    # for the same item fails this INSERT instead of silently double
+    # processing it (ApStore.create_run catches the conflict). Added here
+    # (not just db/migrations/0007_...sql) because ap_runs lives per-tenant
+    # in ezofis_Tenant_* and this function is what actually provisions/
+    # upgrades those databases.
+    """
+    ALTER TABLE ap_runs ADD COLUMN IF NOT EXISTS data_quality JSONB
+    """,
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS ap_runs_tenant_item_active_idx
+        ON ap_runs (tenant_id, item_key) WHERE status = 'running'
     """,
     """
     CREATE TABLE IF NOT EXISTS ap_skill_artifacts (

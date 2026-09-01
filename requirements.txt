@@ -11,6 +11,10 @@ azure-storage-blob==12.23.1
 pymupdf==1.26.7
 pandas==2.2.3
 openpyxl==3.1.5
+# AP invoice date normalization (app/ap_skills/extract_invoice.py). Already
+# installed transitively via pandas; pinned explicitly so AP's own use of
+# it doesn't silently depend on an unrelated library's dependency graph.
+python-dateutil==2.9.0.post0
 sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 reportlab==4.2.5

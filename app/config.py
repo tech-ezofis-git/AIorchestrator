@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     azure_east_us_api_key: Optional[str] = None
     # OpenAI-compatible Qwen host (ezqwenmac ACI) — default console preset.
     qwen_mac_api_key: Optional[str] = None
+    # Code-review finding #16: preset endpoints (api_base), unlike their
+    # keys above, used to be hardcoded literals in app/llm/model_presets.py
+    # with no env override at all — rotating/relocating any of these
+    # required a code change + redeploy. Defaults match today's hardcoded
+    # values (no behavior change out of the box); override via env/.env.
+    azure_south_india_api_base: str = "https://ezazopenai.openai.azure.com"
+    azure_east_us_api_base: str = "https://api-4omin-ez.openai.azure.com"
+    qwen_mac_api_base: str = "http://ezqwenmac-aci.canadacentral.azurecontainer.io:8080/v1"
     # Eval harness (Phase 5c) LLM-judge scoring — see app/evals/scoring.py.
     # Defaults to `llm_model` when unset (rule 4), so a stronger/different
     # model can judge than the one under test without requiring a second
@@ -128,6 +136,15 @@ class Settings(BaseSettings):
     # Workflow step name used to resolve ActivityId from workflow.WorkflowSteps
     # (same default as apagentv6). Env: AP_AGENT_WORKFLOW_STEP_NAME.
     ap_agent_workflow_step_name: str = "AP AGENT 1"
+    # De-duplication window (Phase 1 item 2, code-review finding #2): a
+    # retried/duplicate document job for the same (tenant_id, item_key)
+    # within this many seconds of a prior *completed* run short-circuits
+    # to that run's stored result instead of re-running skills, re-pushing
+    # metadata, and re-charging credits. A genuinely concurrent duplicate
+    # (a second run still "running" for the same item) is rejected
+    # outright regardless of this window — see ApStore.create_run /
+    # ApSkillRunner.run.
+    ap_dedupe_window_seconds: int = 300
 
     model_config = SettingsConfigDict(
         env_file=".env",

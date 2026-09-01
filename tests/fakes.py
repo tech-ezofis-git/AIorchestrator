@@ -15,6 +15,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import asyncpg
+
 
 def _parse_vector_literal(literal: str) -> list[float]:
     return [float(x) for x in literal.strip("[]").split(",") if x]
@@ -400,6 +402,22 @@ class FakeDBPool:
             return row
         if "INSERT INTO ap_runs" in query:
             run_id, session_id, tenant_id, item_key, requested_skills, status = args
+            if status == "running":
+                # Mirrors ap_runs_tenant_item_active_idx (partial unique
+                # index on (tenant_id, item_key) WHERE status='running') —
+                # see db/migrations/0007_ap_runs_dedupe_and_quality.sql /
+                # app/ap_skills/tenant_db.py's ensure_ap_schema.
+                conflict = any(
+                    row["tenant_id"] == tenant_id
+                    and row["item_key"] == item_key
+                    and row["status"] == "running"
+                    for row in self.ap_runs.values()
+                )
+                if conflict:
+                    raise asyncpg.exceptions.UniqueViolationError(
+                        'duplicate key value violates unique constraint '
+                        '"ap_runs_tenant_item_active_idx"'
+                    )
             row = {
                 "id": run_id,
                 "session_id": session_id,
@@ -409,9 +427,23 @@ class FakeDBPool:
                 "status": status,
                 "decision": None,
                 "credits_charged": 0,
+                "data_quality": None,
+                "created_at": datetime.now(timezone.utc),
+                "finished_at": None,
             }
             self.ap_runs[str(run_id)] = row
             return {"id": run_id}
+        if "FROM ap_runs" in query:
+            tenant_id, item_key = args
+            matches = [
+                row
+                for row in self.ap_runs.values()
+                if row["tenant_id"] == tenant_id and row["item_key"] == item_key
+            ]
+            if not matches:
+                return None
+            matches.sort(key=lambda row: row["created_at"], reverse=True)
+            return matches[0]
         if "FROM ap_tenant_plans" in query:
             tenant_id = args[0]
             return self.ap_tenant_plans.get(str(tenant_id))
@@ -509,7 +541,7 @@ class FakeDBPool:
         raise AssertionError(f"FakeDBPool.fetch: unrecognized query: {query!r}")
 
     async def execute(self, query: str, *args: Any):
-        if query.strip().upper().startswith("CREATE "):
+        if query.strip().upper().startswith("CREATE ") or query.strip().upper().startswith("ALTER "):
             return
         if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
             return self._handle_catalog_execute(query, args)
@@ -542,12 +574,14 @@ class FakeDBPool:
             )
             return
         if "UPDATE ap_runs" in query:
-            run_id, status, decision, credits_charged = args
+            run_id, status, decision, credits_charged, data_quality = args
             row = self.ap_runs.get(str(run_id))
             if row is not None:
                 row["status"] = status
                 row["decision"] = decision
                 row["credits_charged"] = credits_charged
+                row["data_quality"] = _json_val(data_quality) if data_quality is not None else None
+                row["finished_at"] = datetime.now(timezone.utc)
             return
         if "INSERT INTO ap_skill_artifacts" in query:
             run_id, tenant_id, item_key, skill_id, result_json = args

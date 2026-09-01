@@ -44,6 +44,15 @@ class ApSkillError(ValueError):
     """Fail-closed skill error — safe to surface as HTTP 400."""
 
 
+class ApRunInProgressError(ApSkillError):
+    """Raised when a document job targets a (tenant_id, item_key) that
+    already has a "running" ap_runs row — a genuinely concurrent duplicate
+    submission (a retry that arrived while the first attempt is still in
+    flight), not merely a sequential retry after completion (see
+    ApSkillRunner.run's dedupe-window short-circuit for that case
+    instead). Safe to surface as HTTP 409 — see app/main.py."""
+
+
 @dataclass
 class ApSkillResult:
     skill_id: str
@@ -67,6 +76,15 @@ class ApContext:
     document_job: dict[str, Any] = field(default_factory=dict)
     thresholds: dict[str, Any] = field(default_factory=dict)
     form_id: Optional[str] = None
+    # Frozen LLMAdapter.chat_completion(**overrides) dicts resolved once by
+    # app/main.py's chat() handler (tenant/explicit model, or a snapshot of
+    # the adapter's current default) — never None once ApSkillRunner builds
+    # this context. Every ctx.llm.chat_completion(...) call in this package
+    # MUST pass `**(ctx.llm_overrides or {})` (or the fallback dict on
+    # retry) rather than relying on the shared adapter's ambient state; see
+    # app/catalog/tenant_llm.py's module docstring for why.
+    llm_overrides: Optional[dict[str, Any]] = None
+    llm_fallback_overrides: Optional[dict[str, Any]] = None
 
 
 class ApSkill(Protocol):

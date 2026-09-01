@@ -248,6 +248,15 @@ class CatalogStore:
             api_key = ""
             if attr:
                 api_key = getattr(settings, attr, None) or ""
+            # Code-review finding #16: api_base is resolved the same way
+            # as api_key — an explicit literal on the preset wins,
+            # otherwise it comes from Settings/.env via api_base_attr
+            # (app/config.py), never a value hardcoded only here.
+            api_base = preset.get("api_base") or ""
+            if not api_base:
+                base_attr = preset.get("api_base_attr")
+                if base_attr:
+                    api_base = getattr(settings, base_attr, None) or ""
             await self._run(
                 "execute",
                 "INSERT INTO catalog_models (id, slug, label, model, api_base, api_key, api_version, region, model_version, enabled, sort_order) "
@@ -257,7 +266,7 @@ class CatalogStore:
                 preset["id"],
                 preset["label"],
                 preset["model"],
-                preset.get("api_base") or "",
+                api_base,
                 api_key,
                 preset.get("api_version") or None,
                 preset.get("region"),
