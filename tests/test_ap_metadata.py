@@ -259,6 +259,42 @@ def test_map_header_skips_repository_file_columns():
     assert "FilePath" not in assignments
 
 
+def test_repository_header_aliases_match_v6_item_columns():
+    from app.ap_skills.store import (
+        _REPO_SKIP_COLS,
+        _map_header_to_ezfb_columns,
+        expand_repository_header_aliases,
+    )
+
+    header = expand_repository_header_aliases(
+        {
+            "Invoice No": "INV-2026-6001",
+            "PO Number": "PO-60001",
+            "Vendor Name": "APEX INDUSTRIAL",
+            "Invoice Amount": "5203.65",
+            "Invoice Date": "2026-05-20",
+        }
+    )
+    assert header["InvoiceNumber"] == "INV-2026-6001"
+    assert header["PoNumber"] == "PO-60001"
+    assert header["Supplier"] == "APEX INDUSTRIAL"
+    assert header["Amount"] == "5203.65"
+    assert header["DocumentDate"] == "2026-05-20"
+
+    assignments = _map_header_to_ezfb_columns(
+        header=header,
+        columns=["id", "InvoiceNumber", "PoNumber", "Supplier", "Amount", "DocumentDate", "file_name"],
+        form_controls=[],
+        skip_columns=_REPO_SKIP_COLS,
+    )
+    assert assignments["InvoiceNumber"] == "INV-2026-6001"
+    assert assignments["PoNumber"] == "PO-60001"
+    assert assignments["Supplier"] == "APEX INDUSTRIAL"
+    assert assignments["Amount"] == "5203.65"
+    assert assignments["DocumentDate"] == "2026-05-20"
+    assert "file_name" not in assignments
+
+
 @pytest.mark.asyncio
 async def test_push_writes_ezfb_even_when_workflow_ids_missing():
     seen = {}

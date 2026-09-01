@@ -242,6 +242,63 @@ def repository_item_match_sql(columns: list[str], types: Optional[dict[str, str]
     return "(" + " OR ".join(clauses) + ")"
 
 
+# V6 repository custom columns are SanitizeColumnName(field.Name): spaces dropped
+# ("Invoice Number" → InvoiceNumber), not ezfb's Invoice_No. PATCH aliases live in
+# WorkflowApAgentMoveNextService.RepositoryFieldAliases.
+_REPO_HEADER_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("InvoiceNumber", ("Invoice No", "Invoice_No", "InvoiceNo", "Invoice Number", "invoice_number")),
+    ("InvoiceNo", ("Invoice No", "Invoice_No", "InvoiceNumber")),
+    ("PoNumber", ("PO Number", "PO_Number", "PONumber", "PO No", "po_number")),
+    ("PONumber", ("PO Number", "PO_Number", "PoNumber")),
+    ("Supplier", ("Vendor Name", "Vendor_Name", "Vendor", "Supplier")),
+    ("VendorName", ("Vendor Name", "Vendor_Name", "Supplier")),
+    ("Amount", ("Invoice Amount", "Invoice_Amount", "InvoiceAmount", "total")),
+    ("InvoiceAmount", ("Invoice Amount", "Amount")),
+    ("DocumentDate", ("Invoice Date", "Invoice_Date", "InvoiceDate")),
+    ("InvoiceDate", ("Invoice Date", "DocumentDate")),
+    ("PoDate", ("PO Date", "PO_Date", "PO DATE")),
+    ("MatchedStatus", ("Matched Status", "Matched_Status")),
+    ("DocumentType", ("Document Type", "Document_Type", "doc_type")),
+    ("Currency", ("Currency",)),
+    ("Terms", ("Terms", "TERMS")),
+    ("InvoiceTaxAmount", ("Invoice Tax Amount", "tax")),
+    ("SupplierAddress", ("Supplier Address", "Vendor Address")),
+    ("ShipToAddress", ("Ship To Address",)),
+    ("InvoiceExtractedLineItem", ("Invoice Extracted Line Item", "Line Item")),
+)
+
+
+def expand_repository_header_aliases(header: dict[str, Any]) -> dict[str, Any]:
+    """Copy invoice_header values onto V6 repository column names (InvoiceNumber, PoNumber, …)."""
+    expanded = dict(header or {})
+    by_norm = {
+        _norm_col(str(key)): value
+        for key, value in expanded.items()
+        if value not in (None, "")
+    }
+    for canonical, aliases in _REPO_HEADER_ALIASES:
+        value = by_norm.get(_norm_col(canonical))
+        if value in (None, ""):
+            for alias in aliases:
+                value = by_norm.get(_norm_col(alias))
+                if value not in (None, ""):
+                    break
+        if value in (None, ""):
+            continue
+        expanded[canonical] = value
+        for alias in aliases:
+            expanded.setdefault(alias, value)
+    return expanded
+
+
+def _sanitize_repo_column(name: str) -> str:
+    """V6 RepositorySqlHelper.SanitizeColumnName: drop spaces/punctuation, keep underscore."""
+    cleaned = "".join(ch for ch in str(name or "").strip() if ch.isalnum() or ch == "_")
+    if cleaned and cleaned[0].isdigit():
+        cleaned = "F_" + cleaned
+    return cleaned
+
+
 def _map_header_to_ezfb_columns(
     *,
     header: dict[str, Any],
@@ -268,6 +325,9 @@ def _map_header_to_ezfb_columns(
         _assign(str(key), value)
         if " " in str(key):
             _assign(str(key).replace(" ", "_"), value)
+        stripped = _sanitize_repo_column(str(key))
+        if stripped and stripped != str(key):
+            _assign(stripped, value)
 
     for control in form_controls or []:
         names = [
@@ -291,6 +351,9 @@ def _map_header_to_ezfb_columns(
             continue
         for name in names:
             _assign(name, value)
+            stripped = _sanitize_repo_column(name)
+            if stripped and stripped != name:
+                _assign(stripped, value)
         if names[0]:
             _assign(names[0].replace(" ", "_"), value)
 
@@ -1341,7 +1404,7 @@ class ApStore:
             )
             controls = list(form_controls or []) + repo_fields
             assignments = _map_header_to_ezfb_columns(
-                header=header,
+                header=expand_repository_header_aliases(header),
                 columns=columns,
                 form_controls=controls,
                 line_items=line_items,
