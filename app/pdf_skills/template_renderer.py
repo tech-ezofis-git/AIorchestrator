@@ -373,6 +373,8 @@ def auto_flatten_and_enrich_data(data: Any) -> Dict[str, Any]:
         "records",
         "cost_items",
         "port_call_costs",
+        "cost_details",
+        "Cost Details",
     ]
     items_list = None
     for ak in array_keys:
@@ -382,6 +384,12 @@ def auto_flatten_and_enrich_data(data: Any) -> Dict[str, Any]:
             break
 
     if items_list:
+        # Also store under Cost Details for table-based templates
+        if "Cost Details" not in enriched:
+            enriched["Cost Details"] = items_list
+        if "cost_details" not in enriched:
+            enriched["cost_details"] = items_list
+
         for idx, item in enumerate(items_list, start=1):
             if isinstance(item, dict):
                 # Number
@@ -394,6 +402,7 @@ def auto_flatten_and_enrich_data(data: Any) -> Dict[str, Any]:
                 srv = (
                     item.get("service")
                     or item.get("service_cost_item")
+                    or item.get("cost_head")
                     or item.get("item")
                     or item.get("description")
                     or item.get("name")
@@ -522,6 +531,109 @@ def auto_flatten_and_enrich_data(data: Any) -> Dict[str, Any]:
     if "berth" in data and "Terminal" not in enriched:
         enriched["Terminal"] = data["berth"]
 
+    # PDA specific alias mappings
+    if "Job No" not in enriched:
+        for alt in ["job_no", "jobno", "call_number", "document_no", "Document No.", "proforma_ref", "doc_no", "ref"]:
+            if alt in data and data[alt]:
+                enriched["Job No"] = str(data[alt])
+                break
+
+    if "Vessel" not in enriched:
+        for alt in ["vessel", "vessel_name", "Vessel Name", "ship_name"]:
+            if alt in data and data[alt]:
+                enriched["Vessel"] = str(data[alt])
+                break
+
+    if "Port" not in enriched:
+        for alt in ["port", "port_name", "port_of_call", "Port of Call", "portofcall"]:
+            if alt in data and data[alt]:
+                enriched["Port"] = str(data[alt])
+                break
+
+    if "Customer" not in enriched:
+        for alt in ["customer", "customer_name", "principal", "Customer / Principal", "client"]:
+            if alt in data and data[alt]:
+                enriched["Customer"] = str(data[alt])
+                break
+
+    if "Shipper" not in enriched:
+        for alt in ["shipper", "shipper_name", "charterer", "broker", "Shipper / Charterer / Broker", "agent_name", "agent"]:
+            if alt in data and data[alt]:
+                enriched["Shipper"] = str(data[alt])
+                break
+
+    if "IMO Number" not in enriched:
+        for alt in ["imo_number", "imo", "imonumber", "IMO"]:
+            if alt in data and data[alt]:
+                enriched["IMO Number"] = str(data[alt])
+                break
+
+    if "Payment Terms" not in enriched:
+        for alt in ["payment_terms", "paymentterms", "terms"]:
+            if alt in data and data[alt]:
+                enriched["Payment Terms"] = str(data[alt])
+                break
+
+    if "Voyage Number" not in enriched:
+        for alt in ["voyage_number", "voyage_no", "voyageno", "voyage"]:
+            if alt in data and data[alt]:
+                enriched["Voyage Number"] = str(data[alt])
+                break
+
+    if "Cost Verified" not in enriched:
+        for alt in ["cost_verified", "costverified", "verified"]:
+            if alt in data and data[alt]:
+                enriched["Cost Verified"] = str(data[alt])
+                break
+
+    if "Related PDA/FDA" not in enriched:
+        for alt in ["related_pda_fda", "related_pda", "related_fda", "related_doc"]:
+            if alt in data and data[alt]:
+                enriched["Related PDA/FDA"] = str(data[alt])
+                break
+
+    if "Terminal" not in enriched:
+        for alt in ["terminal", "berth", "terminal_berth"]:
+            if alt in data and data[alt]:
+                enriched["Terminal"] = str(data[alt])
+                break
+
+    if "ETA" not in enriched:
+        for alt in ["eta", "arrival_date", "estimated_arrival"]:
+            if alt in data and data[alt]:
+                enriched["ETA"] = str(data[alt])
+                break
+
+    if "ETD" not in enriched:
+        for alt in ["etd", "departure_date", "estimated_departure"]:
+            if alt in data and data[alt]:
+                enriched["ETD"] = str(data[alt])
+                break
+
+    if "Agency Appointment Date" not in enriched:
+        for alt in ["agency_appointment_date", "appointment_date", "agency_appointment", "document_date", "Document Date", "date"]:
+            if alt in data and data[alt]:
+                enriched["Agency Appointment Date"] = str(data[alt])
+                break
+
+    if "Cargo Type" not in enriched:
+        for alt in ["cargo_type", "cargo", "commodity"]:
+            if alt in data and data[alt]:
+                enriched["Cargo Type"] = str(data[alt])
+                break
+
+    if "Cargo Quantity" not in enriched:
+        for alt in ["cargo_quantity", "cargo_qty", "quantity"]:
+            if alt in data and data[alt]:
+                enriched["Cargo Quantity"] = str(data[alt])
+                break
+
+    if "Cargo Description" not in enriched:
+        for alt in ["cargo_description", "cargo_desc", "description"]:
+            if alt in data and data[alt]:
+                enriched["Cargo Description"] = str(data[alt])
+                break
+
     # PDA Summary
     if "estimated_subtotal" in data and "Estimated Subtotal" not in enriched:
         val = data["estimated_subtotal"]
@@ -549,6 +661,54 @@ def auto_flatten_and_enrich_data(data: Any) -> Dict[str, Any]:
     elif "required_prefunding" in data and "TOTAL PDA" not in enriched:
         val = data["required_prefunding"]
         enriched["TOTAL PDA"] = f"{float(val):,.2f}" if isinstance(val, (int, float)) else str(val)
+
+    # Auto-calculate summary totals from items if missing
+    if ("Estimated Subtotal" not in enriched or "TOTAL PDA" not in enriched) and items_list:
+        subtotal_sum = 0.0
+        tax_sum = 0.0
+        for it in items_list:
+            if isinstance(it, dict):
+                raw_amt = it.get("amount") or it.get("total") or it.get("cost")
+                if raw_amt is None and it.get("rate") is not None:
+                    try:
+                        r_f = float(str(it.get("rate")).replace(",", "").strip())
+                        q_f = float(str(it.get("qty") or it.get("quantity") or 1).replace(",", "").strip())
+                        raw_amt = r_f * q_f
+                    except (ValueError, TypeError):
+                        raw_amt = 0
+                raw_amt = str(raw_amt or 0).replace(",", "").strip()
+                try:
+                    amt_f = float(raw_amt)
+                    subtotal_sum += amt_f
+                    tax_val = it.get("tax_amount") or it.get("tax_amt")
+                    if tax_val is not None:
+                        tax_sum += float(str(tax_val).replace(",", "").strip())
+                    else:
+                        tax_pct = float(it.get("tax_percent") or it.get("tax_pct") or it.get("tax") or 7.45)
+                        tax_sum += amt_f * (tax_pct / 100.0)
+                except (ValueError, TypeError):
+                    pass
+            elif isinstance(it, list) and len(it) >= 6:
+                # 2D list item: e.g. ["PSA", "PSA", "Dues", "1", "4500.00", "4500.00", "7.45", "335.25", "4835.25"]
+                try:
+                    amt_f = float(str(it[5]).replace(",", "").strip())
+                    subtotal_sum += amt_f
+                    if len(it) >= 8 and it[7]:
+                        tax_sum += float(str(it[7]).replace(",", "").strip())
+                    else:
+                        tax_sum += amt_f * 0.0745
+                except (ValueError, TypeError, IndexError):
+                    pass
+        if subtotal_sum > 0:
+            if "Estimated Subtotal" not in enriched:
+                enriched["Estimated Subtotal"] = f"{subtotal_sum:,.2f}"
+            if "Estimated Tax (7.45%)" not in enriched:
+                if tax_sum == 0.0:
+                    tax_sum = subtotal_sum * 0.0745
+                enriched["Estimated Tax (7.45%)"] = f"{tax_sum:,.2f}"
+            if "TOTAL PDA" not in enriched:
+                total_pda_val = subtotal_sum + tax_sum
+                enriched["TOTAL PDA"] = f"{total_pda_val:,.2f}"
 
     if "remarks" in data and "Remarks" not in enriched:
         enriched["Remarks"] = data["remarks"]
@@ -605,6 +765,10 @@ def resolve_metadata_value(field: Dict[str, Any], data: Dict[str, Any], default:
 
     # 3. Common semantic aliases for value fields
     field_name = normalize_key(field.get("name") or field.get("dataKey") or "")
+    if "jobno" in field_name or "documentno" in field_name or "docno" in field_name or "callnumber" in field_name:
+        for alt in ["job_no", "jobno", "document_no", "call_number", "doc_no", "invoice_no", "invoice_number", "proforma_ref", "ref"]:
+            if alt in data:
+                return data[alt]
     if "vessel" in field_name:
         for alt in ["vessel", "vessel_name", "vesselname", "ship_name"]:
             if alt in data:
@@ -613,16 +777,72 @@ def resolve_metadata_value(field: Dict[str, Any], data: Dict[str, Any], default:
         for alt in ["port", "port_name", "port_of_call", "portofcall", "portname"]:
             if alt in data:
                 return data[alt]
-    if "documentno" in field_name or "docno" in field_name or "callnumber" in field_name:
-        for alt in ["document_no", "call_number", "doc_no", "invoice_no", "invoice_number", "proforma_ref", "ref"]:
-            if alt in data:
-                return data[alt]
     if "customer" in field_name or "principal" in field_name:
         for alt in ["customer", "principal", "customer_name", "client"]:
             if alt in data:
                 return data[alt]
-    if "total" in field_name or "totalportcall" in field_name:
-        for alt in ["total", "total_disbursement", "total_amount", "estimated_total", "grand_total"]:
+    if "shipper" in field_name or "broker" in field_name or "charterer" in field_name:
+        for alt in ["shipper", "shipper_name", "charterer", "broker", "agent_name", "agent"]:
+            if alt in data:
+                return data[alt]
+    if "imonumber" in field_name or "imo" in field_name:
+        for alt in ["imo_number", "imo", "imonumber"]:
+            if alt in data:
+                return data[alt]
+    if "paymentterms" in field_name or "terms" in field_name:
+        for alt in ["payment_terms", "paymentterms", "terms"]:
+            if alt in data:
+                return data[alt]
+    if "voyagenumber" in field_name or "voyage" in field_name:
+        for alt in ["voyage_number", "voyage_no", "voyageno", "voyage"]:
+            if alt in data:
+                return data[alt]
+    if "costverified" in field_name:
+        for alt in ["cost_verified", "costverified", "verified"]:
+            if alt in data:
+                return data[alt]
+    if "terminal" in field_name or "berth" in field_name:
+        for alt in ["terminal", "berth", "terminal_berth"]:
+            if alt in data:
+                return data[alt]
+    if field_name in ["eta", "etavalue"]:
+        for alt in ["eta", "arrival_date", "estimated_arrival"]:
+            if alt in data:
+                return data[alt]
+    if field_name in ["etd", "etdvalue"]:
+        for alt in ["etd", "departure_date", "estimated_departure"]:
+            if alt in data:
+                return data[alt]
+    if "appointment" in field_name:
+        for alt in ["agency_appointment_date", "appointment_date", "agency_appointment", "document_date", "date"]:
+            if alt in data:
+                return data[alt]
+    if "cargotype" in field_name:
+        for alt in ["cargo_type", "cargo", "commodity"]:
+            if alt in data:
+                return data[alt]
+    if "cargoquantity" in field_name:
+        for alt in ["cargo_quantity", "quantity", "cargo_qty", "qty"]:
+            if alt in data:
+                return data[alt]
+    if "cargodescription" in field_name:
+        for alt in ["cargo_description", "cargo_desc", "description"]:
+            if alt in data:
+                return data[alt]
+    if "costdetails" in field_name or "details" in field_name or "costs" in field_name:
+        for alt in ["Cost Details", "cost_details", "costs", "items", "disbursement_items", "cost_items", "port_call_costs"]:
+            if alt in data:
+                return data[alt]
+    if "subtotal" in field_name or "estimatedsubtotal" in field_name:
+        for alt in ["estimated_subtotal", "subtotal", "sub_total"]:
+            if alt in data:
+                return data[alt]
+    if "tax" in field_name or "estimatedtax" in field_name:
+        for alt in ["estimated_tax", "tax_amount", "tax", "vat"]:
+            if alt in data:
+                return data[alt]
+    if "totalpda" in field_name or "total" in field_name:
+        for alt in ["total_pda", "total", "total_disbursement", "total_amount", "estimated_total", "grand_total"]:
             if alt in data:
                 return data[alt]
     if "advance" in field_name or "advancereceived" in field_name:
@@ -631,6 +851,10 @@ def resolve_metadata_value(field: Dict[str, Any], data: Dict[str, Any], default:
                 return data[alt]
     if "balance" in field_name or "balancedue" in field_name:
         for alt in ["balance_due", "balance", "balance_due_to_principal", "net_due"]:
+            if alt in data:
+                return data[alt]
+    if "remarks" in field_name or "notes" in field_name:
+        for alt in ["remarks", "notes", "comments", "remark"]:
             if alt in data:
                 return data[alt]
 
@@ -685,29 +909,118 @@ def resolve_text_content(field: Dict[str, Any], data: Dict[str, Any]) -> str:
     return collapse_exact_duplicated_text(resolved)
 
 
+def _format_table_val(val: Any) -> str:
+    """Helper to format table cell values without returning '-' for empty."""
+    if val is None or val == "":
+        return ""
+    if isinstance(val, bool):
+        return "Yes" if val else "No"
+    if isinstance(val, (int, float)):
+        if isinstance(val, float):
+            return f"{val:,.2f}"
+        return f"{val:,}"
+    s = str(val).strip()
+    if s == "-" or s == "":
+        return ""
+    return s
+
+
 def resolve_table_rows(field: Dict[str, Any], data: Dict[str, Any]) -> List[List[Any]]:
-    raw = resolve_metadata_value(field, data, field.get("content", []))
+    # 1. Try to find raw table data using field lookups
+    raw = resolve_metadata_value(field, data, None)
+
+    # 2. If None, check common array keys
+    if raw is None or raw == "":
+        for candidate_key in [
+            "Cost Details",
+            "cost_details",
+            "CostDetails",
+            "items",
+            "disbursement_items",
+            "costs",
+            "cost_items",
+            "port_call_costs",
+            "services",
+            "records",
+        ]:
+            if candidate_key in data and data[candidate_key]:
+                raw = data[candidate_key]
+                break
+
+    if raw is None or raw == "":
+        raw = field.get("content", [])
+
     parsed = safe_json_loads(raw, default=[])
     if not isinstance(parsed, list):
         return []
 
+    headers = [str(h).strip() for h in (field.get("head", []) or [])]
     rows: List[List[Any]] = []
-    headers = field.get("head", []) or []
 
     for row in parsed:
         if isinstance(row, list):
-            rows.append(row)
+            # Check if it's an empty placeholder row like ["", "", ""]
+            if not any(str(x).strip() for x in row):
+                continue
+            rows.append([_format_table_val(cell) for cell in row])
         elif isinstance(row, dict):
-            vals = list(row.values())
+            mapped_row: list[Any] = []
             if headers:
-                target_len = len(headers)
-                if len(vals) < target_len:
-                    vals.extend([""] * (target_len - len(vals)))
-                rows.append(vals[:target_len])
+                for h in headers:
+                    norm_h = normalize_key(h)
+                    val = None
+                    # Exact or normalized match in dict
+                    for k, v in row.items():
+                        if normalize_key(k) == norm_h:
+                            val = v
+                            break
+                    # Synonym lookups if not found directly
+                    if val is None or val == "":
+                        if "costhead" in norm_h or norm_h in ["costhead", "head", "category", "service"]:
+                            val = row.get("cost_head") or row.get("head") or row.get("category") or row.get("service") or row.get("item") or row.get("name")
+                        elif "vendor" in norm_h:
+                            val = row.get("vendor") or row.get("supplier") or row.get("vendor_basis") or row.get("basis")
+                        elif "description" in norm_h:
+                            val = row.get("cost_description") or row.get("description") or row.get("desc") or row.get("details") or row.get("service_cost_item") or row.get("service") or row.get("item")
+                        elif "quantity" in norm_h or "qty" in norm_h:
+                            val = row.get("quantity") or row.get("qty") or row.get("count") or (1 if row.get("rate") is not None or row.get("amount") is not None else "")
+                        elif "rate" in norm_h:
+                            val = row.get("rate") or row.get("unit_price") or row.get("unit_cost") or row.get("price")
+                        elif norm_h == "amount":
+                            val = row.get("amount") or row.get("cost") or row.get("subtotal") or row.get("actual")
+                            if (val is None or val == "") and row.get("rate") is not None and row.get("quantity") is not None:
+                                try:
+                                    val = float(str(row["rate"]).replace(",", "").strip()) * float(str(row["quantity"]).replace(",", "").strip())
+                                except (ValueError, TypeError):
+                                    pass
+                        elif "tax" in norm_h and "%" in h:
+                            val = row.get("tax(%)") or row.get("tax_%") or row.get("tax_percent") or row.get("tax_pct") or row.get("tax_rate") or row.get("tax") or "7.45"
+                        elif "taxamount" in norm_h or ("tax" in norm_h and "amount" in norm_h):
+                            val = row.get("tax_amount") or row.get("tax_amt")
+                            if (val is None or val == "") and row.get("amount") is not None:
+                                try:
+                                    tax_pct = float(str(row.get("tax_percent") or row.get("tax_pct") or row.get("tax") or 7.45).replace("%", "").strip())
+                                    amt_val = float(str(row["amount"]).replace(",", "").strip())
+                                    val = amt_val * (tax_pct / 100.0)
+                                except (ValueError, TypeError):
+                                    pass
+                        elif norm_h in ["total", "totalamount", "grossamount"]:
+                            val = row.get("total") or row.get("total_amount") or row.get("gross_amount")
+                            if (val is None or val == "") and row.get("amount") is not None:
+                                try:
+                                    amt_val = float(str(row["amount"]).replace(",", "").strip())
+                                    tax_amt_val = float(str(row.get("tax_amount") or (amt_val * 0.0745)).replace(",", "").strip())
+                                    val = amt_val + tax_amt_val
+                                except (ValueError, TypeError):
+                                    pass
+
+                    mapped_row.append(_format_table_val(val))
+                rows.append(mapped_row)
             else:
-                rows.append(vals)
+                rows.append([_format_table_val(v) for v in row.values()])
         else:
-            rows.append([row])
+            rows.append([_format_table_val(row)])
+
     return rows
 
 
@@ -1183,13 +1496,43 @@ def render_table_box(
     body_style = field.get("bodyStyles", {}) or {}
     column_styles = field.get("columnStyles", {}) or {}
 
+    # Determine optimal font sizes and paddings based on table column density
+    if col_count >= 8:
+        default_th_size = 7.5
+        default_td_size = 7.5
+        th_lh = 1.15
+        td_lh = 1.15
+        pad_top_bottom = 3.0
+        pad_left_right = 2.5
+    elif col_count >= 6:
+        default_th_size = 8.0
+        default_td_size = 8.0
+        th_lh = 1.15
+        td_lh = 1.15
+        pad_top_bottom = 3.5
+        pad_left_right = 3.0
+    else:
+        default_th_size = safe_float(head_style.get("fontSize", 9.0), 9.0)
+        default_td_size = safe_float(body_style.get("fontSize", 9.0), 9.0)
+        th_lh = safe_float(head_style.get("lineHeight", 1.15), 1.15)
+        td_lh = safe_float(body_style.get("lineHeight", 1.15), 1.15)
+        pad_top_bottom = 3.5
+        pad_left_right = 4.0
+
+    # Determine numeric columns for right-alignment
+    numeric_col_indices: set[int] = set()
+    for idx, h in enumerate(headers):
+        norm_h = normalize_key(h)
+        if any(term in norm_h for term in ["quantity", "qty", "rate", "amount", "tax", "total", "price"]):
+            numeric_col_indices.add(idx)
+
     table_data: list[list[Any]] = []
     style_commands: list[Tuple[Any, ...]] = [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), pad_top_bottom),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), pad_top_bottom),
+        ("LEFTPADDING", (0, 0), (-1, -1), pad_left_right),
+        ("RIGHTPADDING", (0, 0), (-1, -1), pad_left_right),
     ]
 
     row_idx = 0
@@ -1198,13 +1541,17 @@ def render_table_box(
         h_row: list[Any] = []
         for c_idx, h_text in enumerate(headers):
             c_style_dict = deep_merge(head_style, column_styles.get(str(c_idx), column_styles.get(c_idx, {})))
+            c_style_dict["fontName"] = "Helvetica-Bold"
+            c_style_dict["fontSize"] = min(safe_float(c_style_dict.get("fontSize", default_th_size)), default_th_size)
+            c_style_dict["lineHeight"] = th_lh
+            if c_idx in numeric_col_indices:
+                c_style_dict["alignment"] = "right"
             p_style = build_paragraph_style(f"th_{id(field)}_{c_idx}", c_style_dict)
             h_row.append(Paragraph(escape(str(h_text)), p_style))
         table_data.append(h_row)
 
-        h_bg = hex_to_color(head_style.get("backgroundColor", "#1E40AF"))
-        if h_bg:
-            style_commands.append(("BACKGROUND", (0, row_idx), (-1, row_idx), h_bg))
+        h_bg = hex_to_color(head_style.get("backgroundColor", "#2980ba")) or hex_to_color("#2980ba")
+        style_commands.append(("BACKGROUND", (0, row_idx), (-1, row_idx), h_bg))
         row_idx += 1
 
     # Data Rows
@@ -1213,12 +1560,17 @@ def render_table_box(
         for c_idx in range(col_count):
             val = row_vals[c_idx] if c_idx < len(row_vals) else ""
             c_style_dict = deep_merge(body_style, column_styles.get(str(c_idx), column_styles.get(c_idx, {})))
+            c_style_dict["fontName"] = resolve_font_name(c_style_dict.get("fontName", "Helvetica"))
+            c_style_dict["fontSize"] = min(safe_float(c_style_dict.get("fontSize", default_td_size)), default_td_size)
+            c_style_dict["lineHeight"] = td_lh
+            if c_idx in numeric_col_indices:
+                c_style_dict["alignment"] = "right"
             p_style = build_paragraph_style(f"td_{id(field)}_{r_num}_{c_idx}", c_style_dict)
             d_row.append(Paragraph(escape(str(val)), p_style))
         table_data.append(d_row)
 
         b_bg = hex_to_color(body_style.get("backgroundColor"))
-        alt_bg = hex_to_color(body_style.get("alternateBackgroundColor", "#F8FAFC"))
+        alt_bg = hex_to_color(body_style.get("alternateBackgroundColor", "#f5f5f5"))
         if b_bg:
             style_commands.append(("BACKGROUND", (0, row_idx), (-1, row_idx), b_bg))
         elif alt_bg and r_num % 2 == 1:
@@ -1226,8 +1578,9 @@ def render_table_box(
         row_idx += 1
 
     # Border & Grid
-    border_col = hex_to_color(field.get("borderColor", "#CBD5E1")) or colors.HexColor("#CBD5E1")
-    style_commands.append(("GRID", (0, 0), (-1, -1), 0.5, border_col))
+    border_col = hex_to_color(field.get("tableStyles", {}).get("borderColor") or body_style.get("borderColor") or "#CBD5E1") or colors.HexColor("#CBD5E1")
+    border_w = safe_float(field.get("tableStyles", {}).get("borderWidth", 0.4), 0.4)
+    style_commands.append(("GRID", (0, 0), (-1, -1), border_w, border_col))
 
     if not table_data:
         return
@@ -1322,6 +1675,88 @@ def render_schema_page(
         c.restoreState()
 
 
+def measure_table_height_mm(
+    field: Dict[str, Any],
+    rows: List[List[Any]],
+    width_pts: float,
+) -> float:
+    headers: List[str] = [str(h) for h in field.get("head", []) or []]
+    col_count = len(headers) if headers else (len(rows[0]) if rows else 1)
+    col_widths = compute_column_widths(width_pts, field.get("headWidthPercentages", []), col_count)
+    head_style = field.get("headStyles", {}) or {}
+    body_style = field.get("bodyStyles", {}) or {}
+    column_styles = field.get("columnStyles", {}) or {}
+
+    if col_count >= 8:
+        default_th_size = 7.5
+        default_td_size = 7.5
+        th_lh = 1.15
+        td_lh = 1.15
+        pad_tb = 3.0
+        pad_lr = 2.5
+    elif col_count >= 6:
+        default_th_size = 8.0
+        default_td_size = 8.0
+        th_lh = 1.15
+        td_lh = 1.15
+        pad_tb = 3.5
+        pad_lr = 3.0
+    else:
+        default_th_size = safe_float(head_style.get("fontSize", 9.0), 9.0)
+        default_td_size = safe_float(body_style.get("fontSize", 9.0), 9.0)
+        th_lh = safe_float(head_style.get("lineHeight", 1.15), 1.15)
+        td_lh = safe_float(body_style.get("lineHeight", 1.15), 1.15)
+        pad_tb = 3.5
+        pad_lr = 4.0
+
+    numeric_col_indices: set[int] = set()
+    for idx, h in enumerate(headers):
+        norm_h = normalize_key(h)
+        if any(term in norm_h for term in ["quantity", "qty", "rate", "amount", "tax", "total", "price"]):
+            numeric_col_indices.add(idx)
+
+    table_data: list[list[Any]] = []
+    if headers and bool(field.get("showHead", True)):
+        h_row: list[Any] = []
+        for c_idx, h_text in enumerate(headers):
+            c_style = deep_merge(head_style, column_styles.get(str(c_idx), {}))
+            c_style["fontName"] = "Helvetica-Bold"
+            c_style["fontSize"] = min(safe_float(c_style.get("fontSize", default_th_size)), default_th_size)
+            c_style["lineHeight"] = th_lh
+            if c_idx in numeric_col_indices:
+                c_style["alignment"] = "right"
+            p_style = build_paragraph_style(f"m_th_{c_idx}", c_style)
+            h_row.append(Paragraph(escape(str(h_text)), p_style))
+        table_data.append(h_row)
+
+    for r_num, row_vals in enumerate(rows):
+        d_row: list[Any] = []
+        for c_idx in range(col_count):
+            val = row_vals[c_idx] if c_idx < len(row_vals) else ""
+            c_style = deep_merge(body_style, column_styles.get(str(c_idx), {}))
+            c_style["fontName"] = resolve_font_name(c_style.get("fontName", "Helvetica"))
+            c_style["fontSize"] = min(safe_float(c_style.get("fontSize", default_td_size)), default_td_size)
+            c_style["lineHeight"] = td_lh
+            if c_idx in numeric_col_indices:
+                c_style["alignment"] = "right"
+            p_style = build_paragraph_style(f"m_td_{r_num}_{c_idx}", c_style)
+            d_row.append(Paragraph(escape(str(val)), p_style))
+        table_data.append(d_row)
+
+    if not table_data:
+        return 0.0
+
+    t = Table(table_data, colWidths=col_widths)
+    t.setStyle(TableStyle([
+        ("TOPPADDING", (0, 0), (-1, -1), pad_tb),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), pad_tb),
+        ("LEFTPADDING", (0, 0), (-1, -1), pad_lr),
+        ("RIGHTPADDING", (0, 0), (-1, -1), pad_lr),
+    ]))
+    _, actual_h_pts = t.wrap(width_pts, 2000.0)
+    return actual_h_pts / mm
+
+
 def extract_port_call_items(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Extracts all line items from either an array or numbered dictionary keys."""
     items: List[Dict[str, Any]] = []
@@ -1336,6 +1771,8 @@ def extract_port_call_items(data: Dict[str, Any]) -> List[Dict[str, Any]]:
         "records",
         "cost_items",
         "port_call_costs",
+        "cost_details",
+        "Cost Details",
     ]:
         val = data.get(ak)
         if isinstance(val, list) and val:
@@ -1345,6 +1782,7 @@ def extract_port_call_items(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                     srv = str(
                         item.get("service")
                         or item.get("service_cost_item")
+                        or item.get("cost_head")
                         or item.get("item")
                         or item.get("description")
                         or item.get("name")
@@ -1399,6 +1837,18 @@ def extract_port_call_items(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                                 "amount": amt_str,
                             }
                         )
+                elif isinstance(item, list) and len(item) >= 6:
+                    # 2D list item: e.g. ["Port Dues", "PSA", "Dues", 1, 4500, 4500, ...]
+                    items.append(
+                        {
+                            "no": str(idx),
+                            "service": str(item[0]),
+                            "vendor": str(item[1]),
+                            "qty": str(item[3]) if len(item) > 3 else "",
+                            "rate": str(item[4]) if len(item) > 4 else "",
+                            "amount": str(item[5]) if len(item) > 5 else "",
+                        }
+                    )
             if items:
                 return items
 
@@ -1494,10 +1944,380 @@ def render_pdfme_template_to_pdf(
         c.setTitle(title)
 
     enriched_data = auto_flatten_and_enrich_data(data)
+
+    # 1. Check if the template contains a dynamic table element (e.g. new PDA format)
+    table_field = next((el for el in schemas[0] if el.get("type") == "table"), None)
+
+    if len(schemas) == 1 and table_field:
+        table_w_pts = convert_page_measure(table_field.get("width", 186.8), unit)
+        all_table_rows = resolve_table_rows(table_field, enriched_data)
+        table_start_y = safe_float(table_field.get("position", {}).get("y", 199.69), 199.69)
+        base_schema = schemas[0]
+
+        summary_names = {
+            "EstimatedSubtotalLabel",
+            "EstimatedSubtotalValue",
+            "EstimatedTaxLabel",
+            "EstimatedTaxValue",
+            "TotalPDALabel",
+            "TotalPDAValue",
+            "RemarksLabel",
+            "Remarks",
+            "FooterNote",
+        }
+        metadata_names = {
+            "CustomerPrincipalLabel",
+            "CustomerPrincipalValue",
+            "DocumentNoLabel",
+            "JobNoValue",
+            "ShipperChartererBrokerLabel",
+            "ShipperChartererBrokerValue",
+            "DocumentDateLabel",
+            "AgencyAppointmentDateValue",
+            "VesselNameLabel",
+            "VesselNameValue",
+            "CurrencyLabel",
+            "CurrencyValue",
+            "IMONumberLabel",
+            "IMONumberValue",
+            "PaymentTermsLabel",
+            "PaymentTermsValue",
+            "VoyageNumberLabel",
+            "VoyageNumberValue",
+            "CostVerifiedLabel",
+            "CostVerifiedValue",
+            "PortOfCallLabel",
+            "PortofCallValue",
+            "RelatedPDAFDALabel",
+            "RelatedPDA/FDAValue",
+            "TerminalLabel",
+            "TerminalBerthValue",
+            "ETAETDLabel",
+            "ETAValue",
+            "ETDValue",
+            "AgencyAppointmentDateLabel",
+            "CargoTypeLabel",
+            "CargoTypeValue",
+            "CargoQuantityLabel",
+            "CargoQuantityValue",
+            "CargoDescriptionLabel",
+            "CargoDescriptionValue",
+        }
+
+        # Check if all rows fit on a single page with the summary block
+        total_table_h_mm = measure_table_height_mm(table_field, all_table_rows, table_w_pts)
+        max_single_page_h_mm = 246.0 - table_start_y  # ~46.3 mm (leaving room for summary starting at 249mm)
+
+        if total_table_h_mm > max_single_page_h_mm and len(all_table_rows) > 1:
+            # Dynamic partition across multiple pages
+            page_chunks: List[List[List[Any]]] = []
+
+            # Page 1: allow up to max_p1_h
+            p1_max_h = 244.0 - table_start_y  # ~44.3 mm
+            p1_rows: List[List[Any]] = []
+            for r in all_table_rows:
+                test_rows = p1_rows + [r]
+                if measure_table_height_mm(table_field, test_rows, table_w_pts) <= p1_max_h or len(p1_rows) == 0:
+                    p1_rows.append(r)
+                else:
+                    break
+
+            page_chunks.append(p1_rows)
+            remaining_rows = all_table_rows[len(p1_rows):]
+
+            # Continuation Pages (starts at y=55mm):
+            cont_start_y = 55.0
+            max_middle_cont_h = 262.0 - cont_start_y  # ~207 mm (~18-20 rows)
+            max_last_cont_h = 225.0 - cont_start_y    # ~170 mm (~14-16 rows to fit summary + remarks)
+
+            while remaining_rows:
+                test_h = measure_table_height_mm(table_field, remaining_rows, table_w_pts)
+                if test_h <= max_last_cont_h:
+                    page_chunks.append(remaining_rows)
+                    break
+                else:
+                    cont_rows: List[List[Any]] = []
+                    for r in remaining_rows:
+                        test_rows = cont_rows + [r]
+                        if measure_table_height_mm(table_field, test_rows, table_w_pts) <= max_middle_cont_h or len(cont_rows) == 0:
+                            cont_rows.append(r)
+                        else:
+                            break
+                    page_chunks.append(cont_rows)
+                    remaining_rows = remaining_rows[len(cont_rows):]
+
+            num_pages = len(page_chunks)
+
+            for page_idx, page_table_rows in enumerate(page_chunks):
+                if page_idx > 0:
+                    c.showPage()
+
+                is_first_page = (page_idx == 0)
+                is_last_page = (page_idx == num_pages - 1)
+
+                page_data = dict(enriched_data)
+                table_key = table_field.get("dataKey") or table_field.get("name") or "Cost Details"
+                page_data[table_key] = page_table_rows
+
+                # Calculate sum of amounts on this page
+                page_amt_sum = 0.0
+                for r in page_table_rows:
+                    if len(r) >= 6:
+                        raw_amt = str(r[5]).replace(",", "").strip()
+                        try:
+                            page_amt_sum += float(raw_amt)
+                        except ValueError:
+                            pass
+
+                currency_str = str(enriched_data.get("Currency", enriched_data.get("currency", "USD"))).strip()
+
+                if is_last_page:
+                    page_data["FooterNote"] = (
+                        f"Page {page_idx + 1} of {num_pages} - Final Summary | Sample document for Vessel Call workflow."
+                    )
+                else:
+                    page_data["FooterNote"] = (
+                        f"Page {page_idx + 1} of {num_pages} - Continued on Page {page_idx + 2}..."
+                    )
+
+                page_schema: List[Dict[str, Any]] = []
+
+                if is_first_page:
+                    for el in base_schema:
+                        el_name = el.get("name", "")
+                        if el_name in summary_names and el_name != "FooterNote":
+                            continue
+                        el_copy = dict(el)
+                        if el_name == table_key or el.get("type") == "table":
+                            el_copy["content"] = page_table_rows
+                        page_schema.append(el_copy)
+
+                    # Dynamic Carried Forward Block on page 1
+                    p1_table_h = measure_table_height_mm(table_field, page_table_rows, table_w_pts)
+                    p1_table_bottom_y = table_start_y + p1_table_h
+                    cf_y = p1_table_bottom_y + 3.0
+                    notice_y = cf_y + 11.0
+
+                    carried_amt_str = f"{currency_str} {page_amt_sum:,.2f}" if currency_str else f"{page_amt_sum:,.2f}"
+                    page_schema.append(
+                        {
+                            "name": "CarriedForwardLabel",
+                            "type": "text",
+                            "content": "SUBTOTAL CARRIED FORWARD",
+                            "position": {"x": 112, "y": cf_y},
+                            "width": 48,
+                            "height": 8,
+                            "fontSize": 7.5,
+                            "lineHeight": 1.15,
+                            "fontColor": "#0B3557",
+                            "backgroundColor": "#EEF3F7",
+                            "alignment": "left",
+                            "verticalAlignment": "middle",
+                            "readOnly": True,
+                            "fontName": "Helvetica-Bold",
+                        }
+                    )
+                    page_schema.append(
+                        {
+                            "name": "CarriedForwardValue",
+                            "type": "text",
+                            "content": carried_amt_str,
+                            "position": {"x": 160, "y": cf_y},
+                            "width": 38,
+                            "height": 8,
+                            "fontSize": 8.5,
+                            "lineHeight": 1.15,
+                            "fontColor": "#111827",
+                            "backgroundColor": "#FFFFFF",
+                            "alignment": "right",
+                            "verticalAlignment": "middle",
+                            "readOnly": True,
+                            "fontName": "Helvetica-Bold",
+                        }
+                    )
+                    page_schema.append(
+                        {
+                            "name": "ContinuationNotice",
+                            "type": "text",
+                            "content": f"Document continues on Page 2 for remaining items, final tax calculation, and approval remarks.",
+                            "position": {"x": 6, "y": notice_y},
+                            "width": 192,
+                            "height": 7,
+                            "fontSize": 7.5,
+                            "lineHeight": 1.15,
+                            "fontColor": "#64748B",
+                            "alignment": "center",
+                            "verticalAlignment": "middle",
+                            "readOnly": True,
+                            "fontName": "Helvetica",
+                        }
+                    )
+                else:
+                    # Continuation Page: Header & Table shifted up
+                    for el in base_schema:
+                        el_name = el.get("name", "")
+                        if el_name in metadata_names:
+                            continue
+                        if not is_last_page and el_name in summary_names and el_name != "FooterNote":
+                            continue
+
+                        el_copy = dict(el)
+
+                        if el_name == "DocumentTitle":
+                            orig_content = el_copy.get("content", "PROFORMA DISBURSEMENT ACCOUNT")
+                            el_copy["content"] = f"{orig_content} - CONTINUATION SHEET"
+                            el_copy["width"] = 120
+                            el_copy["position"] = {"x": 80, "y": 34}
+                            el_copy["alignment"] = "right"
+                            page_schema.append(el_copy)
+                            continue
+
+                        if el_name == "PortCallCostDetailsHeader":
+                            el_copy["position"] = {"x": 6, "y": 48}
+                            page_schema.append(el_copy)
+                            continue
+
+                        if el_name == table_key or el.get("type") == "table":
+                            el_copy["position"] = {"x": 10, "y": 55}
+                            el_copy["content"] = page_table_rows
+                            page_schema.append(el_copy)
+                            continue
+
+                        if is_last_page and el_name in summary_names and el_name != "FooterNote":
+                            # Dynamic placement below continuation table using exact wrapped table height
+                            actual_table_h_mm = measure_table_height_mm(table_field, page_table_rows, table_w_pts)
+                            table_bottom_y = 55.0 + actual_table_h_mm
+                            summary_start_y = max(135.0, table_bottom_y + 4.0)
+
+                            if el_name in ["EstimatedSubtotalLabel", "EstimatedSubtotalValue"]:
+                                el_copy["position"] = {"x": el["position"]["x"], "y": summary_start_y}
+                            elif el_name in ["EstimatedTaxLabel", "EstimatedTaxValue"]:
+                                el_copy["position"] = {"x": el["position"]["x"], "y": summary_start_y + 8}
+                            elif el_name in ["TotalPDALabel", "TotalPDAValue"]:
+                                el_copy["position"] = {"x": el["position"]["x"], "y": summary_start_y + 16}
+                            elif el_name == "RemarksLabel":
+                                el_copy["position"] = {"x": 6, "y": summary_start_y + 26}
+                            elif el_name == "Remarks":
+                                el_copy["position"] = {"x": 6, "y": summary_start_y + 32}
+
+                            page_schema.append(el_copy)
+                            continue
+
+                        page_schema.append(el_copy)
+
+                    # Top compact reference bar
+                    vessel_val = str(enriched_data.get("Vessel", enriched_data.get("Vessel Name", enriched_data.get("vessel_name", ""))))
+                    doc_no_val = str(enriched_data.get("Job No", enriched_data.get("Document No.", enriched_data.get("call_number", ""))))
+                    date_val = str(enriched_data.get("Agency Appointment Date", enriched_data.get("Document Date", enriched_data.get("document_date", ""))))
+                    port_val = str(enriched_data.get("Port", enriched_data.get("Port of Call", enriched_data.get("port_name", ""))))
+
+                    mini_header_content = f"Vessel: {vessel_val}   |   Job No: {doc_no_val}   |   Date: {date_val}   |   Port: {port_val}"
+                    page_schema.append(
+                        {
+                            "name": "ContinuationRefHeader",
+                            "type": "text",
+                            "content": mini_header_content,
+                            "position": {"x": 6, "y": 44},
+                            "width": 192,
+                            "height": 7,
+                            "fontSize": 8.5,
+                            "lineHeight": 1.15,
+                            "fontColor": "#0B3557",
+                            "backgroundColor": "#EEF3F7",
+                            "alignment": "center",
+                            "verticalAlignment": "middle",
+                            "readOnly": True,
+                            "fontName": "Helvetica-Bold",
+                        }
+                    )
+
+                    # If not last page, add Carried Forward block on middle continuation pages
+                    if not is_last_page:
+                        cont_table_h = measure_table_height_mm(table_field, page_table_rows, table_w_pts)
+                        cont_table_bottom_y = 55.0 + cont_table_h
+                        cf_y = cont_table_bottom_y + 3.0
+                        notice_y = cf_y + 11.0
+
+                        carried_amt_str = f"{currency_str} {page_amt_sum:,.2f}" if currency_str else f"{page_amt_sum:,.2f}"
+                        page_schema.append(
+                            {
+                                "name": "CarriedForwardLabel",
+                                "type": "text",
+                                "content": "SUBTOTAL CARRIED FORWARD",
+                                "position": {"x": 112, "y": cf_y},
+                                "width": 48,
+                                "height": 8,
+                                "fontSize": 7.5,
+                                "lineHeight": 1.15,
+                                "fontColor": "#0B3557",
+                                "backgroundColor": "#EEF3F7",
+                                "alignment": "left",
+                                "verticalAlignment": "middle",
+                                "readOnly": True,
+                                "fontName": "Helvetica-Bold",
+                            }
+                        )
+                        page_schema.append(
+                            {
+                                "name": "CarriedForwardValue",
+                                "type": "text",
+                                "content": carried_amt_str,
+                                "position": {"x": 160, "y": cf_y},
+                                "width": 38,
+                                "height": 8,
+                                "fontSize": 8.5,
+                                "lineHeight": 1.15,
+                                "fontColor": "#111827",
+                                "backgroundColor": "#FFFFFF",
+                                "alignment": "right",
+                                "verticalAlignment": "middle",
+                                "readOnly": True,
+                                "fontName": "Helvetica-Bold",
+                            }
+                        )
+                        page_schema.append(
+                            {
+                                "name": "ContinuationNotice",
+                                "type": "text",
+                                "content": f"Document continues on Page {page_idx + 2} for remaining items, final tax calculation, and approval remarks.",
+                                "position": {"x": 6, "y": notice_y},
+                                "width": 192,
+                                "height": 7,
+                                "fontSize": 7.5,
+                                "lineHeight": 1.15,
+                                "fontColor": "#64748B",
+                                "alignment": "center",
+                                "verticalAlignment": "middle",
+                                "readOnly": True,
+                                "fontName": "Helvetica",
+                            }
+                        )
+
+                render_schema_page(
+                    c,
+                    page_schema,
+                    page_data,
+                    page_w_pts,
+                    page_h_pts,
+                    unit,
+                    base_padding,
+                )
+
+            c.save()
+            with open(output_path, "rb") as f:
+                pdf_bytes = f.read()
+            page_count = num_pages
+            try:
+                with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+                    page_count = len(doc)
+            except Exception:
+                pass
+            return output_path, pdf_bytes, page_count
+
+    # 2. Multi-page continuation for legacy flattened port call templates with >8 items
     all_items = extract_port_call_items(enriched_data)
     rows_per_page = 8
 
-    # Multi-page continuation for port call templates with >8 items
     if len(schemas) == 1 and len(all_items) > rows_per_page:
         num_pages = (len(all_items) + rows_per_page - 1) // rows_per_page
         base_schema = schemas[0]
@@ -1526,6 +2346,7 @@ def render_pdfme_template_to_pdf(
             "DocumentNoLabel",
             "DocumentNoValue",
             "DocumentNo.Value",
+            "JobNoValue",
             "ShipperChartererBrokerLabel",
             "ShipperChartererBrokerValue",
             "Shipper/Charterer/BrokerValue",

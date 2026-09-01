@@ -13,3 +13,6 @@ db/local/*.sqlite
 db/local/*.xlsx
 db/local/~$*
 app/tenant_skills/data/*.sqlite
+# Generated PDFs
+app/static/generated_pdfs/*.pdf
+!app/static/generated_pdfs/.gitkeep

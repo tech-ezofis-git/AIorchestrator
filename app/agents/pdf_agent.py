@@ -40,7 +40,22 @@ class PdfAgent:
     ) -> dict[str, Any]:
         """Handles PDF generation requests from POST /chat."""
         job = document_job or {}
-        pdf_json = job.get("pdf_json") or job.get("json_data") or job.get("template_json")
+        template_json = (
+            job.get("pdf_schema")
+            or job.get("schema")
+            or job.get("schema_json")
+            or job.get("template_json")
+            or job.get("templateJson")
+            or job.get("pdfTemplate")
+            or job.get("pdf_template")
+        )
+        pdf_json = (
+            job.get("pdf_json")
+            or job.get("formData")
+            or job.get("form_data")
+            or job.get("data")
+            or job.get("json_data")
+        )
         pdf_title = job.get("pdf_title") or job.get("title")
         pdf_theme = job.get("pdf_theme") or job.get("theme")
         template_name = (
@@ -49,37 +64,47 @@ class PdfAgent:
             or job.get("template")
             or job.get("templateName")
         )
-        template_json = job.get("template_json")
-
-        # Infer template from message if not provided
-        if not template_name and message:
-            msg_lower = message.lower()
-            if "fda" in msg_lower or "final disbursement" in msg_lower:
-                template_name = "Vessel_Call_FDA_Exact_Format"
-            elif "pda" in msg_lower or "proforma disbursement" in msg_lower:
-                template_name = "Vessel_Call_PDA_Exact_Format"
 
         # If not in document_job, check if message is a JSON string
-        if not pdf_json and message:
+        if not pdf_json and not template_json and message:
             trimmed = message.strip()
             # If message contains JSON (e.g. enclosed in ```json ... ``` or raw {...})
             if trimmed.startswith("{") or trimmed.startswith("["):
                 try:
-                    pdf_json = json.loads(trimmed)
+                    parsed_msg = json.loads(trimmed)
+                    if isinstance(parsed_msg, dict) and "schemas" in parsed_msg:
+                        template_json = parsed_msg
+                        pdf_json = parsed_msg.get("data") or parsed_msg.get("formData") or parsed_msg
+                    else:
+                        pdf_json = parsed_msg
                 except Exception:
                     pass
             elif "```json" in trimmed:
                 match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", trimmed)
                 if match:
                     try:
-                        pdf_json = json.loads(match.group(1).strip())
+                        parsed_msg = json.loads(match.group(1).strip())
+                        if isinstance(parsed_msg, dict) and "schemas" in parsed_msg:
+                            template_json = parsed_msg
+                            pdf_json = parsed_msg.get("data") or parsed_msg.get("formData") or parsed_msg
+                        else:
+                            pdf_json = parsed_msg
                     except Exception:
                         pass
+
+        # If pdf_json itself is a schema definition
+        if isinstance(pdf_json, dict) and "schemas" in pdf_json and not template_json:
+            template_json = pdf_json
+            pdf_json = pdf_json.get("data") or pdf_json.get("formData") or pdf_json
+
+        # If we have a schema template but no explicit form data, form data is empty dict
+        if template_json and not pdf_json:
+            pdf_json = template_json.get("data") or template_json.get("formData") or {}
 
         # If still no JSON, and we have an LLM adapter + a natural language message,
         # synthesize structured JSON from the user description
         usage = None
-        if not pdf_json and message and self._llm:
+        if not pdf_json and not template_json and message and self._llm:
             try:
                 system_prompt = (
                     "You are the PDF data structuring assistant for EZOFIS. "
@@ -98,18 +123,23 @@ class PdfAgent:
                     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw_text)
                     if match:
                         raw_text = match.group(1).strip()
-                pdf_json = json.loads(raw_text)
+                parsed_synth = json.loads(raw_text)
+                if isinstance(parsed_synth, dict) and "schemas" in parsed_synth:
+                    template_json = parsed_synth
+                    pdf_json = parsed_synth.get("data") or parsed_synth.get("formData") or parsed_synth
+                else:
+                    pdf_json = parsed_synth
                 usage = llm_res.get("usage")
             except Exception as exc:
                 logger.warning("pdf_llm_synthesis_failed", extra={"error": str(exc)})
 
-        if not pdf_json:
+        if not pdf_json and not template_json:
             raise ValueError(
                 "PDF generation requires a JSON object with values in payload.pdf_json, "
-                "or a valid JSON string / prompt in message."
+                "a PDF schema JSON in payload.pdf_schema/templateJson, or a valid JSON string in message."
             )
 
-        if not isinstance(pdf_json, (dict, list)):
+        if pdf_json is not None and not isinstance(pdf_json, (dict, list)):
             raise ValueError("pdf_json must be a JSON object or list of records.")
 
         # Determine target file path inside static directory
@@ -122,7 +152,7 @@ class PdfAgent:
         # Run CPU-bound ReportLab generation in async thread pool
         gen_result: PdfGenerationResult = await asyncio.to_thread(
             generate_pdf_from_json,
-            pdf_json,
+            pdf_json or {},
             template_name=template_name,
             template_json=template_json,
             output_path=out_path,

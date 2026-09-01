@@ -657,13 +657,6 @@ def _build_signature_grid(
     return t
 
 
-TEMPLATES_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "templates"))
-if not os.path.exists(TEMPLATES_DIR):
-    root_templates = os.path.abspath(os.path.join(os.getcwd(), "templates"))
-    if os.path.exists(root_templates):
-        TEMPLATES_DIR = root_templates
-
-
 def _pick_str(data: dict[str, Any], *keys: str) -> Optional[str]:
     for key in keys:
         val = data.get(key)
@@ -687,10 +680,11 @@ def normalize_direct_pdf_request(body: Any) -> dict[str, Any]:
     """
     Normalize POST /api/pdf/generate bodies.
 
-    Preferred workflow contract:
-      { "templateJson": {schemas, basePdf}, "formData": {...}, "fileName": "..." }
-
-    Also accepts pdfTemplate (workflow block), template_json, form_data, legacy flat PDA keys.
+    Accepts any pdf schema JSON in:
+      templateJson, schemaJson, pdfSchema, pdfTemplate, schema, template
+    with corresponding form data in:
+      formData, form_data, data, values, fields
+    or a standalone schema JSON object containing 'schemas'.
     """
     template_json: Optional[dict[str, Any]] = None
     template_name: Optional[str] = None
@@ -723,22 +717,32 @@ def normalize_direct_pdf_request(body: Any) -> dict[str, Any]:
         body,
         "templateJson",
         "template_json",
+        "pdfSchema",
+        "pdf_schema",
+        "schemaJson",
+        "schema_json",
         "pdfTemplate",
+        "pdf_template",
+        "schema",
         "template",
     )
+
     if template_json and not is_pdfme_template(template_json):
-        # String template id/name passed as "template": "pda"
+        # In case a string template identifier was passed under "template" or "schema"
         if _pick_str(body, "template", "template_name", "templateName", "template_id", "templateId"):
             template_name = _pick_str(body, "template", "template_name", "templateName", "template_id", "templateId")
             template_json = None
 
-    form_data = _pick_mapping(body, "formData", "form_data", "formfields", "formFields")
-    if form_data is not None:
-        data = form_data
-    elif is_pdfme_template(body):
+    form_data = _pick_mapping(body, "formData", "form_data", "data", "values", "fields", "formfields", "formFields")
+    if is_pdfme_template(body):
         template_json = body
-        inner = body.get("data")
-        data = inner if isinstance(inner, dict) else {}
+        if form_data is not None:
+            data = form_data
+        else:
+            inner = body.get("data") or body.get("formData")
+            data = inner if isinstance(inner, dict) else {}
+    elif form_data is not None:
+        data = form_data
     elif "data" in body and isinstance(body["data"], (dict, list)):
         data = body["data"]
         template_name = template_name or _pick_str(body, "template_name", "templateName", "template", "template_id")
@@ -771,52 +775,21 @@ def normalize_direct_pdf_request(body: Any) -> dict[str, Any]:
 
 
 def list_available_templates(templates_dir: Optional[str] = None) -> list[dict[str, Any]]:
-    """Discovers and lists all pre-installed PDF templates."""
-    search_dir = templates_dir or TEMPLATES_DIR
-    if not os.path.isdir(search_dir):
-        return []
-
-    results: list[dict[str, Any]] = []
-    for entry in sorted(os.listdir(search_dir)):
-        if entry.lower().endswith(".json"):
-            fp = os.path.join(search_dir, entry)
-            try:
-                with open(fp, "r", encoding="utf-8") as f:
-                    tpl = json.load(f)
-                if is_pdfme_template(tpl):
-                    t_id = os.path.splitext(entry)[0]
-                    title = t_id.replace("_", " ").title()
-                    sample_keys: list[str] = []
-                    schemas = tpl.get("schemas", [])
-                    if schemas and isinstance(schemas[0], list):
-                        for fld in schemas[0]:
-                            k = fld.get("name") or fld.get("dataKey")
-                            if k and k not in sample_keys:
-                                sample_keys.append(k)
-                    results.append(
-                        {
-                            "template_id": t_id,
-                            "filename": entry,
-                            "title": title,
-                            "file_path": fp,
-                            "page_count": len(schemas),
-                            "schema_fields_sample": sample_keys[:12],
-                        }
-                    )
-            except Exception as ex:
-                logger.warning("template_scan_skip", extra={"file": entry, "error": str(ex)})
-    return results
+    """Returns available templates. Built-in static templates are removed; templates are supplied dynamically via schema JSON."""
+    return []
 
 
-def load_template(name_or_path: str, templates_dir: Optional[str] = None) -> Optional[dict[str, Any]]:
-    """Loads a template JSON by ID, alias, filename, or direct file path."""
+def load_template(name_or_path: Any, templates_dir: Optional[str] = None) -> Optional[dict[str, Any]]:
+    """Parses a schema JSON dictionary or JSON string."""
     if not name_or_path:
         return None
+    if isinstance(name_or_path, dict) and is_pdfme_template(name_or_path):
+        return name_or_path
     raw = str(name_or_path).strip()
     if not raw:
         return None
 
-    # 1. Direct JSON string
+    # Direct JSON string
     if raw.startswith("{") and raw.endswith("}"):
         try:
             tpl = json.loads(raw)
@@ -825,70 +798,53 @@ def load_template(name_or_path: str, templates_dir: Optional[str] = None) -> Opt
         except Exception:
             pass
 
-    # 2. Direct File Path
-    if os.path.isfile(raw):
-        try:
-            with open(raw, "r", encoding="utf-8") as f:
-                tpl = json.load(f)
-            if is_pdfme_template(tpl):
-                return tpl
-        except Exception:
-            pass
-
-    # 3. Search directory
-    search_dir = templates_dir or TEMPLATES_DIR
-    if os.path.isdir(search_dir):
-        cand_path = os.path.join(search_dir, f"{raw}.json" if not raw.endswith(".json") else raw)
-        if os.path.isfile(cand_path):
-            with open(cand_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-
-        norm_key = re.sub(r"[\s\-_]+", "", raw.lower().replace(".json", ""))
-        for entry in os.listdir(search_dir):
-            if entry.lower().endswith(".json"):
-                base_entry = os.path.splitext(entry)[0]
-                norm_entry = re.sub(r"[\s\-_]+", "", base_entry.lower())
-
-                if norm_key in {"fda", "vesselcallfda", "vesselfda"} and "fda" in norm_entry:
-                    with open(os.path.join(search_dir, entry), "r", encoding="utf-8") as f:
-                        return json.load(f)
-                if norm_key in {"pda", "vesselcallpda", "vesselpda"} and "pda" in norm_entry:
-                    with open(os.path.join(search_dir, entry), "r", encoding="utf-8") as f:
-                        return json.load(f)
-
-                if norm_key in norm_entry or norm_entry in norm_key:
-                    with open(os.path.join(search_dir, entry), "r", encoding="utf-8") as f:
-                        return json.load(f)
-
     return None
 
 
 def generate_pdf_from_json(
-    json_data: dict[str, Any] | list[Any],
+    json_data: dict[str, Any] | list[Any] | str,
     *,
     template_name: Optional[str] = None,
     template_id: Optional[str] = None,
-    template_json: Optional[dict[str, Any]] = None,
-    template: Optional[dict[str, Any]] = None,
+    template_json: Optional[dict[str, Any] | str] = None,
+    template: Optional[dict[str, Any] | str] = None,
+    schema_json: Optional[dict[str, Any] | str] = None,
+    schema: Optional[dict[str, Any] | str] = None,
+    pdf_schema: Optional[dict[str, Any] | str] = None,
     output_path: Optional[str] = None,
     title: Optional[str] = None,
     theme: Optional[str] = None,
     theme_name: Optional[str] = None,
     page_size: str = "A4",
 ) -> PdfGenerationResult:
-    """Renders a complete, beautifully styled PDF from structured JSON or template."""
+    """Renders a complete, beautifully styled PDF from a dynamic schema JSON or structured JSON."""
     now_str = datetime.now(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
 
-    # If json_data itself is a pdfme template
-    active_template: Optional[dict[str, Any]] = template or template_json
-    tpl_identifier = template_name or template_id or (json_data.get("template_name") if isinstance(json_data, dict) else None)
+    # If string JSON data passed, parse it
+    if isinstance(json_data, str):
+        trimmed = json_data.strip()
+        if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
+            try:
+                json_data = json.loads(trimmed)
+            except Exception:
+                pass
 
-    if tpl_identifier and str(tpl_identifier).strip().lower() not in {"none", "dynamic", "flowable", "null", ""}:
-        active_template = active_template or load_template(str(tpl_identifier).strip())
+    # Resolve schema from any keyword alias
+    raw_template = schema_json or schema or pdf_schema or template or template_json
+    active_template: Optional[dict[str, Any]] = None
+    if isinstance(raw_template, dict):
+        active_template = raw_template
+    elif isinstance(raw_template, str) and raw_template.strip():
+        active_template = load_template(raw_template.strip())
+
+    tpl_identifier = template_name or template_id or (json_data.get("template_name") if isinstance(json_data, dict) else None)
+    if not active_template and tpl_identifier and str(tpl_identifier).strip().lower() not in {"none", "dynamic", "flowable", "null", ""}:
+        active_template = load_template(str(tpl_identifier).strip())
 
     if isinstance(json_data, dict) and is_pdfme_template(json_data):
         active_template = json_data
-        data = json_data.get("data") if isinstance(json_data.get("data"), dict) else json_data
+        inner_data = json_data.get("data") or json_data.get("formData")
+        data = inner_data if isinstance(inner_data, (dict, list)) else json_data
     elif isinstance(json_data, list):
         if len(json_data) == 1 and isinstance(json_data[0], dict):
             data = dict(json_data[0])
@@ -900,14 +856,6 @@ def generate_pdf_from_json(
         data = dict(json_data)
     else:
         raise ValueError("json_data must be a dictionary or a list of records.")
-
-    # Auto-infer template only if not explicitly set and not set to none/dynamic
-    if not active_template and (not tpl_identifier or str(tpl_identifier).strip().lower() not in {"none", "dynamic", "flowable"}):
-        doc_no = str(data.get("Document No.", data.get("document_no", data.get("call_number", ""))))
-        if "FDA" in doc_no.upper() or "Actual Cost + Tax" in data or "BALANCE DUE" in data:
-            active_template = load_template("Vessel_Call_FDA_Exact_Format")
-        elif "PDA" in doc_no.upper() or "TOTAL PDA" in data or "Estimated Subtotal" in data:
-            active_template = load_template("Vessel_Call_PDA_Exact_Format")
 
     doc_title = infer_document_title(data, title)
 
@@ -921,11 +869,12 @@ def generate_pdf_from_json(
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-    # If an active template is present, render via coordinate-based template engine
+    # If an active schema template is present, render via coordinate-based schema template engine
     if active_template and is_pdfme_template(active_template):
+        render_data = data if isinstance(data, dict) else {"records": data}
         out_path, pdf_bytes, page_count = render_pdfme_template_to_pdf(
             template=active_template,
-            data=data,
+            data=render_data,
             output_path=output_path,
             title=doc_title,
         )

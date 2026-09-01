@@ -222,71 +222,100 @@ def test_generate_pdf_discharge_summary_structure():
     assert raw_bytes.startswith(b"%PDF")
 
 
+CUSTOM_TEST_SCHEMA = {
+    "schemas": [
+        [
+            {
+                "name": "HeaderTitle",
+                "type": "text",
+                "content": "Official Dynamic Document",
+                "position": {"x": 20, "y": 20},
+                "width": 170,
+                "height": 12,
+                "fontSize": 16,
+                "fontName": "Helvetica-Bold",
+                "fontColor": "#0B3557",
+            },
+            {
+                "name": "CustomerField",
+                "type": "text",
+                "dataKey": "customer_name",
+                "position": {"x": 20, "y": 35},
+                "width": 80,
+                "height": 8,
+                "fontSize": 10,
+            },
+            {
+                "name": "AmountField",
+                "type": "text",
+                "dataKey": "total_amount",
+                "position": {"x": 120, "y": 35},
+                "width": 60,
+                "height": 8,
+                "fontSize": 10,
+                "alignment": "right",
+            },
+        ]
+    ],
+    "basePdf": {"width": 210, "height": 297, "padding": [20, 10, 20, 10]},
+}
+
+
 def test_list_and_load_templates():
     from app.pdf_skills import list_available_templates, load_template
 
     templates = list_available_templates()
     assert isinstance(templates, list)
-    assert len(templates) >= 2
+    assert len(templates) == 0
 
-    ids = [t["template_id"] for t in templates]
-    assert "Vessel_Call_FDA_Exact_Format" in ids
-    assert "Vessel_Call_PDA_Exact_Format" in ids
+    # Parsing valid schema dictionary or JSON string
+    loaded_dict = load_template(CUSTOM_TEST_SCHEMA)
+    assert loaded_dict is not None
+    assert "schemas" in loaded_dict
 
-    # Fuzzy loading
-    fda_tpl = load_template("fda")
-    assert fda_tpl is not None
-    assert "schemas" in fda_tpl
+    import json
+    loaded_str = load_template(json.dumps(CUSTOM_TEST_SCHEMA))
+    assert loaded_str is not None
+    assert "schemas" in loaded_str
 
-    pda_tpl = load_template("pda")
-    assert pda_tpl is not None
-    assert "schemas" in pda_tpl
-
-    exact_tpl = load_template("Vessel_Call_FDA_Exact_Format")
-    assert exact_tpl is not None
+    # Non-schema inputs return None
+    assert load_template("nonexistent_tpl") is None
+    assert load_template(None) is None
 
 
-def test_generate_pdf_vessel_call_fda_template():
+def test_generate_pdf_from_dynamic_schema_json():
     data = {
-        "vessel_name": "M/V PACIFIC HORIZON",
-        "call_number": "VC-2026-8841",
-        "port_name": "PORT OF SINGAPORE",
-        "agent_name": "TransGlobal Maritime Ltd",
-        "total_disbursement": "20980.00",
+        "customer_name": "Acme Dynamics Pte Ltd",
+        "total_amount": "$45,000.00",
     }
     result = generate_pdf_from_json(
         data,
-        template_name="Vessel_Call_FDA_Exact_Format",
-        title="Final Disbursement Account",
+        template_json=CUSTOM_TEST_SCHEMA,
+        title="Custom Dynamic Report",
     )
     assert isinstance(result, PdfGenerationResult)
-    assert result.page_count >= 1
-    assert result.file_size_bytes > 1000
+    assert result.page_count == 1
+    assert result.file_size_bytes > 500
     raw_bytes = base64.b64decode(result.pdf_base64)
     assert raw_bytes.startswith(b"%PDF")
 
 
-def test_generate_pdf_vessel_call_pda_template():
-    data = {
-        "vessel_name": "M/V ATLANTIC VOYAGER",
-        "proforma_ref": "PDA-2026-9912",
-        "port_name": "PORT OF ROTTERDAM",
-        "estimated_total": "27500.00",
+def test_generate_pdf_direct_schema_object():
+    schema_with_data = dict(CUSTOM_TEST_SCHEMA)
+    schema_with_data["data"] = {
+        "customer_name": "Direct Schema User",
+        "total_amount": "$99,999.00",
     }
-    result = generate_pdf_from_json(
-        data,
-        template_name="Vessel_Call_PDA_Exact_Format",
-        title="Proforma Disbursement Account",
-    )
+    result = generate_pdf_from_json(schema_with_data, title="Direct Schema Document")
     assert isinstance(result, PdfGenerationResult)
-    assert result.page_count >= 1
-    assert result.file_size_bytes > 1000
+    assert result.page_count == 1
+    assert result.file_size_bytes > 500
     raw_bytes = base64.b64decode(result.pdf_base64)
     assert raw_bytes.startswith(b"%PDF")
 
 
 @pytest.mark.asyncio
-async def test_pdf_agent_template_resolution():
+async def test_pdf_agent_dynamic_schema_resolution():
     llm_mock = MagicMock()
     llm_mock.chat_completion = AsyncMock()
     settings_mock = MagicMock()
@@ -294,9 +323,9 @@ async def test_pdf_agent_template_resolution():
 
     agent = PdfAgent(llm_adapter=llm_mock, settings=settings_mock)
     document_job = {
-        "pdf_json": {"vessel_name": "M/V PACIFIC HORIZON", "port": "Singapore"},
-        "template_name": "fda",
-        "pdf_title": "Vessel FDA",
+        "pdf_schema": CUSTOM_TEST_SCHEMA,
+        "pdf_json": {"customer_name": "Agent Dynamic Customer", "total_amount": "$12,345.00"},
+        "pdf_title": "Agent Schema PDF",
     }
     resp = await agent.handle(message="", session_id="test-session", document_job=document_job)
     assert "pdf_result" in resp
