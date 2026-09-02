@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Optional, Protocol
 
 import asyncpg
@@ -289,6 +290,148 @@ def expand_repository_header_aliases(header: dict[str, Any]) -> dict[str, Any]:
         for alias in aliases:
             expanded.setdefault(alias, value)
     return expanded
+
+
+# V6 items_* types Amount as decimal(18,2) and DocumentDate as date. Binding those
+# as text raises Postgres 42804 and aborts the whole UPDATE (InvoiceNumber stays null).
+_AMOUNT_COL_NORMS = frozenset(
+    {
+        "amount",
+        "poamount",
+        "invoiceamount",
+        "invoicetaxamount",
+        "subtotal",
+        "grossamount",
+    }
+)
+_DATE_COL_NORMS = frozenset({"documentdate", "podate", "invoicedate", "duedate"})
+
+
+def _parse_repo_decimal(raw: Any) -> Optional[Decimal]:
+    if isinstance(raw, Decimal):
+        return raw
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return Decimal(str(raw))
+    text = str(raw or "").strip().replace(",", "")
+    for symbol in ("$", "€", "£", "₹", "USD", "EUR", "GBP", "INR"):
+        text = text.replace(symbol, "")
+    text = text.strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _parse_repo_date(raw: Any) -> Optional[date]:
+    if isinstance(raw, datetime):
+        return raw.date()
+    if isinstance(raw, date):
+        return raw
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        from dateutil import parser as date_parser
+
+        parsed = date_parser.parse(text, fuzzy=False, dayfirst=False)
+        return parsed.date()
+    except (ValueError, OverflowError, TypeError):
+        return None
+
+
+def coerce_repository_assignment(column: str, value: Any, col_type: str) -> Any:
+    """Coerce like V6 RepositoryItemMetadataUpdateHelper. Return None to skip the column."""
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, default=str)
+    blob = str(col_type or "").lower()
+    norm = _norm_col(column)
+    text_type = any(
+        token in blob
+        for token in ("text", "char", "varchar", "nvarchar", "json", "xml", "citext", "clob")
+    )
+    numeric_type = any(
+        token in blob
+        for token in (
+            "numeric",
+            "decimal",
+            "money",
+            "double precision",
+            "real",
+            "float",
+            "integer",
+            "bigint",
+            "smallint",
+        )
+    )
+    date_type = any(token in blob for token in ("timestamp", "date"))
+    if numeric_type or (not text_type and not date_type and norm in _AMOUNT_COL_NORMS):
+        return _parse_repo_decimal(value)
+    if date_type or (not text_type and not numeric_type and norm in _DATE_COL_NORMS):
+        return _parse_repo_date(value)
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def repository_item_scope_sql(
+    columns: list[str],
+    types: Optional[dict[str, str]],
+    *,
+    tenant_id: str,
+    repository_id: str,
+    start_param: int,
+) -> tuple[str, list[Any]]:
+    """AND tenant_id / repository_id / is_deleted like V6 UpdateItemMetadataAsync."""
+    types = types or {}
+    type_by_lower = {str(k).lower(): str(v or "") for k, v in types.items()}
+    by_norm = {_norm_col(c): c for c in columns if _norm_col(c)}
+    clauses: list[str] = []
+    args: list[Any] = []
+    param = start_param
+
+    def _actual(*names: str) -> Optional[str]:
+        for name in names:
+            found = by_norm.get(_norm_col(name))
+            if found:
+                return found
+        return None
+
+    tenant_col = _actual("tenant_id", "TenantId")
+    tenant_compact = guid_compact(tenant_id)
+    if tenant_col and len(tenant_compact) == 32:
+        clauses.append(f"{_sql_compact_guid_expr(quote_ident(tenant_col))} = ${param}")
+        args.append(tenant_compact)
+        param += 1
+
+    repo_col = _actual("repository_id", "RepositoryId")
+    repo_compact = guid_compact(repository_id)
+    if repo_col and len(repo_compact) == 32:
+        clauses.append(f"{_sql_compact_guid_expr(quote_ident(repo_col))} = ${param}")
+        args.append(repo_compact)
+        param += 1
+
+    deleted_col = _actual("is_deleted", "IsDeleted")
+    if deleted_col:
+        ident = quote_ident(deleted_col)
+        blob = (type_by_lower.get(deleted_col.lower()) or "").lower()
+        if "bool" in blob:
+            clauses.append(f"{ident} IS NOT TRUE")
+        elif any(token in blob for token in ("int", "bit", "numeric", "decimal")):
+            clauses.append(f"COALESCE({ident}, 0) = 0")
+        else:
+            clauses.append(
+                f"(lower(CAST({ident} AS text)) IN ('false', '0', 'f', '') OR {ident} IS NULL)"
+            )
+
+    if not clauses:
+        return "", []
+    return " AND " + " AND ".join(clauses), args
 
 
 def _sanitize_repo_column(name: str) -> str:
@@ -1418,6 +1561,23 @@ class ApStore:
                     "table": f"{schema}.{real_table}",
                     "columns": columns[:40],
                 }
+            bound: dict[str, Any] = {}
+            type_by_lower = {str(k).lower(): str(v or "") for k, v in types.items()}
+            for col, value in assignments.items():
+                coerced = coerce_repository_assignment(
+                    col, value, type_by_lower.get(col.lower(), "")
+                )
+                if coerced is None:
+                    continue
+                bound[col] = coerced
+            if not bound:
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "reason": "no_column_match",
+                    "table": f"{schema}.{real_table}",
+                    "columns": columns[:40],
+                }
             compact = guid_compact(item_guid)
             if len(compact) != 32:
                 return {
@@ -1427,7 +1587,7 @@ class ApStore:
                     "table": f"{schema}.{real_table}",
                     "item_id": item_guid,
                 }
-            match_sql = repository_item_match_sql(columns, types, param=len(assignments) + 1)
+            match_sql = repository_item_match_sql(columns, types, param=len(bound) + 1)
             if match_sql == "FALSE":
                 return {
                     "ok": False,
@@ -1438,22 +1598,22 @@ class ApStore:
                 }
             sets = []
             args: list[Any] = []
-            for index, (col, value) in enumerate(assignments.items(), start=1):
+            for index, (col, value) in enumerate(bound.items(), start=1):
                 sets.append(f"{quote_ident(col)} = ${index}")
-                args.append(
-                    value
-                    if isinstance(value, str)
-                    else (
-                        json.dumps(value, default=str)
-                        if isinstance(value, (dict, list))
-                        else str(value)
-                    )
-                )
+                args.append(value)
             args.append(compact)
+            scope_sql, scope_args = repository_item_scope_sql(
+                columns,
+                types,
+                tenant_id=tenant_id,
+                repository_id=repository_id,
+                start_param=len(args) + 1,
+            )
+            args.extend(scope_args)
             sql = (
                 f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
                 f"SET {', '.join(sets)} "
-                f"WHERE {match_sql}"
+                f"WHERE {match_sql}{scope_sql}"
             )
             status = await db.execute(sql, *args)
             updated = _execute_rowcount(status)
@@ -1475,7 +1635,7 @@ class ApStore:
                 extra={
                     "table": f"{schema}.{real_table}",
                     "item_id": item_guid,
-                    "columns": sorted(assignments.keys()),
+                    "columns": sorted(bound.keys()),
                     "updated": updated if updated is not None else 1,
                 },
             )
@@ -1483,7 +1643,7 @@ class ApStore:
                 "ok": True,
                 "updated": updated if updated is not None else 1,
                 "table": f"{schema}.{real_table}",
-                "columns": sorted(assignments.keys()),
+                "columns": sorted(bound.keys()),
                 "item_id": item_guid,
             }
         except Exception as exc:

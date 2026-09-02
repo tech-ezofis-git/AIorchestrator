@@ -356,6 +356,9 @@ async def test_push_writes_repository_items_table():
     assert seen["item_id"] == "4283e687-f32f-40c0-a67e-c213724b1702"
     assert seen["repository_id"] == "38b1b6dd-854b-489f-aa44-ac6d4dd691e8"
     assert seen["header"]["Invoice No"] == "INV-12"
+    assert seen["header"]["InvoiceNumber"] == "INV-12"
+    assert seen["header"]["PoNumber"] == "PO-12"
+    assert seen["header"]["Supplier"] == "Acme"
 
 
 @pytest.mark.asyncio
@@ -453,6 +456,69 @@ async def test_apply_repository_item_fields_matches_uniqueidentifier_and_filepat
     assert "FilePath" in sql
     assert executed["args"][-1] == "9c06f76216f54c009560d50e1f6b3eac"
     assert "INV-2026-6001" in executed["args"]
+
+
+@pytest.mark.asyncio
+async def test_apply_repository_item_fields_coerces_amount_date_and_scopes_row():
+    from datetime import date
+    from decimal import Decimal
+
+    from app.ap_skills.store import ApStore
+
+    executed = {}
+
+    class FakeDb:
+        async def fetch(self, query, *args):
+            q = query.lower()
+            if "information_schema.columns" in q:
+                return [
+                    {"column_name": "id", "data_type": "uuid", "udt_name": "uuid"},
+                    {"column_name": "tenant_id", "data_type": "uuid", "udt_name": "uuid"},
+                    {"column_name": "repository_id", "data_type": "uuid", "udt_name": "uuid"},
+                    {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
+                    {"column_name": "InvoiceNumber", "data_type": "text", "udt_name": "text"},
+                    {"column_name": "PoNumber", "data_type": "text", "udt_name": "text"},
+                    {"column_name": "Supplier", "data_type": "text", "udt_name": "text"},
+                    {"column_name": "Amount", "data_type": "numeric", "udt_name": "numeric"},
+                    {"column_name": "DocumentDate", "data_type": "date", "udt_name": "date"},
+                ]
+            return []
+
+        async def fetchrow(self, query, *args):
+            if "information_schema.tables" in query.lower():
+                return {"table_schema": "repository", "table_name": "items_048f6cfc"}
+            return None
+
+        async def execute(self, query, *args):
+            executed["sql"] = query
+            executed["args"] = args
+            return "UPDATE 1"
+
+    result = await ApStore(FakeDb()).apply_repository_item_fields(
+        tenant_id="2e3b7b37-38a3-4f94-878e-a006dad93230",
+        repository_id="048f6cfc-7eb0-471c-aa54-cbb5f504c951",
+        item_id="9c06f762-16f5-4c00-9560-d50e1f6b3eac",
+        header={
+            "Invoice No": "INV-2026-6001",
+            "PO Number": "PO-60001",
+            "Vendor Name": "APEX INDUSTRIAL",
+            "Invoice Amount": "5,203.65",
+            "Invoice Date": "2026-05-20",
+        },
+    )
+    assert result["ok"] is True
+    sql = executed["sql"]
+    args = list(executed["args"])
+    assert "InvoiceNumber" in sql
+    assert "tenant_id" in sql
+    assert "repository_id" in sql
+    assert "IS NOT TRUE" in sql
+    assert Decimal("5203.65") in args
+    assert date(2026, 5, 20) in args
+    assert "INV-2026-6001" in args
+    assert args[-2] == "2e3b7b3738a34f94878ea006dad93230"
+    assert args[-1] == "048f6cfc7eb0471caa54cbb5f504c951"
+    assert "9c06f76216f54c009560d50e1f6b3eac" in args
 
 
 @pytest.mark.asyncio
@@ -623,6 +689,9 @@ async def test_push_extract_metadata_calls_client():
     assert seen["item_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     assert seen["form_entry_id"] == 42
     assert seen["fields"]["invoice_header"]["Invoice No"] == "INV-9"
+    assert seen["fields"]["invoice_header"]["InvoiceNumber"] == "INV-9"
+    assert seen["fields"]["invoice_header"]["PoNumber"] == "PO-1"
+    assert seen["fields"]["invoice_header"]["Supplier"] == "Acme"
 
 
 @pytest.mark.asyncio

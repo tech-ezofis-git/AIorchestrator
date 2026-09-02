@@ -120,27 +120,30 @@ def get_preset(preset_id: str) -> Optional[dict[str, Any]]:
     return None
 
 
-def _resolve_api_key(preset: dict[str, Any]) -> Optional[str]:
-    if preset.get("api_key"):
-        return preset["api_key"]
-    settings = get_settings()
-    attr = preset.get("api_key_attr")
+def _resolve_preset_field(preset: dict[str, Any], *, literal_key: str, attr_key: str) -> Optional[str]:
+    """Shared resolution rule (ultrareview reuse/simplification fix — this
+    used to be two near-identical hand-copies, one for api_key and one for
+    api_base, differing only in field names and the empty-value fallback):
+    an explicit literal on `preset` (e.g. a catalog row's own column) wins;
+    otherwise resolved from Settings/.env via `<field>_attr`. Returns None
+    if neither is set."""
+    if preset.get(literal_key):
+        return preset[literal_key]
+    attr = preset.get(attr_key)
     if not attr:
         return None
-    return getattr(settings, attr, None) or None
+    return getattr(get_settings(), attr, None) or None
 
 
-def _resolve_api_base(preset: dict[str, Any]) -> str:
-    """Explicit `api_base` (a catalog row's own literal) wins; otherwise
-    resolved from `api_base_attr` via Settings/.env — same pattern as
-    `_resolve_api_key`. Built-in presets always have `api_base_attr` set,
-    so this only returns "" for a malformed/incomplete catalog row."""
-    if preset.get("api_base"):
-        return preset["api_base"]
-    attr = preset.get("api_base_attr")
-    if not attr:
-        return ""
-    return getattr(get_settings(), attr, None) or ""
+def resolve_api_key(preset: dict[str, Any]) -> Optional[str]:
+    return _resolve_preset_field(preset, literal_key="api_key", attr_key="api_key_attr")
+
+
+def resolve_api_base(preset: dict[str, Any]) -> str:
+    """Public (not `_`-prefixed): also called from app/catalog/store.py's
+    `seed_defaults`, which needs the identical literal-or-Settings
+    resolution when first writing built-in presets into catalog_models."""
+    return _resolve_preset_field(preset, literal_key="api_base", attr_key="api_base_attr") or ""
 
 
 def list_presets_public() -> list[dict[str, Any]]:
@@ -152,9 +155,9 @@ def list_presets_public() -> list[dict[str, Any]]:
             "model": p["model"],
             "model_version": p.get("model_version"),
             "region": p.get("region"),
-            "api_base": _resolve_api_base(p),
+            "api_base": resolve_api_base(p),
             "api_version": p.get("api_version") or None,
-            "has_api_key": bool(_resolve_api_key(p)),
+            "has_api_key": bool(resolve_api_key(p)),
         }
         for p in _preset_source()
     ]
@@ -174,8 +177,8 @@ def apply_preset(adapter: Any, preset_id: str) -> bool:
         return False
     adapter.configure(
         model=preset["model"],
-        api_base=_resolve_api_base(preset),
-        api_key=_resolve_api_key(preset) or "",
+        api_base=resolve_api_base(preset),
+        api_key=resolve_api_key(preset) or "",
         # Empty string clears a previous Azure api_version.
         api_version=preset.get("api_version") if preset.get("api_version") is not None else "",
         preset_id=preset["id"],
@@ -194,8 +197,8 @@ def resolve_preset_overrides(preset_id: str) -> Optional[dict[str, Any]]:
         return None
     return {
         "model": preset["model"],
-        "api_base": _resolve_api_base(preset),
-        "api_key": _resolve_api_key(preset) or "",
+        "api_base": resolve_api_base(preset),
+        "api_key": resolve_api_key(preset) or "",
         "api_version": preset.get("api_version") if preset.get("api_version") is not None else "",
     }
 
@@ -204,7 +207,7 @@ def preset_has_api_key(preset_id: str) -> bool:
     preset = get_preset(preset_id)
     if preset is None:
         return False
-    return bool(_resolve_api_key(preset))
+    return bool(resolve_api_key(preset))
 
 
 def resolve_default_preset_id(preferred: str) -> str:

@@ -8,10 +8,15 @@ from app.ap_skills.types import (
     field_number,
     field_text,
     invoice_from,
+    match_lines_by_description,
     name_similarity,
 )
 
 SKILL_ID = "grn_match"
+
+
+def _description(line: dict) -> str:
+    return field_text(line, "description", "item", "name", "Description")
 
 
 async def run(ctx: ApContext) -> ApSkillResult:
@@ -46,15 +51,21 @@ async def run(ctx: ApContext) -> ApSkillResult:
     sim = name_similarity(inv_vendor, grn_vendor) if inv_vendor and grn_vendor else 0.0
     score += round(25.0 * sim, 2)
 
-    inv_lines = invoice.get("line_items") if isinstance(invoice.get("line_items"), list) else []
-    grn_lines = grn.get("lines") if isinstance(grn.get("lines"), list) else []
+    raw_inv_lines = invoice.get("line_items") if isinstance(invoice.get("line_items"), list) else []
+    inv_lines = [line for line in raw_inv_lines if isinstance(line, dict)]
+    raw_grn_lines = grn.get("lines") if isinstance(grn.get("lines"), list) else []
+    grn_lines = [line for line in raw_grn_lines if isinstance(line, dict)]
+    # Code-review finding (ultrareview altitude fix): this used to pair
+    # inv_lines[index] with grn_lines[index] purely by array position —
+    # the same bug backorder_detect.py had (finding #12) before being
+    # fixed to match by description instead, since GRN lines don't have
+    # to be listed in the same order as the invoice's lines.
+    matched_indexes = match_lines_by_description(inv_lines, grn_lines, describe=_description)
     line_hits = 0
-    for index, inv_line in enumerate(inv_lines):
-        if not isinstance(inv_line, dict):
-            continue
+    for inv_line, grn_index in zip(inv_lines, matched_indexes):
         inv_qty = field_number(inv_line, "qty", "quantity") or 0.0
-        if index < len(grn_lines) and isinstance(grn_lines[index], dict):
-            grn_qty = field_number(grn_lines[index], "qty", "quantity", "received_qty") or 0.0
+        if grn_index is not None:
+            grn_qty = field_number(grn_lines[grn_index], "qty", "quantity", "received_qty") or 0.0
             if inv_qty and abs(inv_qty - grn_qty) < 0.001:
                 line_hits += 1
             elif not inv_qty and grn_qty:

@@ -47,11 +47,12 @@ async def run(ctx: ApContext) -> ApSkillResult:
             score = 1.0
             break
         prior_vendor = field_text(prior_inv, "vendor", "supplier")
-        if invoice_number and prior_no and name_similarity(vendor, prior_vendor) >= 0.85:
-            combined = round(
-                (name_similarity(vendor, prior_vendor) + name_similarity(invoice_number, prior_no)) / 2,
-                4,
-            )
+        # (ultrareview efficiency fix: vendor similarity computed once and
+        # reused, instead of the same name_similarity(vendor, prior_vendor)
+        # call being repeated for the gate and then again for `combined`.)
+        vendor_sim = name_similarity(vendor, prior_vendor)
+        if invoice_number and prior_no and vendor_sim >= 0.85:
+            combined = round((vendor_sim + name_similarity(invoice_number, prior_no)) / 2, 4)
             if combined > possible_duplicate_score:
                 possible_duplicate_of = prior_no
                 possible_duplicate_score = combined

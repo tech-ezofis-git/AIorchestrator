@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol
 
 # Default pipeline when payload.skills is omitted/null.
 # Always ends with finalize_decision then workflow_move_next.
@@ -203,3 +203,57 @@ def decision_from_score(score: float, *, approved: int, partial: int) -> str:
     if score >= partial:
         return "PARTIALLY_MATCHED"
     return "NOT_MATCHED"
+
+
+DEFAULT_LINE_MATCH_FLOOR = 0.5
+
+
+def match_lines_by_description(
+    left_lines: list[dict[str, Any]],
+    right_lines: list[dict[str, Any]],
+    *,
+    describe: Callable[[dict[str, Any]], str],
+    floor: float = DEFAULT_LINE_MATCH_FLOOR,
+) -> list[Optional[int]]:
+    """Best `right_lines` index for each `left_lines` entry, by
+    `name_similarity` on `describe(line)`. Returns a list the same length
+    as `left_lines`; each entry is a `right_lines` index (each used at
+    most once) or None if nothing scored at/above `floor`.
+
+    Shared by backorder_detect.py (PO lines vs invoice lines) and
+    grn_match.py (invoice lines vs GRN lines) — extracted here
+    (ultrareview altitude fix) after both were found to have the same
+    bug: matching two line-item lists purely by array position silently
+    mispairs them whenever the two lists don't happen to list items in
+    the same order, which is common (invoices/GRNs don't have to mirror
+    PO line order). Falls back to position only when NEITHER list has a
+    usable description anywhere to compare against, so a plain/unlabeled
+    line list still gets a best-effort match rather than none.
+    """
+    has_any_description = any(describe(line) for line in right_lines)
+    used: set[int] = set()
+    matches: list[Optional[int]] = []
+    for position, left_line in enumerate(left_lines):
+        left_desc = describe(left_line)
+        if not has_any_description or not left_desc:
+            matches.append(position if position < len(right_lines) and position not in used else None)
+            if position < len(right_lines):
+                used.add(position)
+            continue
+        best_index: Optional[int] = None
+        best_score = 0.0
+        for index, right_line in enumerate(right_lines):
+            if index in used:
+                continue
+            score = name_similarity(left_desc, describe(right_line))
+            if score > best_score:
+                best_index, best_score = index, score
+        # best_index and best_score are always assigned together above, and
+        # best_score starts below `floor` — so best_score >= floor already
+        # implies best_index is not None.
+        if best_score >= floor:
+            used.add(best_index)
+            matches.append(best_index)
+        else:
+            matches.append(None)
+    return matches

@@ -1,8 +1,6 @@
 """backorder_detect — invoice qty vs PO qty (short-ship). Skipped unless tenant-enabled."""
 from __future__ import annotations
 
-from typing import Any, Optional
-
 from app.ap_skills.types import (
     ApContext,
     ApSkillError,
@@ -10,14 +8,10 @@ from app.ap_skills.types import (
     field_number,
     field_text,
     invoice_from,
-    name_similarity,
+    match_lines_by_description,
 )
 
 SKILL_ID = "backorder_detect"
-
-# Minimum description similarity to treat a PO line and an invoice line as
-# the same item — see _match_lines.
-_MATCH_FLOOR = 0.5
 
 
 def _qty(line: dict) -> float:
@@ -27,48 +21,6 @@ def _qty(line: dict) -> float:
 
 def _description(line: dict) -> str:
     return field_text(line, "description", "item", "name", "Description")
-
-
-def _match_lines(
-    po_lines: list[dict[str, Any]], inv_lines: list[dict[str, Any]]
-) -> list[Optional[int]]:
-    """Best invoice-line index for each PO line, by description similarity.
-
-    Code-review finding #12: previously matched purely by array position
-    (`inv_lines[index]`), which silently mispairs lines whenever the
-    invoice's line order differs from the PO's — a very common case, since
-    invoices don't have to list items in PO order. Falls back to position
-    only when no invoice line has a usable description to compare against
-    at all, so a plain/unlabeled line list still gets a best-effort match
-    rather than none (same behavior as before for that case).
-    """
-    has_any_description = any(_description(line) for line in inv_lines)
-    used: set[int] = set()
-    matches: list[Optional[int]] = []
-    for position, po_line in enumerate(po_lines):
-        po_desc = _description(po_line)
-        if not has_any_description or not po_desc:
-            matches.append(position if position < len(inv_lines) and position not in used else None)
-            if position < len(inv_lines):
-                used.add(position)
-            continue
-        best_index: Optional[int] = None
-        best_score = 0.0
-        for index, inv_line in enumerate(inv_lines):
-            if index in used:
-                continue
-            score = name_similarity(po_desc, _description(inv_line))
-            if score > best_score:
-                best_index, best_score = index, score
-        # best_index and best_score are always assigned together above, and
-        # best_score starts below _MATCH_FLOOR — so best_score >= _MATCH_FLOOR
-        # already implies best_index is not None (ultrareview simplification).
-        if best_score >= _MATCH_FLOOR:
-            used.add(best_index)
-            matches.append(best_index)
-        else:
-            matches.append(None)
-    return matches
 
 
 async def run(ctx: ApContext) -> ApSkillResult:
@@ -95,7 +47,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
     raw_po_lines = po.get("lines") if isinstance(po.get("lines"), list) else []
     po_lines = [line for line in raw_po_lines if isinstance(line, dict)]
 
-    matched_indexes = _match_lines(po_lines, inv_lines)
+    matched_indexes = match_lines_by_description(po_lines, inv_lines, describe=_description)
 
     missing = []
     for position, (po_line, inv_index) in enumerate(zip(po_lines, matched_indexes)):

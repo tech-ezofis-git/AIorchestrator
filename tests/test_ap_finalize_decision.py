@@ -76,3 +76,45 @@ async def test_live_env_mock_data_does_not_upgrade_a_worse_decision():
     result = await finalize_decision_run(_ctx(ezofis_env="live", artifacts=artifacts))
     assert result.data["decision"] == "NOT_MATCHED"
     assert result.data["used_mock_data"] is True
+
+
+async def test_live_env_mock_grn_caps_matched_to_partially_matched():
+    """ultrareview fix: grn_match's mock GRN record (EzofisClient.lookup_grn
+    falls back to a fabricated GRN identically to lookup_po/lookup_vendor)
+    used to be invisible to used_mock_data — only po_match/vendor_validate
+    were checked, so a live deployment with only GRN credentials unset
+    could still auto-approve MATCHED off fabricated GRN data."""
+    artifacts = {
+        "po_match": {"decision": "MATCHED", "po": {"mock": False}},
+        "vendor_validate": {"status": "ACTIVE", "expected": "Acme", "mock": False},
+        "grn_match": {"decision": "MATCHED", "grn": {"mock": True}},
+    }
+    result = await finalize_decision_run(_ctx(ezofis_env="live", artifacts=artifacts))
+    assert result.data["decision"] == "PARTIALLY_MATCHED"
+    assert result.data["used_mock_data"] is True
+
+
+async def test_live_env_mock_matter_caps_matched_to_partially_matched():
+    artifacts = {
+        "po_match": {"decision": "MATCHED", "po": {"mock": False}},
+        "vendor_validate": {"status": "ACTIVE", "expected": "Acme", "mock": False},
+        "matter_validate": {"status": "MATCHED", "matter_master_match": {"mock": True}},
+    }
+    result = await finalize_decision_run(_ctx(ezofis_env="live", artifacts=artifacts))
+    assert result.data["decision"] == "PARTIALLY_MATCHED"
+    assert result.data["used_mock_data"] is True
+
+
+async def test_mock_data_and_possible_duplicate_caps_combine_into_one_reason():
+    """The unified capping mechanism (ultrareview altitude fix) reports
+    every applicable reason, not just whichever check happened to run
+    first."""
+    artifacts = {
+        "po_match": {"decision": "MATCHED", "po": {"mock": True}},
+        "vendor_validate": {"status": "ACTIVE", "expected": "Acme"},
+        "duplicate_detect": {"possible_duplicate_of": "INV-0", "possible_duplicate_score": 0.9},
+    }
+    result = await finalize_decision_run(_ctx(ezofis_env="live", artifacts=artifacts))
+    assert result.data["decision"] == "PARTIALLY_MATCHED"
+    assert "mock" in result.data["reason"].lower()
+    assert "duplicate" in result.data["reason"].lower()

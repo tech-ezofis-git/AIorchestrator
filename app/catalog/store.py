@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from app.catalog.defaults import BUILTIN_AGENTS, RESERVED_SLUGS
+from app.llm.model_presets import resolve_api_base, resolve_api_key
 
 logger = logging.getLogger("orchestrator.catalog")
 
@@ -243,20 +244,16 @@ class CatalogStore:
                 None,
                 [],
             )
+        _ = settings  # resolve_api_key/resolve_api_base read Settings via get_settings() (lru_cached)
         for index, preset in enumerate(presets):
-            attr = preset.get("api_key_attr")
-            api_key = ""
-            if attr:
-                api_key = getattr(settings, attr, None) or ""
-            # Code-review finding #16: api_base is resolved the same way
-            # as api_key — an explicit literal on the preset wins,
-            # otherwise it comes from Settings/.env via api_base_attr
-            # (app/config.py), never a value hardcoded only here.
-            api_base = preset.get("api_base") or ""
-            if not api_base:
-                base_attr = preset.get("api_base_attr")
-                if base_attr:
-                    api_base = getattr(settings, base_attr, None) or ""
+            # Code-review finding #16 (and ultrareview reuse fix): reuse
+            # the same literal-or-Settings resolution app/llm/model_presets
+            # .py already defines for every other preset consumer
+            # (list_presets_public, apply_preset, resolve_preset_overrides)
+            # instead of hand-rolling a duplicate copy here that could
+            # silently drift from it.
+            api_key = resolve_api_key(preset) or ""
+            api_base = resolve_api_base(preset)
             await self._run(
                 "execute",
                 "INSERT INTO catalog_models (id, slug, label, model, api_base, api_key, api_version, region, model_version, enabled, sort_order) "

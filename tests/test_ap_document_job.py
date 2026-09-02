@@ -1005,6 +1005,60 @@ def test_credit_ledger_write_failure_does_not_abort_the_run(client, monkeypatch)
     assert result["credits_charged"] == 6
 
 
+def test_ap_tenant_model_selection_does_not_mutate_shared_adapter(client, monkeypatch):
+    """ultrareview fix: AP document-job requests used to mutate the ONE
+    shared LLMAdapter's ambient default (apply_preset) for the resolved
+    tenant model, even though AP's own calls already get a race-safe
+    explicit override — leaving that mutation live for the whole request
+    duration as pure liability for any OTHER concurrent request reading
+    the adapter's ambient state. AP must select its tenant's model via the
+    explicit per-call override only, never by touching the adapter's own
+    `_model`/`_preset_id`."""
+    models = client.get("/console/catalog/models").json()["models"]
+    nano = next(row for row in models if row["slug"] == "gpt-4.1-nano")
+    saved = client.put(
+        "/console/catalog/tenant-models",
+        json={"tenant_id": "t-ap-nomutate", "default_model_id": nano["id"]},
+    )
+    assert saved.status_code == 200
+
+    captured_kwargs_model = []
+    captured_ambient_preset_id = []
+
+    async def fake_completion(self, messages, **kwargs):
+        captured_kwargs_model.append(kwargs.get("model"))
+        # The adapter's OWN ambient state, as apply_preset() would have
+        # left it if it had (wrongly) mutated the shared instance.
+        captured_ambient_preset_id.append(self.describe()["preset_id"])
+        return {
+            "content": json.dumps({"invoice_number": "INV-1", "vendor": "Acme"}),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-nomutate",
+            "intent": "ap",
+            "payload": {
+                "tenant_id": "t-ap-nomutate",
+                "item_id": "doc-nomutate",
+                "filepath": "invoice.pdf",
+            },
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured_kwargs_model == ["azure/gpt-4.1-nano"]
+    # The shared adapter's own ambient preset was never touched — still
+    # whatever the process-wide console default was (gpt-5-nano), not the
+    # tenant's resolved preset.
+    assert captured_ambient_preset_id == ["gpt-5-nano"]
+    assert client.get("/console/llm-config").json()["preset_id"] == "gpt-5-nano"
+
+
 def test_empty_extraction_reports_completed_low_confidence(client, monkeypatch):
     """Code-review finding #3: a run whose extraction found none of
     {invoice_number, vendor, po_number, total} must not report the same

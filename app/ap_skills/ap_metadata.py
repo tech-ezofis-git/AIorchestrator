@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 import httpx
 
-from app.ap_skills.store import ApStoreUnavailableError
+from app.ap_skills.store import ApStoreUnavailableError, expand_repository_header_aliases
 
 logger = logging.getLogger("orchestrator.ap.metadata")
 
@@ -513,6 +513,8 @@ async def push_extract_metadata(
     resolved_form_id = ids["form_id"]
 
     fields = build_ap_metadata_fields(invoice, extras=extras, form_controls=form_controls)
+    if isinstance(fields.get("invoice_header"), dict):
+        fields["invoice_header"] = expand_repository_header_aliases(fields["invoice_header"])
     request_summary = {
         "skill_id": skill_id,
         "workflow_id": workflow_id or None,

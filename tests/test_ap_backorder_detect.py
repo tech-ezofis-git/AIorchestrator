@@ -72,3 +72,20 @@ async def test_no_descriptions_falls_back_to_positional_matching():
     invoice_lines = [{"qty": 10}, {"qty": 5}]
     result = await backorder_run(_ctx(invoice_lines=invoice_lines))
     assert result.data["detected"] is False
+
+
+async def test_zero_qty_po_line_with_no_invoice_match_is_not_flagged():
+    """ultrareview fix: a PO line with qty 0 (or no qty at all) that has no
+    matching invoice line has nothing outstanding — it must not be
+    reported as a backorder just because it went unmatched."""
+    po = {
+        "vendor": "Acme",
+        "lines": [
+            {"id": "1", "description": "Widget A", "qty": 10},
+            {"id": "2", "description": "Free Sample", "qty": 0},
+        ],
+    }
+    invoice_lines = [{"description": "Widget A", "qty": 10}]  # Free Sample never invoiced
+    result = await backorder_run(_ctx(invoice_lines=invoice_lines, po=po))
+    assert result.data["detected"] is False
+    assert result.data["missing_qty_by_item"] == []
