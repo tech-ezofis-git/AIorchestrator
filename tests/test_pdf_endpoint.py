@@ -111,25 +111,47 @@ def test_get_pdf_templates_endpoint(client):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "success"
-    assert body["count"] >= 2
-    tpl_ids = [t["template_id"] for t in body["templates"]]
-    assert "Vessel_Call_FDA_Exact_Format" in tpl_ids
-    assert "Vessel_Call_PDA_Exact_Format" in tpl_ids
+    assert body["count"] == 0
+    assert body["templates"] == []
 
 
-def test_chat_pdf_with_template_name(client):
+def test_chat_pdf_with_custom_schema(client):
+    custom_schema = {
+        "schemas": [
+            [
+                {
+                    "name": "Title",
+                    "type": "text",
+                    "content": "Custom Invoice",
+                    "position": {"x": 20, "y": 20},
+                    "width": 100,
+                    "height": 10,
+                    "fontSize": 14,
+                },
+                {
+                    "name": "Customer",
+                    "type": "text",
+                    "dataKey": "customer_name",
+                    "position": {"x": 20, "y": 35},
+                    "width": 80,
+                    "height": 8,
+                    "fontSize": 10,
+                },
+            ]
+        ],
+        "basePdf": {"width": 210, "height": 297, "padding": [20, 10, 20, 10]},
+    }
+
     response = client.post(
         "/chat",
         json={
             "session_id": "session-tpl-1",
             "intent": "pdf",
             "payload": {
-                "template_name": "Vessel_Call_FDA_Exact_Format",
-                "pdf_title": "Vessel Call FDA",
+                "pdf_schema": custom_schema,
+                "pdf_title": "Custom Schema Invoice",
                 "pdf_json": {
-                    "vessel_name": "M/V PACIFIC HORIZON",
-                    "port_name": "PORT OF SINGAPORE",
-                    "total_disbursement": "20980.00",
+                    "customer_name": "Acme Global Industries",
                 },
             },
         },
@@ -139,3 +161,44 @@ def test_chat_pdf_with_template_name(client):
     assert body["pdf_result"] is not None
     assert body["pdf_result"]["status"] == "success"
     assert body["pdf_result"]["page_count"] >= 1
+
+
+def test_direct_generate_with_embedded_form_data(client):
+    payload = {
+        "schemas": [
+            [
+                {
+                    "name": "Header",
+                    "type": "text",
+                    "content": "TEST DOCUMENT",
+                    "position": {"x": 10, "y": 10},
+                    "width": 100,
+                    "height": 10,
+                },
+                {
+                    "name": "Customer",
+                    "type": "text",
+                    "dataKey": "customer_name",
+                    "position": {"x": 10, "y": 25},
+                    "width": 100,
+                    "height": 10,
+                },
+            ]
+        ],
+        "basePdf": {"width": 210, "height": 297},
+        "pdfmeVersion": "5.3.0",
+        "pdfmeRotationMeta": {"pageRotations": {"1": 0}},
+        "formData": {
+            "customer_name": "Zenith Global Corp",
+        },
+        "fileName": "Zenith-Test.pdf",
+    }
+
+    resp = client.post("/api/pdf/generate", json=payload)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "success"
+    assert body["filename"] == "Zenith-Test.pdf"
+    assert body["page_count"] == 1
+    assert len(body["pdf_base64"]) > 0
+

@@ -531,7 +531,7 @@ async def preview_pdf(filename: str) -> FileResponse:
 
 @app.get("/api/pdf/templates")
 async def list_pdf_templates() -> dict:
-    """Lists all available pre-installed PDF coordinate templates (e.g. Vessel Call FDA/PDA)."""
+    """Lists available PDF coordinate templates. Pre-installed static templates are removed in favor of dynamic schema JSON."""
     from app.pdf_skills import list_available_templates
     templates = list_available_templates()
     return {
@@ -546,50 +546,115 @@ async def direct_generate_pdf(
     body: Any = Body(
         ...,
         description=(
-            "PDF generate body. Preferred: "
-            "{ templateJson: {schemas, basePdf}, formData: {...}, fileName: \"...pdf\" }. "
-            "Legacy flat PDA/FDA field maps still supported."
+            "PDF generate body. Accepts: "
+            "{ templateJson: {schemas, basePdf}, formData: {...}, fileName: \"...pdf\" }, "
+            "{ schema: {...}, data: {...} }, or standalone schema JSON with 'schemas'."
         ),
         examples={
-            "workflow_template": {
-                "summary": "Workflow pdfTemplate + formData (recommended)",
+            "schema_with_form_data": {
+                "summary": "1. PDF Schema JSON + Form Data (Recommended)",
                 "value": {
                     "templateJson": {
                         "schemas": [
                             [
                                 {
+                                    "name": "HeaderTitle",
+                                    "type": "text",
+                                    "content": "PROFORMA DISBURSEMENT ACCOUNT",
+                                    "position": {"x": 10, "y": 10},
+                                    "width": 190,
+                                    "height": 12,
+                                    "fontSize": 16,
+                                    "alignment": "center"
+                                },
+                                {
+                                    "name": "CustomerLabel",
+                                    "type": "text",
+                                    "content": "Customer / Principal",
+                                    "position": {"x": 10, "y": 30},
+                                    "width": 45,
+                                    "height": 8,
+                                    "fontSize": 9
+                                },
+                                {
                                     "name": "CustomerValue",
                                     "type": "text",
-                                    "dataKey": "Customer / Principal",
-                                    "position": {"x": 10, "y": 20},
+                                    "dataKey": "Customer",
+                                    "position": {"x": 55, "y": 30},
                                     "width": 80,
                                     "height": 8,
-                                    "fontSize": 10,
+                                    "fontSize": 9
+                                },
+                                {
+                                    "name": "CostDetailsTable",
+                                    "type": "table",
+                                    "dataKey": "Cost Details",
+                                    "position": {"x": 10, "y": 45},
+                                    "width": 190,
+                                    "head": ["Cost Head", "Vendor", "Qty", "Rate", "Amount"],
+                                    "headWidthPercentages": [30, 30, 10, 15, 15]
                                 }
                             ]
                         ],
                         "basePdf": {
                             "width": 210,
                             "height": 297,
-                            "padding": [20, 10, 20, 10],
-                        },
+                            "padding": [15, 15, 15, 15]
+                        }
                     },
                     "formData": {
-                        "Customer / Principal": "ACME Shipping",
-                        "Document No.": "PDA-2026-001",
-                        "Service / Cost Item 1": "Port dues",
+                        "Customer": "Oceanic Bulk Carriers Inc.",
+                        "Job No": "JOB-2026-009",
+                        "Cost Details": [
+                            ["Port Dues", "PSA Singapore", "1", "4,500.00", "4,500.00"],
+                            ["Agency Fee", "Oceanlink Marine", "1", "3,500.00", "3,500.00"]
+                        ]
                     },
-                    "fileName": "PDA-VesselCall-REQ-2026-001.pdf",
-                },
+                    "fileName": "PDA-JOB-2026-009.pdf"
+                }
+            },
+            "embedded_form_data": {
+                "summary": "2. Standalone Schema with embedded formData",
+                "value": {
+                    "schemas": [
+                        [
+                            {
+                                "name": "Title",
+                                "type": "text",
+                                "content": "INVOICE",
+                                "position": {"x": 20, "y": 20},
+                                "width": 170,
+                                "height": 12,
+                                "fontSize": 18,
+                                "alignment": "center"
+                            },
+                            {
+                                "name": "Customer",
+                                "type": "text",
+                                "dataKey": "Customer",
+                                "position": {"x": 20, "y": 40},
+                                "width": 80,
+                                "height": 8
+                            }
+                        ]
+                    ],
+                    "basePdf": {
+                        "width": 210,
+                        "height": 297
+                    },
+                    "formData": {
+                        "Customer": "Apex Cloud Systems Inc."
+                    }
+                }
             }
         },
     ),
     template_name: Optional[str] = Query(
-        None, description="Optional built-in template: 'pda', 'fda' (ignored when templateJson is sent)"
+        None, description="Optional template identifier (ignored when schema JSON is sent)"
     ),
     title: Optional[str] = Query(None, description="Optional document title"),
 ) -> dict:
-    """Direct PDF generation — templateJson + formData or legacy flat JSON."""
+    """Direct PDF generation from dynamic schema JSON or structured JSON."""
     from app.pdf_skills import generate_pdf_from_json, is_pdfme_template, normalize_direct_pdf_request
 
     try:

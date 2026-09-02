@@ -108,66 +108,101 @@ GET /api/pdf/preview/{filename}
 - Sets `Content-Type: application/pdf`
 - Allows instant rendering inside browser tabs or iframe components.
 
-### 3. List Pre-Installed Templates
+### 3. Template Endpoint
 ```http
 GET /api/pdf/templates
 ```
-- Discovers and lists all pre-installed coordinate templates located in `templates/` (e.g. `Vessel_Call_FDA_Exact_Format.json`, `Vessel_Call_PDA_Exact_Format.json`).
+- Returns available templates registry. Pre-installed static templates have been removed in favor of dynamically supplying custom PDF schema JSON in generation payloads.
 
 Response:
 ```json
 {
   "status": "success",
-  "count": 2,
-  "templates": [
-    {
-      "template_id": "Vessel_Call_FDA_Exact_Format",
-      "filename": "Vessel_Call_FDA_Exact_Format.json",
-      "title": "Vessel Call Fda Exact Format",
-      "file_path": ".../templates/Vessel_Call_FDA_Exact_Format.json",
-      "page_count": 2,
-      "schema_fields_sample": ["vessel_name", "port_name", "agent_name", "disbursement_items"]
-    },
-    {
-      "template_id": "Vessel_Call_PDA_Exact_Format",
-      "filename": "Vessel_Call_PDA_Exact_Format.json",
-      "title": "Vessel Call Pda Exact Format",
-      "file_path": ".../templates/Vessel_Call_PDA_Exact_Format.json",
-      "page_count": 1,
-      "schema_fields_sample": ["vessel_name", "proforma_ref", "port_name", "estimated_costs"]
-    }
-  ]
+  "count": 0,
+  "templates": []
 }
 ```
 
 ---
 
-## 4. Coordinate Template Mode
+## 4. Dynamic PDF Schema JSON Mode
 
-When a `template_name` or `template_json` is specified, the engine switches to exact coordinate-based rendering using `pdfme`-style template schemas:
+When a `template_json`, `templateJson`, `pdf_schema`, `schema`, or direct schema JSON object is provided, the engine generates the PDF according to the exact coordinate-based schema definitions (`schemas`, `basePdf`, elements):
+
+### Direct Generation via `POST /api/pdf/generate`
+
+```json
+{
+  "templateJson": {
+    "schemas": [
+      [
+        {
+          "name": "Title",
+          "type": "text",
+          "content": "Official Report",
+          "position": { "x": 20, "y": 20 },
+          "width": 170,
+          "height": 10,
+          "fontSize": 16,
+          "fontName": "Helvetica-Bold"
+        },
+        {
+          "name": "CustomerValue",
+          "type": "text",
+          "dataKey": "customer_name",
+          "position": { "x": 20, "y": 35 },
+          "width": 100,
+          "height": 8,
+          "fontSize": 11
+        }
+      ]
+    ],
+    "basePdf": {
+      "width": 210,
+      "height": 297,
+      "padding": [20, 10, 20, 10]
+    }
+  },
+  "formData": {
+    "customer_name": "Acme Global Industries"
+  },
+  "fileName": "Custom_Report.pdf"
+}
+```
+
+### Generation via `POST /chat` (`intent: "pdf"`)
 
 ```json
 {
   "session_id": "session-tpl-1",
   "intent": "pdf",
   "payload": {
-    "template_name": "Vessel_Call_FDA_Exact_Format",
-    "pdf_title": "Final Disbursement Account — M/V PACIFIC HORIZON",
+    "pdf_title": "Custom Schema Document",
+    "pdf_schema": {
+      "schemas": [
+        [
+          {
+            "name": "Header",
+            "type": "text",
+            "dataKey": "header_text",
+            "position": { "x": 15, "y": 15 },
+            "width": 180,
+            "height": 12,
+            "fontSize": 14
+          }
+        ]
+      ]
+    },
     "pdf_json": {
-      "vessel_name": "M/V PACIFIC HORIZON",
-      "call_number": "VC-2026-8841",
-      "port_name": "PORT OF SINGAPORE",
-      "total_disbursement": "20980.00",
-      "advance_received": "25000.00",
-      "balance_due_to_principal": "4020.00"
+      "header_text": "Dynamic Schema PDF Generated from Custom JSON"
     }
   }
 }
 ```
 
-- **Fuzzy template matching**: Accepts `"fda"`, `"pda"`, `"vessel_call_fda"`, `"vessel_call_pda"`, or full filename `"Vessel_Call_FDA_Exact_Format"`.
-- **Variable Interpolation**: Automatically replaces `{{var}}`, `${var}`, `{var}`, `dataKey`, and `sourceFieldId`.
-- **Dynamic Table Splitting & Border Math**: Calculates column percentages and applies zebra shading and cell grid rules.
+- **Dynamic Coordinate & Schema Layout**: Supports text, tables, images, and shapes with precise `x`, `y`, `width`, `height`, and styling.
+- **Variable Interpolation**: Automatically maps `dataKey`, `name`, `{{var}}`, `${var}`, and `{var}` from provided form data.
+- **Table Support**: Renders headers, columns, zebra striping, and auto-wraps table rows according to schema definitions.
 
 ---
 
