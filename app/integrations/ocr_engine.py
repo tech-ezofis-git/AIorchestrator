@@ -283,8 +283,19 @@ class OcrEngineClient:
         except OcrEngineError:
             raise
         except Exception as exc:
-            logger.warning("blob_sdk_download_failed", extra={"error_type": type(exc).__name__})
-            raise OcrEngineError("Failed to download blob from Azure Storage.") from exc
+            logger.warning(
+                "blob_sdk_download_failed",
+                extra={
+                    "error_type": type(exc).__name__,
+                    "container": blob_ref.container,
+                    "blob_name": blob_ref.blob_name,
+                },
+            )
+            detail = str(exc).split("\n", 1)[0].strip()[:180]
+            raise OcrEngineError(
+                f"Failed to download blob '{blob_ref.blob_name}' "
+                f"from container '{blob_ref.container}': {type(exc).__name__}: {detail}"
+            ) from exc
 
         # Backstop in case `.size` wasn't available (older SDK versions,
         # or a stream without a known Content-Length up front).

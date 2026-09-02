@@ -641,7 +641,8 @@ async def run(ctx: ApContext) -> ApSkillResult:
         # (OCR failure -> ApSkillError, never crash the whole run) is
         # unchanged.
         logger.warning("ap_extract_ocr_failed", extra={"error_type": type(exc).__name__})
-        raise ApSkillError("OCR extraction failed for this document.") from exc
+        detail = str(exc).strip() or type(exc).__name__
+        raise ApSkillError(f"OCR extraction failed for this document. {detail}") from exc
 
     ocr_text = (ocr_tool.get("text") or "").strip() if isinstance(ocr_tool, dict) else ""
     heuristic = _heuristic_from_text(ocr_text) if ocr_text else _as_invoice({})
