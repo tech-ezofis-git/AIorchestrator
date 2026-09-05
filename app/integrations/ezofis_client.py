@@ -578,9 +578,9 @@ class EzofisClient:
                     },
                 )
                 return result
-        except Exception:
-            logger.warning("ezofis_metadata_error")
-            return {"ok": False}
+        except Exception as exc:
+            logger.warning("ezofis_metadata_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
 
 
     async def workflow_move_next(
@@ -594,20 +594,25 @@ class EzofisClient:
             async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
                 response = await client.post(url, headers=headers, json=payload)
                 if response.status_code not in (200, 201, 204):
-                    logger.warning("ezofis_move_next_failed", extra={"status_code": response.status_code})
-                    return {"ok": False, "status_code": response.status_code}
+                    detail = (response.text or "")[:300]
+                    logger.warning(
+                        "ezofis_move_next_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
                 if response.content:
                     try:
                         body = response.json()
                         if isinstance(body, dict):
-                            body.setdefault("ok", True)
+                            if "ok" not in body:
+                                body["ok"] = bool(body.get("success", True))
                             return body
                     except Exception:
                         pass
                 return {"ok": True}
-        except Exception:
-            logger.warning("ezofis_move_next_error")
-            return {"ok": False}
+        except Exception as exc:
+            logger.warning("ezofis_move_next_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
 
     async def _post_json(self, path: str, *, tenant_id: str, body: dict[str, Any]) -> Any:
         try:

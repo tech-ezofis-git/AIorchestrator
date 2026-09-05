@@ -50,6 +50,16 @@ def _form_entry_id(raw: Optional[str]) -> Any:
     return text or None
 
 
+def form_entry_id_for_v6_move_next(form_entry_id: Any) -> Optional[int]:
+    """V6 MoveToNextStepRequest.FormEntryId is int?. GUIDs must not be sent."""
+    if form_entry_id is None:
+        return None
+    text = str(form_entry_id).strip()
+    if text.isdigit():
+        return int(text)
+    return None
+
+
 async def _resolve_activity_id(ctx: ApContext, job: dict[str, Any], workflow_id: Optional[str]) -> Optional[str]:
     explicit = _job_str(job, "activity_id")
     if explicit:
@@ -165,9 +175,12 @@ async def run(ctx: ApContext) -> ApSkillResult:
         "itemId": item_id,
         "repositoryId": repository_id,
         "formId": form_id,
-        "formEntryId": form_entry_id,
         "isItemTable": True,
     }
+    if form_entry_id is not None:
+        entry = form_entry_id_for_v6_move_next(form_entry_id)
+        if entry is not None:
+            payload["formEntryId"] = entry
     payload = {k: v for k, v in payload.items() if v is not None}
     result = await ctx.ezofis.workflow_move_next(
         tenant_id=ctx.tenant_id,

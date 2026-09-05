@@ -485,7 +485,7 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
     assert body["instanceId"] == "inst-guid"
     assert body["repositoryId"] == "repo-guid"
     assert body["transactionId"] == "100"
-    assert body["formEntryId"] == "42"
+    assert body["formEntryId"] == 42
     assert body["itemId"] == "item-guid"
     assert body["processId"] == "200"
     assert body["activityid"] == "DR97uPaylMtwahvi3XYr_"
