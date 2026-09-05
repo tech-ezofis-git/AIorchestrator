@@ -81,6 +81,7 @@ _REPO_SKIP_COLS = _EZFB_SKIP_COLS | {
     "contenttype",
     "content_type",
     "filesize",
+    "file_size",
     "size",
     "mimetype",
     "mime_type",
@@ -92,10 +93,20 @@ _REPO_SKIP_COLS = _EZFB_SKIP_COLS | {
     "blob_path",
     "version",
     "versionno",
+    "fileversion",
+    "file_version",
     "islatest",
     "is_latest",
     "extension",
     "fileextension",
+    "ocrscore",
+    "ocr_score",
+    "totalpages",
+    "total_pages",
+    "isverified",
+    "is_verified",
+    "activeitem",
+    "active_item",
 }
 
 _GUID_COL_NAMES = (
@@ -315,7 +326,7 @@ def _parse_repo_decimal(raw: Any) -> Optional[Decimal]:
     if isinstance(raw, (int, float)):
         return Decimal(str(raw))
     text = str(raw or "").strip().replace(",", "")
-    for symbol in ("$", "€", "£", "₹", "USD", "EUR", "GBP", "INR"):
+    for symbol in ("$", "€", "£", "₹", "USD", "EUR", "GBP", "INR", "CAD", "AUD", "NZD"):
         text = text.replace(symbol, "")
     text = text.strip()
     if not text:
@@ -1587,8 +1598,7 @@ class ApStore:
                     "table": f"{schema}.{real_table}",
                     "item_id": item_guid,
                 }
-            match_sql = repository_item_match_sql(columns, types, param=len(bound) + 1)
-            if match_sql == "FALSE":
+            if repository_item_match_sql(columns, types, param=len(bound) + 1) == "FALSE":
                 return {
                     "ok": False,
                     "updated": 0,
@@ -1596,27 +1606,59 @@ class ApStore:
                     "table": f"{schema}.{real_table}",
                     "columns": columns[:40],
                 }
-            sets = []
-            args: list[Any] = []
-            for index, (col, value) in enumerate(bound.items(), start=1):
-                sets.append(f"{quote_ident(col)} = ${index}")
-                args.append(value)
-            args.append(compact)
-            scope_sql, scope_args = repository_item_scope_sql(
-                columns,
-                types,
-                tenant_id=tenant_id,
-                repository_id=repository_id,
-                start_param=len(args) + 1,
-            )
-            args.extend(scope_args)
-            sql = (
-                f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
-                f"SET {', '.join(sets)} "
-                f"WHERE {match_sql}{scope_sql}"
-            )
-            status = await db.execute(sql, *args)
-            updated = _execute_rowcount(status)
+            async def _run_update(payload: dict[str, Any]) -> tuple[Optional[int], Optional[str]]:
+                match_sql = repository_item_match_sql(columns, types, param=len(payload) + 1)
+                if match_sql == "FALSE":
+                    return None, "no_pk"
+                sets = []
+                args: list[Any] = []
+                for index, (col, value) in enumerate(payload.items(), start=1):
+                    sets.append(f"{quote_ident(col)} = ${index}")
+                    args.append(value)
+                args.append(compact)
+                scope_sql, scope_args = repository_item_scope_sql(
+                    columns,
+                    types,
+                    tenant_id=tenant_id,
+                    repository_id=repository_id,
+                    start_param=len(args) + 1,
+                )
+                args.extend(scope_args)
+                sql = (
+                    f"UPDATE {quote_ident(schema)}.{quote_ident(real_table)} "
+                    f"SET {', '.join(sets)} "
+                    f"WHERE {match_sql}{scope_sql}"
+                )
+                try:
+                    status = await db.execute(sql, *args)
+                    return _execute_rowcount(status), None
+                except Exception as exc:
+                    return None, type(exc).__name__
+
+            updated, err = await _run_update(bound)
+            if err == "DataError":
+                date_cols = {
+                    col
+                    for col in bound
+                    if _norm_col(col) in _DATE_COL_NORMS
+                    or "date" in (type_by_lower.get(col.lower()) or "").lower()
+                    or "timestamp" in (type_by_lower.get(col.lower()) or "").lower()
+                }
+                reduced = {col: value for col, value in bound.items() if col not in date_cols}
+                if reduced and reduced != bound:
+                    logger.warning(
+                        "ap_repo_item_retry_without_dates",
+                        extra={"table": real_table, "dropped": sorted(date_cols)},
+                    )
+                    updated, err = await _run_update(reduced)
+                    if err is None:
+                        bound = reduced
+            if err is not None:
+                logger.warning(
+                    "ap_repo_item_update_failed",
+                    extra={"error_type": err, "table": table, "item_id": item_guid},
+                )
+                return {"ok": False, "updated": 0, "reason": err, "table": table}
             if updated == 0:
                 logger.warning(
                     "ap_repo_item_update_zero_rows",

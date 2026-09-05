@@ -491,7 +491,15 @@ app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    settings = get_settings()
+    email = (settings.ezofis_login_email or "").strip()
+    password = (settings.ezofis_login_password or "").strip()
+    return {
+        "status": "ok",
+        "ezofis_api_base": (settings.ezofis_api_base or "").rstrip("/"),
+        "ezofis_env": settings.ezofis_env,
+        "ezofis_login_configured": bool(email and password),
+    }
 
 
 @app.get("/api/pdf/download/{filename}")

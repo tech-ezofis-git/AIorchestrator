@@ -295,6 +295,18 @@ def test_repository_header_aliases_match_v6_item_columns():
     assert "file_name" not in assignments
 
 
+def test_parse_repo_decimal_strips_cad_and_skip_ocr_score():
+    from decimal import Decimal
+
+    from app.ap_skills.store import _REPO_SKIP_COLS, _parse_repo_decimal, coerce_repository_assignment
+
+    assert _parse_repo_decimal("5,653.65 CAD") == Decimal("5653.65")
+    assert coerce_repository_assignment("InvoiceAmount", "1582.00", "text") == "1582.00"
+    assert coerce_repository_assignment("DueDate", "2026-06-20", "date").isoformat() == "2026-06-20"
+    assert "ocr_score" in _REPO_SKIP_COLS
+    assert "total_pages" in _REPO_SKIP_COLS
+
+
 @pytest.mark.asyncio
 async def test_push_writes_ezfb_even_when_workflow_ids_missing():
     seen = {}
