@@ -2026,6 +2026,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "form_id": payload.payload.form_id if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,
             "force_rerun": bool(payload.payload.force_rerun) if payload.payload else False,
+            "pilot_access_token": payload.payload.pilot_access_token if payload.payload else None,
         }
 
     # Gate 3: permission check — needs the classified intent, so it can

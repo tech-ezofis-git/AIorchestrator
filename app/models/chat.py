@@ -179,6 +179,13 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("form_id", "formid", "formId", "FormId", "FormID"),
         description="PO/document form id (GUID or numeric). Selects ezfb_{token}_items on the tenant DB.",
     )
+    pilot_access_token: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "pilot_access_token", "pilotAccessToken", "PilotAccessToken"
+        ),
+        description="Pre-issued V6 JWT for the tenant pilot user (from workflow start payload).",
+    )
     force_rerun: Optional[bool] = Field(
         default=None,
         description=(

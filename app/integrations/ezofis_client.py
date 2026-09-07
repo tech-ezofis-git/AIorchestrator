@@ -143,17 +143,37 @@ class EzofisClient:
             )
             login_resp.raise_for_status()
             login_data = login_resp.json() if login_resp.content else {}
-        token = str(login_data.get("access_token") or login_data.get("token") or "")
+        # V6 LoginSuccess serializes as camelCase (accessToken / tokenType).
+        token = str(
+            login_data.get("accessToken")
+            or login_data.get("access_token")
+            or login_data.get("token")
+            or ""
+        ).strip()
         if not token:
             raise RuntimeError("Ezofis login did not return an access token.")
         self._token = token
-        self._token_type = str(login_data.get("token_type") or "Bearer")
+        self._token_type = str(
+            login_data.get("tokenType")
+            or login_data.get("token_type")
+            or "Bearer"
+        ).strip() or "Bearer"
         self._auth_tenant_id = resolved_tenant
         return {
             "access_token": token,
             "token_type": self._token_type,
             "tenant_id": resolved_tenant,
         }
+
+    def use_access_token(self, token: str, *, tenant_id: Optional[str] = None, token_type: str = "Bearer") -> None:
+        """Use a pre-issued JWT (e.g. payload pilotAccessToken) instead of logging in."""
+        value = (token or "").strip()
+        if not value:
+            return
+        self._token = value
+        self._token_type = (token_type or "Bearer").strip() or "Bearer"
+        if tenant_id:
+            self._auth_tenant_id = str(tenant_id).strip() or self._auth_tenant_id
 
     async def list_tenants(self) -> list[dict[str, str]]:
         """GET /auth/tenants for the configured login email. Empty when login is unset."""
@@ -277,8 +297,10 @@ class EzofisClient:
             params["table"] = table
         if self._live_enabled():
             live = await self._get_master("/masters/po", tenant_id=tenant_id, params=params)
-            if live:
+            if isinstance(live, dict) and live:
                 return live
+            # Live mode must not invent ACME mock POs — that blocks move-next via used_mock_data.
+            return None
         mock: dict[str, Any] = {
             "po_number": po_number,
             "vendor": "ACME Supplies",
@@ -302,8 +324,9 @@ class EzofisClient:
             live = await self._get_master(
                 "/masters/vendor", tenant_id=tenant_id, params={"name": vendor_name}
             )
-            if live:
+            if isinstance(live, dict) and live:
                 return live
+            return None
         return {"name": vendor_name, "vendor": vendor_name, "status": "ACTIVE", "mock": True}
 
     async def lookup_invoice_history(
@@ -328,6 +351,7 @@ class EzofisClient:
                 return live
             if isinstance(live, list):
                 return {"accounts": live}
+            return {"accounts": []}
         return {
             "accounts": [
                 {"gl_account": "6100", "category": "Widget", "name": "Office Supplies"},
@@ -352,6 +376,7 @@ class EzofisClient:
             live = await self._get_master("/masters/grn", tenant_id=tenant_id, params=params)
             if isinstance(live, dict):
                 return live
+            return None
         if not po_number and not grn_number:
             return None
         return {
@@ -379,6 +404,7 @@ class EzofisClient:
             live = await self._get_master("/masters/matter", tenant_id=tenant_id, params=params)
             if isinstance(live, dict):
                 return live
+            return None
         # Deterministic mock fallback list (same spirit as apagentv6).
         fallback = {
             "M-001": {"matter_id": "M-001", "client_name": "Acme Corp", "mock": True},
@@ -413,6 +439,7 @@ class EzofisClient:
                     }
                 if live.get("po_number") or live.get("vendor"):
                     return live
+            return None
         return {
             "po_number": po_number,
             "vendor": "ACME Supplies",
@@ -436,6 +463,7 @@ class EzofisClient:
             )
             if isinstance(live, dict):
                 return live
+            return None
         return {
             "po_number": po_number,
             "vendor": "ACME Supplies",

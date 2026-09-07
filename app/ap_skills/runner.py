@@ -212,6 +212,14 @@ class ApSkillRunner:
         if not skills:
             raise ApSkillError("No skills to run.")
 
+        pilot_token = str(
+            document_job.get("pilot_access_token")
+            or document_job.get("pilotAccessToken")
+            or ""
+        ).strip()
+        if pilot_token:
+            self._ezofis.use_access_token(pilot_token, tenant_id=tenant_id)
+
         run_id = await self._store.create_run(
             session_id=session_id,
             tenant_id=tenant_id,
