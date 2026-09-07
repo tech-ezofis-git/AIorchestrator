@@ -23,6 +23,7 @@ from app.ap_skills import (
     workflow_progress,
 )
 from app.ap_skills.ap_metadata import extras_from_artifacts, merge_ids_into_job, push_extract_metadata, resolve_metadata_ids
+from app.ap_skills.ap_progress import ApProgressReporter, RUNNER_OWNED_FLAG, progress_ids
 from app.ap_skills.planner import maybe_reorder, resolve_skills
 from app.ap_skills.store import ApStore
 from app.ap_skills.types import (
@@ -185,6 +186,14 @@ class ApSkillRunner:
                         "source_run_id": latest_run["id"],
                     },
                 )
+                wf_id, inst_id = progress_ids(document_job)
+                if wf_id and inst_id:
+                    await ApProgressReporter(
+                        ezofis=self._ezofis,
+                        tenant_id=tenant_id,
+                        workflow_id=wf_id,
+                        instance_id=inst_id,
+                    ).completed()
                 return {
                     "run_id": latest_run["id"],
                     "tenant_id": tenant_id,
@@ -278,6 +287,17 @@ class ApSkillRunner:
             form_id=ctx.form_id,
         )
 
+        document_job[RUNNER_OWNED_FLAG] = True
+        ctx.document_job = document_job
+        wf_id, inst_id = progress_ids(document_job)
+        progress = ApProgressReporter(
+            ezofis=self._ezofis,
+            tenant_id=tenant_id,
+            workflow_id=wf_id,
+            instance_id=inst_id,
+        )
+        has_invoice_json = isinstance(ctx.invoice_json, dict) and bool(ctx.invoice_json)
+
         skills_run: list[str] = []
         credits_charged = 0
         identify = item_key
@@ -287,11 +307,19 @@ class ApSkillRunner:
         # and EzofisClient.charge_activity_credit.
         token_usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         try:
+            await progress.received()
             for skill_id in skills:
                 handler = REGISTRY.get(skill_id)
                 if handler is None:
                     raise ApSkillError(f"Unknown skill '{skill_id}'.")
-                result = await handler(ctx)
+                await progress.before_skill(skill_id, has_invoice_json=has_invoice_json)
+                heartbeat = None
+                if skill_id == "extract_invoice" and not has_invoice_json:
+                    heartbeat = progress.start_extract_heartbeat()
+                try:
+                    result = await handler(ctx)
+                finally:
+                    await progress.stop_extract_heartbeat(heartbeat)
                 artifact = dict(result.data)
                 ctx.artifacts[skill_id] = artifact
                 skill_usage = artifact.get("usage") if isinstance(artifact.get("usage"), dict) else None
@@ -390,6 +418,7 @@ class ApSkillRunner:
                 credits_charged=credits_charged,
                 data_quality=data_quality,
             )
+            await progress.completed()
             return {
                 "run_id": run_id,
                 "tenant_id": tenant_id,
@@ -403,6 +432,10 @@ class ApSkillRunner:
                 "artifacts": {k: ctx.artifacts[k] for k in skills_run},
             }
         except Exception:
+            try:
+                await progress.failed()
+            except Exception:
+                logger.warning("ap_progress_failed_status_error")
             try:
                 await self._store.finish_run(
                     run_id=run_id,

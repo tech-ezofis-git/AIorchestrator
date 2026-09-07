@@ -62,6 +62,14 @@ def client(monkeypatch):
 
     monkeypatch.setattr(main_module.asyncpg, "create_pool", fake_create_pool)
 
+    async def fake_ap_progress(self, **kwargs):
+        return {"ok": True, "mock": True, **kwargs}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.report_ap_progress",
+        fake_ap_progress,
+    )
+
     with TestClient(main_module.app) as test_client:
         test_client.fake_db_pool = fake_db_pool
         yield test_client

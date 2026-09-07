@@ -879,6 +879,110 @@ def test_extract_invoice_ocr_text_and_json_reach_metadata(client, monkeypatch):
     assert header["OCR_Json"] == header["OCR Json"]
 
 
+def test_ap_progress_reported_when_workflow_instance_present(client, monkeypatch):
+    seen = []
+
+    async def capture_progress(self, **kwargs):
+        seen.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.report_ap_progress",
+        capture_progress,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-progress",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-progress",
+                workflow_id="wf-progress",
+                instance_id="inst-progress",
+                skills=["extract_invoice", "po_match", "finalize_decision", "workflow_move_next"],
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    stages = [c["stage"] for c in seen]
+    assert stages[0] == "RECEIVED"
+    assert "READING" not in stages
+    assert "EXTRACTING" in stages
+    assert "REVIEWING" in stages
+    assert stages[-1] == "COMPLETED"
+    assert seen[0]["workflow_id"] == "wf-progress"
+    assert seen[0]["instance_id"] == "inst-progress"
+    percents = [c["percent"] for c in seen]
+    assert percents == sorted(percents)
+    assert percents[-1] == 100
+
+
+def test_ap_progress_not_called_without_instance(client, monkeypatch):
+    seen = []
+
+    async def capture_progress(self, **kwargs):
+        seen.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.report_ap_progress",
+        capture_progress,
+    )
+    response = client.post(
+        "/chat",
+        json={"session_id": "s-ap-noprog", "intent": "ap", "payload": _ap_payload(item_id="doc-noprog")},
+    )
+    assert response.status_code == 200, response.text
+    assert seen == []
+
+
+def test_ap_progress_failed_is_sanitized(client, monkeypatch):
+    seen = []
+
+    async def capture_progress(self, **kwargs):
+        seen.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    from app.ap_skills.runner import REGISTRY
+    from app.ap_skills.types import ApSkillError
+
+    async def boom(ctx):
+        raise ApSkillError("OCR extraction failed for this document.")
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.report_ap_progress",
+        capture_progress,
+    )
+    monkeypatch.setitem(REGISTRY, "extract_invoice", boom)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-fail-prog",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-fail-prog",
+                workflow_id="wf",
+                instance_id="inst",
+                skills=["extract_invoice"],
+            ),
+        },
+    )
+    assert response.status_code >= 400
+    assert seen, "FAILED progress should still be reported"
+    assert seen[-1]["stage"] == "FAILED"
+    assert seen[-1]["message"] == "Processing could not be completed."
+    assert "secret" not in seen[-1]["message"]
+
+
 def test_hangfire_start_payload_aliases_reach_metadata(client, monkeypatch):
     seen = []
 
