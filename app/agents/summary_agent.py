@@ -20,7 +20,7 @@ from app.summary_skills.lock import (
 from app.summary_skills.summarize_document import run as summarize_document_skill
 from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
-from app.llm.model_presets import apply_preset, get_preset
+from app.llm.model_presets import resolve_preset_overrides
 from app.llm.runtime_models import RuntimeModelSelection
 
 logger = logging.getLogger("orchestrator.summary_agent")
@@ -158,6 +158,8 @@ class SummaryAgent:
             )
             return _document_job_result(empty["payload"], source=source, usage=None)
 
+        overrides = dict(job.get("llm_overrides") or {})
+        fallback_overrides = job.get("llm_fallback_overrides")
         try:
             synthesis = await summarize_document_skill(
                 llm=self._llm_for_skill(),
@@ -169,9 +171,13 @@ class SummaryAgent:
                 source_text=source_text,
                 key_facts_count=key_facts_count,
                 tenant_id=tenant_id,
+                llm_overrides=overrides,
             )
         except Exception as exc:
-            logger.warning("summary_primary_failed", extra={"model": model or "default"})
+            logger.warning(
+                "summary_primary_failed",
+                extra={"model": overrides.get("model") or model or "default"},
+            )
             synthesis = await self._summarize_with_fallback(
                 text=content,
                 source=source,
@@ -179,10 +185,11 @@ class SummaryAgent:
                 content_kind=content_kind,
                 source_text=source_text,
                 key_facts_count=key_facts_count,
-                primary=model,
+                primary=overrides.get("model") or model,
                 error=exc,
                 tenant_id=tenant_id,
                 catalog_fallback_preset=job.get("catalog_fallback_preset"),
+                fallback_overrides=fallback_overrides if isinstance(fallback_overrides, dict) else None,
             )
 
         usage = synthesis.get("usage") or {}
@@ -209,37 +216,33 @@ class SummaryAgent:
         error: Exception,
         tenant_id: Optional[str] = None,
         catalog_fallback_preset: Optional[str] = None,
+        fallback_overrides: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         settings = self._cfg()
-        fallback_preset = catalog_fallback_preset or (
-            self._runtime_models.fallback_preset_id if self._runtime_models else None
-        )
+        if not fallback_overrides:
+            fallback_preset = catalog_fallback_preset or (
+                self._runtime_models.fallback_preset_id if self._runtime_models else None
+            )
+            fallback_overrides = resolve_preset_overrides(fallback_preset) if fallback_preset else None
         env_fallback = (settings.ocr_fallback_model or "").strip() or None
 
-        if fallback_preset and self._llm is not None and get_preset(fallback_preset):
-            default_preset = (
-                self._runtime_models.default_preset_id if self._runtime_models else None
-            )
+        if fallback_overrides:
             logger.warning(
                 "summary_fallback_preset",
-                extra={"fallback_preset_id": fallback_preset},
+                extra={"model": fallback_overrides.get("model")},
             )
-            apply_preset(self._llm, fallback_preset)
-            try:
-                return await summarize_document_skill(
-                    llm=self._llm_for_skill(),
-                    text=text,
-                    source=source,
-                    page_label=page_label,
-                    model=None,
-                    content_kind=content_kind,
-                    source_text=source_text,
-                    key_facts_count=key_facts_count,
-                    tenant_id=tenant_id,
-                )
-            finally:
-                if default_preset and get_preset(default_preset):
-                    apply_preset(self._llm, default_preset)
+            return await summarize_document_skill(
+                llm=self._llm_for_skill(),
+                text=text,
+                source=source,
+                page_label=page_label,
+                model=None,
+                content_kind=content_kind,
+                source_text=source_text,
+                key_facts_count=key_facts_count,
+                tenant_id=tenant_id,
+                llm_overrides=fallback_overrides,
+            )
 
         if env_fallback and env_fallback != primary:
             logger.warning("summary_fallback_model", extra={"model": env_fallback})

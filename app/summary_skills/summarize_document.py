@@ -24,6 +24,7 @@ async def run(
     source_text: Optional[str] = None,
     key_facts_count: int = rules.DEFAULT_KEY_FACTS_COUNT,
     tenant_id: Optional[str] = None,
+    llm_overrides: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Returns {"payload": dict, "usage": dict | None, "skill_id": str}."""
     body = (text or "").strip()
@@ -36,45 +37,26 @@ async def run(
             "skill_id": SKILL_ID,
         }
 
-    previous = {
-        "model": getattr(llm, "_model", None),
-        "api_base": getattr(llm, "_api_base", None),
-        "api_key": getattr(llm, "_api_key", None),
-        "api_version": getattr(llm, "_api_version", None),
-        "preset_id": getattr(llm, "_preset_id", None),
-    }
-    switched = False
-    if model and model != previous["model"] and not (
-        previous["model"] and previous["model"].endswith("/" + model)
-    ):
-        llm.configure(model=model)
-        switched = True
+    overrides = dict(llm_overrides or {})
+    if model and "model" not in overrides:
+        overrides["model"] = model
 
-    try:
-        result = await llm.chat_completion(
-            [
-                {"role": "system", "content": rules.system_prompt(tenant_id=tenant_id)},
-                {
-                    "role": "user",
-                    "content": rules.build_user_prompt(
-                        source=source,
-                        page_label=page_label,
-                        content=body,
-                        content_kind=content_kind,
-                        key_facts_count=count,
-                    ),
-                },
-            ]
-        )
-    finally:
-        if switched:
-            llm.configure(
-                model=previous["model"] or model,
-                api_base=previous["api_base"] if previous["api_base"] is not None else "",
-                api_key=previous["api_key"] if previous["api_key"] is not None else "",
-                api_version=previous["api_version"] if previous["api_version"] is not None else "",
-                preset_id=previous["preset_id"] if previous["preset_id"] is not None else "",
-            )
+    result = await llm.chat_completion(
+        [
+            {"role": "system", "content": rules.system_prompt(tenant_id=tenant_id)},
+            {
+                "role": "user",
+                "content": rules.build_user_prompt(
+                    source=source,
+                    page_label=page_label,
+                    content=body,
+                    content_kind=content_kind,
+                    key_facts_count=count,
+                ),
+            },
+        ],
+        **overrides,
+    )
 
     payload = parse_summary_json_content(
         result["content"],

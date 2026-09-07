@@ -2047,7 +2047,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         explicit_model = str(document_job.get("model") or explicit_model)
 
     # Resolve this request's tenant/agent model selection once, up front.
-    # Document-job agents (AP, OCR) get a frozen override dict carried on
+    # Document-job agents (AP, OCR, Summary) get a frozen override dict carried on
     # document_job, passed straight into LLMAdapter.chat_completion(...,
     # **overrides) for that call only — never by mutating the one shared
     # LLMAdapter instance, which used to race against any other concurrent
@@ -2066,12 +2066,14 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     # branches to realize was unused.)
     llm_overrides: Optional[dict] = None
     llm_fallback_overrides: Optional[dict] = None
+    catalog_fallback_preset: Optional[str] = None
     if explicit_model.strip():
         llm_overrides = {"model": explicit_model.strip()}
     elif tenant_id and catalog_store is not None:
         resolved_tenant_llm = await apply_tenant_agent_llm(catalog_store, tenant_id, agent_slug)
         llm_overrides = resolved_tenant_llm["overrides"]
         llm_fallback_overrides = resolved_tenant_llm["fallback_overrides"]
+        catalog_fallback_preset = resolved_tenant_llm.get("fallback_slug")
         # Code-review (ultrareview) finding: this used to mutate the shared
         # adapter unconditionally here, with a comment claiming it only
         # applied to "non-document-job" intents — but nothing actually
@@ -2094,6 +2096,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     if document_job is not None:
         document_job["llm_overrides"] = llm_overrides
         document_job["llm_fallback_overrides"] = llm_fallback_overrides
+        if catalog_fallback_preset:
+            document_job["catalog_fallback_preset"] = catalog_fallback_preset
 
     try:
         if custom_agent:

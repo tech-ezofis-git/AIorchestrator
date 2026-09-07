@@ -32,7 +32,7 @@ _STRUCTURED_SUMMARY = {
 def _install_fake_llm(monkeypatch, content=None):
     payload = content if content is not None else "This document covers the PTO policy in brief."
 
-    async def fake_chat_completion(self, messages):
+    async def fake_chat_completion(self, messages, **_kwargs):
         return {
             "content": payload,
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -229,7 +229,7 @@ def test_summary_txt_upload_uses_local_text_without_remote_ocr(client, monkeypat
 def test_summary_extract_failure_does_not_hallucinate(client, monkeypatch):
     llm_calls = []
 
-    async def tracking_chat_completion(self, messages):
+    async def tracking_chat_completion(self, messages, **_kwargs):
         llm_calls.append(messages)
         return {"content": "should not summarize", "usage": None}
 
@@ -679,7 +679,7 @@ def test_summary_docx_upload_skips_paddle(client, monkeypatch):
 def test_summary_invalid_docx_fails_closed(client, monkeypatch):
     llm_calls = []
 
-    async def tracking_chat_completion(self, messages):
+    async def tracking_chat_completion(self, messages, **_kwargs):
         llm_calls.append(messages)
         return {"content": "should not summarize", "usage": None}
 
@@ -701,7 +701,7 @@ def test_summary_invalid_docx_fails_closed(client, monkeypatch):
 def test_summary_legacy_doc_is_not_supported(client, monkeypatch):
     llm_calls = []
 
-    async def tracking_chat_completion(self, messages):
+    async def tracking_chat_completion(self, messages, **_kwargs):
         llm_calls.append(messages)
         return {"content": "should not summarize", "usage": None}
 
@@ -959,7 +959,7 @@ def test_summary_resolve_key_facts_count_precedence():
 def test_summary_empty_summary_json_fail_closed(client, monkeypatch):
     llm_calls = []
 
-    async def fake_chat_completion(self, messages):
+    async def fake_chat_completion(self, messages, **_kwargs):
         llm_calls.append(messages)
         return {"content": "{}", "usage": None}
 
@@ -977,3 +977,52 @@ def test_summary_empty_summary_json_fail_closed(client, monkeypatch):
     assert body["reply"].startswith("I couldn't extract")
     assert body["summary_result"]["key_facts_extracted"] == []
     assert llm_calls == []
+
+
+def test_summary_uses_tenant_catalog_default_model(client, monkeypatch):
+    models = client.get("/console/catalog/models").json()["models"]
+    nano = next(row for row in models if row["slug"] == "gpt-4.1-nano")
+    saved = client.put(
+        "/console/catalog/tenant-models",
+        json={
+            "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+            "default_model_id": nano["id"],
+        },
+    )
+    assert saved.status_code == 200
+
+    captured = []
+
+    async def fake_completion(self, messages, **kwargs):
+        captured.append(kwargs.get("model"))
+        return {
+            "content": json.dumps(
+                {
+                    "confidence_score": 80.0,
+                    "document_type": "Invoice",
+                    "document_title": "Test",
+                    "document_language": "English",
+                    "document_summary": "Short summary of the invoice.",
+                    "key_facts_extracted": ["The invoice number is INV-1."],
+                }
+            ),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-tenant-summary-model",
+            "intent": "summary",
+            "payload": {
+                "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                "ocr_text": "Invoice No INV-1 Total 10",
+                "key_facts_count": 1,
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert captured == ["azure/gpt-4.1-nano"]
+    assert client.get("/console/llm-config").json()["preset_id"] == "gpt-5-nano"
