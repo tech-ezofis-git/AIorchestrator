@@ -8,6 +8,7 @@ V6 ApplyApAgentMetadata **requires** formId + formEntryId (400 otherwise) and up
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Optional
 
@@ -62,6 +63,8 @@ _HEADER_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Invoice Tax Amount", ("tax", "Invoice Tax Amount", "tax_amount", "invoice_tax_amount")),
     ("Matched Status", ("matched_status", "Matched Status")),
     ("Document Type", ("document_type", "Document Type", "doc_type")),
+    ("OCR Text", ("ocr_text", "OCR Text", "ocrText")),
+    ("OCR Json", ("ocr_json", "OCR Json", "OCR JSON", "ocrJson")),
 )
 
 _LINE_ITEM_KEY_PREFERRED = "Invoice Extracted Line Item"
@@ -89,10 +92,14 @@ _INTERNAL_KEYS = frozenset(
         "invoice",
         "metadata_push",
         "ocr_text",
+        "ocr_json",
         "source",
         "ocr_mock",
     }
 )
+_OCR_HEADER_NORMS = frozenset({"ocrtext", "ocrjson"})
+_OCR_TEXT_LABEL = "OCR Text"
+_OCR_JSON_LABEL = "OCR Json"
 _MATCH_LABELS = {
     "MATCHED": "Matched",
     "PARTIALLY_MATCHED": "Partially Matched",
@@ -165,6 +172,24 @@ def _stringify_header_value(value: Any, key: str = "") -> Optional[str]:
     if token in _PLACEHOLDER_VALUE_NORMS:
         return None
     return text
+
+
+def _stringify_ocr_header_value(value: Any, key: str = "") -> Optional[str]:
+    """OCR Text / OCR Json may be long strings or a structured invoice dict."""
+    if isinstance(value, dict):
+        return _dump_ocr_json(value)
+    if isinstance(value, list) and value:
+        try:
+            text = json.dumps(value, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            return None
+        return text or None
+    if _skip_empty(value):
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = str(value).strip()
+    return text or None
 
 
 def _has_extracted_values(header_src: dict[str, Any]) -> bool:
@@ -297,7 +322,42 @@ def extras_from_artifacts(artifacts: dict[str, Any], skill_id: str) -> dict[str,
     if vendor_name:
         extras["Supplier"] = vendor_name
         extras["Vendor Name"] = vendor_name
+    extras.update(_ocr_fields_from_extract(artifacts.get("extract_invoice")))
     return extras
+
+
+def _ocr_fields_from_extract(extract: Any) -> dict[str, Any]:
+    """OCR Text = raw engine/local text; OCR Json = structured invoice JSON.
+
+    Skipped when extract_invoice used invoice_json (no file OCR).
+    """
+    if not isinstance(extract, dict) or extract.get("source") == "invoice_json":
+        return {}
+    fields: dict[str, Any] = {}
+    ocr_text = str(extract.get("ocr_text") or "").strip()
+    if ocr_text:
+        fields[_OCR_TEXT_LABEL] = ocr_text
+    invoice = extract.get("invoice")
+    dumped = _dump_ocr_json(invoice)
+    if dumped:
+        fields[_OCR_JSON_LABEL] = dumped
+    return fields
+
+
+def _dump_ocr_json(invoice: Any) -> Optional[str]:
+    if not isinstance(invoice, dict) or not invoice:
+        return None
+    try:
+        text = json.dumps(invoice, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return None
+    if not text or text in ("{}", "null"):
+        return None
+    return text
+
+
+def _is_ocr_header_key(key: str) -> bool:
+    return _norm_label(key) in _OCR_HEADER_NORMS
 
 
 def build_ap_metadata_fields(
@@ -333,12 +393,19 @@ def build_ap_metadata_fields(
                 continue
             header[label] = value
 
-    if extras and has_real:
+    if extras:
         for key, raw in extras.items():
-            value = _stringify_header_value(raw, str(key))
+            is_ocr = _is_ocr_header_key(str(key))
+            if not has_real and not is_ocr:
+                continue
+            value = _stringify_ocr_header_value(raw, str(key)) if is_ocr else _stringify_header_value(raw, str(key))
             if value is None:
                 continue
             header[str(key)] = value
+            if _norm_label(str(key)) == "ocrtext":
+                header[_OCR_TEXT_LABEL] = value
+            elif _norm_label(str(key)) == "ocrjson":
+                header[_OCR_JSON_LABEL] = value
 
     header = apply_form_control_aliases(header, form_controls)
 

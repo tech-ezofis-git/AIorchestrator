@@ -277,6 +277,10 @@ _REPO_HEADER_ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("SupplierAddress", ("Supplier Address", "Vendor Address")),
     ("ShipToAddress", ("Ship To Address",)),
     ("InvoiceExtractedLineItem", ("Invoice Extracted Line Item", "Line Item")),
+    ("OCRText", ("OCR Text", "OCR_Text", "ocr_text")),
+    ("OCRJson", ("OCR Json", "OCR_Json", "OCR JSON", "ocr_json")),
+    ("ocr_text", ("OCR Text", "OCR_Text", "OCRText")),
+    ("ocr_json", ("OCR Json", "OCR_Json", "OCRJson")),
 )
 
 

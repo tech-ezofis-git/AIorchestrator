@@ -93,6 +93,72 @@ def test_extras_from_artifacts_uses_finalize_decision():
         "finalize_decision",
     )
     assert extras["Matched Status"] == "Partially Matched"
+    assert "OCR Text" not in extras
+    assert "OCR Json" not in extras
+
+
+def test_extras_from_artifacts_adds_ocr_text_and_json():
+    extras = extras_from_artifacts(
+        {
+            "extract_invoice": {
+                "source": "upload.pdf",
+                "ocr_text": "Invoice No INV-1\nTotal 10",
+                "invoice": {"invoice_number": "INV-1", "total": 10, "vendor": "Acme"},
+            }
+        },
+        "extract_invoice",
+    )
+    assert extras["OCR Text"] == "Invoice No INV-1\nTotal 10"
+    parsed = json.loads(extras["OCR Json"])
+    assert parsed["invoice_number"] == "INV-1"
+    assert parsed["vendor"] == "Acme"
+
+
+def test_extras_from_artifacts_skips_ocr_when_invoice_json():
+    extras = extras_from_artifacts(
+        {
+            "extract_invoice": {
+                "source": "invoice_json",
+                "ocr_text": "",
+                "invoice": {"invoice_number": "INV-1", "vendor": "Acme"},
+            }
+        },
+        "extract_invoice",
+    )
+    assert "OCR Text" not in extras
+    assert "OCR Json" not in extras
+
+
+def test_build_ap_metadata_fields_maps_ocr_text_and_json():
+    fields = build_ap_metadata_fields(
+        {"invoice_number": "INV-1", "vendor": "Acme", "total": 10},
+        extras={
+            "OCR Text": "Acme\nInvoice No INV-1",
+            "OCR Json": json.dumps({"invoice_number": "INV-1", "vendor": "Acme"}),
+        },
+        form_controls=[
+            {"name": "OCR Text", "column_name": "OCR_Text", "json_id": "ocrText"},
+            {"name": "OCR Json", "column_name": "OCR_Json", "json_id": "ocrJson"},
+        ],
+    )
+    header = fields["invoice_header"]
+    assert header["OCR Text"] == "Acme\nInvoice No INV-1"
+    assert header["OCR_Text"] == "Acme\nInvoice No INV-1"
+    assert header["ocrText"] == "Acme\nInvoice No INV-1"
+    assert json.loads(header["OCR Json"])["invoice_number"] == "INV-1"
+    assert header["OCR_Json"] == header["OCR Json"]
+    assert header["ocrJson"] == header["OCR Json"]
+
+
+def test_build_ap_metadata_fields_writes_ocr_when_extract_is_hollow():
+    fields = build_ap_metadata_fields(
+        {"doc_type": "invoice"},
+        extras={"OCR Text": "unreadable scan", "OCR Json": '{"doc_type":"invoice"}'},
+    )
+    header = fields["invoice_header"]
+    assert header["OCR Text"] == "unreadable scan"
+    assert header["OCR Json"] == '{"doc_type":"invoice"}'
+    assert "Invoice No" not in header
 
 
 def test_form_control_aliases_copy_value_onto_column_and_jsonid():
@@ -280,6 +346,17 @@ def test_repository_header_aliases_match_v6_item_columns():
     assert header["Supplier"] == "APEX INDUSTRIAL"
     assert header["Amount"] == "5203.65"
     assert header["DocumentDate"] == "2026-05-20"
+
+    with_ocr = expand_repository_header_aliases(
+        {
+            "OCR Text": "raw ocr",
+            "OCR Json": '{"invoice_number":"INV-1"}',
+        }
+    )
+    assert with_ocr["OCRText"] == "raw ocr"
+    assert with_ocr["ocr_text"] == "raw ocr"
+    assert with_ocr["OCRJson"] == '{"invoice_number":"INV-1"}'
+    assert with_ocr["ocr_json"] == '{"invoice_number":"INV-1"}'
 
     assignments = _map_header_to_ezfb_columns(
         header=header,

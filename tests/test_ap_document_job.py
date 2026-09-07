@@ -812,6 +812,71 @@ def test_metadata_push_runs_after_every_skill_with_non_null_values(client, monke
         assert None not in header.values()
         assert "" not in header.values()
     assert seen[-1]["fields"]["invoice_header"]["Matched Status"] == "Matched"
+    for call in seen:
+        assert "OCR Text" not in call["fields"]["invoice_header"]
+        assert "OCR Json" not in call["fields"]["invoice_header"]
+
+
+def test_extract_invoice_ocr_text_and_json_reach_metadata(client, monkeypatch):
+    seen = []
+
+    async def capture_meta(self, **kwargs):
+        seen.append(kwargs)
+        return {"ok": True, "mock": True, "ezfbFieldsUpdated": 4}
+
+    async def tracking_charge(self, **kwargs):
+        return {"status": "mocked", "mock": True}
+
+    async def fake_completion(self, messages, **_kwargs):
+        return {
+            "content": json.dumps(
+                {
+                    "invoice_number": "INV/26-27/002140",
+                    "vendor": "Acme",
+                    "due_date": "2026-05-20",
+                    "total": 10,
+                }
+            ),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.apply_ap_agent_metadata",
+        capture_meta,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.charge_activity_credit",
+        tracking_charge,
+    )
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-ocr-meta",
+            "intent": "ap",
+            "payload": {
+                "tenant_id": "t-ap",
+                "item_id": "doc-ocr-meta",
+                "filepath": "invoice.pdf",
+                "skills": ["extract_invoice"],
+                "workflow_id": "wf",
+                "instance_id": "inst",
+                "repository_id": "repo",
+                "repository_item_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "form_entry_id": "42",
+                "form_id": "form-guid",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert seen, "extract_invoice should PATCH metadata"
+    header = seen[0]["fields"]["invoice_header"]
+    assert "Placeholder OCR text" in header["OCR Text"]
+    parsed = json.loads(header["OCR Json"])
+    assert parsed["invoice_number"] == "INV/26-27/002140"
+    assert header["OCR_Text"] == header["OCR Text"]
+    assert header["OCR_Json"] == header["OCR Json"]
 
 
 def test_hangfire_start_payload_aliases_reach_metadata(client, monkeypatch):
