@@ -496,6 +496,62 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
     assert "decision" not in body
     assert "item_key" not in body
     assert "run_id" not in body
+    assert "po_row" not in body["AIAGENTResponse"]
+
+
+def test_move_next_sends_guid_form_entry_id_and_po_row(client, monkeypatch):
+    move_calls = []
+
+    async def tracking_move(self, **kwargs):
+        move_calls.append(kwargs)
+        return {"ok": True, "mock": True}
+
+    async def live_po(self, **kwargs):
+        return {
+            "po_number": "PO-1",
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "currency": "CAD",
+            "terms": "31 Days",
+            "buyer": "Purchasing Team",
+            "supplier_address": "410 Commerce Park Drive",
+            "po_date": "2026-05-20",
+            "lines": [{"id": "1", "description": "Widget", "qty": 10, "price": 123.456, "amount": 1234.56}],
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.workflow_move_next",
+        tracking_move,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po",
+        live_po,
+    )
+
+    guid = "db5b894c-8b48-47af-bd09-86ef1b79183a"
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-po-row",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-po-row",
+                instance_id="inst-guid",
+                activityid="DR97uPaylMtwahvi3XYr_",
+                formentryId=guid,
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert len(move_calls) == 1
+    body = move_calls[0]["payload"]
+    assert body["formEntryId"] == guid
+    po_row = body["AIAGENTResponse"]["po_row"]
+    assert po_row["Terms"] == "31 Days"
+    assert po_row["Buyer"] == "Purchasing Team"
+    assert po_row["Supplier Address"] == "410 Commerce Park Drive"
+    assert po_row["PO Date"] == "2026-05-20"
+    assert "Vendor" not in po_row
 
 
 def test_move_next_looks_up_activityid_from_workflow_steps(client, monkeypatch):

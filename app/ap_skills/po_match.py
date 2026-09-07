@@ -1,6 +1,7 @@
 """po_match — invoice ↔ purchase order (masters via Ezofis client)."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.ap_skills.types import (
@@ -14,6 +15,56 @@ from app.ap_skills.types import (
 )
 
 SKILL_ID = "po_match"
+
+# Form labels Core writes from AIAGENTResponse.po_row (fill-only onto ezfb).
+# invoice_keys: skip when the invoice already has that field.
+_PO_ROW_SCALARS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        "PO Amount",
+        ("PO Amount", "PO_Amount", "total", "amount"),
+        ("PO Amount", "PO_Amount", "po_amount"),
+    ),
+    (
+        "Currency",
+        ("currency", "Currency"),
+        ("currency", "Currency"),
+    ),
+    (
+        "PO Date",
+        ("PO Date", "PO_Date", "po_date"),
+        ("PO Date", "PO_Date", "po_date"),
+    ),
+    (
+        "Due Date",
+        ("Due Date", "Due_Date", "due_date"),
+        ("Due Date", "Due_Date", "due_date"),
+    ),
+    (
+        "Terms",
+        ("Terms", "TERMS", "terms"),
+        ("Terms", "TERMS", "terms"),
+    ),
+    (
+        "Buyer",
+        ("Buyer", "Buyer Name", "buyer"),
+        ("Buyer", "Buyer Name", "buyer"),
+    ),
+    (
+        "Supplier Address",
+        ("Supplier Address", "Supplier_Address", "supplier_address", "Vendor Address", "vendor_address"),
+        ("Supplier Address", "supplier_address", "Vendor Address", "vendor_address"),
+    ),
+    (
+        "Ship To Address",
+        ("Ship To Address", "Ship_To_Address", "ship_to_address", "ship_to"),
+        ("Ship To Address", "ship_to_address", "ship_to"),
+    ),
+    (
+        "Vendor",
+        ("vendor", "supplier", "Vendor", "Supplier", "Vendor Name"),
+        ("vendor", "supplier", "Vendor", "Supplier", "Vendor Name"),
+    ),
+)
 
 
 async def run(ctx: ApContext) -> ApSkillResult:
@@ -96,7 +147,89 @@ async def run(ctx: ApContext) -> ApSkillResult:
         data["form_id"] = po.get("form_id")
     if isinstance(po, dict) and po.get("ezfb_table"):
         data["ezfb_table"] = po.get("ezfb_table")
+    po_row = build_po_row(invoice, po if isinstance(po, dict) else {})
+    if po_row:
+        data["po_row"] = po_row
     return ApSkillResult(
         skill_id=SKILL_ID,
         data=data,
     )
+
+
+def _invoice_has(invoice: dict[str, Any], *keys: str) -> bool:
+    if field_text(invoice, *keys):
+        return True
+    return field_number(invoice, *keys) is not None
+
+
+def _po_scalar(po: dict[str, Any], *keys: str) -> Any:
+    text = field_text(po, *keys)
+    if text:
+        return text
+    number = field_number(po, *keys)
+    if number is None:
+        return None
+    if float(number).is_integer():
+        return int(number)
+    return number
+
+
+def _po_line_mapped(po: dict[str, Any]) -> list[dict[str, Any]]:
+    raw: Any = None
+    for key in ("PO Line Item Mapped", "PO Line Item", "PO_Line_Item", "lines"):
+        value = po.get(key)
+        if value:
+            raw = value
+            break
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+    if not isinstance(raw, list):
+        return []
+    mapped: list[dict[str, Any]] = []
+    for row in raw:
+        if not isinstance(row, dict) or not row:
+            continue
+        if any(key in row for key in ("Description", "Quantity", "Unit Cost", "Line")):
+            mapped.append(row)
+            continue
+        item: dict[str, Any] = {}
+        line_id = row.get("id") or row.get("Line") or row.get("line")
+        if line_id not in (None, ""):
+            item["Line"] = line_id
+        description = field_text(row, "description", "Description")
+        if description:
+            item["Description"] = description
+        qty = field_number(row, "qty", "Quantity", "quantity")
+        if qty is not None:
+            item["Quantity"] = qty
+        price = field_number(row, "price", "Unit Cost", "unit_cost")
+        if price is not None:
+            item["Unit Cost"] = price
+        amount = field_number(row, "amount", "Extended", "extended")
+        if amount is not None:
+            item["Extended"] = amount
+        if item:
+            mapped.append(item)
+    return mapped
+
+
+def build_po_row(invoice: dict[str, Any], po: dict[str, Any]) -> dict[str, Any]:
+    """PO Master fields that the invoice does not already have, keyed for Core po_row."""
+    if not isinstance(po, dict) or not po or po.get("mock"):
+        return {}
+    row: dict[str, Any] = {}
+    for label, po_keys, invoice_keys in _PO_ROW_SCALARS:
+        if _invoice_has(invoice, *invoice_keys):
+            continue
+        value = _po_scalar(po, *po_keys)
+        if value in (None, ""):
+            continue
+        row[label] = value
+    if not _invoice_has(invoice, "PO Line Item", "PO_Line_Item", "PO Line Item Mapped"):
+        lines = _po_line_mapped(po)
+        if lines:
+            row["PO Line Item Mapped"] = lines
+    return row

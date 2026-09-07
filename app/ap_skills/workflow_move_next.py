@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+import uuid
+from typing import Any, Optional, Union
 
 from app.ap_skills.types import ApContext, ApSkillResult, invoice_from
 
@@ -50,14 +51,22 @@ def _form_entry_id(raw: Optional[str]) -> Any:
     return text or None
 
 
-def form_entry_id_for_v6_move_next(form_entry_id: Any) -> Optional[int]:
-    """V6 MoveToNextStepRequest.FormEntryId is int?. GUIDs must not be sent."""
-    if form_entry_id is None:
+def form_entry_id_for_v6_move_next(form_entry_id: Any) -> Optional[Union[int, str]]:
+    """V6 MoveToNextStepRequest.FormEntryId is Guid?. Send dashed GUID or a legacy int."""
+    if form_entry_id is None or isinstance(form_entry_id, bool):
         return None
+    if isinstance(form_entry_id, int):
+        return form_entry_id if form_entry_id > 0 else None
     text = str(form_entry_id).strip()
+    if not text:
+        return None
     if text.isdigit():
-        return int(text)
-    return None
+        value = int(text)
+        return value if value > 0 else None
+    try:
+        return str(uuid.UUID(text))
+    except ValueError:
+        return None
 
 
 async def _resolve_activity_id(ctx: ApContext, job: dict[str, Any], workflow_id: Optional[str]) -> Optional[str]:
@@ -136,7 +145,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
 
     repository_id = _job_str(job, "repository_id")
     transaction_id = _job_str(job, "transaction_id")
-    form_entry_id = _form_entry_id(_job_str(job, "form_entry_id"))
+    form_entry_id = _form_entry_id(_job_str(job, "form_entry_id", "formEntryId", "formentryId"))
     process_id = _job_str(job, "process_id")
     workflow_id = _job_str(job, "workflow_id")
     form_id = _job_str(job, "form_id")
@@ -177,6 +186,10 @@ async def run(ctx: ApContext) -> ApSkillResult:
         "formId": form_id,
         "isItemTable": True,
     }
+    po_match = ctx.artifacts.get("po_match") or {}
+    po_row = po_match.get("po_row") if isinstance(po_match, dict) else None
+    if isinstance(po_row, dict) and po_row:
+        payload["AIAGENTResponse"]["po_row"] = po_row
     if form_entry_id is not None:
         entry = form_entry_id_for_v6_move_next(form_entry_id)
         if entry is not None:
