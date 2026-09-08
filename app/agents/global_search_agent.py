@@ -57,8 +57,7 @@ class GlobalSearchAgent:
             raise ValueError("query is required for intent=global_search.")
         specific_id = str(job.get("specific_id") or job.get("repository_id") or "").strip()
         workspace_id = str(job.get("workspace_id") or "").strip()
-        action_from = str(job.get("action_from") or "").strip()
-        locked_repo = action_from.lower() == "repository" and bool(specific_id)
+        locked_repo = bool(specific_id)
 
         repo_args = {
             "query": query,

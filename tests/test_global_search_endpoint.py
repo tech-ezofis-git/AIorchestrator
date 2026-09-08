@@ -181,8 +181,6 @@ def test_global_search_locked_repository_skips_repo_workflow_tools(client):
                 "query": "QUALITY CERTIFICATE",
                 "tenantId": "3EE0E334-CCB9-4DFF-968A-9BAAE71A5231",
                 "specificId": "FE663435-B5E1-4EA5-A710-071C9E5DA5F2",
-                "actionFrom": "Repository",
-                "workspaceId": "1",
             },
         },
     )
