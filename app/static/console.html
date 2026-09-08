@@ -1731,17 +1731,9 @@ Due Date,DATE</textarea>
     <details class="ocr-panel" id="gsPanel">
       <summary>Global Search options</summary>
       <div class="ocr-grid">
-        <div>
-          <label for="gsSpecificId">specificId (optional repository lock)</label>
-          <input type="text" id="gsSpecificId" placeholder="FE663435-B5E1-4EA5-A710-071C9E5DA5F2" />
-        </div>
-        <div>
-          <label for="gsWorkspaceId">workspaceId</label>
-          <input type="text" id="gsWorkspaceId" placeholder="1" />
-        </div>
-        <div>
-          <label for="gsActionFrom">actionFrom</label>
-          <input type="text" id="gsActionFrom" placeholder="Repository" />
+        <div class="span-all">
+          <label for="gsSpecificId">Repository id (optional — leave blank to search all)</label>
+          <input type="text" id="gsSpecificId" placeholder="Repository UUID" />
         </div>
         <div class="ocr-actions">
           <button type="button" class="btn-primary" id="gsSendBtn">Run search</button>
@@ -2421,7 +2413,7 @@ const EMPTY_SPECS = {
   summary: { title: 'Summary', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
-  global_search: { title: 'Global Search', sub: 'Enter a query. Optional specificId locks one repository.', chips: '' },
+  global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
 };
 
@@ -3563,8 +3555,11 @@ function renderGlobalSearchResult(result, request) {
   const html = `<div class="summary-card-wrap">
     <div class="summary-section-label">Query: ${escapeHtml(query)}</div>
     ${cards}
+    ${codePanelHtml()}
   </div>`;
-  return { html, resultJson: result, curlText: request && request.curlText ? request.curlText : '' };
+  const resultJson = JSON.stringify(result || {}, null, 2);
+  const curlText = buildChatCurl(request, 'global_search');
+  return { html, resultJson, curlText };
 }
 
 function renderAssistantMessage(body, sessionId, request) {
@@ -4542,8 +4537,6 @@ async function sendGlobalSearchJob() {
     return;
   }
   const specificId = (document.getElementById('gsSpecificId') || {}).value || '';
-  const workspaceId = (document.getElementById('gsWorkspaceId') || {}).value || '';
-  const actionFrom = (document.getElementById('gsActionFrom') || {}).value || '';
   addUserMessage(query);
   const processing = addProcessingMessage('Searching…');
   sendBtn.disabled = true;
@@ -4554,8 +4547,6 @@ async function sendGlobalSearchJob() {
       tenantId: tenantId,
     };
     if (specificId.trim()) payload.specificId = specificId.trim();
-    if (workspaceId.trim()) payload.workspaceId = workspaceId.trim();
-    if (actionFrom.trim()) payload.actionFrom = actionFrom.trim();
     const body = {
       session_id: sessionId,
       intent: 'global_search',

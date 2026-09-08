@@ -40,7 +40,10 @@ def test_console_serves_html(client):
     assert "intent: 'global_search'" in response.text
     assert "function sendGlobalSearchJob" in response.text
     assert "function renderGlobalSearchResult" in response.text
-    assert "specificId" in response.text
+    assert "gsSpecificId" in response.text
+    assert 'id="gsWorkspaceId"' not in response.text
+    assert 'id="gsActionFrom"' not in response.text
+    assert "buildChatCurl(request, 'global_search')" in response.text
     assert 'id="promptFields"' in response.text
     assert "buildChatCurl" in response.text
     assert "function renderOcrResult" in response.text
