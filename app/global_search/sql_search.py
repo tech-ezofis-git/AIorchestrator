@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Optional
+from typing import Any
 
 from app.data_import.ident import quote_ident
 from app.global_search.schema import (
     fetch_columns,
     find_items_tables,
+    find_items_tables_for_repository,
     find_table,
     pick_deleted_column,
     pick_id_column,
@@ -24,8 +25,21 @@ logger = logging.getLogger("orchestrator.global_search")
 
 _WS = re.compile(r"\s+")
 
-REPO_TABLES = ("wrepository", "repositories", "repository")
-WORKFLOW_TABLES = ("wworkflow", "workflows", "workflow")
+REPO_TABLES = ("wrepository", "wrepositories", "repositories", "repository")
+WORKFLOW_TABLES = (
+    "wworkflow",
+    "wworkflows",
+    "workflows",
+    "workflow",
+    "workflowdefinitions",
+)
+WORKFLOW_INSTANCE_TABLES = (
+    "wworkflowinstance",
+    "workflowinstances",
+    "workflowinstance",
+    "wprocess",
+    "processinstance",
+)
 DEFAULT_LIMIT = 20
 
 
@@ -52,13 +66,17 @@ async def _search_table(
     specific_id_keys: tuple[str, ...] = (),
 ) -> list[SearchHit]:
     try:
-        by_lower = await fetch_columns(db, schema, table)
+        by_lower, types_by_lower = await fetch_columns(db, schema, table)
     except Exception:
         return []
-    id_col = pick_id_column(by_lower)
+    id_col = pick_id_column(by_lower) or next(iter(by_lower.values()), None)
     name_col = pick_name_column(by_lower)
-    text_cols = pick_text_columns(by_lower, extra=extra_text)
+    text_cols = pick_text_columns(by_lower, extra=extra_text, types_by_lower=types_by_lower)
     if not id_col or not text_cols:
+        logger.warning(
+            "global_search_skip_table",
+            extra={"table": table, "has_id": bool(id_col), "text_cols": len(text_cols)},
+        )
         return []
     deleted = pick_deleted_column(by_lower)
     status_col = pick_status_column(by_lower)
@@ -69,7 +87,11 @@ async def _search_table(
     where = "(" + " OR ".join(clauses) + ")"
     args: list[Any] = [like_param]
     if deleted:
-        where += f" AND COALESCE(CAST({quote_ident(deleted)} AS integer), 0) = 0"
+        qdel = quote_ident(deleted)
+        where += (
+            f" AND lower(COALESCE(CAST({qdel} AS text), '0'))"
+            f" NOT IN ('1', 'true', 't', 'yes', 'y')"
+        )
     if specific_id and specific_id_keys:
         repo_col = next((by_lower[k] for k in specific_id_keys if k in by_lower), None)
         if repo_col:
@@ -88,8 +110,8 @@ async def _search_table(
         select_cols.append(f"{quote_ident(desc_col)} AS description")
     if status_col:
         select_cols.append(f"{quote_ident(status_col)} AS status")
-    for col in text_cols:
-        select_cols.append(f"{quote_ident(col)} AS m_{col.lower()}")
+    for i, col in enumerate(text_cols):
+        select_cols.append(f"{quote_ident(col)} AS {quote_ident(f'm{i}')}")
 
     sql = (
         f"SELECT {', '.join(select_cols)} FROM {qualified(schema, table)} "
@@ -113,9 +135,8 @@ async def _search_table(
             continue
         matched_field = name_col or "Name"
         matched_value = entity_name
-        for col in text_cols:
-            alias = f"m_{col.lower()}"
-            value = _str(row_get(row, alias))
+        for i, col in enumerate(text_cols):
+            value = _str(row_get(row, f"m{i}"))
             if value and q_lower in value.lower():
                 matched_field = col
                 matched_value = value
@@ -154,11 +175,13 @@ async def _search_table(
 async def search_repositories(
     db: Any, query: str, *, limit: int = DEFAULT_LIMIT, specific_id: str = ""
 ) -> list[SearchHit]:
+    _ = specific_id
     located = await find_table(db, REPO_TABLES)
     if located is None:
+        logger.warning("global_search_no_repository_table")
         return []
     schema, table = located
-    hits = await _search_table(
+    return await _search_table(
         db,
         schema=schema,
         table=table,
@@ -167,30 +190,42 @@ async def search_repositories(
         limit=limit,
         extra_text=("code",),
     )
-    if specific_id:
-        compact = specific_id.replace("-", "").lower()
-        hits = [
-            h
-            for h in hits
-            if h.entity_id.replace("-", "").lower() == compact or compact in h.entity_id.replace("-", "").lower()
-        ]
-    return hits
 
 
 async def search_workflows(db: Any, query: str, *, limit: int = DEFAULT_LIMIT) -> list[SearchHit]:
-    located = await find_table(db, WORKFLOW_TABLES, prefer_schemas=("workflow", "dbo", "public"))
-    if located is None:
-        return []
-    schema, table = located
-    return await _search_table(
-        db,
-        schema=schema,
-        table=table,
-        query=query,
-        entity_type="workflow",
-        limit=limit,
-        extra_text=("code", "status"),
-    )
+    hits: list[SearchHit] = []
+    seen: set[str] = set()
+    found_table = False
+    for names, extras in (
+        (WORKFLOW_TABLES, ("code", "status")),
+        (WORKFLOW_INSTANCE_TABLES, ("code", "status", "title", "requestno", "request_no")),
+    ):
+        located = await find_table(db, names, prefer_schemas=("workflow", "dbo", "public"))
+        if located is None:
+            continue
+        found_table = True
+        schema, table = located
+        remaining = limit - len(hits)
+        if remaining <= 0:
+            break
+        part = await _search_table(
+            db,
+            schema=schema,
+            table=table,
+            query=query,
+            entity_type="workflow",
+            limit=remaining,
+            extra_text=extras,
+        )
+        for hit in part:
+            key = hit.entity_id.replace("-", "").lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append(hit)
+    if not found_table:
+        logger.warning("global_search_no_workflow_table")
+    return hits[:limit]
 
 
 async def search_document_metadata(
@@ -206,14 +241,36 @@ async def search_document_metadata(
     tables: list[tuple[str, str]] = []
     guessed = repository_items_table(specific_id) if specific_id else None
     if guessed:
-        located = await find_table(db, (guessed.lower(), guessed))
+        located = await find_table(
+            db,
+            (guessed.lower(), guessed),
+            prefer_schemas=("repository", "dbo", "public"),
+        )
         if located:
             tables.append(located)
-    item_row = await find_table(db, ("repositoryitem", "repositoryitems", "repository_item"))
+        for row in await find_items_tables_for_repository(db, specific_id):
+            tables.append(row)
+    item_row = await find_table(
+        db,
+        ("repositoryitem", "repositoryitems", "repository_item"),
+        prefer_schemas=("repository", "dbo", "public"),
+    )
     if item_row:
         tables.append(item_row)
+    index_row = await find_table(
+        db,
+        ("search_index", "searchindex"),
+        prefer_schemas=("dbo", "repository", "public"),
+    )
+    if index_row:
+        tables.append(index_row)
     if not specific_id:
         tables.extend(await find_items_tables(db, limit=8))
+    elif not tables:
+        logger.warning(
+            "global_search_no_items_table",
+            extra={"specific_id": specific_id, "guessed": guessed},
+        )
 
     seen_tables: set[tuple[str, str]] = set()
     hits: list[SearchHit] = []
@@ -225,6 +282,7 @@ async def search_document_metadata(
         remaining = limit - len(hits)
         if remaining <= 0:
             break
+        per_repo_items = table.lower().startswith("items_")
         part = await _search_table(
             db,
             schema=schema,
@@ -234,7 +292,11 @@ async def search_document_metadata(
             limit=remaining,
             extra_text=("ifilename", "filename", "description"),
             specific_id=specific_id,
-            specific_id_keys=("wrepositoryid", "repositoryid", "repository_id"),
+            specific_id_keys=(
+                ()
+                if per_repo_items
+                else ("wrepositoryid", "repositoryid", "repository_id")
+            ),
         )
         for hit in part:
             if workspace_id and hit.id is not None:

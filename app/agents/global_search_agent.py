@@ -57,7 +57,6 @@ class GlobalSearchAgent:
             raise ValueError("query is required for intent=global_search.")
         specific_id = str(job.get("specific_id") or job.get("repository_id") or "").strip()
         workspace_id = str(job.get("workspace_id") or "").strip()
-        locked_repo = bool(specific_id)
 
         repo_args = {
             "query": query,
@@ -79,21 +78,12 @@ class GlobalSearchAgent:
                 return []
             return _as_hits(raw)
 
-        async def _empty() -> list[SearchHit]:
-            return []
-
-        tasks: list[Any] = [
+        meta_docs, rag_docs, repos, workflows = await asyncio.gather(
             _call("search_repo_metadata", doc_args),
             _call("search_repo_rag", rag_args),
-        ]
-        if not locked_repo:
-            tasks.append(_call("search_repositories", repo_args))
-            tasks.append(_call("search_workflows", {"query": query, "tenant_id": tenant_id, "limit": self._limit}))
-        else:
-            tasks.append(_empty())
-            tasks.append(_empty())
-
-        meta_docs, rag_docs, repos, workflows = await asyncio.gather(*tasks)
+            _call("search_repositories", repo_args),
+            _call("search_workflows", {"query": query, "tenant_id": tenant_id, "limit": self._limit}),
+        )
         documents = merge_document_hits(meta_docs, rag_docs)
         result = build_result(
             query,

@@ -13,7 +13,7 @@ import re
 from typing import Any, Awaitable, Callable, Optional
 from urllib.parse import urlsplit, urlunsplit
 
-from app.catalog.url import catalog_pool_kwargs, normalize_catalog_url
+from app.catalog.url import asyncpg_url_from_connection_string, catalog_pool_kwargs, normalize_catalog_url
 
 logger = logging.getLogger("orchestrator.ap_store")
 
@@ -171,6 +171,8 @@ class ApTenantDbPools:
         self._min_size = min_size
         self._max_size = max_size
         self._pools: dict[str, Any] = {}
+        self._cs_pools: dict[str, Any] = {}
+        self._search_pools: dict[str, Any] = {}
         self._schema_ready: set[str] = set()
         self._lock = asyncio.Lock()
 
@@ -212,6 +214,66 @@ class ApTenantDbPools:
             logger.info("ap_tenant_db_connected", extra={"database": db_name})
             return pool
 
+    async def acquire_from_connection_string(self, connection_string: str) -> Any:
+        """Pool for catalog.Tenants.ConnectionString (EZOFIS app DB). Does not create AP tables."""
+        raw_url = asyncpg_url_from_connection_string(connection_string)
+        url = normalize_catalog_url(raw_url)
+        parsed = urlsplit(url)
+        cache_key = f"{parsed.hostname or ''}/{parsed.path.lstrip('/')}"
+        cached = self._cs_pools.get(cache_key)
+        if cached is not None:
+            return cached
+        async with self._lock:
+            cached = self._cs_pools.get(cache_key)
+            if cached is not None:
+                return cached
+            ssl_kwargs = catalog_pool_kwargs(raw_url)
+            try:
+                pool = await self._create_pool(
+                    url,
+                    min_size=self._min_size,
+                    max_size=self._max_size,
+                    **ssl_kwargs,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "ap_tenant_cs_connect_failed",
+                    extra={
+                        "database": cache_key,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc)[:200],
+                    },
+                )
+                raise
+            self._cs_pools[cache_key] = pool
+            logger.info("ap_tenant_cs_connected", extra={"database": cache_key})
+            return pool
+
+    async def acquire_for_global_search(self, tenant_id: str, catalog_store: Any = None) -> Any:
+        """Prefer catalog ConnectionString (same DB as EZOFIS UI), then ezofis_Tenant_*."""
+        cached = self._search_pools.get(tenant_id)
+        if cached is not None:
+            return cached
+        cs = None
+        if catalog_store is not None:
+            try:
+                cs = await catalog_store.fetch_tenant_connection_string(tenant_id)
+            except Exception as exc:
+                logger.warning(
+                    "global_search_cs_lookup_failed",
+                    extra={"error_type": type(exc).__name__},
+                )
+        if cs:
+            try:
+                pool = await self.acquire_from_connection_string(cs)
+                self._search_pools[tenant_id] = pool
+                return pool
+            except Exception:
+                pass
+        pool = await self.acquire(tenant_id)
+        self._search_pools[tenant_id] = pool
+        return pool
+
     async def _ensure_schema(self, pool: Any, key: str) -> None:
         if key in self._schema_ready:
             return
@@ -230,8 +292,10 @@ class ApTenantDbPools:
             raise
 
     async def close(self) -> None:
-        pools = list(self._pools.values())
+        pools = list(self._pools.values()) + list(self._cs_pools.values())
         self._pools.clear()
+        self._cs_pools.clear()
+        self._search_pools.clear()
         self._schema_ready.clear()
         for pool in pools:
             close = getattr(pool, "close", None)

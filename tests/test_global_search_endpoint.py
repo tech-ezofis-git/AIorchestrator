@@ -147,7 +147,7 @@ def test_global_search_grouped_cards_and_field_wins_over_rag(client):
     assert doc["ifileName"] == "HR_01.pdf"
 
 
-def test_global_search_locked_repository_skips_repo_workflow_tools(client):
+def test_global_search_specific_id_still_searches_repo_and_workflow(client):
     dispatcher = client.app.state.dispatcher
     called = []
 
@@ -161,6 +161,7 @@ def test_global_search_locked_repository_skips_repo_workflow_tools(client):
 
     async def meta(**kwargs):
         called.append("search_repo_metadata")
+        assert kwargs.get("specific_id") == "FE663435-B5E1-4EA5-A710-071C9E5DA5F2"
         return []
 
     async def rag(**kwargs):
@@ -185,10 +186,12 @@ def test_global_search_locked_repository_skips_repo_workflow_tools(client):
         },
     )
     assert response.status_code == 200, response.text
-    assert "search_repo_metadata" in called
-    assert "search_repo_rag" in called
-    assert "search_repositories" not in called
-    assert "search_workflows" not in called
+    assert set(called) == {
+        "search_repo_metadata",
+        "search_repo_rag",
+        "search_repositories",
+        "search_workflows",
+    }
 
 
 def test_rag_search_intent_still_wins_generic_search(client, monkeypatch):

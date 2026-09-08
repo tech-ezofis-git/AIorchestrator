@@ -389,9 +389,9 @@ async def lifespan(app: FastAPI):
     dispatcher.register_tool(SEND_EMAIL_SCHEMA, make_send_email_handler(email_client))
     dispatcher.register_tool(STORE_MEMORY_SCHEMA, make_store_memory_handler(memory_store))
     dispatcher.register_tool(FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler(memory_store))
-    dispatcher.register_tool(SEARCH_REPOSITORIES_SCHEMA, make_search_repositories_handler(tenant_pools))
-    dispatcher.register_tool(SEARCH_WORKFLOWS_SCHEMA, make_search_workflows_handler(tenant_pools))
-    dispatcher.register_tool(SEARCH_REPO_METADATA_SCHEMA, make_search_repo_metadata_handler(tenant_pools))
+    dispatcher.register_tool(SEARCH_REPOSITORIES_SCHEMA, make_search_repositories_handler(tenant_pools, catalog_store))
+    dispatcher.register_tool(SEARCH_WORKFLOWS_SCHEMA, make_search_workflows_handler(tenant_pools, catalog_store))
+    dispatcher.register_tool(SEARCH_REPO_METADATA_SCHEMA, make_search_repo_metadata_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_REPO_RAG_SCHEMA, make_search_repo_rag_handler(hybrid_search, vector_store))
     summary_agent = SummaryAgent(
         dispatcher,

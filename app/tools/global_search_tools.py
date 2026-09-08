@@ -73,25 +73,41 @@ SEARCH_REPO_RAG_SCHEMA = ToolSchema(
 )
 
 
-def make_search_repositories_handler(tenant_pools: Any):
+def _search_db(tenant_pools: Any, catalog_store: Any):
+    async def acquire(tenant_id: str):
+        fn = getattr(tenant_pools, "acquire_for_global_search", None)
+        if callable(fn):
+            return await fn(tenant_id, catalog_store)
+        return await tenant_pools.acquire(tenant_id)
+
+    return acquire
+
+
+def make_search_repositories_handler(tenant_pools: Any, catalog_store: Any = None):
+    acquire = _search_db(tenant_pools, catalog_store)
+
     async def handler(*, query: str, tenant_id: str, specific_id: str = "", limit: int = 20) -> list[dict[str, Any]]:
-        db = await tenant_pools.acquire(tenant_id)
+        db = await acquire(tenant_id)
         hits = await search_repositories(db, query, limit=limit, specific_id=specific_id)
         return [h.model_dump() for h in hits]
 
     return handler
 
 
-def make_search_workflows_handler(tenant_pools: Any):
+def make_search_workflows_handler(tenant_pools: Any, catalog_store: Any = None):
+    acquire = _search_db(tenant_pools, catalog_store)
+
     async def handler(*, query: str, tenant_id: str, limit: int = 20) -> list[dict[str, Any]]:
-        db = await tenant_pools.acquire(tenant_id)
+        db = await acquire(tenant_id)
         hits = await search_workflows(db, query, limit=limit)
         return [h.model_dump() for h in hits]
 
     return handler
 
 
-def make_search_repo_metadata_handler(tenant_pools: Any):
+def make_search_repo_metadata_handler(tenant_pools: Any, catalog_store: Any = None):
+    acquire = _search_db(tenant_pools, catalog_store)
+
     async def handler(
         *,
         query: str,
@@ -100,7 +116,7 @@ def make_search_repo_metadata_handler(tenant_pools: Any):
         workspace_id: str = "",
         limit: int = 20,
     ) -> list[dict[str, Any]]:
-        db = await tenant_pools.acquire(tenant_id)
+        db = await acquire(tenant_id)
         hits = await search_document_metadata(
             db, query, specific_id=specific_id, workspace_id=workspace_id, limit=limit
         )
