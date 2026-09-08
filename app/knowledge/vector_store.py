@@ -102,6 +102,44 @@ class VectorStore:
         # Chunk count only — never the text or the embedding vectors.
         logger.info("chunks_inserted", extra={"chunk_count": len(chunks)})
 
+    async def get_documents(self, document_ids: list[str]) -> dict[str, Document]:
+        """Load document source/title/metadata for Global Search RAG cards."""
+        ids = [item for item in document_ids if item]
+        if not ids:
+            return {}
+        uuids: list[uuid.UUID] = []
+        for item in ids:
+            try:
+                uuids.append(uuid.UUID(str(item)))
+            except (TypeError, ValueError):
+                continue
+        if not uuids:
+            return {}
+        try:
+            rows = await self._db.fetch(
+                """
+                SELECT id, source, title, metadata
+                FROM documents
+                WHERE id = ANY($1::uuid[])
+                """,
+                uuids,
+            )
+        except Exception as exc:
+            logger.warning("vector_store_get_documents_failed")
+            raise VectorStoreUnavailableError("Document store is currently unavailable.") from exc
+        out: dict[str, Document] = {}
+        for row in rows or []:
+            raw_metadata = row["metadata"]
+            extra = json.loads(raw_metadata) if isinstance(raw_metadata, str) else (raw_metadata or {})
+            if not isinstance(extra, dict):
+                extra = {}
+            doc_id = str(row["id"])
+            out[doc_id] = Document(
+                id=doc_id,
+                metadata=DocumentMetadata(source=row["source"], title=row["title"], extra=extra),
+            )
+        return out
+
     async def vector_search(self, query_embedding: list[float], top_n: int) -> list[ScoredChunk]:
         try:
             rows = await self._db.fetch(

@@ -142,6 +142,7 @@ class ResponseComposer:
         ap_result: Optional[dict] = None,
         prompt_result: Optional[dict] = None,
         pdf_result: Optional[dict] = None,
+        global_search_result: Optional[dict] = None,
     ) -> ChatResponse:
         return ChatResponse(
             session_id=session_id,
@@ -161,6 +162,7 @@ class ResponseComposer:
             ap_result=ap_result,
             prompt_result=prompt_result,
             pdf_result=pdf_result,
+            global_search_result=global_search_result,
         )
 
     async def _llm_synthesize(self, *, system_prompt: str, user_content: str) -> dict:

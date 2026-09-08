@@ -35,6 +35,12 @@ def test_console_serves_html(client):
     assert "OCR agent" in response.text
     assert "Summary agent" in response.text
     assert "Insight agent" in response.text
+    assert "Global Search" in response.text
+    assert 'id="gsPanel"' in response.text
+    assert "intent: 'global_search'" in response.text
+    assert "function sendGlobalSearchJob" in response.text
+    assert "function renderGlobalSearchResult" in response.text
+    assert "specificId" in response.text
     assert 'id="promptFields"' in response.text
     assert "buildChatCurl" in response.text
     assert "function renderOcrResult" in response.text

@@ -71,6 +71,8 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         _form_str(form.get("repository_id"))
         or _form_str(form.get("repositoryId"))
         or _form_str(form.get("repository"))
+        or _form_str(form.get("specificId"))
+        or _form_str(form.get("specific_id"))
     )
     transaction_id = (
         _form_str(form.get("transaction_id"))
@@ -115,6 +117,9 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     template_json = _parse_optional_json_object(_form_str(form.get("template_json")), field="template_json")
     pdf_title = _form_str(form.get("pdf_title"))
     pdf_theme = _form_str(form.get("pdf_theme"))
+    query = _form_str(form.get("query"))
+    workspace_id = _form_str(form.get("workspace_id")) or _form_str(form.get("workspaceId"))
+    action_from = _form_str(form.get("action_from")) or _form_str(form.get("actionFrom"))
 
     upload = form.get("file")
     file_bytes = None
@@ -186,6 +191,9 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             tableparameters=tableparameters,
             model=model,
             tenant_id=tenant_id,
+            query=query,
+            workspace_id=workspace_id,
+            action_from=action_from,
             skills=skills if skills_raw is not None or skills else None,
             invoice_json=invoice_json,
             item_id=item_id,

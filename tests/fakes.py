@@ -536,6 +536,16 @@ class FakeDBPool:
                 {"id": c["id"], "document_id": c["document_id"], "chunk_index": c["chunk_index"], "text": c["text"], "score": score}
                 for c, score in scored[:top_n]
             ]
+        if "FROM documents" in query:
+            ids = args[0] if args else []
+            if not isinstance(ids, (list, tuple)):
+                ids = [ids]
+            wanted = {str(item) for item in ids}
+            rows = []
+            for row in self.documents.values():
+                if str(row["id"]) in wanted:
+                    rows.append(row)
+            return rows
         if "wformcontrol" in query.lower():
             return []
         if "information_schema" in query.lower():

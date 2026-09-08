@@ -111,6 +111,20 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("tenant_id", "tenantId", "tenantid", "TenantId"),
         description="Tenant UUID. Required for relative blob filepath (container ezts{tenantid}).",
     )
+    query: Optional[str] = Field(
+        default=None,
+        description="Global Search term (SEARCH_API.md). Used when intent=global_search and message is empty.",
+    )
+    workspace_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("workspace_id", "workspaceId", "WorkspaceId"),
+        description="Optional workspace id for Global Search (SEARCH_API.md).",
+    )
+    action_from: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("action_from", "actionFrom", "ActionFrom"),
+        description='Optional Global Search scope, e.g. "Repository" (SEARCH_API.md).',
+    )
     skills: Optional[list[str]] = Field(
         default=None,
         description="AP skills to run. Omitted/null => default pipeline (includes finalize_decision + workflow_move_next). List => only those ids.",
@@ -143,8 +157,10 @@ class DocumentPayload(BaseModel):
     )
     repository_id: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("repository_id", "repositoryId", "repository", "RepositoryId"),
-        description="Repository UUID for workflow move-next. Alias: repository, repositoryId.",
+        validation_alias=AliasChoices(
+            "repository_id", "repositoryId", "repository", "RepositoryId", "specificId", "specific_id"
+        ),
+        description="Repository UUID (move-next or Global Search specificId).",
     )
     transaction_id: Optional[str] = Field(
         default=None,
@@ -224,6 +240,7 @@ _TICKET_ID_CANON: dict[str, str] = {
     "workflowid": "workflowId",
     "instanceid": "instanceId",
     "repositoryid": "repositoryId",
+    "specificid": "repositoryId",
     "itemid": "itemId",
     "repositoryitemid": "repositoryItemId",
     "formid": "formId",
@@ -383,6 +400,9 @@ class ChatRequest(BaseModel):
                 continue
             if merged.get(key) in (None, "") and value not in (None, ""):
                 merged[key] = value
+        for key in ("query", "tenantId", "specificId", "workspaceId", "actionFrom"):
+            if data.get(key) not in (None, "") and merged.get(key) in (None, ""):
+                merged[key] = data[key]
         if not harvested and not merged:
             return data
         out = dict(data)
@@ -408,6 +428,7 @@ class ChatRequest(BaseModel):
             )
         )
         has_prompt = bool(payload and (payload.prompt or "").strip())
+        has_global_query = bool(payload and (payload.query or "").strip())
         msg = (self.message or "").strip()
         if (
             not msg
@@ -418,10 +439,11 @@ class ChatRequest(BaseModel):
             and not has_pdf_json
             and not has_ap_doc
             and not has_prompt
+            and not has_global_query
         ):
             # Multipart uploads attach file bytes outside this model; main.py
             # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap/pdf after parsing.
-            if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap", "pdf"}:
+            if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap", "pdf", "global_search"}:
                 return self
             raise ValueError(
                 "Either message, payload.prompt, payload.filepath, payload.ocr_text, "
@@ -520,5 +542,12 @@ class ChatResponse(BaseModel):
         description=(
             "PDF agent output — status, filename, file_path, download_url, "
             "preview_url, pdf_base64, page_count, file_size_bytes, title, generated_at."
+        ),
+    )
+    global_search_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Global Search grouped cards (Repositories, Workflows, Documents). "
+            "Document cards use SEARCH_API.md identity fields (itemId, repositoryId, matchSource)."
         ),
     )

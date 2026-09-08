@@ -1728,6 +1728,26 @@ Due Date,DATE</textarea>
         </div>
       </div>
     </details>
+    <details class="ocr-panel" id="gsPanel">
+      <summary>Global Search options</summary>
+      <div class="ocr-grid">
+        <div>
+          <label for="gsSpecificId">specificId (optional repository lock)</label>
+          <input type="text" id="gsSpecificId" placeholder="FE663435-B5E1-4EA5-A710-071C9E5DA5F2" />
+        </div>
+        <div>
+          <label for="gsWorkspaceId">workspaceId</label>
+          <input type="text" id="gsWorkspaceId" placeholder="1" />
+        </div>
+        <div>
+          <label for="gsActionFrom">actionFrom</label>
+          <input type="text" id="gsActionFrom" placeholder="Repository" />
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-primary" id="gsSendBtn">Run search</button>
+        </div>
+      </div>
+    </details>
     </div>
     <div class="composer ask-mode" id="composerWrap">
       <div class="composer-mode-label" id="composerModeLabel">Ask AI</div>
@@ -2092,6 +2112,7 @@ const ICONS = {
   ap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6V4h8v2"/></svg>',
   prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 17 4 12l4-5M16 7l4 5-4 5M13 5l-2 14"/></svg>',
   pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+  global_search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
@@ -2100,6 +2121,7 @@ const CAP_ACTIONS = [
   { slug: 'ap', label: 'AP agent', mode: 'ap' },
   { slug: 'prompt', label: 'Prompt agent', mode: 'prompt' },
   { slug: 'pdf', label: 'PDF generator', mode: 'pdf' },
+  { slug: 'global_search', label: 'Global Search', mode: 'global_search' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
 const MODE_LABELS = {
@@ -2110,9 +2132,11 @@ const MODE_LABELS = {
   ap: 'AP agent',
   prompt: 'Prompt agent',
   pdf: 'PDF generator',
+  global_search: 'Global Search',
 };
 const capActionsEl = document.getElementById('capActions');
 const apPanel = document.getElementById('apPanel');
+const gsPanel = document.getElementById('gsPanel');
 let composerMode = 'chat';
 let consoleAgentsCache = [];
 window.activeCustomIntent = '';
@@ -2397,6 +2421,7 @@ const EMPTY_SPECS = {
   summary: { title: 'Summary', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
+  global_search: { title: 'Global Search', sub: 'Enter a query. Optional specificId locks one repository.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
 };
 
@@ -2433,15 +2458,16 @@ function syncMainControls() {
   const mc = document.getElementById('mainControls');
   const panel = document.getElementById('docPanel');
   if (!mc || !panel) return;
-  const active = panel.classList.contains('visible') || (apPanel && apPanel.open);
+  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open);
   mc.hidden = !active;
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result)) return;
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
+  if (gsPanel) gsPanel.open = false;
   syncMainControls();
   requestAnimationFrame(() => {
     transcript.scrollTop = transcript.scrollHeight;
@@ -2449,7 +2475,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -2461,6 +2487,7 @@ function setComposerMode(mode) {
   panel.classList.toggle('visible', showDoc);
   panel.open = showDoc;
   if (apPanel) apPanel.open = mode === 'ap';
+  if (gsPanel) gsPanel.open = mode === 'global_search';
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
@@ -2500,6 +2527,9 @@ function setComposerMode(mode) {
   } else if (mode === 'pdf') {
     banner.textContent = 'PDF Generator';
     messageInput.placeholder = 'Optional note or styling instructions';
+  } else if (mode === 'global_search') {
+    banner.textContent = 'Global Search';
+    messageInput.placeholder = 'Query — e.g. QUALITY CERTIFICATE or EMP10245';
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -3500,10 +3530,47 @@ function renderPdfResult(pdf, request) {
   return { html, resultJson: pdf, curlText: '' };
 }
 
+function renderGlobalSearchResult(result, request) {
+  const groups = (result && result.groups) || [];
+  const query = (result && result.query) || '';
+  let cards = '';
+  groups.forEach((group) => {
+    const hits = group.hits || [];
+    cards += `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header">
+        <div class="summary-card-kicker">${escapeHtml(group.label || group.entity_type || '')}</div>
+        <div class="summary-card-title">${escapeHtml(String(group.count ?? hits.length))} hit${(group.count ?? hits.length) === 1 ? '' : 's'}</div>
+      </div>
+      <div class="summary-card-body">`;
+    if (!hits.length) {
+      cards += '<p class="summary-prose">No matches.</p>';
+    } else {
+      cards += '<ul class="summary-facts">';
+      hits.forEach((hit) => {
+        const name = hit.entity_name || hit.ifileName || hit.name || hit.entity_id || '';
+        const field = hit.matched_field ? ` · ${hit.matched_field}` : '';
+        const src = hit.matchSource ? ` <span class="summary-chip">${escapeHtml(hit.matchSource)}</span>` : '';
+        const idLine = hit.entity_id ? `<div class="summary-prose">ID: ${escapeHtml(String(hit.entity_id))}</div>` : '';
+        const extra = hit.matched_value && hit.matched_value !== name
+          ? `<div class="summary-prose">${escapeHtml(String(hit.matched_value))}</div>`
+          : '';
+        cards += `<li><strong>${escapeHtml(String(name))}</strong>${src}<div class="summary-prose">${escapeHtml(String(hit.entity_type || ''))}${escapeHtml(field)}</div>${idLine}${extra}</li>`;
+      });
+      cards += '</ul>';
+    }
+    cards += '</div></div>';
+  });
+  const html = `<div class="summary-card-wrap">
+    <div class="summary-section-label">Query: ${escapeHtml(query)}</div>
+    ${cards}
+  </div>`;
+  return { html, resultJson: result, curlText: request && request.curlText ? request.curlText : '' };
+}
+
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result)
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -3552,8 +3619,13 @@ function renderAssistantMessage(body, sessionId, request) {
     details += pdfCode.html;
     codeBlocks.push(pdfCode);
   }
+  if (body.global_search_result) {
+    const gsCode = renderGlobalSearchResult(body.global_search_result, request);
+    details += gsCode.html;
+    codeBlocks.push(gsCode);
+  }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -3592,6 +3664,9 @@ function renderAssistantMessage(body, sessionId, request) {
   }
   if (body.pdf_result) {
     bubbleText = body.reply || `PDF generated successfully (${body.pdf_result.page_count || 1} page${(body.pdf_result.page_count || 1) === 1 ? '' : 's'}).`;
+  }
+  if (body.global_search_result) {
+    bubbleText = body.reply || 'Global Search complete.';
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -4453,6 +4528,64 @@ async function sendPdfJob() {
   }
 }
 
+async function sendGlobalSearchJob() {
+  const query = messageInput.value.trim();
+  if (!query) {
+    addSystemMessage('Enter a search query, then Send or Run search.');
+    return;
+  }
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const tenantId = consoleTenantId();
+  if (!tenantId) {
+    addSystemMessage('Select a tenant first — Global Search is tenant-scoped.');
+    return;
+  }
+  const specificId = (document.getElementById('gsSpecificId') || {}).value || '';
+  const workspaceId = (document.getElementById('gsWorkspaceId') || {}).value || '';
+  const actionFrom = (document.getElementById('gsActionFrom') || {}).value || '';
+  addUserMessage(query);
+  const processing = addProcessingMessage('Searching…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+  try {
+    const payload = {
+      query: query,
+      tenantId: tenantId,
+    };
+    if (specificId.trim()) payload.specificId = specificId.trim();
+    if (workspaceId.trim()) payload.workspaceId = workspaceId.trim();
+    if (actionFrom.trim()) payload.actionFrom = actionFrom.trim();
+    const body = {
+      session_id: sessionId,
+      intent: 'global_search',
+      message: query,
+      payload: payload,
+    };
+    const request = { intent: 'global_search', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      collapseFormsAfterResult(data);
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'Global Search failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
 async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
@@ -4460,6 +4593,7 @@ async function sendMessage() {
   if (composerMode === 'ap') return sendApJob();
   if (composerMode === 'prompt') return sendPromptJob();
   if (composerMode === 'pdf') return sendPdfJob();
+  if (composerMode === 'global_search') return sendGlobalSearchJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');
@@ -4501,6 +4635,8 @@ async function sendMessage() {
 }
 
 composerForm.addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });
+const gsSendBtn = document.getElementById('gsSendBtn');
+if (gsSendBtn) gsSendBtn.addEventListener('click', () => sendGlobalSearchJob());
 messageInput.addEventListener('input', autosizeComposer);
 messageInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }

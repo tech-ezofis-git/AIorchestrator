@@ -123,6 +123,7 @@ from app.agents.pdf_agent import PdfAgent
 from app.agents.prompt_agent import PromptAgent
 from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
+from app.agents.global_search_agent import GlobalSearchAgent
 from app.config import get_settings
 from app.control.audit import AuditMiddleware, configure_app_logging
 from app.control.audit_store import AuditStore
@@ -177,6 +178,16 @@ from app.tools.fetch_document import FETCH_DOCUMENT_SCHEMA, make_fetch_document_
 from app.tools.fetch_invoice_status import FETCH_INVOICE_STATUS_SCHEMA, make_fetch_invoice_status_handler
 from app.tools.fetch_memories import FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler
 from app.tools.fetch_report_data import FETCH_REPORT_DATA_SCHEMA, make_fetch_report_data_handler
+from app.tools.global_search_tools import (
+    SEARCH_REPO_METADATA_SCHEMA,
+    SEARCH_REPO_RAG_SCHEMA,
+    SEARCH_REPOSITORIES_SCHEMA,
+    SEARCH_WORKFLOWS_SCHEMA,
+    make_search_repo_metadata_handler,
+    make_search_repo_rag_handler,
+    make_search_repositories_handler,
+    make_search_workflows_handler,
+)
 from app.tools.run_forecast import RUN_FORECAST_SCHEMA, make_run_forecast_handler
 from app.tools.run_ocr import RUN_OCR_SCHEMA, make_run_ocr_handler
 from app.tools.send_email import SEND_EMAIL_SCHEMA, make_send_email_handler
@@ -199,7 +210,7 @@ _CONSOLE_HTML_PATH = _STATIC_DIR / "console.html"
 # 3c/3d), and anything where intent isn't classified yet (content filter,
 # rate limit rejections) is conservatively treated the same as AP/Mail:
 # we don't know what it would have been, so we don't snippet it.
-_SNIPPETABLE_INTENTS = {"chat", "search", "summary", "insight", "ocr", "forecast", "prompt"}
+_SNIPPETABLE_INTENTS = {"chat", "search", "summary", "insight", "ocr", "forecast", "prompt", "global_search"}
 
 # Only send_email exists today; mapped explicitly rather than guessed so
 # a future gated tool doesn't silently inherit the wrong intent label.
@@ -378,6 +389,10 @@ async def lifespan(app: FastAPI):
     dispatcher.register_tool(SEND_EMAIL_SCHEMA, make_send_email_handler(email_client))
     dispatcher.register_tool(STORE_MEMORY_SCHEMA, make_store_memory_handler(memory_store))
     dispatcher.register_tool(FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler(memory_store))
+    dispatcher.register_tool(SEARCH_REPOSITORIES_SCHEMA, make_search_repositories_handler(tenant_pools))
+    dispatcher.register_tool(SEARCH_WORKFLOWS_SCHEMA, make_search_workflows_handler(tenant_pools))
+    dispatcher.register_tool(SEARCH_REPO_METADATA_SCHEMA, make_search_repo_metadata_handler(tenant_pools))
+    dispatcher.register_tool(SEARCH_REPO_RAG_SCHEMA, make_search_repo_rag_handler(hybrid_search, vector_store))
     summary_agent = SummaryAgent(
         dispatcher,
         response_composer,
@@ -428,6 +443,9 @@ async def lifespan(app: FastAPI):
     mail_agent = MailAgent(pending_action_store, response_composer)
     prompt_agent = PromptAgent(llm_adapter)
     pdf_agent = PdfAgent(llm_adapter, settings)
+    global_search_agent = GlobalSearchAgent(
+        dispatcher, limit=20, rag_limit=max(settings.search_top_n, 5)
+    )
 
     rate_limiter = RateLimiter(
         redis_client,
@@ -446,6 +464,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.MAIL, mail_agent.handle)
     agent_router.register(Intent.PROMPT, prompt_agent.handle)
     agent_router.register(Intent.PDF, pdf_agent.handle)
+    agent_router.register(Intent.GLOBAL_SEARCH, global_search_agent.handle)
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
@@ -1779,9 +1798,15 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     message = (payload.message or "").strip()
     explicit = (payload.intent or "").strip().lower()
     prompt_alias = (payload.payload.prompt or "").strip() if payload.payload else ""
+    query_alias = (payload.payload.query or "").strip() if payload.payload else ""
     if not message:
         if explicit == "prompt" and prompt_alias:
             message = prompt_alias
+        elif explicit == "global_search":
+            if query_alias:
+                message = query_alias
+            else:
+                raise HTTPException(status_code=400, detail="query is required for intent=global_search.")
         elif (
             has_filepath
             or has_upload
@@ -1901,6 +1926,16 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "pdf_theme": payload.payload.pdf_theme if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,
             "tenant_id": payload.payload.tenant_id if payload.payload else None,
+        }
+    elif intent == Intent.GLOBAL_SEARCH:
+        p = payload.payload
+        document_job = {
+            "query": (p.query if p and p.query else None) or message,
+            "tenant_id": p.tenant_id if p else None,
+            "specific_id": p.repository_id if p else None,
+            "repository_id": p.repository_id if p else None,
+            "workspace_id": p.workspace_id if p else None,
+            "action_from": p.action_from if p else None,
         }
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
@@ -2199,6 +2234,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         ap_result=result.get("ap_result"),
         prompt_result=result.get("prompt_result"),
         pdf_result=result.get("pdf_result"),
+        global_search_result=result.get("global_search_result"),
     )
 
 
