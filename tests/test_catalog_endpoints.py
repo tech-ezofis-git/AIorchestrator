@@ -235,7 +235,7 @@ def test_disabled_builtin_agent_returns_403(client):
     client.patch(f"/console/catalog/agents/{summary['id']}", json={"enabled": True})
 
 
-def test_catalog_tenants_combo_merges_ezofis_directory_and_saved(client, monkeypatch):
+def test_catalog_tenants_combo_uses_directory_and_ezofis_not_orphan_mappings(client, monkeypatch):
     import app.main as main_module
 
     async def fake_list_tenants():
@@ -243,33 +243,34 @@ def test_catalog_tenants_combo_merges_ezofis_directory_and_saved(client, monkeyp
 
     monkeypatch.setattr(main_module.app.state.ezofis_client, "list_tenants", fake_list_tenants)
     client.fake_db_pool.catalog_tenants_directory = [
-        {"id": "tid-dir", "name": "Directory Tenant", "email": "dir@ezofis.com"},
-        {"id": "tid-saved", "name": "Saved Named Tenant", "email": "saved@ezofis.com"},
+        {"id": "b843b988-00ec-44e3-aca2-b8470133ef63", "name": "EZOFIS", "email": "admin@ezofis.com"},
+        {"id": "tid-live", "name": "Live From Directory", "email": "live@ezofis.com"},
     ]
 
     models = client.get("/console/catalog/models").json()["models"]
+    orphan = client.put(
+        "/console/catalog/tenant-models",
+        json={"tenant_id": "tenant_a", "default_model_id": models[0]["id"]},
+    )
+    assert orphan.status_code == 200
     saved = client.put(
         "/console/catalog/tenant-models",
-        json={"tenant_id": "tid-saved", "default_model_id": models[0]["id"]},
+        json={
+            "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+            "default_model_id": models[0]["id"],
+        },
     )
     assert saved.status_code == 200
-    unnamed = client.put(
-        "/console/catalog/tenant-models",
-        json={"tenant_id": "tid-unnamed", "default_model_id": models[0]["id"]},
-    )
-    assert unnamed.status_code == 200
 
     response = client.get("/console/catalog/tenants")
     assert response.status_code == 200
-    by_id = {row["id"]: row for row in response.json()["tenants"]}
-    assert by_id["tid-live"]["name"] == "Live Tenant"
-    assert by_id["tid-live"]["source"] == "ezofis"
-    assert by_id["tid-dir"]["name"] == "Directory Tenant"
-    assert by_id["tid-dir"]["source"] == "directory"
-    assert by_id["tid-saved"]["name"] == "Saved Named Tenant"
-    assert by_id["tid-unnamed"]["name"] == "tid-unnamed"
-    assert by_id["tid-unnamed"]["source"] == "catalog"
-
+    tenants = response.json()["tenants"]
+    by_id = {row["id"]: row for row in tenants}
+    assert "tenant_a" not in by_id
+    assert by_id["b843b988-00ec-44e3-aca2-b8470133ef63"]["name"] == "EZOFIS"
+    # Directory name wins when the tenant already exists in catalog.Tenants.
+    assert by_id["tid-live"]["name"] == "Live From Directory"
+    assert [row["name"] for row in tenants] == sorted(row["name"] for row in tenants)
 
 def test_get_catalog_tenant_models_by_id(client):
     models = client.get("/console/catalog/models").json()["models"]

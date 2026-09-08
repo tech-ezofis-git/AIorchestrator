@@ -1371,9 +1371,22 @@ async def delete_catalog_model(model_id: str, request: Request) -> dict:
 
 @app.get("/console/catalog/tenants")
 async def list_catalog_tenants(request: Request) -> dict:
-    """Tenants for Chat/Catalog pickers: Ezofis login + catalog.Tenants names + saved mappings."""
+    """Tenants for Chat/Catalog pickers: real catalog.Tenants + Ezofis login names.
+
+    Saved catalog_tenant_models rows are NOT listed on their own — old test
+    mappings (tenant_a, leftover UUIDs) must not appear as selectable tenants.
+    """
     store = _catalog_store(request)
     by_id: dict[str, dict[str, str]] = {}
+    try:
+        for item in await store.list_tenant_directory():
+            tenant_id = str(item.get("id") or "").strip()
+            if not tenant_id:
+                continue
+            name = str(item.get("name") or tenant_id).strip() or tenant_id
+            by_id[tenant_id] = {"id": tenant_id, "name": name, "source": "directory"}
+    except Exception as exc:
+        logger.warning("catalog_tenants_directory_failed", extra={"error_type": type(exc).__name__})
     ezofis = getattr(request.app.state, "ezofis_client", None)
     if ezofis is not None:
         try:
@@ -1381,35 +1394,15 @@ async def list_catalog_tenants(request: Request) -> dict:
                 tenant_id = str(item.get("id") or "").strip()
                 if not tenant_id:
                     continue
-                by_id[tenant_id] = {
-                    "id": tenant_id,
-                    "name": str(item.get("name") or tenant_id),
-                    "source": "ezofis",
-                }
+                name = str(item.get("name") or tenant_id).strip() or tenant_id
+                existing = by_id.get(tenant_id)
+                if existing is None:
+                    by_id[tenant_id] = {"id": tenant_id, "name": name, "source": "ezofis"}
+                elif existing["name"] == existing["id"] and name != tenant_id:
+                    existing["name"] = name
+                    existing["source"] = "ezofis"
         except Exception as exc:
             logger.warning("catalog_tenants_ezofis_failed", extra={"error_type": type(exc).__name__})
-    try:
-        for item in await store.list_tenant_directory():
-            tenant_id = str(item.get("id") or "").strip()
-            if not tenant_id:
-                continue
-            name = str(item.get("name") or tenant_id).strip() or tenant_id
-            existing = by_id.get(tenant_id)
-            if existing is None:
-                by_id[tenant_id] = {"id": tenant_id, "name": name, "source": "directory"}
-            elif existing["name"] == existing["id"] and name != tenant_id:
-                existing["name"] = name
-    except Exception as exc:
-        logger.warning("catalog_tenants_directory_failed", extra={"error_type": type(exc).__name__})
-    try:
-        saved = await store.list_tenant_models()
-    except Exception as exc:
-        _raise_catalog_http(exc)
-        raise
-    for row in saved:
-        tenant_id = str(row.get("tenant_id") or "").strip()
-        if tenant_id and tenant_id not in by_id:
-            by_id[tenant_id] = {"id": tenant_id, "name": tenant_id, "source": "catalog"}
     tenants = sorted(by_id.values(), key=lambda item: item["name"].lower())
     return {"tenants": tenants}
 
