@@ -482,6 +482,8 @@ class FakeDBPool:
         raise AssertionError(f"FakeDBPool.executemany: unrecognized query: {query!r}")
 
     async def fetch(self, query: str, *args: Any):
+        if 'catalog."Tenants"' in query:
+            return list(getattr(self, "catalog_tenants_directory", []) or [])
         if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
             return self._handle_catalog_fetch(query, args)
         if "embedding <=>" in query:

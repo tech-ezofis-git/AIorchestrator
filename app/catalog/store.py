@@ -192,6 +192,39 @@ class CatalogStore:
                 return text
         return None
 
+    async def list_tenant_directory(self) -> list[dict[str, str]]:
+        """Best-effort Name/Email lookup from ezofis catalog.Tenants.
+
+        Used to label Catalog / Chat tenant pickers when Ezofis login list
+        is empty or a saved catalog_tenant_models row only has a UUID.
+        Returns [] when the table is missing or the query fails.
+        """
+        try:
+            rows = await self._db.fetch(
+                """
+                SELECT "Id"::text AS id, "Name" AS name, "Email" AS email
+                FROM catalog."Tenants"
+                WHERE coalesce("IsActive", true) = true
+                ORDER BY "Name" ASC NULLS LAST
+                """
+            )
+        except Exception as exc:
+            logger.warning(
+                "catalog_tenant_directory_failed",
+                extra={"error_type": type(exc).__name__},
+            )
+            return []
+        out: list[dict[str, str]] = []
+        for row in rows or []:
+            tenant_id = str(_row_get(row, "id") or "").strip()
+            if not tenant_id:
+                continue
+            name = str(_row_get(row, "name") or "").strip()
+            email = str(_row_get(row, "email") or "").strip()
+            display = name or email or tenant_id
+            out.append({"id": tenant_id, "name": display, "email": email})
+        return out
+
     async def connected_database(self) -> Optional[str]:
         try:
             row = await self._db.fetchrow("SELECT current_database() AS db")

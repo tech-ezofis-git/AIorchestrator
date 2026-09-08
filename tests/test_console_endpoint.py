@@ -54,6 +54,10 @@ def test_console_serves_html(client):
     assert 'id="catalogView"' in response.text
     assert 'id="viewCatalogBtn"' in response.text
     assert 'id="catTenantSelect"' in response.text
+    assert 'id="tenantGateSelect"' in response.text
+    assert "fillTenantSelect" in response.text
+    assert "Choose tenant" in response.text
+    assert "Or paste tenant id" not in response.text
     assert 'id="catalogTenantWorkspace"' in response.text
     assert "Available models" in response.text
     assert "/console/catalog/agents" in response.text

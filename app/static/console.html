@@ -1387,7 +1387,8 @@
   .tenant-gate-card h2 { margin: 0 0 8px; font-size: 18px; color: var(--ink); }
   .tenant-gate-card p { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--ink-3); }
   .tenant-gate-card label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-4); margin-bottom: 6px; }
-  .tenant-gate-card input {
+  .tenant-gate-card input,
+  .tenant-gate-card select {
     width: 100%; padding: 10px 12px; font-size: 13px; font-family: inherit;
     border: 1px solid var(--line); border-radius: var(--radius-sm);
     color: var(--ink); background: var(--surface-3); box-sizing: border-box;
@@ -1426,10 +1427,12 @@
 <div class="tenant-gate" id="tenantGate" hidden aria-modal="true" role="dialog" aria-labelledby="tenantGateTitle">
   <div class="tenant-gate-backdrop"></div>
   <div class="tenant-gate-card">
-    <h2 id="tenantGateTitle">Enter tenant</h2>
-    <p>Enter a tenant id to load agents and models from Catalog settings saved for that tenant. You can also continue without a tenant — no Catalog rules will be applied.</p>
-    <label for="tenantGateInput">Tenant id</label>
-    <input type="text" id="tenantGateInput" placeholder="2e3b7b37-38a3-4f94-878e-a006dad93230" autocomplete="off" />
+    <h2 id="tenantGateTitle">Choose tenant</h2>
+    <p>Select a tenant by name to load Catalog agents and models. You can also continue without a tenant — no Catalog rules will be applied.</p>
+    <label for="tenantGateSelect">Tenant</label>
+    <select id="tenantGateSelect">
+      <option value="">Select a tenant…</option>
+    </select>
     <div class="tenant-gate-status" id="tenantGateStatus"></div>
     <div class="tenant-gate-actions">
       <button type="button" class="btn-ghost" id="tenantGateSkipBtn">Continue without tenant</button>
@@ -1454,9 +1457,9 @@
       </div>
 
       <label for="consoleTenantId">Tenant</label>
-      <input type="text" id="consoleTenantId" placeholder="Set via tenant prompt" readonly />
+      <input type="text" id="consoleTenantId" placeholder="Choose via tenant prompt" readonly />
       <button type="button" class="btn-ghost" id="consoleTenantChangeBtn" style="margin-top:6px;width:100%">Change tenant</button>
-      <div class="field-hint" id="consoleTenantHint">Enter a tenant when prompted to apply Catalog settings.</div>
+      <div class="field-hint" id="consoleTenantHint">Choose a tenant when prompted to apply Catalog settings.</div>
 
       <label for="llmDefaultPreset">Model</label>
       <select id="llmDefaultPreset"></select>
@@ -1799,13 +1802,6 @@ Due Date,DATE</textarea>
         <select id="catTenantSelect">
           <option value="">Select a tenant…</option>
         </select>
-      </div>
-      <div>
-        <label for="catTenantCustom">Or paste tenant id</label>
-        <input type="text" id="catTenantCustom" placeholder="2e3b7b37-38a3-4f94-878e-a006dad93230" />
-      </div>
-      <div>
-        <button type="button" class="btn-ghost" id="catTenantUseBtn">Use tenant</button>
       </div>
     </div>
     <div class="catalog-status" id="catalogTenantPickStatus"></div>
@@ -2182,18 +2178,63 @@ function setTenantGateStatus(kind, text) {
   el.textContent = text || '';
 }
 
+function tenantOptionLabel(tenant) {
+  const id = String((tenant && tenant.id) || '').trim();
+  const name = String((tenant && tenant.name) || '').trim();
+  if (!id) return '';
+  if (name && name !== id) return name;
+  return id;
+}
+
+async function fillTenantSelect(selectEl, { previousId = '', emptyLabel = 'Select a tenant…' } = {}) {
+  if (!selectEl) return [];
+  const res = await fetch('/console/catalog/tenants');
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || 'Could not load tenants.');
+  const tenants = data.tenants || [];
+  selectEl.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = emptyLabel;
+  selectEl.appendChild(placeholder);
+  tenants.forEach((tenant) => {
+    const opt = document.createElement('option');
+    opt.value = tenant.id;
+    opt.textContent = tenantOptionLabel(tenant);
+    selectEl.appendChild(opt);
+  });
+  if (previousId) {
+    if (![...selectEl.options].some((opt) => opt.value === previousId)) {
+      const opt = document.createElement('option');
+      opt.value = previousId;
+      opt.textContent = previousId;
+      selectEl.appendChild(opt);
+    }
+    selectEl.value = previousId;
+  }
+  return tenants;
+}
+
 function openTenantGate() {
   const gate = document.getElementById('tenantGate');
-  const input = document.getElementById('tenantGateInput');
+  const select = document.getElementById('tenantGateSelect');
   const layout = document.getElementById('chatView');
   if (!gate) return;
   setTenantGateStatus('', '');
-  if (input) {
-    input.value = consoleTenantId() || sessionStorage.getItem(CONSOLE_TENANT_KEY) || '';
-  }
   gate.hidden = false;
   if (layout) layout.classList.add('tenant-gate-active');
-  setTimeout(() => input && input.focus(), 50);
+  const previous = consoleTenantId() || sessionStorage.getItem(CONSOLE_TENANT_KEY) || '';
+  fillTenantSelect(select, {
+    previousId: previous,
+    emptyLabel: 'Select a tenant…',
+  }).then((tenants) => {
+    if (!tenants.length) {
+      setTenantGateStatus('fail', 'No tenants available. Continue without tenant, or check Ezofis login.');
+    }
+    setTimeout(() => select && select.focus(), 50);
+  }).catch((e) => {
+    setTenantGateStatus('fail', e.message || 'Could not load tenants.');
+  });
 }
 
 function closeTenantGate() {
@@ -2210,10 +2251,10 @@ function maybeShowTenantGate() {
 }
 
 async function confirmTenantGate() {
-  const input = document.getElementById('tenantGateInput');
-  const tid = (input?.value || '').trim();
+  const select = document.getElementById('tenantGateSelect');
+  const tid = (select?.value || '').trim();
   if (!tid) {
-    setTenantGateStatus('fail', 'Enter a tenant id, or click Continue without tenant.');
+    setTenantGateStatus('fail', 'Select a tenant, or click Continue without tenant.');
     return;
   }
   const continueBtn = document.getElementById('tenantGateContinueBtn');
@@ -2333,11 +2374,11 @@ if (consoleTenantChangeBtn) {
 
 const tenantGateContinueBtn = document.getElementById('tenantGateContinueBtn');
 const tenantGateSkipBtn = document.getElementById('tenantGateSkipBtn');
-const tenantGateInput = document.getElementById('tenantGateInput');
+const tenantGateSelect = document.getElementById('tenantGateSelect');
 if (tenantGateContinueBtn) tenantGateContinueBtn.addEventListener('click', confirmTenantGate);
 if (tenantGateSkipBtn) tenantGateSkipBtn.addEventListener('click', skipTenantGate);
-if (tenantGateInput) {
-  tenantGateInput.addEventListener('keydown', (e) => {
+if (tenantGateSelect) {
+  tenantGateSelect.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); confirmTenantGate(); }
   });
 }
@@ -4542,43 +4583,18 @@ async function loadCatalog() {
   }
 }
 
-function ensureTenantOption(tenantId, label) {
-  const select = document.getElementById('catTenantSelect');
-  if (!tenantId || [...select.options].some(opt => opt.value === tenantId)) return;
-  const opt = document.createElement('option');
-  opt.value = tenantId;
-  opt.textContent = label || tenantId;
-  select.appendChild(opt);
-}
-
 async function loadCatalogTenantOptions() {
   const status = document.getElementById('catalogTenantPickStatus');
   const select = document.getElementById('catTenantSelect');
   const previous = selectedCatalogTenantId() || sessionStorage.getItem(CATALOG_TENANT_KEY) || '';
   try {
-    const res = await fetch('/console/catalog/tenants');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'failed');
-    select.innerHTML = '';
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = 'Select a tenant…';
-    select.appendChild(placeholder);
-    (data.tenants || []).forEach(tenant => {
-      const opt = document.createElement('option');
-      opt.value = tenant.id;
-      opt.textContent = tenant.name && tenant.name !== tenant.id
-        ? (tenant.name + ' — ' + tenant.id.slice(0, 8))
-        : tenant.id;
-      select.appendChild(opt);
+    const tenants = await fillTenantSelect(select, {
+      previousId: previous,
+      emptyLabel: 'Select a tenant…',
     });
-    if (previous) {
-      ensureTenantOption(previous, previous);
-      select.value = previous;
-    }
-    catStatus(status, '', (data.tenants || []).length
+    catStatus(status, '', tenants.length
       ? ''
-      : 'No tenants from Ezofis login. Paste a tenant id and click Use tenant.');
+      : 'No tenants found. Check Ezofis login or Catalog tenant mappings.');
   } catch (e) {
     catStatus(status, 'fail', e.message || 'Could not load tenants.');
   }
@@ -4601,18 +4617,6 @@ function onCatalogTenantChange() {
 }
 
 document.getElementById('catTenantSelect').addEventListener('change', onCatalogTenantChange);
-document.getElementById('catTenantUseBtn').addEventListener('click', () => {
-  const raw = (document.getElementById('catTenantCustom').value || '').trim();
-  const status = document.getElementById('catalogTenantPickStatus');
-  if (!raw) {
-    catStatus(status, 'fail', 'Paste a tenant id first.');
-    return;
-  }
-  ensureTenantOption(raw, raw);
-  document.getElementById('catTenantSelect').value = raw;
-  catStatus(status, '', '');
-  onCatalogTenantChange();
-});
 
 async function loadCatalogTenantAgentModels() {
   const tenantId = selectedCatalogTenantId();
