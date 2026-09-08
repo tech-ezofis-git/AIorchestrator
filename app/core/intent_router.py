@@ -53,6 +53,7 @@ class Intent(str, Enum):
     AP = "ap"
     PROMPT = "prompt"
     PDF = "pdf"
+    GLOBAL_SEARCH = "global_search"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the
@@ -69,6 +70,16 @@ _PDF_TRIGGERS = (
     "export pdf",
     "convert json to pdf",
     "print pdf",
+)
+
+_GLOBAL_SEARCH_TRIGGERS = (
+    "global search",
+    "search repository",
+    "search repositories",
+    "search workflow",
+    "search workflows",
+    "find repository",
+    "find workflow",
 )
 
 _SEARCH_TRIGGERS = (
@@ -186,6 +197,8 @@ class IntentRouter:
             return Intent.CHAT
         if any(trigger in normalized for trigger in _PDF_TRIGGERS):
             return Intent.PDF
+        if any(trigger in normalized for trigger in _GLOBAL_SEARCH_TRIGGERS):
+            return Intent.GLOBAL_SEARCH
         if any(trigger in normalized for trigger in _SEARCH_TRIGGERS):
             return Intent.SEARCH
         if any(trigger in normalized for trigger in _SUMMARY_TRIGGERS):

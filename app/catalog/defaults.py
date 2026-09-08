@@ -10,6 +10,11 @@ BUILTIN_AGENTS: list[dict[str, str]] = [
     {"slug": "ap", "name": "Accounts Payable", "description": "Invoice / AP document jobs."},
     {"slug": "mail", "name": "Mail", "description": "Draft an email (confirm before send)."},
     {"slug": "prompt", "name": "Prompt", "description": "Run a raw prompt through the current model."},
+    {
+        "slug": "global_search",
+        "name": "Global Search",
+        "description": "Find repositories, workflows, and documents in the tenant database.",
+    },
 ]
 
 RESERVED_SLUGS: frozenset[str] = frozenset(row["slug"] for row in BUILTIN_AGENTS)
