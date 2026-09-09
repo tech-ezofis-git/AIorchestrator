@@ -45,6 +45,8 @@ class _FakeTenantDb:
             {"table_schema": "dbo", "table_name": "wworkflow"},
             {"table_schema": "dbo", "table_name": "wform"},
             {"table_schema": "dbo", "table_name": "repositoryitem"},
+            {"table_schema": "workflow", "table_name": "process_addon_aabbccdd"},
+            {"table_schema": "workflow", "table_name": "workflow_instances_aabbccdd"},
             {"table_schema": "dbo", "table_name": "items_a6169a5c"},
             {"table_schema": "dbo", "table_name": "ezfb_abcd1234_items"},
         ]
@@ -70,6 +72,19 @@ class _FakeTenantDb:
                 {"column_name": "InstanceId", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "RequestNo", "data_type": "character varying", "udt_name": "varchar"},
             ],
+            ("workflow", "process_addon_aabbccdd"): [
+                {"column_name": "id", "data_type": "integer", "udt_name": "int4"},
+                {"column_name": "process_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "repository_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "item_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
+            ],
+            ("workflow", "workflow_instances_aabbccdd"): [
+                {"column_name": "id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "workflow_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "workflow_name", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "reference_number", "data_type": "character varying", "udt_name": "varchar"},
+            ],
             ("dbo", "items_a6169a5c"): [
                 {"column_name": "ItemId", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "IFileName", "data_type": "character varying", "udt_name": "varchar"},
@@ -93,6 +108,15 @@ class _FakeTenantDb:
         self.sqls.append(sql)
         if "from information_schema.tables" in compact:
             names = set()
+            if "starts_with(lower(table_name), 'process_addon_')" in compact or (
+                "process_addon_" in compact and "starts_with" in compact
+            ):
+                return [
+                    t
+                    for t in self.tables
+                    if t["table_name"].lower().startswith("process_addon_")
+                    or t["table_name"].lower().startswith("processaddon_")
+                ]
             if "starts_with(lower(table_name), 'ezfb_')" in compact or "ezfb_" in compact and "like" in compact:
                 return [
                     t
@@ -110,6 +134,21 @@ class _FakeTenantDb:
             return [t for t in self.tables if t["table_name"].lower() in names]
         if "from information_schema.columns" in compact:
             return list(self.columns.get((args[0], args[1]), []))
+        if "process_addon_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
+            return [
+                {
+                    "process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                }
+            ]
+        if "workflow_instances_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
+            return [
+                {
+                    "instance_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                    "workflow_id": "aabbccdd-1111-2222-3333-444444444444",
+                    "workflow_name": "AP Invoice Approval",
+                    "request_no": "REQ-9001",
+                }
+            ]
         if "items_a6169a5c" in compact and "select" in compact and "information_schema" not in compact:
             return [
                 {
@@ -125,14 +164,8 @@ class _FakeTenantDb:
                 }
             ]
         if "repositoryitem" in compact and "select" in compact and "information_schema" not in compact:
-            return [
-                {
-                    "item_id": "11111111-1111-1111-1111-111111111111",
-                    "workflow_id": "12",
-                    "instance_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-                    "request_no": "REQ-9001",
-                }
-            ]
+            # Prefer process_addon path in tests — return empty so addon wins.
+            return []
         if "ezfb_abcd1234_items" in compact and "select" in compact and "information_schema" not in compact:
             return [
                 {
@@ -194,9 +227,9 @@ def test_search_finds_po_number_with_repo_workflow_identity():
     assert docs[0].id["itemId"] == "11111111-1111-1111-1111-111111111111"
     assert docs[0].id["repositoryId"] == repo_id
     assert docs[0].id["repositoryName"] == "Invoices"
-    assert docs[0].id["workflowId"] == "12" or docs[0].id["workflowId"] == 12
-    assert docs[0].id["workflowName"] == "PO Approval"
-    assert docs[0].id["instanceId"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    assert docs[0].id["workflowId"] == "aabbccdd-1111-2222-3333-444444444444"
+    assert docs[0].id["workflowName"] == "AP Invoice Approval"
+    assert docs[0].id["instanceId"] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
     assert docs[0].id["requestNo"] == "REQ-9001"
     assert "workspaceId" not in docs[0].id
     assert "processId" not in docs[0].id

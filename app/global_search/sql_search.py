@@ -48,6 +48,7 @@ WORKFLOW_INSTANCE_TABLES = (
 FORM_DEF_TABLES = ("wform", "wforms", "forms", "form")
 REPO_ITEM_TABLES = ("repositoryitem", "repositoryitems", "repository_item")
 DEFAULT_LIMIT = 20
+_PROCESS_ADDON_PREFIXES = ("process_addon_", "processaddon_")
 
 
 def normalize_query(raw: str) -> str:
@@ -151,6 +152,228 @@ async def _lookup_form_meta(
     return meta
 
 
+async def _find_process_addon_tables(db: Any, *, limit: int = 24) -> list[tuple[str, str]]:
+    try:
+        rows = await db.fetch(
+            """
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE (
+                    starts_with(lower(table_name), 'process_addon_')
+                 OR starts_with(lower(table_name), 'processaddon_')
+                  )
+              AND table_type IN ('BASE TABLE', 'TABLE')
+              AND table_schema NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY CASE
+                WHEN lower(table_schema) = 'workflow' THEN 0
+                WHEN table_schema = 'dbo' THEN 1
+                ELSE 2
+            END, table_name
+            LIMIT $1
+            """,
+            limit,
+        )
+    except Exception:
+        return []
+    out: list[tuple[str, str]] = []
+    for row in rows or []:
+        schema = _str(row_get(row, "table_schema"))
+        name = _str(row_get(row, "table_name"))
+        if schema and name:
+            out.append((schema, name))
+    return out
+
+
+def _process_addon_suffix(table_name: str) -> str:
+    lower = (table_name or "").lower()
+    for prefix in _PROCESS_ADDON_PREFIXES:
+        if lower.startswith(prefix):
+            return table_name[len(prefix) :]
+    return ""
+
+
+async def _lookup_instance_meta(
+    db: Any,
+    *,
+    suffix: str,
+    process_id: str,
+    cache: dict[str, dict[str, str]],
+) -> dict[str, str]:
+    """Read workflow_id / workflow_name / reference_number from workflow_instances_{suffix}."""
+    empty = {"workflowId": "", "workflowName": "", "requestNo": ""}
+    compact = process_id.replace("-", "").lower()
+    if not suffix or not compact:
+        return empty
+    cache_key = f"{suffix}:{compact}"
+    if cache_key in cache:
+        return cache[cache_key]
+    candidates = (f"workflow_instances_{suffix}", f"workflowinstances_{suffix}")
+    located = await find_table(
+        db, candidates, prefer_schemas=("workflow", "dbo", "public")
+    )
+    if located is None:
+        cache[cache_key] = empty
+        return empty
+    schema, table = located
+    try:
+        by_lower, _ = await fetch_columns(db, schema, table)
+    except Exception:
+        cache[cache_key] = empty
+        return empty
+    id_col = pick_id_column(by_lower) or by_lower.get("id")
+    if not id_col:
+        cache[cache_key] = empty
+        return empty
+    wf_col = _pick_col(by_lower, "workflowid", "workflow_id", "wworkflowid")
+    name_col = _pick_col(by_lower, "workflowname", "workflow_name", "name")
+    req_col = _pick_col(
+        by_lower,
+        "referencenumber",
+        "reference_number",
+        "requestno",
+        "request_no",
+        "requestnumber",
+    )
+    parts = [f"CAST({quote_ident(id_col)} AS text) AS instance_id"]
+    if wf_col:
+        parts.append(f"CAST({quote_ident(wf_col)} AS text) AS workflow_id")
+    if name_col:
+        parts.append(f"CAST({quote_ident(name_col)} AS text) AS workflow_name")
+    if req_col:
+        parts.append(f"CAST({quote_ident(req_col)} AS text) AS request_no")
+    sql = (
+        f"SELECT {', '.join(parts)} FROM {qualified(schema, table)} "
+        f"WHERE lower(replace(CAST({quote_ident(id_col)} AS text), '-', '')) = $1 "
+        f"LIMIT 1"
+    )
+    try:
+        row = await db.fetchrow(sql, compact)
+    except Exception:
+        try:
+            rows = await db.fetch(sql, compact)
+            row = rows[0] if rows else None
+        except Exception:
+            row = None
+    meta = {
+        "workflowId": _str(row_get(row, "workflow_id")) if row is not None else "",
+        "workflowName": _str(row_get(row, "workflow_name")) if row is not None else "",
+        "requestNo": _str(row_get(row, "request_no")) if row is not None else "",
+    }
+    cache[cache_key] = meta
+    return meta
+
+
+async def _hydrate_from_process_addon(
+    db: Any,
+    *,
+    item_id: str,
+    workflow_name_cache: dict[str, str],
+    instance_meta_cache: Optional[dict[str, dict[str, str]]] = None,
+) -> dict[str, str]:
+    """Resolve ticket via workflow.process_addon_{suffix} (item_id → process_id)."""
+    out = {"workflowId": "", "workflowName": "", "instanceId": "", "requestNo": ""}
+    compact = item_id.replace("-", "").lower()
+    if not compact:
+        return out
+    tables = await _find_process_addon_tables(db, limit=24)
+    inst_cache = instance_meta_cache if instance_meta_cache is not None else {}
+    for schema, table in tables:
+        try:
+            by_lower, _ = await fetch_columns(db, schema, table)
+        except Exception:
+            continue
+        item_col = _pick_col(by_lower, "itemid", "item_id", "repositoryitemid")
+        process_col = _pick_col(
+            by_lower, "processid", "process_id", "instanceid", "instance_id", "winstanceid"
+        )
+        if not item_col or not process_col:
+            continue
+        deleted = pick_deleted_column(by_lower)
+        where = (
+            f"lower(replace(CAST({quote_ident(item_col)} AS text), '-', '')) = $1"
+        )
+        if deleted:
+            qdel = quote_ident(deleted)
+            where += (
+                f" AND lower(COALESCE(CAST({qdel} AS text), '0'))"
+                f" NOT IN ('1', 'true', 't', 'yes', 'y')"
+            )
+        parts = [f"CAST({quote_ident(process_col)} AS text) AS process_id"]
+        order_col = _pick_col(by_lower, "id", "createdat", "created_at", "created_at_utc")
+        select_sql = ", ".join(parts)
+        order_sql = f"ORDER BY {quote_ident(order_col)} DESC" if order_col else ""
+        sql = (
+            f"SELECT {select_sql} FROM {qualified(schema, table)} WHERE {where} "
+            f"{order_sql} LIMIT 1"
+        )
+        try:
+            row = await db.fetchrow(sql, compact)
+        except Exception:
+            try:
+                rows = await db.fetch(sql, compact)
+                row = rows[0] if rows else None
+            except Exception:
+                row = None
+        process_id = _str(row_get(row, "process_id")) if row is not None else ""
+        if not process_id:
+            continue
+        out["instanceId"] = process_id
+        suffix = _process_addon_suffix(table)
+        meta = await _lookup_instance_meta(
+            db, suffix=suffix, process_id=process_id, cache=inst_cache
+        )
+        out["workflowId"] = meta.get("workflowId") or ""
+        out["workflowName"] = meta.get("workflowName") or ""
+        out["requestNo"] = meta.get("requestNo") or ""
+        if not out["workflowId"] and suffix:
+            # Fallback: resolve workflow definition whose GUID starts with table suffix.
+            out["workflowId"] = await _lookup_workflow_id_by_suffix(db, suffix)
+        if out["workflowId"] and not out["workflowName"]:
+            out["workflowName"] = await _lookup_name(
+                db,
+                table_candidates=WORKFLOW_TABLES,
+                entity_id=out["workflowId"],
+                prefer_schemas=("workflow", "dbo", "public"),
+                cache=workflow_name_cache,
+            )
+        return out
+    return out
+
+
+async def _lookup_workflow_id_by_suffix(db: Any, suffix: str) -> str:
+    token = (suffix or "").replace("-", "").lower()
+    if len(token) < 8:
+        return ""
+    located = await find_table(
+        db, WORKFLOW_TABLES, prefer_schemas=("workflow", "dbo", "public")
+    )
+    if located is None:
+        return ""
+    schema, table = located
+    try:
+        by_lower, _ = await fetch_columns(db, schema, table)
+    except Exception:
+        return ""
+    id_col = pick_id_column(by_lower)
+    if not id_col:
+        return ""
+    sql = (
+        f"SELECT CAST({quote_ident(id_col)} AS text) AS workflow_id "
+        f"FROM {qualified(schema, table)} "
+        f"WHERE lower(replace(CAST({quote_ident(id_col)} AS text), '-', '')) "
+        f"LIKE $1 || '%' LIMIT 1"
+    )
+    try:
+        row = await db.fetchrow(sql, token[:8])
+    except Exception:
+        try:
+            rows = await db.fetch(sql, token[:8])
+            row = rows[0] if rows else None
+        except Exception:
+            row = None
+    return _str(row_get(row, "workflow_id")) if row is not None else ""
+
+
 async def _hydrate_ticket_for_item(
     db: Any,
     *,
@@ -162,6 +385,13 @@ async def _hydrate_ticket_for_item(
     compact = item_id.replace("-", "").lower()
     if not compact:
         return out
+
+    # Preferred: process_addon_{workflowSuffix} links item_id → process_id (instance).
+    addon = await _hydrate_from_process_addon(
+        db, item_id=item_id, workflow_name_cache=workflow_name_cache
+    )
+    if addon.get("instanceId") or addon.get("workflowId"):
+        return addon
 
     async def _scan(table_names: tuple[str, ...], prefer: tuple[str, ...]) -> Optional[Any]:
         located = await find_table(db, table_names, prefer_schemas=prefer)
@@ -446,6 +676,7 @@ async def _search_table(
             wf_id = _str(row_get(row, "workflow_id"))
             inst = _str(row_get(row, "instance_id"))
             req = _str(row_get(row, "request_no"))
+            wf_name = ""
             if not (wf_id and inst and req):
                 ticket = await _hydrate_ticket_for_item(
                     db, item_id=entity_id, workflow_name_cache=wf_cache
@@ -453,8 +684,8 @@ async def _search_table(
                 wf_id = wf_id or ticket["workflowId"]
                 inst = inst or ticket["instanceId"]
                 req = req or ticket["requestNo"]
+                wf_name = ticket.get("workflowName") or ""
             repo_name = ""
-            wf_name = ""
             if repo_id:
                 repo_name = await _lookup_name(
                     db,
@@ -463,7 +694,7 @@ async def _search_table(
                     prefer_schemas=("dbo", "repository", "public"),
                     cache=repo_cache,
                 )
-            if wf_id:
+            if wf_id and not wf_name:
                 wf_name = await _lookup_name(
                     db,
                     table_candidates=WORKFLOW_TABLES,
