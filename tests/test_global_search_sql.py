@@ -1,8 +1,13 @@
-"""Global Search SQL: all text columns, items_* with specificId, PO-style fields."""
+"""Global Search SQL: flat hits, PO fields, forms, identity enrichment."""
 import asyncio
 
 from app.global_search.schema import pick_id_column, pick_text_columns
-from app.global_search.sql_search import search_document_metadata, search_repositories, search_workflows
+from app.global_search.sql_search import (
+    search_document_metadata,
+    search_forms,
+    search_repositories,
+    search_workflows,
+)
 
 
 def test_pick_text_columns_includes_custom_varchar_fields():
@@ -39,6 +44,7 @@ class _FakeTenantDb:
             {"table_schema": "dbo", "table_name": "wrepository"},
             {"table_schema": "dbo", "table_name": "wworkflow"},
             {"table_schema": "dbo", "table_name": "items_a6169a5c"},
+            {"table_schema": "dbo", "table_name": "ezfb_abcd1234_items"},
         ]
         self.columns = {
             ("dbo", "wrepository"): [
@@ -55,7 +61,22 @@ class _FakeTenantDb:
                 {"column_name": "ItemId", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "IFileName", "data_type": "character varying", "udt_name": "varchar"},
                 {"column_name": "PONumber", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "Description", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "ModifiedAt", "data_type": "timestamp without time zone", "udt_name": "timestamp"},
                 {"column_name": "IsDeleted", "data_type": "boolean", "udt_name": "bool"},
+                {"column_name": "RepositoryId", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "WorkflowId", "data_type": "integer", "udt_name": "int4"},
+                {"column_name": "InstanceId", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "RequestNo", "data_type": "character varying", "udt_name": "varchar"},
+            ],
+            ("dbo", "ezfb_abcd1234_items"): [
+                {"column_name": "Id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "Name", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "VendorName", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "FormId", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "WorkflowId", "data_type": "integer", "udt_name": "int4"},
+                {"column_name": "InstanceId", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "RequestNo", "data_type": "character varying", "udt_name": "varchar"},
             ],
         }
 
@@ -65,6 +86,13 @@ class _FakeTenantDb:
         self.sqls.append(sql)
         if "from information_schema.tables" in compact:
             names = set()
+            if "starts_with(lower(table_name), 'ezfb_')" in compact or "ezfb_" in compact and "like" in compact:
+                return [
+                    t
+                    for t in self.tables
+                    if t["table_name"].lower().startswith("ezfb_")
+                    and t["table_name"].lower().endswith("_items")
+                ]
             if args and isinstance(args[0], (list, tuple)):
                 names = {str(n).lower() for n in args[0]}
             elif args and isinstance(args[0], str) and (
@@ -75,15 +103,41 @@ class _FakeTenantDb:
             return [t for t in self.tables if t["table_name"].lower() in names]
         if "from information_schema.columns" in compact:
             return list(self.columns.get((args[0], args[1]), []))
-        if "items_a6169a5c" in compact:
+        if "items_a6169a5c" in compact and "select" in compact and "information_schema" not in compact:
             return [
                 {
                     "entity_id": "11111111-1111-1111-1111-111111111111",
                     "entity_name": "po.pdf",
+                    "description": "INVOICE",
+                    "modified_dt": "2026-08-05 12:00:00",
+                    "created_dt": None,
+                    "repository_id": "a6169a5c-1468-4fb5-90a9-220082a89f2a",
+                    "workflow_id": 12,
+                    "instance_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                    "request_no": "REQ-9001",
                     "m0": "po.pdf",
                     "m1": "PO-60001",
+                    "m2": "INVOICE",
                 }
             ]
+        if "ezfb_abcd1234_items" in compact and "select" in compact and "information_schema" not in compact:
+            return [
+                {
+                    "entity_id": "33333333-3333-3333-3333-333333333333",
+                    "entity_name": "Invoice Header",
+                    "description": "",
+                    "workflow_id": 12,
+                    "instance_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                    "request_no": "REQ-7788",
+                    "form_id": "abcd1234-0000-0000-0000-000000000001",
+                    "m0": "Invoice Header",
+                    "m1": "circuit breaker",
+                }
+            ]
+        if "wrepository" in compact and " as n " in compact:
+            return [{"n": "Invoices"}]
+        if "wworkflow" in compact and " as n " in compact:
+            return [{"n": "PO Approval"}]
         if "wrepository" in compact:
             return [
                 {
@@ -104,24 +158,50 @@ class _FakeTenantDb:
             ]
         return []
 
+    async def fetchrow(self, sql: str, *args):
+        rows = await self.fetch(sql, *args)
+        return rows[0] if rows else None
 
-def test_search_finds_po_number_in_items_and_repo_workflow():
+
+def test_search_finds_po_number_with_repo_workflow_identity():
     db = _FakeTenantDb()
     repo_id = "a6169a5c-1468-4fb5-90a9-220082a89f2a"
 
     docs = asyncio.run(search_document_metadata(db, "PO-60001", specific_id=repo_id))
     assert len(docs) == 1
+    assert docs[0].type == "document"
     assert docs[0].matched_value == "PO-60001"
-    assert docs[0].matched_field == "PONumber"
+    assert docs[0].description == "INVOICE"
+    assert docs[0].modifiedDateandtime == "2026-08-05"
+    assert docs[0].dateandtime == ""
     assert docs[0].id["itemId"] == "11111111-1111-1111-1111-111111111111"
     assert docs[0].id["repositoryId"] == repo_id
-    items_sql = next(s for s in db.sqls if "items_a6169a5c" in s.lower() and "select" in s.lower() and "information_schema" not in s.lower())
-    assert "repositoryid" not in items_sql.lower().replace("wrepositoryid", "")
+    assert docs[0].id["repositoryName"] == "Invoices"
+    assert docs[0].id["workflowId"] == "12" or docs[0].id["workflowId"] == 12
+    assert docs[0].id["workflowName"] == "PO Approval"
+    assert docs[0].id["instanceId"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    assert docs[0].id["requestNo"] == "REQ-9001"
+    assert "workspaceId" not in docs[0].id
+    assert "processId" not in docs[0].id
+    assert docs[0].name == "Invoices"
 
     repos = asyncio.run(search_repositories(db, "PO-60001", specific_id=repo_id))
     assert len(repos) == 1
-    assert "PO-60001" in repos[0].entity_name
+    assert repos[0].type == "repository"
+    assert repos[0].id["repositoryName"] == "PO-60001 Library"
 
     workflows = asyncio.run(search_workflows(db, "PO-60001"))
     assert len(workflows) == 1
-    assert "PO-60001" in workflows[0].entity_name
+    assert workflows[0].type == "workflow"
+    assert workflows[0].id["workflowName"] == "PO-60001 Approval"
+
+
+def test_search_forms_workflow_kind():
+    db = _FakeTenantDb()
+    forms = asyncio.run(search_forms(db, "circuit"))
+    assert len(forms) == 1
+    assert forms[0].type == "form"
+    assert forms[0].formKind == "workflow"
+    assert forms[0].id["requestNo"] == "REQ-7788"
+    assert forms[0].id["workflowName"] == "PO Approval"
+    assert forms[0].id["instanceId"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"

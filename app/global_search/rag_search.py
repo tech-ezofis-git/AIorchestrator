@@ -1,7 +1,6 @@
-"""Map HybridSearch chunks onto SEARCH_API.md document cards."""
+"""Map HybridSearch chunks onto flat Global Search document hits."""
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Optional
 
@@ -12,26 +11,19 @@ from app.knowledge.vector_store import VectorStore
 logger = logging.getLogger("orchestrator.global_search")
 
 
-def _meta_dict(raw: Any) -> dict[str, Any]:
-    if raw is None:
-        return {}
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
-
-
 def _pick(meta: dict[str, Any], *keys: str) -> str:
     for key in keys:
         value = meta.get(key)
         if value not in (None, ""):
             return str(value).strip()
     return ""
+
+
+def _snippet(text: str, limit: int = 180) -> str:
+    raw = (text or "").strip()
+    if len(raw) <= limit:
+        return raw
+    return raw[: limit - 3] + "..."
 
 
 async def search_documents_rag(
@@ -44,6 +36,7 @@ async def search_documents_rag(
     workspace_id: str = "",
     query_embedding: Optional[list[float]] = None,
 ) -> list[SearchHit]:
+    _ = workspace_id
     results = await hybrid_search.search(query, top_n=top_n, query_embedding=query_embedding)
     doc_ids = list({str(r.chunk.document_id) for r in results})
     docs = await vector_store.get_documents(doc_ids)
@@ -51,7 +44,7 @@ async def search_documents_rag(
     seen: set[str] = set()
     for scored in results:
         doc = docs.get(str(scored.chunk.document_id))
-        extra = {}
+        extra: dict[str, Any] = {}
         title = None
         if doc is not None:
             extra = dict(doc.metadata.extra or {})
@@ -70,29 +63,38 @@ async def search_documents_rag(
         seen.add(key)
         ifile = _pick(extra, "ifileName", "fileName", "filename") or (title or "") or entity_id
         repo_name = _pick(extra, "repositoryName", "repository_name")
-        ws = workspace_id or _pick(extra, "workspaceId", "workspace_id")
-        snippet = (scored.chunk.text or "").strip()
-        if len(snippet) > 180:
-            snippet = snippet[:177] + "..."
+        wf_id = _pick(extra, "workflowId", "workflow_id")
+        wf_name = _pick(extra, "workflowName", "workflow_name")
+        inst = _pick(extra, "instanceId", "instance_id")
+        req = _pick(extra, "requestNo", "request_no")
+        description = _pick(extra, "description") or ""
+        modified = _pick(extra, "modifiedDateandtime", "modifiedAt", "modified_at")
+        created = _pick(extra, "dateandtime", "createdAt", "created_at")
+        snippet = _snippet(scored.chunk.text or "")
         hits.append(
             SearchHit(
+                type="document",
                 entity_type="document",
                 entity_id=entity_id,
                 entity_name=ifile,
                 matched_field="content",
                 matched_value=snippet,
-                description=snippet or None,
+                description=description,
+                modifiedDateandtime=modified,
+                dateandtime=created,
                 matchSource="content",
                 ifileName=ifile,
                 name=repo_name or ifile,
+                requestNo=req or None,
                 metadata={"chunk_id": scored.chunk.id},
                 id={
-                    "workspaceId": ws or "",
+                    "itemId": item_id or entity_id,
                     "repositoryId": repo_id or specific_id or "",
                     "repositoryName": repo_name,
-                    "itemId": item_id or entity_id,
-                    "workflowId": 0,
-                    "processId": 0,
+                    "workflowId": wf_id or 0,
+                    "workflowName": wf_name,
+                    "instanceId": inst,
+                    "requestNo": req,
                 },
             )
         )

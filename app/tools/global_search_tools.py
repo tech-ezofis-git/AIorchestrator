@@ -4,6 +4,7 @@ from typing import Any, Optional
 from app.global_search.rag_search import search_documents_rag
 from app.global_search.sql_search import (
     search_document_metadata,
+    search_forms,
     search_repositories,
     search_workflows,
 )
@@ -42,7 +43,7 @@ SEARCH_WORKFLOWS_SCHEMA = ToolSchema(
 
 SEARCH_REPO_METADATA_SCHEMA = ToolSchema(
     name="search_repo_metadata",
-    description="Quick document metadata search (Items_* / RepositoryItem). matchSource=field.",
+    description="Quick document metadata search (Items_* / RepositoryItem). matchSource=field|content.",
     parameters={
         "type": "object",
         "properties": {
@@ -69,6 +70,20 @@ SEARCH_REPO_RAG_SCHEMA = ToolSchema(
             "limit": {"type": "integer"},
         },
         "required": ["query"],
+    },
+)
+
+SEARCH_FORMS_SCHEMA = ToolSchema(
+    name="search_forms",
+    description="Search ezfb_*_items form tables; formKind workflow vs master.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "tenant_id": {"type": "string"},
+            "limit": {"type": "integer"},
+        },
+        "required": ["query", "tenant_id"],
     },
 )
 
@@ -120,6 +135,17 @@ def make_search_repo_metadata_handler(tenant_pools: Any, catalog_store: Any = No
         hits = await search_document_metadata(
             db, query, specific_id=specific_id, workspace_id=workspace_id, limit=limit
         )
+        return [h.model_dump() for h in hits]
+
+    return handler
+
+
+def make_search_forms_handler(tenant_pools: Any, catalog_store: Any = None):
+    acquire = _search_db(tenant_pools, catalog_store)
+
+    async def handler(*, query: str, tenant_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        db = await acquire(tenant_id)
+        hits = await search_forms(db, query, limit=limit)
         return [h.model_dump() for h in hits]
 
     return handler

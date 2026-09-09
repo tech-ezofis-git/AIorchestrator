@@ -3523,35 +3523,43 @@ function renderPdfResult(pdf, request) {
 }
 
 function renderGlobalSearchResult(result, request) {
-  const groups = (result && result.groups) || [];
+  const hits = (result && result.hits) || [];
   const query = (result && result.query) || '';
-  let cards = '';
-  groups.forEach((group) => {
-    const hits = group.hits || [];
-    cards += `<div class="summary-card" style="margin-bottom:12px">
-      <div class="summary-card-header">
-        <div class="summary-card-kicker">${escapeHtml(group.label || group.entity_type || '')}</div>
-        <div class="summary-card-title">${escapeHtml(String(group.count ?? hits.length))} hit${(group.count ?? hits.length) === 1 ? '' : 's'}</div>
-      </div>
-      <div class="summary-card-body">`;
-    if (!hits.length) {
-      cards += '<p class="summary-prose">No matches.</p>';
-    } else {
-      cards += '<ul class="summary-facts">';
-      hits.forEach((hit) => {
-        const name = hit.entity_name || hit.ifileName || hit.name || hit.entity_id || '';
-        const field = hit.matched_field ? ` · ${hit.matched_field}` : '';
-        const src = hit.matchSource ? ` <span class="summary-chip">${escapeHtml(hit.matchSource)}</span>` : '';
-        const idLine = hit.entity_id ? `<div class="summary-prose">ID: ${escapeHtml(String(hit.entity_id))}</div>` : '';
-        const extra = hit.matched_value && hit.matched_value !== name
-          ? `<div class="summary-prose">${escapeHtml(String(hit.matched_value))}</div>`
-          : '';
-        cards += `<li><strong>${escapeHtml(String(name))}</strong>${src}<div class="summary-prose">${escapeHtml(String(hit.entity_type || ''))}${escapeHtml(field)}</div>${idLine}${extra}</li>`;
-      });
-      cards += '</ul>';
-    }
-    cards += '</div></div>';
-  });
+  let cards = `<div class="summary-card" style="margin-bottom:12px">
+    <div class="summary-card-header">
+      <div class="summary-card-kicker">Global Search</div>
+      <div class="summary-card-title">${escapeHtml(String(hits.length))} hit${hits.length === 1 ? '' : 's'}</div>
+    </div>
+    <div class="summary-card-body">`;
+  if (!hits.length) {
+    cards += '<p class="summary-prose">No matches.</p>';
+  } else {
+    cards += '<ul class="summary-facts">';
+    hits.forEach((hit) => {
+      const typ = hit.type || hit.entity_type || '';
+      const name = hit.ifileName || hit.name || hit.entity_name || hit.entity_id || '';
+      const field = hit.matched_field ? ` · ${hit.matched_field}` : '';
+      const src = hit.matchSource ? ` <span class="summary-chip">${escapeHtml(hit.matchSource)}</span>` : '';
+      const kind = hit.formKind ? ` <span class="summary-chip">${escapeHtml(hit.formKind)}</span>` : '';
+      const desc = hit.description ? `<div class="summary-prose">${escapeHtml(String(hit.description))}</div>` : '';
+      const dates = [hit.modifiedDateandtime, hit.dateandtime].filter(Boolean).join(' · ');
+      const dateLine = dates ? `<div class="summary-prose">${escapeHtml(dates)}</div>` : '';
+      const idObj = hit.id || {};
+      const idBits = [];
+      if (idObj.repositoryName || idObj.repositoryId) idBits.push(`repo: ${idObj.repositoryName || idObj.repositoryId}`);
+      if (idObj.workflowName || idObj.workflowId) idBits.push(`wf: ${idObj.workflowName || idObj.workflowId}`);
+      if (idObj.requestNo) idBits.push(`req: ${idObj.requestNo}`);
+      if (idObj.instanceId) idBits.push(`instance: ${idObj.instanceId}`);
+      if (idObj.masterFormName) idBits.push(`master: ${idObj.masterFormName}`);
+      const idLine = idBits.length ? `<div class="summary-prose">${escapeHtml(idBits.join(' · '))}</div>` : '';
+      const extra = hit.matched_value && hit.matched_value !== name
+        ? `<div class="summary-prose">${escapeHtml(String(hit.matched_value))}</div>`
+        : '';
+      cards += `<li><strong>${escapeHtml(String(name))}</strong>${src}${kind}<div class="summary-prose">${escapeHtml(String(typ))}${escapeHtml(field)}</div>${desc}${dateLine}${idLine}${extra}</li>`;
+    });
+    cards += '</ul>';
+  }
+  cards += '</div></div>';
   const html = `<div class="summary-card-wrap">
     <div class="summary-section-label">Query: ${escapeHtml(query)}</div>
     ${cards}

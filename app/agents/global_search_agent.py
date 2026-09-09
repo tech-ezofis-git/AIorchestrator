@@ -1,8 +1,4 @@
-"""Global Search agent — four Dispatcher tools in parallel, grouped cards.
-
-Does not replace the RAG Search agent (intent=search cited answers).
-This agent returns grouped repository / workflow / document cards.
-"""
+"""Global Search agent — parallel Dispatcher tools, flat hits[]."""
 from __future__ import annotations
 
 import asyncio
@@ -56,19 +52,16 @@ class GlobalSearchAgent:
         if not query:
             raise ValueError("query is required for intent=global_search.")
         specific_id = str(job.get("specific_id") or job.get("repository_id") or "").strip()
-        workspace_id = str(job.get("workspace_id") or "").strip()
 
-        repo_args = {
+        base_args = {
             "query": query,
             "tenant_id": tenant_id,
             "specific_id": specific_id,
             "limit": self._limit,
         }
-        doc_args = {
-            **repo_args,
-            "workspace_id": workspace_id,
-        }
+        doc_args = {**base_args}
         rag_args = {**doc_args, "limit": self._rag_limit}
+        form_args = {"query": query, "tenant_id": tenant_id, "limit": self._limit}
 
         async def _call(name: str, payload: dict[str, Any]) -> list[SearchHit]:
             try:
@@ -78,22 +71,17 @@ class GlobalSearchAgent:
                 return []
             return _as_hits(raw)
 
-        meta_docs, rag_docs, repos, workflows = await asyncio.gather(
+        meta_docs, rag_docs, repos, workflows, forms = await asyncio.gather(
             _call("search_repo_metadata", doc_args),
             _call("search_repo_rag", rag_args),
-            _call("search_repositories", repo_args),
+            _call("search_repositories", base_args),
             _call("search_workflows", {"query": query, "tenant_id": tenant_id, "limit": self._limit}),
+            _call("search_forms", form_args),
         )
         documents = merge_document_hits(meta_docs, rag_docs)
-        result = build_result(
-            query,
-            repositories=repos,
-            workflows=workflows,
-            documents=documents,
-        )
-        payload = result.model_dump()
+        result = build_result(query, [*documents, *repos, *workflows, *forms])
         return {
             "reply": status_reply(result) or _SUCCESS_EMPTY,
             "usage": None,
-            "global_search_result": payload,
+            "global_search_result": result.model_dump(),
         }

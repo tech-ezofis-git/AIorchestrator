@@ -1,13 +1,19 @@
-"""Group hits into Repositories / Workflows / Documents cards."""
+"""Merge Global Search tool hits into a flat list."""
 from __future__ import annotations
 
-from app.global_search.types import GlobalSearchResult, SearchGroup, SearchHit
+from app.global_search.types import GlobalSearchResult, SearchHit
 
-_GROUP_ORDER = (
-    ("repository", "Repositories"),
-    ("workflow", "Workflows"),
-    ("document", "Documents"),
-)
+
+def _hit_key(hit: SearchHit) -> str:
+    typ = (hit.type or hit.entity_type or "").lower()
+    eid = (hit.entity_id or "").replace("-", "").lower()
+    if hit.id and isinstance(hit.id, dict):
+        for key in ("itemId", "formEntryId", "repositoryId", "workflowId", "instanceId"):
+            val = hit.id.get(key)
+            if val not in (None, "", 0, "0"):
+                eid = str(val).replace("-", "").lower()
+                break
+    return f"{typ}:{eid}"
 
 
 def merge_document_hits(field_hits: list[SearchHit], rag_hits: list[SearchHit]) -> list[SearchHit]:
@@ -40,35 +46,27 @@ def merge_document_hits(field_hits: list[SearchHit], rag_hits: list[SearchHit]) 
     return ordered
 
 
-def build_result(
-    query: str,
-    *,
-    repositories: list[SearchHit],
-    workflows: list[SearchHit],
-    documents: list[SearchHit],
-) -> GlobalSearchResult:
-    buckets = {
-        "repository": repositories,
-        "workflow": workflows,
-        "document": documents,
-    }
-    groups: list[SearchGroup] = []
-    for entity_type, label in _GROUP_ORDER:
-        hits = buckets.get(entity_type) or []
-        groups.append(
-            SearchGroup(
-                entity_type=entity_type,
-                label=label,
-                count=len(hits),
-                hits=hits,
-            )
-        )
-    return GlobalSearchResult(query=query, groups=groups)
+def build_result(query: str, hits: list[SearchHit]) -> GlobalSearchResult:
+    """Dedupe by type+primary id; preserve order."""
+    out: list[SearchHit] = []
+    seen: set[str] = set()
+    for hit in hits:
+        if not (hit.type or hit.entity_type):
+            continue
+        if not hit.type:
+            hit.type = hit.entity_type
+        if not hit.entity_type:
+            hit.entity_type = hit.type
+        key = _hit_key(hit)
+        if key in seen or key.endswith(":"):
+            continue
+        seen.add(key)
+        out.append(hit)
+    return GlobalSearchResult(query=query, hits=out)
 
 
 def status_reply(result: GlobalSearchResult) -> str:
-    total = sum(g.count for g in result.groups)
+    total = len(result.hits)
     if total == 0:
         return "No matches."
-    parts = [f"{g.count} {g.label}" for g in result.groups if g.count]
-    return f"Found {total} match{'es' if total != 1 else ''} across {', '.join(parts)}."
+    return f"Found {total} match{'es' if total != 1 else ''}."

@@ -547,7 +547,8 @@ class ChatResponse(BaseModel):
     global_search_result: Optional[dict[str, Any]] = Field(
         default=None,
         description=(
-            "Global Search grouped cards (Repositories, Workflows, Documents). "
-            "Document cards use SEARCH_API.md identity fields (itemId, repositoryId, matchSource)."
+            "Global Search flat hits[] (type: document|repository|workflow|form). "
+            "Documents include file + repositoryName/Id + workflowName/Id + instanceId + requestNo; "
+            "forms use formKind workflow|master; description/modifiedDateandtime/dateandtime included."
         ),
     )

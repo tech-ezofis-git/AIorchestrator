@@ -1,4 +1,4 @@
-"""Global Search: SEARCH_API.md payload aliases, grouped cards, tools, RAG vs metadata."""
+"""Global Search: flat hits[], SEARCH_API-style identity, forms, RAG vs metadata."""
 import asyncio
 
 from app.core.intent_router import Intent, IntentRouter
@@ -42,56 +42,78 @@ def test_global_search_search_api_payload_no_matches(client):
     assert body["reply"] == "No matches."
     result = body["global_search_result"]
     assert result["query"] == "EMP10245"
-    labels = [g["label"] for g in result["groups"]]
-    assert labels == ["Repositories", "Workflows", "Documents"]
-    assert all(g["count"] == 0 for g in result["groups"])
+    assert result["hits"] == []
+    assert "groups" not in result
 
 
-def test_global_search_grouped_cards_and_field_wins_over_rag(client):
+def test_global_search_flat_hits_and_field_wins_over_rag(client):
     dispatcher = client.app.state.dispatcher
 
     async def fake_repos(**kwargs):
         return [
             SearchHit(
+                type="repository",
                 entity_type="repository",
                 entity_id="11111111-1111-1111-1111-111111111111",
                 entity_name="ABC Repository",
+                name="ABC Repository",
                 matched_field="Name",
                 matched_value="ABC Repository",
+                description="",
+                modifiedDateandtime="",
+                dateandtime="",
+                id={
+                    "repositoryId": "11111111-1111-1111-1111-111111111111",
+                    "repositoryName": "ABC Repository",
+                },
             ).model_dump()
         ]
 
     async def fake_workflows(**kwargs):
         return [
             SearchHit(
+                type="workflow",
                 entity_type="workflow",
                 entity_id="22222222-2222-2222-2222-222222222222",
                 entity_name="ABC Approval Workflow",
+                name="ABC Approval Workflow",
                 matched_field="Name",
                 matched_value="ABC Approval Workflow",
-                metadata={"status": "Active"},
+                description="",
+                modifiedDateandtime="",
+                dateandtime="",
+                id={
+                    "workflowId": "22222222-2222-2222-2222-222222222222",
+                    "workflowName": "ABC Approval Workflow",
+                    "instanceId": "",
+                    "requestNo": "",
+                },
             ).model_dump()
         ]
 
     async def fake_meta(**kwargs):
         return [
             {
+                "type": "document",
                 "entity_type": "document",
                 "entity_id": "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
                 "entity_name": "HR_01.pdf",
                 "matched_field": "description",
                 "matched_value": "Appointment Letter",
                 "description": "Appointment Letter",
+                "modifiedDateandtime": "2026-08-05",
+                "dateandtime": "",
                 "matchSource": "field",
                 "ifileName": "HR_01.pdf",
                 "name": "Human Resources",
                 "id": {
-                    "workspaceId": "1",
+                    "itemId": "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
                     "repositoryId": "FE663435-B5E1-4EA5-A710-071C9E5DA5F2",
                     "repositoryName": "Human Resources",
-                    "itemId": "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
                     "workflowId": 0,
-                    "processId": 0,
+                    "workflowName": "",
+                    "instanceId": "",
+                    "requestNo": "",
                 },
             }
         ]
@@ -99,28 +121,38 @@ def test_global_search_grouped_cards_and_field_wins_over_rag(client):
     async def fake_rag(**kwargs):
         return [
             {
+                "type": "document",
                 "entity_type": "document",
                 "entity_id": "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
                 "entity_name": "HR_01.pdf",
                 "matched_field": "content",
                 "matched_value": "OCR snippet about ABC",
+                "description": "",
+                "modifiedDateandtime": "",
+                "dateandtime": "",
                 "matchSource": "content",
                 "ifileName": "HR_01.pdf",
+                "name": "Human Resources",
                 "id": {
-                    "workspaceId": "1",
+                    "itemId": "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
                     "repositoryId": "FE663435-B5E1-4EA5-A710-071C9E5DA5F2",
                     "repositoryName": "Human Resources",
-                    "itemId": "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
                     "workflowId": 0,
-                    "processId": 0,
+                    "workflowName": "",
+                    "instanceId": "",
+                    "requestNo": "",
                 },
             }
         ]
+
+    async def fake_forms(**kwargs):
+        return []
 
     dispatcher._implementations["search_repositories"] = fake_repos
     dispatcher._implementations["search_workflows"] = fake_workflows
     dispatcher._implementations["search_repo_metadata"] = fake_meta
     dispatcher._implementations["search_repo_rag"] = fake_rag
+    dispatcher._implementations["search_forms"] = fake_forms
 
     response = client.post(
         "/chat",
@@ -130,24 +162,32 @@ def test_global_search_grouped_cards_and_field_wins_over_rag(client):
             "payload": {
                 "query": "ABC",
                 "tenantId": "3EE0E334-CCB9-4DFF-968A-9BAAE71A5231",
-                "workspaceId": "1",
             },
         },
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert "Repositories" in body["reply"]
-    groups = {g["entity_type"]: g for g in body["global_search_result"]["groups"]}
-    assert groups["repository"]["count"] == 1
-    assert groups["workflow"]["count"] == 1
-    assert groups["document"]["count"] == 1
-    doc = groups["document"]["hits"][0]
+    assert body["reply"] == "Found 3 matches."
+    hits = body["global_search_result"]["hits"]
+    assert "groups" not in body["global_search_result"]
+    by_type = {}
+    for hit in hits:
+        by_type.setdefault(hit["type"], []).append(hit)
+    assert len(by_type["repository"]) == 1
+    assert len(by_type["workflow"]) == 1
+    assert len(by_type["document"]) == 1
+    doc = by_type["document"][0]
     assert doc["matchSource"] == "field"
     assert doc["id"]["itemId"] == "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C"
     assert doc["ifileName"] == "HR_01.pdf"
+    assert doc["description"] == "Appointment Letter"
+    assert doc["modifiedDateandtime"] == "2026-08-05"
+    assert "workspaceId" not in doc["id"]
+    assert "processId" not in doc["id"]
+    assert "instanceId" in doc["id"]
 
 
-def test_global_search_specific_id_still_searches_repo_and_workflow(client):
+def test_global_search_specific_id_still_searches_all_tools(client):
     dispatcher = client.app.state.dispatcher
     called = []
 
@@ -168,10 +208,15 @@ def test_global_search_specific_id_still_searches_repo_and_workflow(client):
         called.append("search_repo_rag")
         return []
 
+    async def forms(**kwargs):
+        called.append("search_forms")
+        return []
+
     dispatcher._implementations["search_repositories"] = repos
     dispatcher._implementations["search_workflows"] = wfs
     dispatcher._implementations["search_repo_metadata"] = meta
     dispatcher._implementations["search_repo_rag"] = rag
+    dispatcher._implementations["search_forms"] = forms
 
     response = client.post(
         "/chat",
@@ -191,6 +236,7 @@ def test_global_search_specific_id_still_searches_repo_and_workflow(client):
         "search_repo_rag",
         "search_repositories",
         "search_workflows",
+        "search_forms",
     }
 
 
@@ -222,6 +268,7 @@ def test_intent_router_global_search_before_rag():
 def test_merge_field_wins_over_content():
     field = [
         SearchHit(
+            type="document",
             entity_type="document",
             entity_id="65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
             entity_name="HR_01.pdf",
@@ -230,12 +277,14 @@ def test_merge_field_wins_over_content():
     ]
     rag = [
         SearchHit(
+            type="document",
             entity_type="document",
             entity_id="65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
             entity_name="HR_01.pdf",
             matchSource="content",
         ),
         SearchHit(
+            type="document",
             entity_type="document",
             entity_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             entity_name="other.pdf",
@@ -246,5 +295,6 @@ def test_merge_field_wins_over_content():
     assert merged[0].matchSource == "field"
     assert len(merged) == 2
     assert merged[1].matchSource == "content"
-    result = build_result("ABC", repositories=[], workflows=[], documents=merged)
-    assert status_reply(result).startswith("Found 2")
+    result = build_result("ABC", merged)
+    assert status_reply(result) == "Found 2 matches."
+    assert len(result.hits) == 2

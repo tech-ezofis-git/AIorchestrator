@@ -179,10 +179,12 @@ from app.tools.fetch_invoice_status import FETCH_INVOICE_STATUS_SCHEMA, make_fet
 from app.tools.fetch_memories import FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler
 from app.tools.fetch_report_data import FETCH_REPORT_DATA_SCHEMA, make_fetch_report_data_handler
 from app.tools.global_search_tools import (
+    SEARCH_FORMS_SCHEMA,
     SEARCH_REPO_METADATA_SCHEMA,
     SEARCH_REPO_RAG_SCHEMA,
     SEARCH_REPOSITORIES_SCHEMA,
     SEARCH_WORKFLOWS_SCHEMA,
+    make_search_forms_handler,
     make_search_repo_metadata_handler,
     make_search_repo_rag_handler,
     make_search_repositories_handler,
@@ -392,6 +394,7 @@ async def lifespan(app: FastAPI):
     dispatcher.register_tool(SEARCH_REPOSITORIES_SCHEMA, make_search_repositories_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_WORKFLOWS_SCHEMA, make_search_workflows_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_REPO_METADATA_SCHEMA, make_search_repo_metadata_handler(tenant_pools, catalog_store))
+    dispatcher.register_tool(SEARCH_FORMS_SCHEMA, make_search_forms_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_REPO_RAG_SCHEMA, make_search_repo_rag_handler(hybrid_search, vector_store))
     summary_agent = SummaryAgent(
         dispatcher,
