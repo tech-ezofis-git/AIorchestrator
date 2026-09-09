@@ -45,7 +45,6 @@ class _FakeTenantDb:
             {"table_schema": "dbo", "table_name": "wworkflow"},
             {"table_schema": "dbo", "table_name": "wform"},
             {"table_schema": "dbo", "table_name": "repositoryitem"},
-            {"table_schema": "workflow", "table_name": "process_addon_aabbccdd"},
             {"table_schema": "workflow", "table_name": "workflow_attachments_aabbccdd"},
             {"table_schema": "workflow", "table_name": "workflow_instances_aabbccdd"},
             {"table_schema": "dbo", "table_name": "items_a6169a5c"},
@@ -73,14 +72,6 @@ class _FakeTenantDb:
                 {"column_name": "InstanceId", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "RequestNo", "data_type": "character varying", "udt_name": "varchar"},
             ],
-            ("workflow", "process_addon_aabbccdd"): [
-                {"column_name": "id", "data_type": "integer", "udt_name": "int4"},
-                {"column_name": "process_id", "data_type": "uuid", "udt_name": "uuid"},
-                {"column_name": "repository_id", "data_type": "uuid", "udt_name": "uuid"},
-                {"column_name": "item_id", "data_type": "uuid", "udt_name": "uuid"},
-                {"column_name": "file_name", "data_type": "character varying", "udt_name": "varchar"},
-                {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
-            ],
             ("workflow", "workflow_attachments_aabbccdd"): [
                 {"column_name": "id", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "workflow_instance_id", "data_type": "uuid", "udt_name": "uuid"},
@@ -88,6 +79,7 @@ class _FakeTenantDb:
                 {"column_name": "item_id", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "file_name", "data_type": "character varying", "udt_name": "varchar"},
                 {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
+                {"column_name": "created_at_utc", "data_type": "timestamp with time zone", "udt_name": "timestamptz"},
             ],
             ("workflow", "workflow_instances_aabbccdd"): [
                 {"column_name": "id", "data_type": "uuid", "udt_name": "uuid"},
@@ -111,21 +103,19 @@ class _FakeTenantDb:
                 {"column_name": "CreatedAt", "data_type": "timestamp without time zone", "udt_name": "timestamp"},
             ],
         }
-        self.addon_item_ids = {"11111111111111111111111111111111"}
-        self.addon_by_file = True
+        self.attachment_item_ids = {"11111111111111111111111111111111"}
+        self.attachment_by_file = True
 
     async def fetch(self, sql: str, *args):
         compact = " ".join(sql.split()).lower()
         self.last_sql = sql
         self.sqls.append(sql)
         if "from information_schema.tables" in compact:
-            if "process_addon_" in compact or "workflow_attachments_" in compact:
+            if "workflow_attachments_" in compact:
                 return [
                     t
                     for t in self.tables
-                    if t["table_name"].lower().startswith("process_addon_")
-                    or t["table_name"].lower().startswith("processaddon_")
-                    or t["table_name"].lower().startswith("workflow_attachments_")
+                    if t["table_name"].lower().startswith("workflow_attachments_")
                     or t["table_name"].lower().startswith("workflowattachments_")
                 ]
             if "starts_with(lower(table_name), 'ezfb_')" in compact or (
@@ -148,23 +138,14 @@ class _FakeTenantDb:
             return [t for t in self.tables if t["table_name"].lower() in names]
         if "from information_schema.columns" in compact:
             return list(self.columns.get((args[0], args[1]), []))
-        if "process_addon_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
-            # item_id path
+        if "workflow_attachments_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
             if "item_id" in compact and args:
                 needle = str(args[0]).replace("-", "").lower()
-                if needle in self.addon_item_ids or (
-                    len(needle) == 36 and needle.replace("-", "") in self.addon_item_ids
-                ):
+                if needle in self.attachment_item_ids:
                     return [{"process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}]
-                # uuid cast arg may be dashed GUID
-                if str(args[0]).replace("-", "").lower() in self.addon_item_ids:
-                    return [{"process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}]
-            # file_name fallback
-            if "file_name" in compact and self.addon_by_file and args:
+            if "file_name" in compact and self.attachment_by_file and args:
                 if "po.pdf" in str(args[0]).lower() or "inv-2026-6001.pdf" in str(args[0]).lower():
                     return [{"process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}]
-            return []
-        if "workflow_attachments_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
             return []
         if "workflow_instances_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
             return [
@@ -190,7 +171,6 @@ class _FakeTenantDb:
                 }
             ]
         if "repositoryitem" in compact and "select" in compact and "information_schema" not in compact:
-            # Prefer process_addon path in tests — return empty so addon wins.
             return []
         if "ezfb_abcd1234_items" in compact and "select" in compact and "information_schema" not in compact:
             return [
@@ -272,10 +252,10 @@ def test_search_finds_po_number_with_repo_workflow_identity():
     assert workflows[0].id["workflowName"] == "PO-60001 Approval"
 
 
-def test_document_hydrate_falls_back_to_file_name_in_process_addon():
-    """items_* hit id may differ from process_addon.item_id; file_name still links the ticket."""
+def test_document_hydrate_falls_back_to_file_name_in_attachments():
+    """items_* hit id may differ from attachment.item_id; file_name still links the ticket."""
     db = _FakeTenantDb()
-    db.addon_item_ids = set()  # force item_id miss
+    db.attachment_item_ids = set()  # force item_id miss
     repo_id = "a6169a5c-1468-4fb5-90a9-220082a89f2a"
 
     docs = asyncio.run(search_document_metadata(db, "PO-60001", specific_id=repo_id))

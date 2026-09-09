@@ -48,8 +48,7 @@ WORKFLOW_INSTANCE_TABLES = (
 FORM_DEF_TABLES = ("wform", "wforms", "forms", "form")
 REPO_ITEM_TABLES = ("repositoryitem", "repositoryitems", "repository_item")
 DEFAULT_LIMIT = 20
-# Per-workflow link tables: item_id → process/instance.
-_PROCESS_ADDON_PREFIXES = ("process_addon_", "processaddon_")
+# Per-workflow V6 link: item_id → workflow_instance_id.
 _ATTACHMENT_PREFIXES = ("workflow_attachments_", "workflowattachments_")
 _LINK_TABLE_LIMIT = 200
 
@@ -209,15 +208,6 @@ def _table_suffix(table_name: str, prefixes: tuple[str, ...]) -> str:
     return ""
 
 
-def _link_kind(table_name: str) -> str:
-    lower = (table_name or "").lower()
-    if any(lower.startswith(p) for p in _PROCESS_ADDON_PREFIXES):
-        return "process_addon"
-    if any(lower.startswith(p) for p in _ATTACHMENT_PREFIXES):
-        return "attachment"
-    return ""
-
-
 async def _lookup_instance_meta(
     db: Any,
     *,
@@ -300,7 +290,7 @@ async def _fetchrow_safe(db: Any, sql: str, *args: Any) -> Any:
             return None
 
 
-async def _query_link_table(
+async def _query_attachment_table(
     db: Any,
     *,
     schema: str,
@@ -309,38 +299,21 @@ async def _query_link_table(
     file_name: str = "",
     repository_id: str = "",
 ) -> tuple[str, str]:
-    """Return (process_id, suffix) from one process_addon / workflow_attachments table."""
-    kind = _link_kind(table)
-    if not kind:
-        return "", ""
+    """Return (workflow_instance_id, suffix) from workflow.workflow_attachments_{suffix}."""
     try:
         by_lower, _ = await fetch_columns(db, schema, table)
     except Exception:
         return "", ""
     item_col = _pick_col(by_lower, "itemid", "item_id", "repositoryitemid")
-    if kind == "process_addon":
-        process_col = _pick_col(
-            by_lower,
-            "processid",
-            "process_id",
-            "instanceid",
-            "instance_id",
-            "winstanceid",
-            "workflow_instance_id",
-            "workflowinstanceid",
-        )
-        prefixes = _PROCESS_ADDON_PREFIXES
-    else:
-        process_col = _pick_col(
-            by_lower,
-            "workflow_instance_id",
-            "workflowinstanceid",
-            "processid",
-            "process_id",
-            "instanceid",
-            "instance_id",
-        )
-        prefixes = _ATTACHMENT_PREFIXES
+    process_col = _pick_col(
+        by_lower,
+        "workflow_instance_id",
+        "workflowinstanceid",
+        "processid",
+        "process_id",
+        "instanceid",
+        "instance_id",
+    )
     file_col = _pick_col(by_lower, "file_name", "filename", "ifilename")
     repo_col = _pick_col(by_lower, "repository_id", "repositoryid", "wrepositoryid")
     if not process_col:
@@ -355,7 +328,7 @@ async def _query_link_table(
             f" NOT IN ('1', 'true', 't', 'yes', 'y')"
         )
     order_col = _pick_col(
-        by_lower, "id", "createdat", "created_at", "created_at_utc", "modified_at_utc"
+        by_lower, "created_at_utc", "modified_at_utc", "createdat", "created_at", "id"
     )
     order_sql = f"ORDER BY {quote_ident(order_col)} DESC" if order_col else ""
     select_sql = f"CAST({quote_ident(process_col)} AS text) AS process_id"
@@ -363,7 +336,6 @@ async def _query_link_table(
     attempts: list[tuple[str, list[Any]]] = []
     compact_item = item_id.replace("-", "").lower() if item_id else ""
     if item_col and compact_item:
-        # Prefer native uuid equality when the value looks like a GUID.
         if _looks_like_guid(item_id):
             attempts.append(
                 (
@@ -381,7 +353,7 @@ async def _query_link_table(
                 [compact_item],
             )
         )
-    # Many items_* rows share a file name; process_addon stores the attached copy.
+    # items_* may return a sibling row; match the attached file on the ticket.
     fname = _str(file_name)
     if file_col and fname:
         args: list[Any] = [fname]
@@ -407,11 +379,11 @@ async def _query_link_table(
         row = await _fetchrow_safe(db, sql, *args)
         process_id = _str(row_get(row, "process_id")) if row is not None else ""
         if process_id:
-            return process_id, _table_suffix(table, prefixes)
+            return process_id, _table_suffix(table, _ATTACHMENT_PREFIXES)
     return "", ""
 
 
-async def _hydrate_from_link_tables(
+async def _hydrate_from_attachments(
     db: Any,
     *,
     item_id: str,
@@ -421,7 +393,7 @@ async def _hydrate_from_link_tables(
     link_tables_cache: Optional[list[tuple[str, str]]] = None,
     instance_meta_cache: Optional[dict[str, dict[str, str]]] = None,
 ) -> dict[str, str]:
-    """Resolve ticket via process_addon_* / workflow_attachments_* (item_id or file_name)."""
+    """Resolve ticket via workflow.workflow_attachments_{suffix} (item_id or file_name)."""
     out = {"workflowId": "", "workflowName": "", "instanceId": "", "requestNo": ""}
     if not item_id and not file_name:
         return out
@@ -430,21 +402,16 @@ async def _hydrate_from_link_tables(
     else:
         tables = await _find_tables_by_prefixes(
             db,
-            _PROCESS_ADDON_PREFIXES + _ATTACHMENT_PREFIXES,
+            _ATTACHMENT_PREFIXES,
             limit=_LINK_TABLE_LIMIT,
         )
     if not tables:
-        logger.info("global_search_no_link_tables")
+        logger.info("global_search_no_attachment_tables")
         return out
     inst_cache = instance_meta_cache if instance_meta_cache is not None else {}
 
-    # Prefer process_addon tables first (explicit item→process link), then attachments.
-    ordered = sorted(
-        tables,
-        key=lambda t: (0 if _link_kind(t[1]) == "process_addon" else 1, t[1].lower()),
-    )
-    for schema, table in ordered:
-        process_id, suffix = await _query_link_table(
+    for schema, table in tables:
+        process_id, suffix = await _query_attachment_table(
             db,
             schema=schema,
             table=table,
@@ -526,8 +493,8 @@ async def _hydrate_ticket_for_item(
     if not compact and not file_name:
         return out
 
-    # Preferred: process_addon / workflow_attachments link item (or file) → process.
-    addon = await _hydrate_from_link_tables(
+    # Preferred: workflow.workflow_attachments_{suffix} links item (or file) → instance.
+    linked = await _hydrate_from_attachments(
         db,
         item_id=item_id,
         workflow_name_cache=workflow_name_cache,
@@ -536,8 +503,8 @@ async def _hydrate_ticket_for_item(
         link_tables_cache=link_tables_cache,
         instance_meta_cache=instance_meta_cache,
     )
-    if addon.get("instanceId") or addon.get("workflowId"):
-        return addon
+    if linked.get("instanceId") or linked.get("workflowId"):
+        return linked
 
     async def _scan(table_names: tuple[str, ...], prefer: tuple[str, ...]) -> Optional[Any]:
         located = await find_table(db, table_names, prefer_schemas=prefer)
@@ -822,7 +789,7 @@ async def _search_table(
                 if link_tables is None:
                     link_tables = await _find_tables_by_prefixes(
                         db,
-                        _PROCESS_ADDON_PREFIXES + _ATTACHMENT_PREFIXES,
+                        _ATTACHMENT_PREFIXES,
                         limit=_LINK_TABLE_LIMIT,
                     )
                 ticket = await _hydrate_ticket_for_item(
