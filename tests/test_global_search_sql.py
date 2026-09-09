@@ -47,6 +47,7 @@ class _FakeTenantDb:
             {"table_schema": "dbo", "table_name": "repositoryitem"},
             {"table_schema": "workflow", "table_name": "workflow_attachments_aabbccdd"},
             {"table_schema": "workflow", "table_name": "workflow_instances_aabbccdd"},
+            {"table_schema": "workflow", "table_name": "inbox_aabbccdd"},
             {"table_schema": "dbo", "table_name": "items_a6169a5c"},
             {"table_schema": "dbo", "table_name": "ezfb_abcd1234_items"},
         ]
@@ -86,6 +87,12 @@ class _FakeTenantDb:
                 {"column_name": "workflow_id", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "workflow_name", "data_type": "character varying", "udt_name": "varchar"},
                 {"column_name": "reference_number", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "request_no", "data_type": "character varying", "udt_name": "varchar"},
+            ],
+            ("workflow", "inbox_aabbccdd"): [
+                {"column_name": "id", "data_type": "integer", "udt_name": "int4"},
+                {"column_name": "workflow_instance_id", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "reference_number", "data_type": "character varying", "udt_name": "varchar"},
             ],
             ("dbo", "items_a6169a5c"): [
                 {"column_name": "ItemId", "data_type": "uuid", "udt_name": "uuid"},
@@ -105,6 +112,9 @@ class _FakeTenantDb:
         }
         self.attachment_item_ids = {"11111111111111111111111111111111"}
         self.attachment_by_file = True
+        self.instance_reference_number = "REQ-9001"
+        self.instance_request_no = ""
+        self.mailbox_reference_number = "MBX-1001"
 
     async def fetch(self, sql: str, *args):
         compact = " ".join(sql.split()).lower()
@@ -153,9 +163,14 @@ class _FakeTenantDb:
                     "instance_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
                     "workflow_id": "aabbccdd-1111-2222-3333-444444444444",
                     "workflow_name": "AP Invoice Approval",
-                    "request_no": "REQ-9001",
+                    "reference_number": self.instance_reference_number,
+                    "request_no": self.instance_request_no,
                 }
             ]
+        if "inbox_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
+            if self.mailbox_reference_number:
+                return [{"request_no": self.mailbox_reference_number}]
+            return []
         if "items_a6169a5c" in compact and "select" in compact and "information_schema" not in compact:
             return [
                 {
@@ -264,6 +279,21 @@ def test_document_hydrate_falls_back_to_file_name_in_attachments():
     assert docs[0].id["workflowName"] == "AP Invoice Approval"
     assert docs[0].id["instanceId"] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
     assert docs[0].id["requestNo"] == "REQ-9001"
+
+
+def test_document_request_no_falls_back_to_mailbox_reference():
+    """When workflow_instances.reference_number is blank, use inbox_{suffix}.reference_number."""
+    db = _FakeTenantDb()
+    db.instance_reference_number = ""
+    db.instance_request_no = ""
+    db.mailbox_reference_number = "AP-7788"
+    repo_id = "a6169a5c-1468-4fb5-90a9-220082a89f2a"
+
+    docs = asyncio.run(search_document_metadata(db, "PO-60001", specific_id=repo_id))
+    assert len(docs) == 1
+    assert docs[0].id["instanceId"] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    assert docs[0].id["requestNo"] == "AP-7788"
+    assert docs[0].requestNo == "AP-7788"
 
 
 def test_search_forms_master_uses_wform_name_not_row_guid():

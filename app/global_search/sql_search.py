@@ -215,7 +215,11 @@ async def _lookup_instance_meta(
     process_id: str,
     cache: dict[str, dict[str, str]],
 ) -> dict[str, str]:
-    """Read workflow_id / workflow_name / reference_number from workflow_instances_{suffix}."""
+    """Read workflow_id / workflow_name / requestNo from workflow_instances_{suffix}.
+
+    requestNo mirrors V6 WorkflowRequestNoResolver: coalesce reference_number /
+    request_no on the instance, then fall back to inbox/sent/completed mailbox rows.
+    """
     empty = {"workflowId": "", "workflowName": "", "requestNo": ""}
     compact = process_id.replace("-", "").lower()
     if not suffix or not compact:
@@ -242,41 +246,91 @@ async def _lookup_instance_meta(
         return empty
     wf_col = _pick_col(by_lower, "workflowid", "workflow_id", "wworkflowid")
     name_col = _pick_col(by_lower, "workflowname", "workflow_name", "name")
-    req_col = _pick_col(
-        by_lower,
-        "referencenumber",
-        "reference_number",
-        "requestno",
-        "request_no",
-        "requestnumber",
-    )
+    ref_col = _pick_col(by_lower, "reference_number", "referencenumber")
+    req_col = _pick_col(by_lower, "request_no", "requestno", "requestnumber", "request_number")
     parts = [f"CAST({quote_ident(id_col)} AS text) AS instance_id"]
     if wf_col:
         parts.append(f"CAST({quote_ident(wf_col)} AS text) AS workflow_id")
     if name_col:
         parts.append(f"CAST({quote_ident(name_col)} AS text) AS workflow_name")
-    if req_col:
+    if ref_col:
+        parts.append(f"CAST({quote_ident(ref_col)} AS text) AS reference_number")
+    if req_col and req_col != ref_col:
         parts.append(f"CAST({quote_ident(req_col)} AS text) AS request_no")
     sql = (
         f"SELECT {', '.join(parts)} FROM {qualified(schema, table)} "
         f"WHERE lower(replace(CAST({quote_ident(id_col)} AS text), '-', '')) = $1 "
         f"LIMIT 1"
     )
-    try:
-        row = await db.fetchrow(sql, compact)
-    except Exception:
-        try:
-            rows = await db.fetch(sql, compact)
-            row = rows[0] if rows else None
-        except Exception:
-            row = None
+    row = await _fetchrow_safe(db, sql, compact)
     meta = {
         "workflowId": _str(row_get(row, "workflow_id")) if row is not None else "",
         "workflowName": _str(row_get(row, "workflow_name")) if row is not None else "",
-        "requestNo": _str(row_get(row, "request_no")) if row is not None else "",
+        "requestNo": "",
     }
+    if row is not None:
+        meta["requestNo"] = _str(row_get(row, "reference_number")) or _str(
+            row_get(row, "request_no")
+        )
+    if not meta["requestNo"] and suffix:
+        meta["requestNo"] = await _lookup_request_no_from_mailbox(
+            db, suffix=suffix, process_id=process_id
+        )
     cache[cache_key] = meta
     return meta
+
+
+async def _lookup_request_no_from_mailbox(
+    db: Any, *, suffix: str, process_id: str
+) -> str:
+    """V6 mailbox fallback: inbox/sent/completed_{suffix}.reference_number."""
+    compact = process_id.replace("-", "").lower()
+    if not suffix or not compact:
+        return ""
+    for prefix in ("inbox", "sent", "completed"):
+        located = await find_table(
+            db,
+            (f"{prefix}_{suffix}",),
+            prefer_schemas=("workflow", "dbo", "public"),
+        )
+        if located is None:
+            continue
+        schema, table = located
+        try:
+            by_lower, _ = await fetch_columns(db, schema, table)
+        except Exception:
+            continue
+        inst_col = _pick_col(
+            by_lower,
+            "workflow_instance_id",
+            "workflowinstanceid",
+            "instanceid",
+            "instance_id",
+            "process_id",
+            "processid",
+        )
+        ref_col = _pick_col(
+            by_lower,
+            "reference_number",
+            "referencenumber",
+            "request_no",
+            "requestno",
+            "requestnumber",
+        )
+        if not inst_col or not ref_col:
+            continue
+        sql = (
+            f"SELECT CAST({quote_ident(ref_col)} AS text) AS request_no "
+            f"FROM {qualified(schema, table)} "
+            f"WHERE lower(replace(CAST({quote_ident(inst_col)} AS text), '-', '')) = $1 "
+            f"AND COALESCE(NULLIF(TRIM(CAST({quote_ident(ref_col)} AS text)), ''), '') <> '' "
+            f"LIMIT 1"
+        )
+        row = await _fetchrow_safe(db, sql, compact)
+        value = _str(row_get(row, "request_no")) if row is not None else ""
+        if value:
+            return value
+    return ""
 
 
 async def _fetchrow_safe(db: Any, sql: str, *args: Any) -> Any:
