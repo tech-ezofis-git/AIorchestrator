@@ -46,6 +46,7 @@ class _FakeTenantDb:
             {"table_schema": "dbo", "table_name": "wform"},
             {"table_schema": "dbo", "table_name": "repositoryitem"},
             {"table_schema": "workflow", "table_name": "process_addon_aabbccdd"},
+            {"table_schema": "workflow", "table_name": "workflow_attachments_aabbccdd"},
             {"table_schema": "workflow", "table_name": "workflow_instances_aabbccdd"},
             {"table_schema": "dbo", "table_name": "items_a6169a5c"},
             {"table_schema": "dbo", "table_name": "ezfb_abcd1234_items"},
@@ -77,6 +78,15 @@ class _FakeTenantDb:
                 {"column_name": "process_id", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "repository_id", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "item_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "file_name", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
+            ],
+            ("workflow", "workflow_attachments_aabbccdd"): [
+                {"column_name": "id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "workflow_instance_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "repository_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "item_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "file_name", "data_type": "character varying", "udt_name": "varchar"},
                 {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
             ],
             ("workflow", "workflow_instances_aabbccdd"): [
@@ -101,29 +111,33 @@ class _FakeTenantDb:
                 {"column_name": "CreatedAt", "data_type": "timestamp without time zone", "udt_name": "timestamp"},
             ],
         }
+        self.addon_item_ids = {"11111111111111111111111111111111"}
+        self.addon_by_file = True
 
     async def fetch(self, sql: str, *args):
         compact = " ".join(sql.split()).lower()
         self.last_sql = sql
         self.sqls.append(sql)
         if "from information_schema.tables" in compact:
-            names = set()
-            if "starts_with(lower(table_name), 'process_addon_')" in compact or (
-                "process_addon_" in compact and "starts_with" in compact
-            ):
+            if "process_addon_" in compact or "workflow_attachments_" in compact:
                 return [
                     t
                     for t in self.tables
                     if t["table_name"].lower().startswith("process_addon_")
                     or t["table_name"].lower().startswith("processaddon_")
+                    or t["table_name"].lower().startswith("workflow_attachments_")
+                    or t["table_name"].lower().startswith("workflowattachments_")
                 ]
-            if "starts_with(lower(table_name), 'ezfb_')" in compact or "ezfb_" in compact and "like" in compact:
+            if "starts_with(lower(table_name), 'ezfb_')" in compact or (
+                "ezfb_" in compact and "like" in compact
+            ):
                 return [
                     t
                     for t in self.tables
                     if t["table_name"].lower().startswith("ezfb_")
                     and t["table_name"].lower().endswith("_items")
                 ]
+            names = set()
             if args and isinstance(args[0], (list, tuple)):
                 names = {str(n).lower() for n in args[0]}
             elif args and isinstance(args[0], str) and (
@@ -135,11 +149,23 @@ class _FakeTenantDb:
         if "from information_schema.columns" in compact:
             return list(self.columns.get((args[0], args[1]), []))
         if "process_addon_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
-            return [
-                {
-                    "process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
-                }
-            ]
+            # item_id path
+            if "item_id" in compact and args:
+                needle = str(args[0]).replace("-", "").lower()
+                if needle in self.addon_item_ids or (
+                    len(needle) == 36 and needle.replace("-", "") in self.addon_item_ids
+                ):
+                    return [{"process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}]
+                # uuid cast arg may be dashed GUID
+                if str(args[0]).replace("-", "").lower() in self.addon_item_ids:
+                    return [{"process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}]
+            # file_name fallback
+            if "file_name" in compact and self.addon_by_file and args:
+                if "po.pdf" in str(args[0]).lower() or "inv-2026-6001.pdf" in str(args[0]).lower():
+                    return [{"process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}]
+            return []
+        if "workflow_attachments_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
+            return []
         if "workflow_instances_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
             return [
                 {
@@ -244,6 +270,20 @@ def test_search_finds_po_number_with_repo_workflow_identity():
     assert len(workflows) == 1
     assert workflows[0].type == "workflow"
     assert workflows[0].id["workflowName"] == "PO-60001 Approval"
+
+
+def test_document_hydrate_falls_back_to_file_name_in_process_addon():
+    """items_* hit id may differ from process_addon.item_id; file_name still links the ticket."""
+    db = _FakeTenantDb()
+    db.addon_item_ids = set()  # force item_id miss
+    repo_id = "a6169a5c-1468-4fb5-90a9-220082a89f2a"
+
+    docs = asyncio.run(search_document_metadata(db, "PO-60001", specific_id=repo_id))
+    assert len(docs) == 1
+    assert docs[0].id["workflowId"] == "aabbccdd-1111-2222-3333-444444444444"
+    assert docs[0].id["workflowName"] == "AP Invoice Approval"
+    assert docs[0].id["instanceId"] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    assert docs[0].id["requestNo"] == "REQ-9001"
 
 
 def test_search_forms_master_uses_wform_name_not_row_guid():
