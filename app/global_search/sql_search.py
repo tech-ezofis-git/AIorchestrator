@@ -24,6 +24,7 @@ from app.global_search.types import SearchHit
 logger = logging.getLogger("orchestrator.global_search")
 
 _WS = re.compile(r"\s+")
+_EZFB_TABLE_RE = re.compile(r"^ezfb_(.+)_items$", re.I)
 _SNIPPET_MAX = 180
 _CONTENT_FIELD_HINTS = frozenset(
     {"ocr_text", "ocrtext", "ocr", "content", "fulltext", "full_text", "searchtext"}
@@ -44,6 +45,8 @@ WORKFLOW_INSTANCE_TABLES = (
     "wprocess",
     "processinstance",
 )
+FORM_DEF_TABLES = ("wform", "wforms", "forms", "form")
+REPO_ITEM_TABLES = ("repositoryitem", "repositoryitems", "repository_item")
 DEFAULT_LIMIT = 20
 
 
@@ -84,6 +87,150 @@ def _pick_col(by_lower: dict[str, str], *keys: str) -> Optional[str]:
 def _is_content_field(name: str) -> bool:
     key = (name or "").lower().replace(" ", "")
     return key in _CONTENT_FIELD_HINTS or "ocr" in key
+
+
+def _looks_like_guid(value: str) -> bool:
+    compact = (value or "").replace("-", "").lower()
+    return len(compact) >= 32 and all(c in "0123456789abcdef" for c in compact[:32])
+
+
+def _form_token_from_table(table: str) -> str:
+    match = _EZFB_TABLE_RE.match((table or "").strip())
+    return match.group(1) if match else ""
+
+
+async def _lookup_form_meta(
+    db: Any, *, table_name: str, cache: dict[str, dict[str, str]]
+) -> dict[str, str]:
+    """Resolve form definition id + display name from ezfb_{token}_items table name."""
+    token = _form_token_from_table(table_name)
+    if not token:
+        return {"formId": "", "formName": ""}
+    key = token.lower()
+    if key in cache:
+        return cache[key]
+    located = await find_table(db, FORM_DEF_TABLES, prefer_schemas=("dbo", "public", "form"))
+    empty = {"formId": "", "formName": ""}
+    if located is None:
+        cache[key] = empty
+        return empty
+    schema, table = located
+    try:
+        by_lower, _ = await fetch_columns(db, schema, table)
+    except Exception:
+        cache[key] = empty
+        return empty
+    id_col = pick_id_column(by_lower) or by_lower.get("id") or by_lower.get("wformid")
+    name_col = pick_name_column(by_lower) or by_lower.get("name") or by_lower.get("title")
+    if not id_col or not name_col:
+        cache[key] = empty
+        return empty
+    compact_token = token.replace("-", "").lower()
+    sql = (
+        f"SELECT CAST({quote_ident(id_col)} AS text) AS form_id, "
+        f"CAST({quote_ident(name_col)} AS text) AS form_name "
+        f"FROM {qualified(schema, table)} "
+        f"WHERE lower(replace(CAST({quote_ident(id_col)} AS text), '-', '')) "
+        f"LIKE $1 || '%' "
+        f"OR lower(CAST({quote_ident(id_col)} AS text)) = lower($2) "
+        f"LIMIT 1"
+    )
+    try:
+        row = await db.fetchrow(sql, compact_token, token)
+    except Exception:
+        try:
+            rows = await db.fetch(sql, compact_token, token)
+            row = rows[0] if rows else None
+        except Exception:
+            row = None
+    meta = {
+        "formId": _str(row_get(row, "form_id")) if row is not None else "",
+        "formName": _str(row_get(row, "form_name")) if row is not None else "",
+    }
+    cache[key] = meta
+    return meta
+
+
+async def _hydrate_ticket_for_item(
+    db: Any,
+    *,
+    item_id: str,
+    workflow_name_cache: dict[str, str],
+) -> dict[str, str]:
+    """Fill workflow/instance/requestNo for a repository item from ticket tables."""
+    out = {"workflowId": "", "workflowName": "", "instanceId": "", "requestNo": ""}
+    compact = item_id.replace("-", "").lower()
+    if not compact:
+        return out
+
+    async def _scan(table_names: tuple[str, ...], prefer: tuple[str, ...]) -> Optional[Any]:
+        located = await find_table(db, table_names, prefer_schemas=prefer)
+        if located is None:
+            return None
+        schema, table = located
+        try:
+            by_lower, _ = await fetch_columns(db, schema, table)
+        except Exception:
+            return None
+        id_keys = (
+            "itemid",
+            "item_id",
+            "repositoryitemid",
+            "ifileid",
+            "id",
+        )
+        item_col = next((by_lower[k] for k in id_keys if k in by_lower), None)
+        if not item_col:
+            return None
+        select_parts = [
+            f"CAST({quote_ident(item_col)} AS text) AS item_id",
+        ]
+        wf_col = _pick_col(by_lower, "wworkflowid", "workflowid", "workflow_id")
+        inst_col = _pick_col(
+            by_lower, "instanceid", "instance_id", "winstanceid", "workflowinstanceid"
+        )
+        req_col = _pick_col(
+            by_lower, "requestno", "request_no", "requestnumber", "request_number"
+        )
+        if wf_col:
+            select_parts.append(f"CAST({quote_ident(wf_col)} AS text) AS workflow_id")
+        if inst_col:
+            select_parts.append(f"CAST({quote_ident(inst_col)} AS text) AS instance_id")
+        if req_col:
+            select_parts.append(f"CAST({quote_ident(req_col)} AS text) AS request_no")
+        if len(select_parts) == 1:
+            return None
+        sql = (
+            f"SELECT {', '.join(select_parts)} FROM {qualified(schema, table)} "
+            f"WHERE lower(replace(CAST({quote_ident(item_col)} AS text), '-', '')) = $1 "
+            f"LIMIT 1"
+        )
+        try:
+            return await db.fetchrow(sql, compact)
+        except Exception:
+            try:
+                rows = await db.fetch(sql, compact)
+                return rows[0] if rows else None
+            except Exception:
+                return None
+
+    row = await _scan(REPO_ITEM_TABLES, ("dbo", "repository", "public"))
+    if row is None:
+        row = await _scan(WORKFLOW_INSTANCE_TABLES, ("workflow", "dbo", "public"))
+    if row is None:
+        return out
+    out["workflowId"] = _str(row_get(row, "workflow_id"))
+    out["instanceId"] = _str(row_get(row, "instance_id"))
+    out["requestNo"] = _str(row_get(row, "request_no"))
+    if out["workflowId"]:
+        out["workflowName"] = await _lookup_name(
+            db,
+            table_candidates=WORKFLOW_TABLES,
+            entity_id=out["workflowId"],
+            prefer_schemas=("workflow", "dbo", "public"),
+            cache=workflow_name_cache,
+        )
+    return out
 
 
 async def _lookup_name(
@@ -146,6 +293,7 @@ async def _search_table(
     specific_id_keys: tuple[str, ...] = (),
     repo_name_cache: Optional[dict[str, str]] = None,
     workflow_name_cache: Optional[dict[str, str]] = None,
+    form_meta_cache: Optional[dict[str, dict[str, str]]] = None,
 ) -> list[SearchHit]:
     try:
         by_lower, types_by_lower = await fetch_columns(db, schema, table)
@@ -168,9 +316,13 @@ async def _search_table(
     )
     date_col = _pick_col(by_lower, "dateandtime", "createdat", "created_at", "createddate")
     repo_col = _pick_col(by_lower, "wrepositoryid", "repositoryid", "repository_id")
-    wf_col = _pick_col(by_lower, "wworkflowid", "workflowid", "workflow_id")
-    inst_col = _pick_col(by_lower, "instanceid", "instance_id", "winstanceid")
-    req_col = _pick_col(by_lower, "requestno", "request_no", "requestnumber")
+    wf_col = _pick_col(by_lower, "wworkflowid", "workflowid", "workflow_id", "iworkflowid")
+    inst_col = _pick_col(
+        by_lower, "instanceid", "instance_id", "winstanceid", "workflowinstanceid"
+    )
+    req_col = _pick_col(
+        by_lower, "requestno", "request_no", "requestnumber", "request_number"
+    )
     form_col = _pick_col(by_lower, "formid", "form_id", "wformid")
 
     like_param = f"%{query}%"
@@ -233,6 +385,7 @@ async def _search_table(
 
     repo_cache = repo_name_cache if repo_name_cache is not None else {}
     wf_cache = workflow_name_cache if workflow_name_cache is not None else {}
+    form_cache = form_meta_cache if form_meta_cache is not None else {}
     hits: list[SearchHit] = []
     q_lower = query.lower()
     for row in rows or []:
@@ -293,6 +446,13 @@ async def _search_table(
             wf_id = _str(row_get(row, "workflow_id"))
             inst = _str(row_get(row, "instance_id"))
             req = _str(row_get(row, "request_no"))
+            if not (wf_id and inst and req):
+                ticket = await _hydrate_ticket_for_item(
+                    db, item_id=entity_id, workflow_name_cache=wf_cache
+                )
+                wf_id = wf_id or ticket["workflowId"]
+                inst = inst or ticket["instanceId"]
+                req = req or ticket["requestNo"]
             repo_name = ""
             wf_name = ""
             if repo_id:
@@ -323,7 +483,7 @@ async def _search_table(
                 "itemId": entity_id,
                 "repositoryId": repo_id,
                 "repositoryName": repo_name,
-                "workflowId": wf_id or 0,
+                "workflowId": int(wf_id) if str(wf_id).isdigit() else (wf_id or 0),
                 "workflowName": wf_name,
                 "instanceId": inst,
                 "requestNo": req,
@@ -332,11 +492,18 @@ async def _search_table(
             wf_id = _str(row_get(row, "workflow_id"))
             inst = _str(row_get(row, "instance_id"))
             req = _str(row_get(row, "request_no"))
-            form_id = _str(row_get(row, "form_id"))
+            form_meta = await _lookup_form_meta(db, table_name=table, cache=form_cache)
+            form_id = _str(row_get(row, "form_id")) or form_meta.get("formId") or ""
+            form_name = form_meta.get("formName") or ""
+            # Never present the row GUID as the form/master display name.
+            if not form_name or _looks_like_guid(form_name) or form_name == entity_id:
+                form_name = ""
+            display_name = form_name or (entity_name if not _looks_like_guid(entity_name) else "")
             is_workflow = bool(wf_id or inst or req)
             form_kind = "workflow" if is_workflow else "master"
             hit_kwargs["formKind"] = form_kind
-            hit_kwargs["name"] = entity_name
+            hit_kwargs["entity_name"] = display_name or entity_id
+            hit_kwargs["name"] = display_name or entity_id
             hit_kwargs["requestNo"] = req or None
             if is_workflow:
                 wf_name = ""
@@ -349,22 +516,21 @@ async def _search_table(
                         cache=wf_cache,
                     )
                 hit_kwargs["id"] = {
-                    "formId": form_id or "",
-                    "formName": entity_name,
+                    "formId": form_id,
+                    "formName": display_name or form_name,
                     "formEntryId": entity_id,
-                    "workflowId": wf_id or 0,
+                    "workflowId": int(wf_id) if str(wf_id).isdigit() else (wf_id or 0),
                     "workflowName": wf_name,
                     "instanceId": inst,
                     "requestNo": req,
                 }
             else:
-                master_id = form_id or entity_id
                 hit_kwargs["id"] = {
-                    "formId": form_id or "",
-                    "formName": entity_name,
+                    "formId": form_id,
+                    "formName": display_name or form_name,
                     "formEntryId": entity_id,
-                    "masterFormId": master_id,
-                    "masterFormName": entity_name,
+                    "masterFormId": form_id,
+                    "masterFormName": display_name or form_name,
                 }
 
         hits.append(SearchHit(**hit_kwargs))
@@ -531,6 +697,7 @@ async def search_forms(
         return []
     hits: list[SearchHit] = []
     wf_cache: dict[str, str] = {}
+    form_cache: dict[str, dict[str, str]] = {}
     for schema, table in tables:
         remaining = limit - len(hits)
         if remaining <= 0:
@@ -544,6 +711,7 @@ async def search_forms(
             limit=remaining,
             extra_text=("requestno", "request_no", "description", "name"),
             workflow_name_cache=wf_cache,
+            form_meta_cache=form_cache,
         )
         hits.extend(part)
     return hits[:limit]

@@ -43,6 +43,8 @@ class _FakeTenantDb:
         self.tables = [
             {"table_schema": "dbo", "table_name": "wrepository"},
             {"table_schema": "dbo", "table_name": "wworkflow"},
+            {"table_schema": "dbo", "table_name": "wform"},
+            {"table_schema": "dbo", "table_name": "repositoryitem"},
             {"table_schema": "dbo", "table_name": "items_a6169a5c"},
             {"table_schema": "dbo", "table_name": "ezfb_abcd1234_items"},
         ]
@@ -57,6 +59,17 @@ class _FakeTenantDb:
                 {"column_name": "Name", "data_type": "character varying", "udt_name": "varchar"},
                 {"column_name": "Status", "data_type": "character varying", "udt_name": "varchar"},
             ],
+            ("dbo", "wform"): [
+                {"column_name": "Id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "Name", "data_type": "character varying", "udt_name": "varchar"},
+            ],
+            ("dbo", "repositoryitem"): [
+                {"column_name": "Id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "ItemId", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "WorkflowId", "data_type": "integer", "udt_name": "int4"},
+                {"column_name": "InstanceId", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "RequestNo", "data_type": "character varying", "udt_name": "varchar"},
+            ],
             ("dbo", "items_a6169a5c"): [
                 {"column_name": "ItemId", "data_type": "uuid", "udt_name": "uuid"},
                 {"column_name": "IFileName", "data_type": "character varying", "udt_name": "varchar"},
@@ -65,18 +78,12 @@ class _FakeTenantDb:
                 {"column_name": "ModifiedAt", "data_type": "timestamp without time zone", "udt_name": "timestamp"},
                 {"column_name": "IsDeleted", "data_type": "boolean", "udt_name": "bool"},
                 {"column_name": "RepositoryId", "data_type": "uuid", "udt_name": "uuid"},
-                {"column_name": "WorkflowId", "data_type": "integer", "udt_name": "int4"},
-                {"column_name": "InstanceId", "data_type": "uuid", "udt_name": "uuid"},
-                {"column_name": "RequestNo", "data_type": "character varying", "udt_name": "varchar"},
             ],
             ("dbo", "ezfb_abcd1234_items"): [
                 {"column_name": "Id", "data_type": "uuid", "udt_name": "uuid"},
-                {"column_name": "Name", "data_type": "character varying", "udt_name": "varchar"},
-                {"column_name": "VendorName", "data_type": "character varying", "udt_name": "varchar"},
-                {"column_name": "FormId", "data_type": "uuid", "udt_name": "uuid"},
-                {"column_name": "WorkflowId", "data_type": "integer", "udt_name": "int4"},
-                {"column_name": "InstanceId", "data_type": "uuid", "udt_name": "uuid"},
-                {"column_name": "RequestNo", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "PO_Number", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "ModifiedAt", "data_type": "timestamp without time zone", "udt_name": "timestamp"},
+                {"column_name": "CreatedAt", "data_type": "timestamp without time zone", "udt_name": "timestamp"},
             ],
         }
 
@@ -112,26 +119,36 @@ class _FakeTenantDb:
                     "modified_dt": "2026-08-05 12:00:00",
                     "created_dt": None,
                     "repository_id": "a6169a5c-1468-4fb5-90a9-220082a89f2a",
-                    "workflow_id": 12,
-                    "instance_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-                    "request_no": "REQ-9001",
                     "m0": "po.pdf",
                     "m1": "PO-60001",
                     "m2": "INVOICE",
                 }
             ]
+        if "repositoryitem" in compact and "select" in compact and "information_schema" not in compact:
+            return [
+                {
+                    "item_id": "11111111-1111-1111-1111-111111111111",
+                    "workflow_id": "12",
+                    "instance_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                    "request_no": "REQ-9001",
+                }
+            ]
         if "ezfb_abcd1234_items" in compact and "select" in compact and "information_schema" not in compact:
             return [
                 {
-                    "entity_id": "33333333-3333-3333-3333-333333333333",
-                    "entity_name": "Invoice Header",
+                    "entity_id": "703e14b7-2646-4679-af80-484d9ef57035",
+                    "entity_name": "703e14b7-2646-4679-af80-484d9ef57035",
                     "description": "",
-                    "workflow_id": 12,
-                    "instance_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
-                    "request_no": "REQ-7788",
+                    "modified_dt": "2026-09-07",
+                    "created_dt": "2026-09-07",
+                    "m0": "PO-60001",
+                }
+            ]
+        if "wform" in compact and "form_name" in compact:
+            return [
+                {
                     "form_id": "abcd1234-0000-0000-0000-000000000001",
-                    "m0": "Invoice Header",
-                    "m1": "circuit breaker",
+                    "form_name": "PO Master",
                 }
             ]
         if "wrepository" in compact and " as n " in compact:
@@ -196,12 +213,17 @@ def test_search_finds_po_number_with_repo_workflow_identity():
     assert workflows[0].id["workflowName"] == "PO-60001 Approval"
 
 
-def test_search_forms_workflow_kind():
+def test_search_forms_master_uses_wform_name_not_row_guid():
     db = _FakeTenantDb()
-    forms = asyncio.run(search_forms(db, "circuit"))
+    forms = asyncio.run(search_forms(db, "PO-60001"))
     assert len(forms) == 1
     assert forms[0].type == "form"
-    assert forms[0].formKind == "workflow"
-    assert forms[0].id["requestNo"] == "REQ-7788"
-    assert forms[0].id["workflowName"] == "PO Approval"
-    assert forms[0].id["instanceId"] == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    assert forms[0].formKind == "master"
+    assert forms[0].id["formEntryId"] == "703e14b7-2646-4679-af80-484d9ef57035"
+    assert forms[0].id["formId"] == "abcd1234-0000-0000-0000-000000000001"
+    assert forms[0].id["masterFormId"] == "abcd1234-0000-0000-0000-000000000001"
+    assert forms[0].id["formName"] == "PO Master"
+    assert forms[0].id["masterFormName"] == "PO Master"
+    assert forms[0].name == "PO Master"
+    assert forms[0].id["formName"] != forms[0].id["formEntryId"]
+    assert forms[0].id["masterFormId"] != forms[0].id["formEntryId"]
