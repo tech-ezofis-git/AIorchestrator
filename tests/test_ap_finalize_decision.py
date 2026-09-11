@@ -35,6 +35,28 @@ async def test_trial_env_mock_match_is_not_capped():
     assert result.data["used_mock_data"] is False
 
 
+async def test_live_env_sap_sample_is_not_capped():
+    """Configured SAP samplePurchaseOrders (source=sap_sample) may carry
+    mock=True from offline client fallbacks but are trusted demo masters —
+    allow MATCHED / move-next in live."""
+    artifacts = {
+        "po_match": {
+            "decision": "MATCHED",
+            "po": {
+                "po_number": "PO-60001",
+                "vendor": "ACME Supplies",
+                "total": 1500,
+                "source": "sap_sample",
+                "mock": True,
+            },
+        },
+        "vendor_validate": {"status": "ACTIVE", "expected": "ACME Supplies"},
+    }
+    result = await finalize_decision_run(_ctx(ezofis_env="live", artifacts=artifacts))
+    assert result.data["decision"] == "MATCHED"
+    assert result.data["used_mock_data"] is False
+
+
 async def test_live_env_mock_po_caps_matched_to_partially_matched():
     artifacts = {
         "po_match": {"decision": "MATCHED", "po": {"mock": True}},

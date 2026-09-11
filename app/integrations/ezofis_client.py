@@ -474,6 +474,82 @@ class EzofisClient:
             "mock": True,
         }
 
+    async def lookup_po_sap(
+        self, *, tenant_id: str, po_number: str, connector_id: str
+    ) -> Optional[dict[str, Any]]:
+        if not po_number:
+            return None
+        if self._live_enabled():
+            live = await self._post_json(
+                f"/connector/{connector_id}/sap/purchase-orders/lookup",
+                tenant_id=tenant_id,
+                body={"poNumber": po_number},
+            )
+            if live is None:
+                # Transport/auth/HTTP failure — distinct from a clean not-found.
+                return {
+                    "lookup_error": "request_failed",
+                    "reason": (
+                        f"SAP PO lookup request failed for connector {connector_id} "
+                        f"(check Ezofis API auth, connector id, and network)."
+                    ),
+                }
+            if not isinstance(live, dict):
+                return {
+                    "lookup_error": "invalid_response",
+                    "reason": f"SAP PO lookup returned an unexpected response for {po_number}.",
+                }
+            if live.get("found") is False:
+                # Prefer explicit Core reason when present (sample miss vs live not configured).
+                reason = live.get("reason") or live.get("Reason")
+                if reason:
+                    return {
+                        "lookup_error": "not_found",
+                        "reason": str(reason),
+                    }
+                return None
+            if live.get("error"):
+                return {
+                    "lookup_error": "api_error",
+                    "reason": str(live.get("error") or live.get("detail") or "SAP connector rejected the lookup."),
+                }
+            purchase_order = live.get("purchaseOrder") or live.get("purchase_order")
+            source = live.get("source") or "sap"
+            if isinstance(purchase_order, dict) and purchase_order:
+                return {
+                    "po_number": purchase_order.get("po_number")
+                    or purchase_order.get("poNumber")
+                    or live.get("poNumber")
+                    or po_number,
+                    "vendor": purchase_order.get("vendor"),
+                    "total": purchase_order.get("total"),
+                    "currency": purchase_order.get("currency"),
+                    "lines": purchase_order.get("lines") or [],
+                    "source": source,
+                }
+            if live.get("po_number") or live.get("vendor"):
+                out = dict(live)
+                out.setdefault("source", source)
+                return out
+            return None
+        return {
+            "po_number": po_number,
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "currency": "USD",
+            "lines": [
+                {
+                    "line_no": 1,
+                    "description": "Widget",
+                    "qty": 10,
+                    "unit_price": 123.456,
+                    "amount": 1234.56,
+                }
+            ],
+            "source": "sap_sample",
+            "mock": True,
+        }
+
     async def report_ap_progress(
         self,
         *,

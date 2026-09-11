@@ -763,6 +763,52 @@ def test_quickbooks_connector_lookup_feeds_po_match(client, monkeypatch):
     assert artifacts["po_match"]["decision"] == "MATCHED"
 
 
+def test_sap_connector_lookup_feeds_po_match(client, monkeypatch):
+    async def fake_sap(self, **kwargs):
+        return {
+            "po_number": kwargs["po_number"],
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "currency": "USD",
+            "lines": [
+                {
+                    "line_no": 1,
+                    "description": "Widget",
+                    "qty": 10,
+                    "unit_price": 123.456,
+                    "amount": 1234.56,
+                }
+            ],
+            "source": "sap_sample",
+            "mock": True,
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po_sap",
+        fake_sap,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-sap",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-sap",
+                resource="SAP",
+                connector_id="983bddbe-6a1a-4cd8-a024-9b4d84ba9981",
+                skills=["extract_invoice", "po_lookup_sap", "po_match", "finalize_decision"],
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["ap_result"]["artifacts"]
+    assert artifacts["po_lookup_sap"]["po"]["source"] == "sap_sample"
+    assert artifacts["po_lookup_sap"]["source"] == "sap"
+    assert artifacts["po_match"]["decision"] == "MATCHED"
+    assert artifacts["po_match"]["po"]["source"] == "sap_sample"
+
+
 def test_metadata_push_runs_after_every_skill_with_non_null_values(client, monkeypatch):
     seen = []
 

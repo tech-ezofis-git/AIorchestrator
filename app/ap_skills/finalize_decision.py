@@ -13,6 +13,18 @@ _RANK = {
     "NON_INVOICE": 0,
 }
 
+# Connector sample masters (ConfigJson.samplePurchaseOrders) are intentional
+# demo data tagged source=sap_sample — allow move-next; do not treat as
+# fabricated ACME mocks from EzofisClient offline fallbacks.
+_TRUSTED_SAMPLE_SOURCES = frozenset({"sap_sample"})
+
+
+def _is_untrusted_mock(record: dict) -> bool:
+    if not isinstance(record, dict) or not record.get("mock"):
+        return False
+    source = str(record.get("source") or "").strip().lower()
+    return source not in _TRUSTED_SAMPLE_SOURCES
+
 
 def _worse(left: str, right: str) -> str:
     if not left:
@@ -63,7 +75,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
     )
     is_live_env = str(getattr(ctx.settings, "ezofis_env", "trial") or "trial").strip().lower() == "live"
     used_mock_data = is_live_env and any(
-        bool(source.get("mock")) for source in (po, vendor, grn, matter_master_match)
+        _is_untrusted_mock(source) for source in (po, vendor, grn, matter_master_match)
     )
 
     if doc_type == "other":
@@ -119,7 +131,8 @@ async def run(ctx: ApContext) -> ApSkillResult:
             if used_mock_data:
                 cap_reasons.append(
                     "matched against a mock PO/vendor/GRN/matter record — "
-                    "configure live EZOFIS login for a reliable auto-match"
+                    "configure live EZOFIS login for a reliable auto-match "
+                    "(SAP sample masters with source=sap_sample are allowed)"
                 )
             if duplicate.get("possible_duplicate_of"):
                 cap_reasons.append(

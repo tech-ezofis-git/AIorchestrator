@@ -1671,11 +1671,16 @@ Due Date,DATE</textarea>
         </div>
         <div>
           <label for="apResource">Resource</label>
-          <input type="text" id="apResource" placeholder="QUICKBOOKS or SAGE" />
+          <input type="text" id="apResource" placeholder="SAP, QUICKBOOKS, or SAGE" />
+        </div>
+        <div>
+          <label for="apConnectorId">Connector</label>
+          <input type="text" id="apConnectorId" placeholder="connector_id (SAP/QB GUID)" />
         </div>
         <div class="span-all">
           <label for="apSkills">Skills</label>
-          <textarea id="apSkills" placeholder="extract_invoice"></textarea>
+          <textarea id="apSkills" placeholder="extract_invoice&#10;po_lookup_sap&#10;po_match&#10;finalize_decision"></textarea>
+          <p class="tenant-skills-hint" style="margin:6px 0 0">SAP sample: set Resource=<code>SAP</code>, Connector=<code>983bddbe-…</code>, skills include <code>po_lookup_sap</code> before <code>po_match</code>, invoice <code>po_number</code>=<code>PO-60001</code>.</p>
         </div>
         <div class="span-all">
           <label for="apInvoiceJson">invoice_json</label>
@@ -4094,6 +4099,7 @@ async function sendApJob() {
   const formId = (document.getElementById('apFormId') && document.getElementById('apFormId').value.trim()) || '';
   const itemId = document.getElementById('apItemId').value.trim();
   const resource = document.getElementById('apResource').value.trim();
+  const connectorId = (document.getElementById('apConnectorId') && document.getElementById('apConnectorId').value.trim()) || '';
   const workflowId = document.getElementById('apWorkflowId').value.trim();
   const instanceId = document.getElementById('apInstanceId').value.trim();
   const repositoryId = (document.getElementById('apRepositoryId') && document.getElementById('apRepositoryId').value.trim()) || '';
@@ -4142,6 +4148,7 @@ async function sendApJob() {
           item_id: itemId || undefined,
           filepath: filepath || undefined,
           resource: resource || undefined,
+          connector_id: connectorId || undefined,
           workflow_id: workflowId || undefined,
           instance_id: instanceId || undefined,
           repositoryId: repositoryId || undefined,
@@ -4163,6 +4170,7 @@ async function sendApJob() {
       if (itemId) form.append('item_id', itemId);
       if (filepath) form.append('filepath', filepath);
       if (resource) form.append('resource', resource);
+      if (connectorId) form.append('connector_id', connectorId);
       if (workflowId) form.append('workflow_id', workflowId);
       if (instanceId) form.append('instance_id', instanceId);
       if (repositoryId) form.append('repositoryId', repositoryId);
@@ -4186,6 +4194,7 @@ async function sendApJob() {
           formid: formId || null,
           item_id: itemId || null,
           resource: resource || null,
+          connector_id: connectorId || null,
           workflow_id: workflowId || null,
           instance_id: instanceId || null,
           repositoryId: repositoryId || null,

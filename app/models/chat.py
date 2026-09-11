@@ -184,10 +184,15 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("activity_id", "activityid", "activityId", "ActivityId"),
         description="Workflow step ActivityId for move-next. Omitted => lookup workflow.WorkflowSteps by name AP AGENT 1.",
     )
-    connector_id: Optional[str] = Field(default=None, description="QB/Sage connector id for PO lookup skills.")
+    connector_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("connector_id", "connectorId", "ConnectorId"),
+        description="QB/Sage/SAP connector id for PO lookup skills.",
+    )
     resource: Optional[str] = Field(
         default=None,
-        description="PO resource hint: QUICKBOOKS or SAGE.",
+        validation_alias=AliasChoices("resource", "Resource"),
+        description="PO resource hint: QUICKBOOKS, SAP, or SAGE.",
     )
     matter_master_id: Optional[str] = Field(default=None, description="Matter master id for matter_validate.")
     form_id: Optional[str] = Field(

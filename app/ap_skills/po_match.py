@@ -83,11 +83,17 @@ async def run(ctx: ApContext) -> ApSkillResult:
         )
 
     po = None
-    for connector_skill in ("po_lookup_quickbooks", "po_lookup_sage"):
+    sap_lookup_reason: str | None = None
+    for connector_skill in ("po_lookup_sap", "po_lookup_quickbooks", "po_lookup_sage"):
         artifact = ctx.artifacts.get(connector_skill) or {}
-        if isinstance(artifact, dict) and isinstance(artifact.get("po"), dict):
+        if not isinstance(artifact, dict) or artifact.get("skipped"):
+            continue
+        if isinstance(artifact.get("po"), dict):
             po = artifact["po"]
             break
+        if connector_skill == "po_lookup_sap" and artifact.get("po_number"):
+            # SAP ran and missed / failed — keep its reason if form master also misses.
+            sap_lookup_reason = str(artifact.get("reason") or "").strip() or None
     if not po:
         form_id = (ctx.form_id or str(ctx.document_job.get("form_id") or "").strip() or None)
         po = await ctx.ezofis.lookup_po(
@@ -96,6 +102,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
             form_id=form_id,
         )
     if not po:
+        reason = sap_lookup_reason or f"PO {po_number} was not found."
         return ApSkillResult(
             skill_id=SKILL_ID,
             data={
@@ -103,7 +110,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
                 "po": None,
                 "score": 0,
                 "decision": "NOT_MATCHED",
-                "reason": f"PO {po_number} was not found.",
+                "reason": reason,
             },
         )
 
@@ -205,7 +212,7 @@ def _po_line_mapped(po: dict[str, Any]) -> list[dict[str, Any]]:
         qty = field_number(row, "qty", "Quantity", "quantity")
         if qty is not None:
             item["Quantity"] = qty
-        price = field_number(row, "price", "Unit Cost", "unit_cost")
+        price = field_number(row, "price", "Unit Cost", "unit_cost", "unit_price")
         if price is not None:
             item["Unit Cost"] = price
         amount = field_number(row, "amount", "Extended", "extended")
@@ -218,7 +225,10 @@ def _po_line_mapped(po: dict[str, Any]) -> list[dict[str, Any]]:
 
 def build_po_row(invoice: dict[str, Any], po: dict[str, Any]) -> dict[str, Any]:
     """PO Master fields that the invoice does not already have, keyed for Core po_row."""
-    if not isinstance(po, dict) or not po or po.get("mock"):
+    if not isinstance(po, dict) or not po:
+        return {}
+    # Offline ACME mocks skip form fill; configured SAP sample masters may fill.
+    if po.get("mock") and str(po.get("source") or "").strip().lower() != "sap_sample":
         return {}
     row: dict[str, Any] = {}
     for label, po_keys, invoice_keys in _PO_ROW_SCALARS:

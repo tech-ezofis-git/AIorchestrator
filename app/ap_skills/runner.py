@@ -16,6 +16,7 @@ from app.ap_skills import (
     grn_match,
     matter_validate,
     po_lookup_quickbooks,
+    po_lookup_sap,
     po_lookup_sage,
     po_match,
     vendor_validate,
@@ -91,6 +92,7 @@ def _within_dedupe_window(finished_at: Any, window_seconds: float) -> bool:
 REGISTRY: dict[str, SkillFn] = {
     extract_invoice.SKILL_ID: extract_invoice.run,
     po_lookup_quickbooks.SKILL_ID: po_lookup_quickbooks.run,
+    po_lookup_sap.SKILL_ID: po_lookup_sap.run,
     po_lookup_sage.SKILL_ID: po_lookup_sage.run,
     po_match.SKILL_ID: po_match.run,
     gl_match.SKILL_ID: gl_match.run,

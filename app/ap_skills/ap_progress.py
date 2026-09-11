@@ -17,8 +17,9 @@ OCR_HEARTBEAT_SECONDS = 8.0
 # skill_id -> (stage, message, default percent). workflow_progress is runner-owned.
 SKILL_STAGES: dict[str, tuple[str, str, int]] = {
     "extract_invoice": ("READING", "Reading invoice", 20),
-    "po_lookup_quickbooks": ("EXTRACTING", "Matching purchase order", 45),
-    "po_lookup_sage": ("EXTRACTING", "Matching purchase order", 45),
+    "po_lookup_quickbooks": ("EXTRACTING", "Looking up QuickBooks purchase order", 45),
+    "po_lookup_sap": ("EXTRACTING", "Looking up SAP purchase order", 46),
+    "po_lookup_sage": ("EXTRACTING", "Looking up Sage purchase order", 47),
     "po_match": ("EXTRACTING", "Matching purchase order", 55),
     "gl_match": ("EXTRACTING", "Linking related records", 62),
     "grn_match": ("EXTRACTING", "Linking related records", 66),

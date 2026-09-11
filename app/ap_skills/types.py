@@ -20,6 +20,7 @@ PHASE1_SKILL_ORDER: tuple[str, ...] = (
 # run only when listed in payload.skills.
 ALL_SKILL_ORDER: tuple[str, ...] = (
     "extract_invoice",
+    "po_lookup_sap",
     "po_lookup_quickbooks",
     "po_lookup_sage",
     "po_match",

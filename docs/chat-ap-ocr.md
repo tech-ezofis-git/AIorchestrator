@@ -75,9 +75,66 @@ If `skills` is omitted / null, the **default pipeline** runs:
 
 `review` on move-next is the workflow label, not the internal code: `Matched`, `Partially Matched`, `Not Matched`, or `Non-Invoice`. The body also includes `comments`, `AIAGENTResponse`, `itemId`, `repositoryId`, `formId`, `formEntryId`, `isItemTable` — same shape as apagentv6.
 
-If `skills` is a list, **only those skills** run (in that order). Unknown ids → 400. Opt-in skills (QB/Sage, GL, GRN, matter, `workflow_progress`) must be listed explicitly.
+If `skills` is a list, **only those skills** run (in that order). Unknown ids → 400. Opt-in skills (QB/SAP/Sage, GL, GRN, matter, `workflow_progress`) must be listed explicitly.
 
 Each skill that actually runs (not skipped) charges 1 credit (mocked if `EZOFIS_LOGIN_EMAIL` / `PASSWORD` are empty).
+
+### SAP PO master (sample or live connector)
+
+Use when validating the invoice PO against an SAP connector (`ConfigJson.mode=sample` or live API later).
+
+| Field | Example |
+|---|---|
+| `resource` | `SAP` (also accepts `SAP ECC`, `S4`, `SAP_XSUAA`, …) |
+| `connector_id` | SAP connector GUID (EZOFIS tenant sample: `983bddbe-6a1a-4cd8-a024-9b4d84ba9981`) |
+| `skills` | include `po_lookup_sap` **before** `po_match` |
+| Sample PO | `PO-60001` (vendor ACME Supplies, total 1500) |
+
+`source=sap_sample` hits are trusted demo masters: `finalize_decision` does **not** set `used_mock_data`, so move-next is allowed. Offline ACME mocks (`mock: true` without `sap_sample`) still cap MATCHED in `EZOFIS_ENV=live`.
+
+EMAIL workflows: set mailbox `masterSource=SAP` + `masterConnectorId` so Hangfire injects these fields automatically (v641Api Phase 4).
+
+`ap-sap-po.json`:
+
+```json
+{
+  "session_id": "ap-sap-1",
+  "intent": "ap",
+  "payload": {
+    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+    "item_id": "sap-po-60001",
+    "resource": "SAP",
+    "connector_id": "983bddbe-6a1a-4cd8-a024-9b4d84ba9981",
+    "skills": [
+      "extract_invoice",
+      "po_lookup_sap",
+      "po_match",
+      "finalize_decision"
+    ],
+    "invoice_json": {
+      "invoice_number": "INV-SAP-60001",
+      "vendor": "ACME Supplies",
+      "po_number": "PO-60001",
+      "total": 1500.00,
+      "currency": "USD",
+      "line_items": [
+        {"description": "Widget A", "qty": 10, "amount": 1000},
+        {"description": "Widget B", "qty": 5, "amount": 500}
+      ]
+    }
+  }
+}
+```
+
+```bash
+curl.exe -sS -X POST "https://cloud.ezofis.com/chat" ^
+  -H "Content-Type: application/json" ^
+  --data-binary "@ap-sap-po.json"
+```
+
+Expect: `artifacts.po_lookup_sap.po.source == "sap_sample"`, `po_match.decision == "MATCHED"`, high score when vendor/total align.
+
+Console: [https://cloud.ezofis.com/console](https://cloud.ezofis.com/console) → AP document → Resource=`SAP`, Connector=`983bddbe-…`, skills as above.
 
 ### JSON — pre-extracted invoice (skips OCR)
 
@@ -165,7 +222,7 @@ Pass them in `skills`. Extra payload fields as needed:
 
 | Skills | Extra fields |
 |---|---|
-| `po_lookup_quickbooks`, `po_lookup_sage` | `connector_id`, `resource` (`QUICKBOOKS` or `SAGE`) |
+| `po_lookup_quickbooks`, `po_lookup_sap`, `po_lookup_sage` | `connector_id`, `resource` (`QUICKBOOKS`, `SAP` / `SAP ECC` / `S4`, or `SAGE`). For EMAIL workflows, Core Hangfire start can inject these when mailbox `masterSource` is QuickBooks or SAP — see v641Api `PHASE4_SAP_PO_MASTER_START_PAYLOAD.md`. |
 | `gl_match`, `grn_match`, `matter_validate` | `matter_master_id` for matter |
 | `workflow_progress`, `workflow_move_next` | `workflow_id`, `instance_id`, plus `repositoryId`, `transactionId`, `formentryId`, `repositoryItemId`, `processId`; `activityid` looked up from `workflow.WorkflowSteps` unless sent |
 

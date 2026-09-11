@@ -1570,8 +1570,8 @@ _CHAT_MULTIPART_SCHEMA = {
         "formentryId": {"type": "string", "description": "Form entry id for move-next. Alias: formEntryId, form_entry_id."},
         "processId": {"type": "string", "description": "Workflow process id for move-next."},
         "activityid": {"type": "string", "description": "Workflow step ActivityId for move-next. Omitted => lookup workflow.WorkflowSteps (AP AGENT 1)."},
-        "connector_id": {"type": "string", "description": "QB/Sage connector id."},
-        "resource": {"type": "string", "description": "PO resource: QUICKBOOKS or SAGE."},
+        "connector_id": {"type": "string", "description": "QB/Sage/SAP connector id for PO lookup skills."},
+        "resource": {"type": "string", "description": "PO resource: QUICKBOOKS, SAP, or SAGE."},
         "matter_master_id": {"type": "string", "description": "Matter master id."},
         "formid": {
             "type": "string",
