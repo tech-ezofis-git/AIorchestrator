@@ -8,7 +8,7 @@ def _hit_key(hit: SearchHit) -> str:
     typ = (hit.type or hit.entity_type or "").lower()
     eid = (hit.entity_id or "").replace("-", "").lower()
     if hit.id and isinstance(hit.id, dict):
-        for key in ("itemId", "formEntryId", "repositoryId", "workflowId", "instanceId"):
+        for key in ("itemId", "formEntryId", "commentId", "repositoryId", "workflowId", "instanceId"):
             val = hit.id.get(key)
             if val not in (None, "", 0, "0"):
                 eid = str(val).replace("-", "").lower()

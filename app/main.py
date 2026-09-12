@@ -124,6 +124,7 @@ from app.agents.prompt_agent import PromptAgent
 from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
 from app.agents.global_search_agent import GlobalSearchAgent
+from app.agents.chatbot_agent import ChatbotAgent
 from app.config import get_settings
 from app.control.audit import AuditMiddleware, configure_app_logging
 from app.control.audit_store import AuditStore
@@ -174,20 +175,34 @@ from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
 from app.agent_skills.loader import resolve_pack_dir_from_settings
 from app.tenant_skills.store import store_from_settings
 from app.tenant_skills.upload import parse_tenant_upload, upload_kind
+from app.tools.chatbot_action_tools import (
+    CHATBOT_CREATE_USER_SCHEMA,
+    CHATBOT_START_TICKET_SCHEMA,
+    CHATBOT_START_WORKFLOW_SCHEMA,
+    CHATBOT_UPLOAD_REPOSITORY_FILE_SCHEMA,
+    make_chatbot_create_user_handler,
+    make_chatbot_start_ticket_handler,
+    make_chatbot_start_workflow_handler,
+    make_chatbot_upload_repository_file_handler,
+)
 from app.tools.fetch_document import FETCH_DOCUMENT_SCHEMA, make_fetch_document_handler
 from app.tools.fetch_invoice_status import FETCH_INVOICE_STATUS_SCHEMA, make_fetch_invoice_status_handler
 from app.tools.fetch_memories import FETCH_MEMORIES_SCHEMA, make_fetch_memories_handler
 from app.tools.fetch_report_data import FETCH_REPORT_DATA_SCHEMA, make_fetch_report_data_handler
 from app.tools.global_search_tools import (
+    SEARCH_COMMENTS_SCHEMA,
     SEARCH_FORMS_SCHEMA,
     SEARCH_REPO_METADATA_SCHEMA,
     SEARCH_REPO_RAG_SCHEMA,
     SEARCH_REPOSITORIES_SCHEMA,
+    SEARCH_TICKETS_SCHEMA,
     SEARCH_WORKFLOWS_SCHEMA,
+    make_search_comments_handler,
     make_search_forms_handler,
     make_search_repo_metadata_handler,
     make_search_repo_rag_handler,
     make_search_repositories_handler,
+    make_search_tickets_handler,
     make_search_workflows_handler,
 )
 from app.tools.run_forecast import RUN_FORECAST_SCHEMA, make_run_forecast_handler
@@ -212,11 +227,27 @@ _CONSOLE_HTML_PATH = _STATIC_DIR / "console.html"
 # 3c/3d), and anything where intent isn't classified yet (content filter,
 # rate limit rejections) is conservatively treated the same as AP/Mail:
 # we don't know what it would have been, so we don't snippet it.
-_SNIPPETABLE_INTENTS = {"chat", "search", "summary", "insight", "ocr", "forecast", "prompt", "global_search"}
+_SNIPPETABLE_INTENTS = {
+    "chat",
+    "search",
+    "summary",
+    "insight",
+    "ocr",
+    "forecast",
+    "prompt",
+    "global_search",
+    "chatbot",
+}
 
 # Only send_email exists today; mapped explicitly rather than guessed so
 # a future gated tool doesn't silently inherit the wrong intent label.
-_TOOL_NAME_TO_INTENT = {"send_email": "mail"}
+_TOOL_NAME_TO_INTENT = {
+    "send_email": "mail",
+    "chatbot_start_workflow": "chatbot",
+    "chatbot_upload_repository_file": "chatbot",
+    "chatbot_create_user": "chatbot",
+    "chatbot_start_ticket_with_attachments": "chatbot",
+}
 
 _EVENT_TYPE_BY_STATUS_CODE = {
     400: "content_filtered",
@@ -395,7 +426,22 @@ async def lifespan(app: FastAPI):
     dispatcher.register_tool(SEARCH_WORKFLOWS_SCHEMA, make_search_workflows_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_REPO_METADATA_SCHEMA, make_search_repo_metadata_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_FORMS_SCHEMA, make_search_forms_handler(tenant_pools, catalog_store))
+    dispatcher.register_tool(SEARCH_COMMENTS_SCHEMA, make_search_comments_handler(tenant_pools, catalog_store))
+    dispatcher.register_tool(SEARCH_TICKETS_SCHEMA, make_search_tickets_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_REPO_RAG_SCHEMA, make_search_repo_rag_handler(hybrid_search, vector_store))
+    dispatcher.register_tool(
+        CHATBOT_START_WORKFLOW_SCHEMA, make_chatbot_start_workflow_handler(ezofis_client)
+    )
+    dispatcher.register_tool(
+        CHATBOT_UPLOAD_REPOSITORY_FILE_SCHEMA,
+        make_chatbot_upload_repository_file_handler(ezofis_client),
+    )
+    dispatcher.register_tool(
+        CHATBOT_CREATE_USER_SCHEMA, make_chatbot_create_user_handler(ezofis_client)
+    )
+    dispatcher.register_tool(
+        CHATBOT_START_TICKET_SCHEMA, make_chatbot_start_ticket_handler(ezofis_client)
+    )
     summary_agent = SummaryAgent(
         dispatcher,
         response_composer,
@@ -449,6 +495,13 @@ async def lifespan(app: FastAPI):
     global_search_agent = GlobalSearchAgent(
         dispatcher, limit=20, rag_limit=max(settings.search_top_n, 5)
     )
+    chatbot_agent = ChatbotAgent(
+        dispatcher,
+        pending_action_store,
+        llm_adapter,
+        limit=20,
+        rag_limit=max(settings.search_top_n, 5),
+    )
 
     rate_limiter = RateLimiter(
         redis_client,
@@ -468,6 +521,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.PROMPT, prompt_agent.handle)
     agent_router.register(Intent.PDF, pdf_agent.handle)
     agent_router.register(Intent.GLOBAL_SEARCH, global_search_agent.handle)
+    agent_router.register(Intent.CHATBOT, chatbot_agent.handle)
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
@@ -1810,6 +1864,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 message = query_alias
             else:
                 raise HTTPException(status_code=400, detail="query is required for intent=global_search.")
+        elif explicit == "chatbot":
+            if query_alias:
+                message = query_alias
+            else:
+                message = "help"
         elif (
             has_filepath
             or has_upload
@@ -1939,6 +1998,20 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "repository_id": p.repository_id if p else None,
             "workspace_id": p.workspace_id if p else None,
             "action_from": p.action_from if p else None,
+        }
+    elif intent == Intent.CHATBOT:
+        p = payload.payload
+        document_job = {
+            "query": (p.query if p and p.query else None) or message,
+            "tenant_id": p.tenant_id if p else None,
+            "specific_id": p.repository_id if p else None,
+            "repository_id": p.repository_id if p else None,
+            "workspace_id": p.workspace_id if p else None,
+            "action_from": p.action_from if p else None,
+            "propose_action": p.propose_action if p else None,
+            "recent_hits": getattr(p, "recent_hits", None) if p else None,
+            "upload_file": getattr(p, "upload_file", None) if p else None,
+            "pending_action_id": getattr(p, "pending_action_id", None) if p else None,
         }
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
@@ -2238,6 +2311,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         prompt_result=result.get("prompt_result"),
         pdf_result=result.get("pdf_result"),
         global_search_result=result.get("global_search_result"),
+        chatbot_result=result.get("chatbot_result"),
     )
 
 

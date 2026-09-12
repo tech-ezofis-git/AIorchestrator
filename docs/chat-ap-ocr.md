@@ -88,7 +88,7 @@ Use when validating the invoice PO against an SAP connector (`ConfigJson.mode=sa
 | `resource` | `SAP` (also accepts `SAP ECC`, `S4`, `SAP_XSUAA`, …) |
 | `connector_id` | SAP connector GUID (EZOFIS tenant sample: `983bddbe-6a1a-4cd8-a024-9b4d84ba9981`) |
 | `skills` | include `po_lookup_sap` **before** `po_match` |
-| Sample PO | `PO-60001` (vendor ACME Supplies, total 1500) |
+| Sample PO | `PO-60001` (vendor APEX INDUSTRIAL COMPONENTS LTD, total 5203.65 CAD) |
 
 `source=sap_sample` hits are trusted demo masters: `finalize_decision` does **not** set `used_mock_data`, so move-next is allowed. Offline ACME mocks (`mock: true` without `sap_sample`) still cap MATCHED in `EZOFIS_ENV=live`.
 
@@ -112,14 +112,15 @@ EMAIL workflows: set mailbox `masterSource=SAP` + `masterConnectorId` so Hangfir
       "finalize_decision"
     ],
     "invoice_json": {
-      "invoice_number": "INV-SAP-60001",
-      "vendor": "ACME Supplies",
+      "invoice_number": "INV-2026-6001",
+      "vendor": "APEX INDUSTRIAL COMPONENTS LTD",
       "po_number": "PO-60001",
-      "total": 1500.00,
-      "currency": "USD",
+      "total": 5203.65,
+      "currency": "CAD",
       "line_items": [
-        {"description": "Widget A", "qty": 10, "amount": 1000},
-        {"description": "Widget B", "qty": 5, "amount": 500}
+        {"description": "Bearing assembly kit", "qty": 5, "amount": 3250.00},
+        {"description": "Seal pack", "qty": 10, "amount": 1250.00},
+        {"description": "Freight", "qty": 1, "amount": 703.65}
       ]
     }
   }

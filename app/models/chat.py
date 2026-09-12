@@ -113,7 +113,10 @@ class DocumentPayload(BaseModel):
     )
     query: Optional[str] = Field(
         default=None,
-        description="Global Search term (SEARCH_API.md). Used when intent=global_search and message is empty.",
+        description=(
+            "Search term for Global Search / Chatbot when message is empty "
+            "(aliases also accepted at request root: query)."
+        ),
     )
     workspace_id: Optional[str] = Field(
         default=None,
@@ -218,6 +221,35 @@ class DocumentPayload(BaseModel):
             "after fixing bad source data. Never needed for payload.skills "
             "re-runs of specific skills, which always actually run."
         ),
+    )
+    propose_action: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("propose_action", "proposeAction", "ProposeAction"),
+        description=(
+            "Chatbot Phase 3: propose a confirm-gated Core action. "
+            "Shape: { tool: chatbot_start_workflow|chatbot_upload_repository_file|"
+            "chatbot_start_ticket_with_attachments|chatbot_create_user, "
+            "arguments: {...} }. Creates a pending action; confirm via POST /actions/{id}/confirm."
+        ),
+    )
+    recent_hits: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        validation_alias=AliasChoices("recent_hits", "recentHits", "RecentHits"),
+        description="Chatbot Phase 4: prior search hits for NL id resolution (that workflow / that repo).",
+    )
+    upload_file: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("upload_file", "uploadFile", "UploadFile"),
+        description=(
+            "Chatbot Phase 4: { file_name, content_base64, content_type } for upload / ticket actions."
+        ),
+    )
+    pending_action_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "pending_action_id", "pendingActionId", "PendingActionId", "action_id", "actionId"
+        ),
+        description="Chatbot Phase 4: last proposed action id when user says yes/confirm.",
     )
 
     @field_validator(
@@ -448,7 +480,15 @@ class ChatRequest(BaseModel):
         ):
             # Multipart uploads attach file bytes outside this model; main.py
             # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap/pdf after parsing.
-            if (self.intent or "").strip().lower() in {"ocr", "summary", "insight", "ap", "pdf", "global_search"}:
+            if (self.intent or "").strip().lower() in {
+                "ocr",
+                "summary",
+                "insight",
+                "ap",
+                "pdf",
+                "global_search",
+                "chatbot",
+            }:
                 return self
             raise ValueError(
                 "Either message, payload.prompt, payload.filepath, payload.ocr_text, "
@@ -555,5 +595,13 @@ class ChatResponse(BaseModel):
             "Global Search flat hits[] (type: document|repository|workflow|form). "
             "Documents include file + repositoryName/Id + workflowName/Id + instanceId + requestNo; "
             "forms use formKind workflow|master; description/modifiedDateandtime/dateandtime included."
+        ),
+    )
+    chatbot_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Chatbot output — conversation echo, text.blocks (paragraph/bullets/cards/…), "
+            "hits[] (Phase 1+), optional action / browse_request. "
+            "`reply` is a short status line."
         ),
     )

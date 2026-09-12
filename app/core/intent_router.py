@@ -54,10 +54,18 @@ class Intent(str, Enum):
     PROMPT = "prompt"
     PDF = "pdf"
     GLOBAL_SEARCH = "global_search"
+    CHATBOT = "chatbot"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the
 # lowercased message — simple and deterministic, not ML-based.
+_CHATBOT_TRIGGERS = (
+    "open chatbot",
+    "use chatbot",
+    "ezofis chatbot",
+    "chatbot help",
+)
+
 _PDF_TRIGGERS = (
     "generate pdf",
     "generate a pdf",
@@ -195,6 +203,8 @@ class IntentRouter:
         normalized = message.strip().lower()
         if not normalized:
             return Intent.CHAT
+        if any(trigger in normalized for trigger in _CHATBOT_TRIGGERS):
+            return Intent.CHATBOT
         if any(trigger in normalized for trigger in _PDF_TRIGGERS):
             return Intent.PDF
         if any(trigger in normalized for trigger in _GLOBAL_SEARCH_TRIGGERS):

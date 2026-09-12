@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 
 
 class SearchHit(BaseModel):
-    """One flat hit. `type` is the frontend discriminator (document|repository|workflow|form)."""
+    """One flat hit. `type` is the frontend discriminator
+    (document|repository|workflow|form|comment|ticket)."""
 
     type: str = ""
     entity_type: str = ""

@@ -2,7 +2,7 @@
 
 Tenant: `b843b988-00ec-44e3-aca2-b8470133ef63`  
 SAP connector: `983bddbe-6a1a-4cd8-a024-9b4d84ba9981` (`SAP_XSUAA`, mode=sample)  
-Sample PO: `PO-60001` → ACME Supplies / 1500.00 USD
+Sample PO: `PO-60001` → APEX INDUSTRIAL COMPONENTS LTD / 5203.65 CAD (matches INV-2026-6001)
 
 ## Deploy (both apps)
 
@@ -36,7 +36,7 @@ POST /api/connector/983bddbe-6a1a-4cd8-a024-9b4d84ba9981/sap/purchase-orders/loo
 GET /api/master/resolve?type=Vendor&source=SAP&connectorId=983bddbe-6a1a-4cd8-a024-9b4d84ba9981&q=ACME
 ```
 
-- [ ] Returns ACME Supplies (from `sampleVendors` or PO vendors)
+- [ ] Returns APEX INDUSTRIAL COMPONENTS LTD (from `sampleVendors` or PO vendors)
 
 ## 4. AP `/chat`
 

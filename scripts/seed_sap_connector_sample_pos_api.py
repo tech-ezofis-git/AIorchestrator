@@ -12,13 +12,15 @@ ENV_PATH = ROOT / ".env"
 
 SAMPLES = [
     {
+        # Aligned to live invoice INV-2026-6001 for AP SAP PO match smoke.
         "po_number": "PO-60001",
-        "vendor": "ACME Supplies",
-        "total": 1500.00,
-        "currency": "USD",
+        "vendor": "APEX INDUSTRIAL COMPONENTS LTD",
+        "total": 5203.65,
+        "currency": "CAD",
         "lines": [
-            {"description": "Widget A", "qty": 10, "unit_price": 100, "amount": 1000},
-            {"description": "Widget B", "qty": 5, "unit_price": 100, "amount": 500},
+            {"description": "Bearing assembly kit", "qty": 5, "unit_price": 650.00, "amount": 3250.00},
+            {"description": "Seal pack", "qty": 10, "unit_price": 125.00, "amount": 1250.00},
+            {"description": "Freight", "qty": 1, "unit_price": 703.65, "amount": 703.65},
         ],
     },
     {
@@ -41,10 +43,21 @@ SAMPLES = [
     },
 ]
 
+VENDORS = [
+    {
+        "id": "V-APEX",
+        "displayName": "APEX INDUSTRIAL COMPONENTS LTD",
+        "email": "ap@apex-industrial.example",
+    },
+    {"id": "V-CONTOSO", "displayName": "Contoso Trading", "email": None},
+    {"id": "V-FABRIKAM", "displayName": "Fabrikam Ltd", "email": None},
+]
+
 PATCH = {
     "provider": "SAP",
     "mode": "sample",
     "samplePurchaseOrders": SAMPLES,
+    "sampleVendors": VENDORS,
 }
 
 

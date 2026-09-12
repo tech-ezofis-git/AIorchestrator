@@ -1745,6 +1745,22 @@ Due Date,DATE</textarea>
         </div>
       </div>
     </details>
+    <details class="ocr-panel" id="cbPanel">
+      <summary>Chatbot options</summary>
+      <div class="ocr-grid">
+        <div class="span-all">
+          <label for="cbSpecificId">Repository id (optional — leave blank for tenant-wide)</label>
+          <input type="text" id="cbSpecificId" placeholder="Repository UUID" />
+        </div>
+        <div class="span-all">
+          <label for="cbUploadFile">File for upload / ticket+attachments (optional)</label>
+          <input type="file" id="cbUploadFile" />
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-primary" id="cbSendBtn">Send chatbot</button>
+        </div>
+      </div>
+    </details>
     </div>
     <div class="composer ask-mode" id="composerWrap">
       <div class="composer-mode-label" id="composerModeLabel">Ask AI</div>
@@ -2110,6 +2126,7 @@ const ICONS = {
   prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 17 4 12l4-5M16 7l4 5-4 5M13 5l-2 14"/></svg>',
   pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
   global_search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>',
+  chatbot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16v10H8l-4 4V6Z"/><path d="M8 10h8M8 13h5"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
@@ -2119,6 +2136,7 @@ const CAP_ACTIONS = [
   { slug: 'prompt', label: 'Prompt agent', mode: 'prompt' },
   { slug: 'pdf', label: 'PDF generator', mode: 'pdf' },
   { slug: 'global_search', label: 'Global Search', mode: 'global_search' },
+  { slug: 'chatbot', label: 'Chatbot', mode: 'chatbot' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
 const MODE_LABELS = {
@@ -2130,10 +2148,12 @@ const MODE_LABELS = {
   prompt: 'Prompt agent',
   pdf: 'PDF generator',
   global_search: 'Global Search',
+  chatbot: 'Chatbot',
 };
 const capActionsEl = document.getElementById('capActions');
 const apPanel = document.getElementById('apPanel');
 const gsPanel = document.getElementById('gsPanel');
+const cbPanel = document.getElementById('cbPanel');
 let composerMode = 'chat';
 let consoleAgentsCache = [];
 window.activeCustomIntent = '';
@@ -2419,6 +2439,7 @@ const EMPTY_SPECS = {
   insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
   global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
+  chatbot: { title: 'Chatbot', sub: 'Search, then act: start workflow / upload / ticket+attach / create user. Confirm before execute.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
 };
 
@@ -2455,16 +2476,17 @@ function syncMainControls() {
   const mc = document.getElementById('mainControls');
   const panel = document.getElementById('docPanel');
   if (!mc || !panel) return;
-  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open);
+  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open);
   mc.hidden = !active;
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result)) return;
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
   if (gsPanel) gsPanel.open = false;
+  if (cbPanel) cbPanel.open = false;
   syncMainControls();
   requestAnimationFrame(() => {
     transcript.scrollTop = transcript.scrollHeight;
@@ -2472,7 +2494,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -2485,6 +2507,7 @@ function setComposerMode(mode) {
   panel.open = showDoc;
   if (apPanel) apPanel.open = mode === 'ap';
   if (gsPanel) gsPanel.open = mode === 'global_search';
+  if (cbPanel) cbPanel.open = mode === 'chatbot';
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
@@ -2527,6 +2550,9 @@ function setComposerMode(mode) {
   } else if (mode === 'global_search') {
     banner.textContent = 'Global Search';
     messageInput.placeholder = 'Query — e.g. QUALITY CERTIFICATE or EMP10245';
+  } else if (mode === 'chatbot') {
+    banner.textContent = 'Chatbot';
+    messageInput.placeholder = 'Ask Chatbot — e.g. help or find INV-2026-6001';
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -3575,10 +3601,181 @@ function renderGlobalSearchResult(result, request) {
   return { html, resultJson, curlText };
 }
 
+function renderChatbotBlocks(blocks) {
+  if (!Array.isArray(blocks) || !blocks.length) return '<p class="summary-prose">No blocks.</p>';
+  let html = '';
+  blocks.forEach((block) => {
+    const type = (block && block.type) || 'paragraph';
+    if (type === 'bullets' || type === 'bullet') {
+      const title = block.title ? `<div class="summary-card-kicker">${escapeHtml(String(block.title))}</div>` : '';
+      const items = Array.isArray(block.items) ? block.items : [];
+      html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-header">${title}</div><div class="summary-card-body"><ul class="summary-facts">`;
+      items.forEach((item) => {
+        if (item && typeof item === 'object') {
+          const label = item.label != null ? String(item.label) : '';
+          const value = item.value != null ? String(item.value) : JSON.stringify(item);
+          html += `<li><strong>${escapeHtml(label)}</strong>${label ? ': ' : ''}${escapeHtml(value)}</li>`;
+        } else {
+          html += `<li>${escapeHtml(String(item))}</li>`;
+        }
+      });
+      html += '</ul></div></div>';
+      return;
+    }
+    if (type === 'cards' || type === 'card') {
+      const items = Array.isArray(block.items) ? block.items : (block.title ? [block] : []);
+      html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-header"><div class="summary-card-kicker">Results</div><div class="summary-card-title">${escapeHtml(String(items.length))} card${items.length === 1 ? '' : 's'}</div></div><div class="summary-card-body"><ul class="summary-facts">`;
+      items.forEach((item) => {
+        const title = item.title || item.name || '';
+        const subtitle = item.subtitle || '';
+        const desc = item.description || '';
+        const idObj = item.id || {};
+        const idBits = [];
+        if (idObj.repositoryName || idObj.repositoryId) idBits.push(`repo: ${idObj.repositoryName || idObj.repositoryId}`);
+        if (idObj.workflowName || idObj.workflowId) idBits.push(`wf: ${idObj.workflowName || idObj.workflowId}`);
+        if (idObj.requestNo) idBits.push(`req: ${idObj.requestNo}`);
+        if (idObj.instanceId) idBits.push(`instance: ${idObj.instanceId}`);
+        if (idObj.itemId) idBits.push(`item: ${idObj.itemId}`);
+        if (idObj.commentId) idBits.push(`comment: ${idObj.commentId}`);
+        if (idObj.stage) idBits.push(`stage: ${idObj.stage}`);
+        const typeChip = item.type ? ` <span class="summary-chip">${escapeHtml(String(item.type))}</span>` : '';
+        html += `<li><strong>${escapeHtml(String(title))}</strong>${typeChip}`;
+        if (subtitle) html += `<div class="summary-prose">${escapeHtml(String(subtitle))}</div>`;
+        if (desc) html += `<div class="summary-prose">${escapeHtml(String(desc))}</div>`;
+        if (idBits.length) html += `<div class="summary-prose">${escapeHtml(idBits.join(' · '))}</div>`;
+        html += '</li>';
+      });
+      html += '</ul></div></div>';
+      return;
+    }
+    const text = block.text || block.content || '';
+    html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-body"><p class="summary-prose">${escapeHtml(String(text))}</p></div></div>`;
+  });
+  return html;
+}
+
+function renderChatbotResult(result, request) {
+  if (result && Array.isArray(result.hits) && result.hits.length) {
+    window._chatbotLastHits = result.hits;
+  }
+  if (result && result.pending_action && result.pending_action.action_id) {
+    window._chatbotPendingActionId = result.pending_action.action_id;
+    window._chatbotPendingTool = result.pending_action.tool_name || '';
+  }
+  const blocks = (result && result.text && result.text.blocks) || [];
+  const hits = (result && result.hits) || [];
+  const query = (result && result.query) || '';
+  const action = result && result.action;
+  let browseHtml = '';
+  if (action && action.browse_request) {
+    const br = action.browse_request;
+    browseHtml = `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header"><div class="summary-card-kicker">Browse</div>
+      <div class="summary-card-title">${escapeHtml(String(br.repositoryId || ''))}</div></div>
+      <div class="summary-card-body"><p class="summary-prose">actionTo=${escapeHtml(String((result && result.actionTo) || ''))}</p></div>
+    </div>`;
+  }
+  if (action && action.confirm_request) {
+    const cr = action.confirm_request;
+    const aid = cr.actionId || '';
+    browseHtml += `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header"><div class="summary-card-kicker">Pending action</div>
+      <div class="summary-card-title">${escapeHtml(String(cr.tool || ''))}</div></div>
+      <div class="summary-card-body"><p class="summary-prose">actionId=${escapeHtml(String(aid))}</p>
+      <button type="button" class="btn-primary cb-confirm-btn" data-action-id="${escapeHtml(String(aid))}" style="margin-top:8px">Confirm action</button></div>
+    </div>`;
+  }
+  const pending = result && result.pending_action;
+  if (pending && pending.action_id && !(action && action.confirm_request)) {
+    browseHtml += `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header"><div class="summary-card-kicker">Confirm required</div>
+      <div class="summary-card-title">${escapeHtml(String(pending.tool_name || ''))}</div></div>
+      <div class="summary-card-body"><p class="summary-prose">${escapeHtml(String(pending.status || 'pending_confirmation'))}</p>
+      <button type="button" class="btn-primary cb-confirm-btn" data-action-id="${escapeHtml(String(pending.action_id))}" style="margin-top:8px">Confirm action</button></div>
+    </div>`;
+  }
+  let hitsHtml = '';
+  if (hits.length) {
+    hitsHtml = `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header">
+        <div class="summary-card-kicker">Hits</div>
+        <div class="summary-card-title">${escapeHtml(String(hits.length))}</div>
+      </div>
+      <div class="summary-card-body"><ul class="summary-facts">`;
+    hits.forEach((hit) => {
+      const name = hit.ifileName || hit.name || hit.entity_name || hit.entity_id || hit.type || '';
+      const typ = hit.type || '';
+      hitsHtml += `<li><strong>${escapeHtml(String(name))}</strong><div class="summary-prose">${escapeHtml(String(typ))}</div></li>`;
+    });
+    hitsHtml += '</ul></div></div>';
+  }
+  const html = `<div class="summary-card-wrap">
+    <div class="summary-section-label">Chatbot${query ? ': ' + escapeHtml(String(query)) : ''}</div>
+    ${renderChatbotBlocks(blocks)}
+    ${browseHtml}
+    ${hitsHtml}
+    ${codePanelHtml()}
+  </div>`;
+  const resultJson = JSON.stringify(result || {}, null, 2);
+  const curlText = buildChatCurl(request, 'chatbot');
+  return { html, resultJson, curlText };
+}
+
+function renderChatbotSuccess(result, toolName) {
+  const instanceId = result.instanceId || result.InstanceId || '';
+  const itemId = result.itemId || result.ItemId || '';
+  const workflowId = result.workflowId || result.WorkflowId || '';
+  const fileName = result.fileName || result.FileName || '';
+  const userId = result.userId || result.UserId || '';
+  const email = result.email || result.Email || '';
+  const mock = result.mock ? ' <span class="summary-chip">mock</span>' : '';
+  const links = [];
+  if (instanceId) links.push(`instanceId: <code>${escapeHtml(String(instanceId))}</code>`);
+  if (itemId) links.push(`itemId: <code>${escapeHtml(String(itemId))}</code>`);
+  if (workflowId) links.push(`workflowId: <code>${escapeHtml(String(workflowId))}</code>`);
+  if (fileName) links.push(`file: <code>${escapeHtml(String(fileName))}</code>`);
+  if (userId) links.push(`userId: <code>${escapeHtml(String(userId))}</code>`);
+  if (email) links.push(`email: <code>${escapeHtml(String(email))}</code>`);
+  return `<div class="summary-card-wrap"><div class="summary-card">
+    <div class="summary-card-header"><div class="summary-card-kicker">Success</div>
+    <div class="summary-card-title">${escapeHtml(String(toolName || 'action'))}${mock}</div></div>
+    <div class="summary-card-body"><p class="summary-prose">${links.join('<br>') || escapeHtml(JSON.stringify(result))}</p></div>
+  </div></div>`;
+}
+
+async function confirmChatbotAction(actionId, sessionId) {
+  if (!actionId) return;
+  const processing = addProcessingMessage('Confirming action…');
+  try {
+    const res = await fetch('/actions/' + encodeURIComponent(actionId) + '/confirm?session_id=' + encodeURIComponent(sessionId), {
+      method: 'POST',
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (!res.ok) {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'Confirm failed'}`);
+      return;
+    }
+    window._chatbotPendingActionId = '';
+    clearEmptyState();
+    const div = document.createElement('div');
+    div.className = 'msg assistant has-summary';
+    div.innerHTML = `<div class="bubble"></div>${renderChatbotSuccess(data.result || {}, data.tool_name || '')}`;
+    const bubble = div.querySelector('.bubble');
+    bubble.textContent = data.status === 'executed' ? 'Action executed.' : String(data.status || 'done');
+    transcript.appendChild(div);
+    transcript.scrollTop = transcript.scrollHeight;
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Confirm network error');
+  }
+}
+
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result)
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -3632,8 +3829,13 @@ function renderAssistantMessage(body, sessionId, request) {
     details += gsCode.html;
     codeBlocks.push(gsCode);
   }
+  if (body.chatbot_result) {
+    const cbCode = renderChatbotResult(body.chatbot_result, request);
+    details += cbCode.html;
+    codeBlocks.push(cbCode);
+  }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -3675,6 +3877,9 @@ function renderAssistantMessage(body, sessionId, request) {
   }
   if (body.global_search_result) {
     bubbleText = body.reply || 'Global Search complete.';
+  }
+  if (body.chatbot_result) {
+    bubbleText = body.reply || 'Chatbot ready.';
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -4594,6 +4799,81 @@ async function sendGlobalSearchJob() {
   }
 }
 
+async function fileToUploadPayload(fileInput) {
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) return null;
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return {
+    file_name: file.name,
+    content_type: file.type || 'application/octet-stream',
+    content_base64: btoa(binary),
+  };
+}
+
+async function sendChatbotJob() {
+  const message = messageInput.value.trim() || 'help';
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const tenantId = consoleTenantId();
+  if (!tenantId) {
+    addSystemMessage('Select a tenant first — Chatbot is tenant-scoped.');
+    return;
+  }
+  const specificId = (document.getElementById('cbSpecificId') || {}).value || '';
+  const uploadInput = document.getElementById('cbUploadFile');
+  addUserMessage(message);
+  messageInput.value = '';
+  autosizeComposer();
+  const processing = addProcessingMessage('Chatbot…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+  try {
+    const payload = { tenantId: tenantId };
+    if (specificId.trim()) payload.specificId = specificId.trim();
+    if (Array.isArray(window._chatbotLastHits) && window._chatbotLastHits.length) {
+      payload.recentHits = window._chatbotLastHits;
+    }
+    if (window._chatbotPendingActionId) {
+      payload.pendingActionId = window._chatbotPendingActionId;
+    }
+    const upload = await fileToUploadPayload(uploadInput);
+    if (upload) payload.uploadFile = upload;
+    const body = {
+      session_id: sessionId,
+      intent: 'chatbot',
+      message: message,
+      payload: payload,
+    };
+    const request = { intent: 'chatbot', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      collapseFormsAfterResult(data);
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'Chatbot failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
 async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
@@ -4602,6 +4882,7 @@ async function sendMessage() {
   if (composerMode === 'prompt') return sendPromptJob();
   if (composerMode === 'pdf') return sendPdfJob();
   if (composerMode === 'global_search') return sendGlobalSearchJob();
+  if (composerMode === 'chatbot') return sendChatbotJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');
@@ -4645,6 +4926,17 @@ async function sendMessage() {
 composerForm.addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });
 const gsSendBtn = document.getElementById('gsSendBtn');
 if (gsSendBtn) gsSendBtn.addEventListener('click', () => sendGlobalSearchJob());
+const cbSendBtn = document.getElementById('cbSendBtn');
+if (cbSendBtn) cbSendBtn.addEventListener('click', () => sendChatbotJob());
+document.addEventListener('click', (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest('.cb-confirm-btn') : null;
+  if (!btn) return;
+  const actionId = btn.getAttribute('data-action-id') || '';
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  confirmChatbotAction(actionId, sessionId);
+});
+
 messageInput.addEventListener('input', autosizeComposer);
 messageInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }

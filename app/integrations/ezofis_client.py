@@ -7,6 +7,7 @@ credits and PO/vendor masters stay mocked so unit tests need no network.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 from typing import Any, Optional
@@ -716,6 +717,377 @@ class EzofisClient:
                 return {"ok": True}
         except Exception as exc:
             logger.warning("ezofis_move_next_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
+    async def start_workflow(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: str,
+        context: Optional[str] = None,
+        env_type: Optional[str] = None,
+        form_data: Optional[dict[str, Any]] = None,
+        skills: Optional[list[str]] = None,
+        attachment_file_name: Optional[str] = None,
+        attachment_content_base64: Optional[str] = None,
+        attachment_content_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST /Workflows/{id}/start/json — start a workflow instance."""
+        wf_id = str(workflow_id or "").strip()
+        if not wf_id:
+            return {"ok": False, "error": "workflow_id is required"}
+        body: dict[str, Any] = {}
+        if context is not None:
+            body["context"] = context
+        if env_type is not None:
+            body["envType"] = env_type
+        if form_data is not None:
+            body["formData"] = form_data
+        if skills is not None:
+            body["skills"] = skills
+        att_name = str(attachment_file_name or "").strip()
+        att_b64 = str(attachment_content_base64 or "").strip()
+        if att_name and att_b64:
+            try:
+                raw = base64.b64decode(att_b64, validate=False)
+            except Exception:
+                return {"ok": False, "error": "attachment_content_base64 is invalid"}
+            body["attachment"] = {
+                "content": base64.b64encode(raw).decode("ascii"),
+                "fileName": att_name,
+                "contentType": attachment_content_type or "application/octet-stream",
+            }
+        if not self._live_enabled():
+            return {
+                "ok": True,
+                "mock": True,
+                "instanceId": "00000000-0000-0000-0000-000000000001",
+                "workflowId": wf_id,
+                "firstTransactionId": "100",
+                "payload": {k: v for k, v in body.items() if k != "attachment"},
+                "hasAttachment": bool(body.get("attachment")),
+            }
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/Workflows/{wf_id}/start/json"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, json=body)
+                if response.status_code not in (200, 201):
+                    detail = (response.text or "")[:400]
+                    logger.warning(
+                        "ezofis_start_workflow_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                return result
+        except Exception as exc:
+            logger.warning("ezofis_start_workflow_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
+    async def attach_workflow_file(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: str,
+        instance_id: str,
+        repository_id: str,
+        file_name: str,
+        content_base64: str,
+        content_type: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST /Workflows/{wf}/instances/{inst}/attachments — multipart archive upload."""
+        wf_id = str(workflow_id or "").strip()
+        inst_id = str(instance_id or "").strip()
+        repo_id = str(repository_id or "").strip()
+        name = str(file_name or "").strip()
+        if not all([wf_id, inst_id, repo_id, name]):
+            return {"ok": False, "error": "workflow_id, instance_id, repository_id, and file_name are required"}
+        try:
+            raw = base64.b64decode(content_base64 or "", validate=False)
+        except Exception:
+            return {"ok": False, "error": "content_base64 is invalid"}
+        if not self._live_enabled():
+            return {
+                "ok": True,
+                "mock": True,
+                "workflowId": wf_id,
+                "instanceId": inst_id,
+                "repositoryId": repo_id,
+                "fileName": name,
+                "itemId": "00000000-0000-0000-0000-000000000004",
+            }
+        try:
+            headers = await self._auth_headers(tenant_id)
+            headers.pop("Content-Type", None)
+            url = f"{self._base()}/Workflows/{wf_id}/instances/{inst_id}/attachments"
+            data: dict[str, str] = {"repositoryId": repo_id}
+            if transaction_id:
+                data["transactionId"] = str(transaction_id).strip()
+            files = {"file": (name, raw, content_type or "application/octet-stream")}
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, data=data, files=files)
+                if response.status_code not in (200, 201):
+                    detail = (response.text or "")[:400]
+                    logger.warning(
+                        "ezofis_attach_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                return result
+        except Exception as exc:
+            logger.warning("ezofis_attach_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
+    async def start_ticket_with_attachments(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: str,
+        repository_id: Optional[str] = None,
+        context: Optional[str] = None,
+        form_data: Optional[dict[str, Any]] = None,
+        file_name: Optional[str] = None,
+        content_base64: Optional[str] = None,
+        content_type: Optional[str] = None,
+        extra_attachments: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        """Start a workflow ticket and optionally attach one or more files."""
+        start = await self.start_workflow(
+            tenant_id=tenant_id,
+            workflow_id=workflow_id,
+            context=context,
+            form_data=form_data,
+            attachment_file_name=file_name,
+            attachment_content_base64=content_base64,
+            attachment_content_type=content_type,
+        )
+        if not start.get("ok"):
+            return start
+        instance_id = str(
+            start.get("instanceId") or start.get("InstanceId") or ""
+        ).strip()
+        attached: list[dict[str, Any]] = []
+        extras = list(extra_attachments or [])
+        # If start had no inline attachment but we have file + repository, attach after start.
+        if (
+            instance_id
+            and repository_id
+            and file_name
+            and content_base64
+            and not start.get("hasAttachment")
+            and self._live_enabled()
+        ):
+            extras = [
+                {
+                    "file_name": file_name,
+                    "content_base64": content_base64,
+                    "content_type": content_type,
+                    "repository_id": repository_id,
+                },
+                *extras,
+            ]
+        elif (
+            instance_id
+            and repository_id
+            and file_name
+            and content_base64
+            and not self._live_enabled()
+            and not start.get("hasAttachment")
+        ):
+            extras = [
+                {
+                    "file_name": file_name,
+                    "content_base64": content_base64,
+                    "content_type": content_type,
+                    "repository_id": repository_id,
+                },
+                *extras,
+            ]
+        for att in extras:
+            if not isinstance(att, dict):
+                continue
+            repo = str(att.get("repository_id") or repository_id or "").strip()
+            fname = str(att.get("file_name") or "").strip()
+            b64 = str(att.get("content_base64") or "").strip()
+            if not (repo and fname and b64 and instance_id):
+                attached.append({"ok": False, "error": "incomplete_attachment"})
+                continue
+            attached.append(
+                await self.attach_workflow_file(
+                    tenant_id=tenant_id,
+                    workflow_id=workflow_id,
+                    instance_id=instance_id,
+                    repository_id=repo,
+                    file_name=fname,
+                    content_base64=b64,
+                    content_type=att.get("content_type"),
+                )
+            )
+        out = dict(start)
+        out["attachments"] = attached
+        out["instanceId"] = instance_id or out.get("instanceId")
+        return out
+
+    async def upload_repository_file(
+        self,
+        *,
+        tenant_id: str,
+        repository_id: str,
+        file_name: str,
+        content_base64: str,
+        content_type: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        process_id: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST /repositories/{id}/items/upload — multipart file upload."""
+        repo_id = str(repository_id or "").strip()
+        name = str(file_name or "").strip()
+        if not repo_id:
+            return {"ok": False, "error": "repository_id is required"}
+        if not name:
+            return {"ok": False, "error": "file_name is required"}
+        try:
+            raw = base64.b64decode(content_base64 or "", validate=False)
+        except Exception:
+            return {"ok": False, "error": "content_base64 is invalid"}
+        if not self._live_enabled():
+            return {
+                "ok": True,
+                "mock": True,
+                "itemId": "00000000-0000-0000-0000-000000000002",
+                "fileName": name,
+                "repositoryId": repo_id,
+                "fileSize": len(raw),
+            }
+        try:
+            headers = await self._auth_headers(tenant_id)
+            # Multipart must not force JSON content-type from auth helpers.
+            headers.pop("Content-Type", None)
+            url = f"{self._base()}/repositories/{repo_id}/items/upload"
+            data: dict[str, str] = {}
+            if workflow_id:
+                data["workflowId"] = str(workflow_id).strip()
+            if instance_id:
+                data["instanceId"] = str(instance_id).strip()
+            if process_id:
+                data["processId"] = str(process_id).strip()
+            if transaction_id:
+                data["transactionId"] = str(transaction_id).strip()
+            files = {
+                "file": (name, raw, content_type or "application/octet-stream"),
+            }
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, data=data, files=files)
+                if response.status_code not in (200, 201):
+                    detail = (response.text or "")[:400]
+                    logger.warning(
+                        "ezofis_upload_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                return result
+        except Exception as exc:
+            logger.warning("ezofis_upload_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
+    async def create_user(
+        self,
+        *,
+        tenant_id: str,
+        email: str,
+        display_name: str,
+        password: Optional[str] = None,
+        role: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        user_name: Optional[str] = None,
+        department: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST /Users — create a user (admin)."""
+        email_norm = str(email or "").strip()
+        display = str(display_name or "").strip()
+        if not email_norm:
+            return {"ok": False, "error": "email is required"}
+        if not display:
+            return {"ok": False, "error": "display_name is required"}
+        body: dict[str, Any] = {
+            "email": email_norm,
+            "displayName": display,
+        }
+        if password is not None:
+            body["password"] = password
+        if role is not None:
+            body["role"] = role
+        if first_name is not None:
+            body["firstName"] = first_name
+        if last_name is not None:
+            body["lastName"] = last_name
+        if user_name is not None:
+            body["userName"] = user_name
+        if department is not None:
+            body["department"] = department
+        if not self._live_enabled():
+            return {
+                "ok": True,
+                "mock": True,
+                "userId": "00000000-0000-0000-0000-000000000003",
+                "email": email_norm,
+                "displayName": display,
+            }
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/Users"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, json=body)
+                if response.status_code not in (200, 201):
+                    detail = (response.text or "")[:400]
+                    logger.warning(
+                        "ezofis_create_user_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                return result
+        except Exception as exc:
+            logger.warning("ezofis_create_user_error", extra={"error_type": type(exc).__name__})
             return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
 
     async def _post_json(self, path: str, *, tenant_id: str, body: dict[str, Any]) -> Any:
