@@ -87,6 +87,7 @@ def classify_chatbot_intent(message: str) -> GateDecision:
                     "title": "Examples",
                     "items": [
                         "INV-2026-6001",
+                        "What repositories are available?",
                         "find QUALITY CERTIFICATE",
                         "REQ-9001",
                         "search comments for approved",

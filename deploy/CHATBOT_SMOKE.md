@@ -13,7 +13,7 @@ Tenant id is required on every turn. Live Core actions need `EZOFIS_API_BASE` + 
 
 - [ ] Message `hello` → greeting, no search tools
 - [ ] Message `help` → capabilities bullets (search + actions)
-- [ ] Keyword / invoice / REQ → `chatbot_result.hits` + `text.blocks` cards
+- [ ] “What are repo available?” / “list repositories” → repository cards + `repo_picker` (empty catalog query)
 - [ ] Optional `specificId` locks one repository
 
 ## 2. Comments + tickets

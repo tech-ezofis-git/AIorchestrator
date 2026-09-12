@@ -102,19 +102,27 @@ def format_search_blocks(
     *,
     workspace_id: str = "",
     specific_id: str = "",
+    catalog_list: Optional[str] = None,
 ) -> dict[str, Any]:
     """Build chatbot_result fields from a GlobalSearchResult."""
     hits = list(result.hits)
     query = result.query
     total = len(hits)
     if total == 0:
-        reply = "No matches."
-        blocks: list[dict[str, Any]] = [
-            {
-                "type": "paragraph",
-                "text": f'No matches found for "{query}".',
-            }
-        ]
+        if catalog_list:
+            label = catalog_list
+            reply = f"No {label.lower()} found in this tenant."
+            blocks: list[dict[str, Any]] = [
+                {"type": "paragraph", "text": reply},
+            ]
+        else:
+            reply = "No matches."
+            blocks = [
+                {
+                    "type": "paragraph",
+                    "text": f'No matches found for "{query}".',
+                }
+            ]
         return {
             "reply": reply,
             "text": {"blocks": blocks},
@@ -129,25 +137,50 @@ def format_search_blocks(
         typ = hit.type or hit.entity_type or "other"
         by_type[typ] = by_type.get(typ, 0) + 1
     summary_bits = [f"{count} {typ}" for typ, count in sorted(by_type.items())]
-    reply = f"Found {total} match{'es' if total != 1 else ''}."
+    if catalog_list:
+        reply = f"Found {total} {catalog_list.lower()}."
+        intro = f"Here are the {catalog_list.lower()} available in this tenant ({total}):"
+        filter_items = [{"label": "Catalog", "value": catalog_list}]
+    else:
+        reply = f"Found {total} match{'es' if total != 1 else ''}."
+        intro = (
+            f'I found {total} result{"s" if total != 1 else ""} matching "{query}"'
+            f" ({', '.join(summary_bits)})."
+        )
+        filter_items = [
+            {"label": "Query", "value": query},
+            *([{"label": "Repository", "value": specific_id}] if specific_id else []),
+        ]
     blocks = [
         {
             "type": "paragraph",
-            "text": f'I found {total} result{"s" if total != 1 else ""} matching "{query}" ({", ".join(summary_bits)}).',
+            "text": intro,
         },
         {
             "type": "bullets",
             "title": "Filters Applied",
-            "items": [
-                {"label": "Query", "value": query},
-                *([{"label": "Repository", "value": specific_id}] if specific_id else []),
-            ],
+            "items": filter_items,
         },
         {
             "type": "cards",
             "items": [_card_from_hit(hit) for hit in hits],
         },
     ]
+    if catalog_list == "Repositories":
+        picker_items = []
+        for hit in hits:
+            id_obj = hit.id if isinstance(hit.id, dict) else {}
+            rid = id_obj.get("repositoryId") or hit.entity_id
+            if rid:
+                picker_items.append({"repositoryId": rid, "name": _hit_title(hit)})
+        if picker_items:
+            blocks.append(
+                {
+                    "type": "repo_picker",
+                    "title": "Choose a repository",
+                    "items": picker_items,
+                }
+            )
     action, action_context, action_to = _browse_from_hits(
         hits, workspace_id=workspace_id, specific_id=specific_id
     )

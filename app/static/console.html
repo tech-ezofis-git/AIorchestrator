@@ -3648,6 +3648,18 @@ function renderChatbotBlocks(blocks) {
       html += '</ul></div></div>';
       return;
     }
+    if (type === 'repo_picker' || type === 'repository_picker') {
+      const items = Array.isArray(block.items) ? block.items : [];
+      const title = block.title ? String(block.title) : 'Repositories';
+      html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-header"><div class="summary-card-kicker">Repo picker</div><div class="summary-card-title">${escapeHtml(title)}</div></div><div class="summary-card-body"><ul class="summary-facts">`;
+      items.forEach((item) => {
+        const name = item.name || item.title || '';
+        const rid = item.repositoryId || '';
+        html += `<li><strong>${escapeHtml(String(name))}</strong><div class="summary-prose">${escapeHtml(String(rid))}</div></li>`;
+      });
+      html += '</ul></div></div>';
+      return;
+    }
     const text = block.text || block.content || '';
     html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-body"><p class="summary-prose">${escapeHtml(String(text))}</p></div></div>`;
   });

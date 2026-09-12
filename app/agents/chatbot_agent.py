@@ -12,10 +12,19 @@ from app.chatbot.nl_actions import (
     looks_like_action,
     looks_like_confirm,
 )
-from app.core.dispatcher import Dispatcher
+from app.chatbot.query_rewrite import (
+    CatalogKind,
+    catalog_label,
+    catalog_tool_name,
+    detect_catalog_list,
+    rewrite_search_query,
+)
+from app.core.dispatcher import Dispatcher, ToolExecutionError, ToolNotFoundError
 from app.core.pending_actions import PendingActionStore
+from app.global_search.merge import build_result
 from app.global_search.runner import run_global_search
 from app.global_search.sql_search import normalize_query
+from app.global_search.types import SearchHit
 from app.llm.adapter import LLMAdapter
 
 logger = logging.getLogger("orchestrator.chatbot_agent")
@@ -123,7 +132,18 @@ class ChatbotAgent:
                 action_context=None,
             )
 
-        query = normalize_query(user_text)
+        catalog = detect_catalog_list(user_text)
+        if catalog:
+            return await self._list_catalog(
+                user_text=user_text,
+                kind=catalog,
+                tenant_id=tenant_id,
+                specific_id=specific_id,
+                workspace_id=workspace_id,
+            )
+
+        # NL questions → keyword tokens so "what invoices for ACME" still searches.
+        query = rewrite_search_query(user_text) or normalize_query(user_text)
         result = await run_global_search(
             self._dispatcher,
             query=query,
@@ -147,6 +167,56 @@ class ChatbotAgent:
             specific_id=specific_id or None,
             action=formatted.get("action"),
             action_to=formatted.get("actionTo"),
+            action_context=formatted.get("actionContext"),
+        )
+
+    async def _list_catalog(
+        self,
+        *,
+        user_text: str,
+        kind: CatalogKind,
+        tenant_id: str,
+        specific_id: str,
+        workspace_id: str,
+    ) -> dict:
+        """List repositories/workflows/forms with an empty ILIKE (%%) catalog query."""
+        tool = catalog_tool_name(kind)
+        label = catalog_label(kind)
+        payload: dict[str, Any] = {
+            "query": "",
+            "tenant_id": tenant_id,
+            "limit": self._limit,
+        }
+        if tool == "search_repositories" and specific_id:
+            payload["specific_id"] = specific_id
+        try:
+            raw = await self._dispatcher.dispatch(tool, payload)
+        except (ToolExecutionError, ToolNotFoundError):
+            logger.warning("chatbot_catalog_list_failed", extra={"tool": tool, "kind": kind})
+            raw = []
+        hits: list[SearchHit] = []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, SearchHit):
+                    hits.append(item)
+                elif isinstance(item, dict):
+                    hits.append(SearchHit.model_validate(item))
+        result = build_result(f"(all {kind})", hits)
+        formatted = format_search_blocks(
+            result,
+            workspace_id=workspace_id,
+            specific_id=specific_id,
+            catalog_list=label,
+        )
+        return self._pack(
+            user_text=normalize_query(user_text),
+            reply=formatted["reply"],
+            blocks=formatted["text"]["blocks"],
+            hits=formatted["hits"],
+            tenant_id=tenant_id,
+            specific_id=specific_id or None,
+            action=formatted.get("action"),
+            action_to=formatted.get("actionTo") or "Repository",
             action_context=formatted.get("actionContext"),
         )
 
