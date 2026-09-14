@@ -42,6 +42,8 @@ async def test_live_env_sap_sample_is_not_capped():
     artifacts = {
         "po_match": {
             "decision": "MATCHED",
+            "score": 100,
+            "reason": "PO found. Vendor matches PO. Totals match within tolerance.",
             "po": {
                 "po_number": "PO-60001",
                 "vendor": "ACME Supplies",
@@ -51,10 +53,14 @@ async def test_live_env_sap_sample_is_not_capped():
             },
         },
         "vendor_validate": {"status": "ACTIVE", "expected": "ACME Supplies"},
+        "po_lookup_sap": {"source": "sap", "po": {"source": "sap_sample"}},
     }
     result = await finalize_decision_run(_ctx(ezofis_env="live", artifacts=artifacts))
     assert result.data["decision"] == "MATCHED"
     assert result.data["used_mock_data"] is False
+    assert result.data.get("ai_insight")
+    assert result.data.get("source_type") == "SAP"
+    assert "approve for posting" in str(result.data["ai_insight"]).lower()
 
 
 async def test_live_env_mock_po_caps_matched_to_partially_matched():

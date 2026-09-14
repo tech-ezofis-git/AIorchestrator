@@ -143,6 +143,22 @@ async def run(ctx: ApContext) -> ApSkillResult:
     comments = str(finalize.get("reason") or "").strip() or (
         f"Classified as {doc_type}" if review == "Non-Invoice" else review
     )
+    ai_insight = str(finalize.get("ai_insight") or "").strip()
+    source_type = str(finalize.get("source_type") or "").strip()
+    if not ai_insight or not source_type:
+        from app.ap_skills.agent_validation_text import enrichment_for_finalize
+
+        enriched = enrichment_for_finalize(
+            decision=decision,
+            reason=comments,
+            artifacts=ctx.artifacts,
+            invoice=invoice,
+            document_job=job,
+        )
+        ai_insight = ai_insight or enriched["ai_insight"]
+        source_type = source_type or enriched["source_type"]
+        if not str(finalize.get("reason") or "").strip():
+            comments = enriched["reason"]
 
     repository_id = _job_str(job, "repository_id")
     transaction_id = _job_str(job, "transaction_id")
@@ -174,7 +190,9 @@ async def run(ctx: ApContext) -> ApSkillResult:
         "processId": process_id,
         "AIAGENTResponse": {
             "decision": review,
-            "reason": finalize.get("reason"),
+            "reason": finalize.get("reason") or comments,
+            "ai_insight": ai_insight,
+            "source_type": source_type,
             "invoice_number": finalize.get("invoice_number"),
             "po_number": finalize.get("po_number"),
             "duplicate": finalize.get("duplicate"),

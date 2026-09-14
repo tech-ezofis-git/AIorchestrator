@@ -1,6 +1,7 @@
 """finalize_decision — combine skill artifacts into a single AP decision."""
 from __future__ import annotations
 
+from app.ap_skills.agent_validation_text import enrichment_for_finalize
 from app.ap_skills.types import ApContext, ApSkillResult, field_text, invoice_from
 
 SKILL_ID = "finalize_decision"
@@ -143,11 +144,20 @@ async def run(ctx: ApContext) -> ApSkillResult:
                 decision = "PARTIALLY_MATCHED"
                 reason = f"{reason} (capped: {'; '.join(cap_reasons)})".strip()
 
+    enriched = enrichment_for_finalize(
+        decision=decision,
+        reason=reason,
+        artifacts=ctx.artifacts,
+        invoice=invoice,
+        document_job=ctx.document_job,
+    )
     return ApSkillResult(
         skill_id=SKILL_ID,
         data={
             "decision": decision,
-            "reason": reason,
+            "reason": enriched["reason"],
+            "ai_insight": enriched["ai_insight"],
+            "source_type": enriched["source_type"],
             "invoice_number": field_text(invoice, "invoice_number") or None,
             "po_number": (po_match.get("po_number") if isinstance(po_match, dict) else None),
             "duplicate": bool(duplicate.get("is_duplicate_invoice")),

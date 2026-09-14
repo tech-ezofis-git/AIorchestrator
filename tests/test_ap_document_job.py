@@ -493,6 +493,8 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
     assert body["review"] in ("Matched", "Partially Matched", "Not Matched", "Non-Invoice")
     assert "comments" in body
     assert body["AIAGENTResponse"]["decision"] == body["review"]
+    assert body["AIAGENTResponse"].get("ai_insight")
+    assert body["AIAGENTResponse"].get("source_type")
     assert "decision" not in body
     assert "item_key" not in body
     assert "run_id" not in body

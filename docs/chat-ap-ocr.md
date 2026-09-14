@@ -75,6 +75,15 @@ If `skills` is omitted / null, the **default pipeline** runs:
 
 `review` on move-next is the workflow label, not the internal code: `Matched`, `Partially Matched`, `Not Matched`, or `Non-Invoice`. The body also includes `comments`, `AIAGENTResponse`, `itemId`, `repositoryId`, `formId`, `formEntryId`, `isItemTable` — same shape as apagentv6.
 
+`AIAGENTResponse` (persisted on `workflow.agent_data_validation_*`) includes:
+
+| Field | Example |
+|-------|---------|
+| `decision` | `Matched` |
+| `ai_insight` | `PO vendor, totals, and line amounts match — approve for posting` |
+| `reason` | Narrative with score, vendor, and line match summary |
+| `source_type` | `HANA Cloud` \| `SAP` \| `QuickBooks` \| `Sage` \| `EZOFIS DB` \| `Not validated` |
+
 If `skills` is a list, **only those skills** run (in that order). Unknown ids → 400. Opt-in skills (QB/SAP/Sage, GL, GRN, matter, `workflow_progress`) must be listed explicitly.
 
 Each skill that actually runs (not skipped) charges 1 credit (mocked if `EZOFIS_LOGIN_EMAIL` / `PASSWORD` are empty).
