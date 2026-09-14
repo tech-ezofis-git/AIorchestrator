@@ -251,6 +251,8 @@ _PAREN_VENDOR = re.compile(
     r"\(([^)]*\b(?:ltd|limited|inc|corp|llc|gmbh|plc|co\.?)\b[^)]*)\)",
     re.I,
 )
+# Velotics/SAP Bill From often uses "(Domestic US Supplier 1)" with no Inc/Ltd.
+_PAREN_ANY = re.compile(r"\(([^)]{3,80})\)")
 _LETTERHEAD_NOISE = re.compile(r"company\s*code\b", re.I)
 _COLUMN_LABELS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^invoice\s*(?:#|no\.?|number)$", re.I), "Invoice No"),
@@ -367,9 +369,12 @@ def _guess_vendor_from_bill_from(text: str) -> str:
         seen += 1
         if seen > 8:
             break
-        paren = _PAREN_VENDOR.search(line)
+        paren = _PAREN_VENDOR.search(line) or _PAREN_ANY.search(line)
         if paren:
-            return paren.group(1).strip()
+            name = paren.group(1).strip()
+            # Skip pure ids / codes in parentheses.
+            if name and not name.replace("-", "").replace(" ", "").isdigit():
+                return name
         if (
             len(line) >= 4
             and _VENDOR_ENTITY.search(line)

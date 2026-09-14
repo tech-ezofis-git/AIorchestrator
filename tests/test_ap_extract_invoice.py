@@ -145,6 +145,20 @@ Reference
     assert _guess_vendor(text) == "MFG TopConsult Inc."
 
 
+def test_guess_vendor_bill_from_without_inc_suffix():
+    text = """
+Velotics Inc. · Company Code 1710
+Bill From (Supplier)
+Bill To (Customer)
+17300001
+(Domestic US Supplier 1)
+Velotics Inc.
+Reference
+4500063646
+"""
+    assert _guess_vendor(text) == "Domestic US Supplier 1"
+
+
 def test_shape_ok_rejects_mismatched_label_value_pairs():
     assert _shape_ok("Invoice No", "Fed Ground") is False  # no digits at all
     assert _shape_ok("Invoice No", "INV-2026-6001") is True
