@@ -763,6 +763,91 @@ def test_quickbooks_connector_lookup_feeds_po_match(client, monkeypatch):
     assert artifacts["po_match"]["decision"] == "MATCHED"
 
 
+def test_hana_connector_lookup_feeds_po_match(client, monkeypatch):
+    async def fake_hana(self, **kwargs):
+        return {
+            "po_number": kwargs["po_number"],
+            "vendor": "EV Parts Inc.",
+            "total": 368.94,
+            "currency": "USD",
+            "lines": [{"line_no": 10, "description": "BKR-100 Handle Bars", "qty": 129, "amount": 368.94}],
+            "source": "hana_cloud",
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po_hana",
+        fake_hana,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-hana",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-hana",
+                tenant_id="b843b988-00ec-44e3-aca2-b8470133ef63",
+                resource="HANA",
+                connector_id="f7636e21-1a0c-457c-a2b4-e28430705477",
+                skills=["extract_invoice", "po_lookup_sap", "po_match", "finalize_decision"],
+                invoice_json={
+                    **SAMPLE_INVOICE,
+                    "po_number": "4500069456",
+                    "vendor": "EV Parts Inc.",
+                    "total": 368.94,
+                },
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["ap_result"]["artifacts"]
+    assert artifacts["po_lookup_sap"]["source"] == "hana"
+    assert artifacts["po_lookup_sap"]["po"]["source"] == "hana_cloud"
+    assert artifacts["po_match"]["decision"] == "MATCHED"
+
+
+def test_ezofis_tenant_defaults_hana_connector_without_payload_id(client, monkeypatch):
+    calls = []
+
+    async def fake_hana(self, **kwargs):
+        calls.append(kwargs)
+        return {
+            "po_number": kwargs["po_number"],
+            "vendor": "EV Parts Inc.",
+            "total": 368.94,
+            "currency": "USD",
+            "lines": [],
+            "source": "hana_cloud",
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po_hana",
+        fake_hana,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-hana-default-conn",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-hana-def",
+                tenant_id="b843b988-00ec-44e3-aca2-b8470133ef63",
+                resource="SAP",
+                skills=["extract_invoice", "po_lookup_sap", "po_match", "finalize_decision"],
+                invoice_json={
+                    **SAMPLE_INVOICE,
+                    "po_number": "4500069456",
+                    "vendor": "EV Parts Inc.",
+                    "total": 368.94,
+                },
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert calls and calls[0]["connector_id"] == "f7636e21-1a0c-457c-a2b4-e28430705477"
+
+
 def test_sap_connector_lookup_feeds_po_match(client, monkeypatch):
     async def fake_sap(self, **kwargs):
         return {

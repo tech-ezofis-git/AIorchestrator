@@ -551,6 +551,135 @@ class EzofisClient:
             "mock": True,
         }
 
+    @staticmethod
+    def _normalize_hana_po_item(item: dict[str, Any], *, po_number: str) -> dict[str, Any]:
+        lines: list[dict[str, Any]] = []
+        for row in item.get("items") or []:
+            if not isinstance(row, dict):
+                continue
+            lines.append(
+                {
+                    "line_no": row.get("itemNumber") or row.get("item_number"),
+                    "description": row.get("materialDescription") or row.get("material_description"),
+                    "qty": row.get("orderQuantity") or row.get("order_quantity"),
+                    "unit_price": row.get("netPrice") or row.get("net_price"),
+                    "amount": row.get("netValue") or row.get("net_value"),
+                }
+            )
+        return {
+            "po_number": item.get("poNumber") or item.get("po_number") or po_number,
+            "vendor": item.get("supplierName") or item.get("supplier_name") or item.get("supplierId"),
+            "supplier_id": item.get("supplierId") or item.get("supplier_id"),
+            "total": item.get("total"),
+            "currency": item.get("currency"),
+            "po_date": item.get("poDate") or item.get("po_date"),
+            "lines": lines,
+            "matches": item.get("matches") if isinstance(item.get("matches"), list) else [],
+            "source": "hana_cloud",
+        }
+
+    async def lookup_po_hana(
+        self, *, tenant_id: str, po_number: str, connector_id: str
+    ) -> Optional[dict[str, Any]]:
+        """POST /connector/{id}/hana/purchase-orders — HANA Cloud PURCHASE_ORDERS table."""
+        if not po_number:
+            return None
+        if self._live_enabled():
+            live = await self._post_json(
+                f"/connector/{connector_id}/hana/purchase-orders",
+                tenant_id=tenant_id,
+                body={"poNumber": po_number},
+            )
+            if live is None:
+                return {
+                    "lookup_error": "request_failed",
+                    "reason": (
+                        f"HANA PO lookup request failed for connector {connector_id} "
+                        f"(check Ezofis API auth, HanaDatabaseJson on connector, and network)."
+                    ),
+                }
+            if not isinstance(live, dict):
+                return {
+                    "lookup_error": "invalid_response",
+                    "reason": f"HANA PO lookup returned an unexpected response for {po_number}.",
+                }
+            if live.get("found") is False or int(live.get("count") or 0) == 0:
+                err = live.get("error") or live.get("reason")
+                return {
+                    "lookup_error": "not_found",
+                    "reason": str(err or f"Purchase order {po_number} not found in HANA."),
+                }
+            if live.get("error"):
+                return {
+                    "lookup_error": "api_error",
+                    "reason": str(live.get("error") or live.get("detail") or "HANA connector rejected the lookup."),
+                }
+            items = live.get("items") or []
+            if isinstance(items, list) and items and isinstance(items[0], dict):
+                return self._normalize_hana_po_item(items[0], po_number=po_number)
+            return None
+        # Offline mock aligned with HANA_Cloud_Purchase_Order_API.docx sample PO.
+        if po_number.strip() == "4500069456":
+            return self._normalize_hana_po_item(
+                {
+                    "poNumber": "4500069456",
+                    "supplierName": "EV Parts Inc.",
+                    "supplierId": "USSU-VSF01",
+                    "currency": "USD",
+                    "poDate": "2026-09-11",
+                    "total": 368.94,
+                    "items": [
+                        {
+                            "itemNumber": 10,
+                            "materialDescription": "BKR-100 Handle Bars",
+                            "orderQuantity": 129,
+                            "netPrice": 2.86,
+                            "netValue": 368.94,
+                        }
+                    ],
+                    "matches": [],
+                },
+                po_number=po_number,
+            )
+        return {
+            "lookup_error": "not_found",
+            "reason": f"HANA PO {po_number} not found (mock — try 4500069456).",
+        }
+
+    async def save_hana_po_invoice_match(
+        self,
+        *,
+        tenant_id: str,
+        connector_id: str,
+        po_number: str,
+        instance_id: str,
+        invoice_number: str,
+        status: str = "Matched",
+    ) -> dict[str, Any]:
+        """POST /connector/{id}/hana/purchase-orders/match — DBADMIN.PO_INVOICE_MATCH."""
+        body: dict[str, Any] = {
+            "poNumber": po_number,
+            "instanceId": instance_id,
+            "invoiceNumber": invoice_number,
+            "status": status,
+        }
+        if not self._live_enabled():
+            return {
+                "updated": True,
+                "created": True,
+                "mock": True,
+                "connectorId": connector_id,
+                **body,
+            }
+        result = await self._post_json(
+            f"/connector/{connector_id}/hana/purchase-orders/match",
+            tenant_id=tenant_id,
+            body=body,
+        )
+        if isinstance(result, dict):
+            return result
+        return {"updated": False, "error": "invalid_response"}
+
     async def report_ap_progress(
         self,
         *,

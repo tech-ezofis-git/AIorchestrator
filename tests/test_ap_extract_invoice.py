@@ -152,3 +152,16 @@ PO-60001
     assert "Invoice No" not in header
     assert header["PO Number"] == "PO-60001"
     assert header["Due Date"] == "06/20/26"
+
+
+def test_column_layout_maps_sap_reference_to_po_number():
+    text = """Invoice #
+Reference
+Terms
+5105665738/2026
+4500066847
+Net 30
+"""
+    header = _header_from_column_layout(text)
+    assert header["Invoice No"] == "5105665738/2026"
+    assert header["PO Number"] == "4500066847"

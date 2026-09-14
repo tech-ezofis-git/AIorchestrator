@@ -1675,12 +1675,12 @@ Due Date,DATE</textarea>
         </div>
         <div>
           <label for="apConnectorId">Connector</label>
-          <input type="text" id="apConnectorId" placeholder="connector_id (SAP/QB GUID)" />
+          <input type="text" id="apConnectorId" placeholder="f7636e21-1a0c-457c-a2b4-e28430705477 (HANA PO)" />
         </div>
         <div class="span-all">
           <label for="apSkills">Skills</label>
           <textarea id="apSkills" placeholder="extract_invoice&#10;po_lookup_sap&#10;po_match&#10;finalize_decision"></textarea>
-          <p class="tenant-skills-hint" style="margin:6px 0 0">SAP sample: set Resource=<code>SAP</code>, Connector=<code>983bddbe-…</code>, skills include <code>po_lookup_sap</code> before <code>po_match</code>, invoice <code>po_number</code>=<code>PO-60001</code>.</p>
+          <p class="tenant-skills-hint" style="margin:6px 0 0">EZOFIS HANA PO: Resource=<code>SAP</code> or <code>HANA</code>, Connector=<code>f7636e21-1a0c-457c-a2b4-e28430705477</code> (defaults on EZOFIS tenant), skills <code>po_lookup_sap</code> → <code>po_match</code>, <code>po_number</code>=<code>4500069456</code>. Legacy SAP sample: <code>983bddbe-…</code>, <code>PO-60001</code>.</p>
         </div>
         <div class="span-all">
           <label for="apInvoiceJson">invoice_json</label>

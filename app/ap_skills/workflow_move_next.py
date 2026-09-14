@@ -5,7 +5,8 @@ import logging
 import uuid
 from typing import Any, Optional, Union
 
-from app.ap_skills.types import ApContext, ApSkillResult, invoice_from
+from app.ap_skills.hana_po import is_hana_po_connector, resolve_hana_connector_id
+from app.ap_skills.types import ApContext, ApSkillResult, field_text, invoice_from
 
 logger = logging.getLogger("orchestrator.ap.workflow_move_next")
 
@@ -195,19 +196,55 @@ async def run(ctx: ApContext) -> ApSkillResult:
         if entry is not None:
             payload["formEntryId"] = entry
     payload = {k: v for k, v in payload.items() if v is not None}
+
+    hana_match: dict[str, Any] | None = None
+    connector_id = resolve_hana_connector_id(
+        tenant_id=ctx.tenant_id,
+        connector_id=str(job.get("connector_id") or "").strip(),
+    )
+    po_lookup = ctx.artifacts.get("po_lookup_sap") or {}
+    use_hana = is_hana_po_connector(connector_id) or po_lookup.get("source") == "hana"
+    if use_hana and decision.upper() in {"MATCHED", "PARTIALLY_MATCHED"}:
+        po_number = str(finalize.get("po_number") or po_match.get("po_number") or "").strip()
+        invoice_number = str(
+            finalize.get("invoice_number")
+            or field_text(invoice, "invoice_number", "invoiceNumber", "invoice_no")
+            or ""
+        ).strip()
+        if po_number and invoice_number and connector_id:
+            match_status = "Matched" if decision.upper() == "MATCHED" else "Partially Matched"
+            try:
+                hana_match = await ctx.ezofis.save_hana_po_invoice_match(
+                    tenant_id=ctx.tenant_id,
+                    connector_id=connector_id,
+                    po_number=po_number,
+                    instance_id=instance_id,
+                    invoice_number=invoice_number,
+                    status=match_status,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "hana_po_match_save_failed",
+                    extra={"instance_id": instance_id, "po_number": po_number},
+                )
+                hana_match = {"ok": False, "error": type(exc).__name__}
+
     result = await ctx.ezofis.workflow_move_next(
         tenant_id=ctx.tenant_id,
         instance_id=instance_id,
         payload=payload,
     )
+    data: dict[str, Any] = {
+        "instance_id": instance_id,
+        "activityid": activity_id,
+        "review": review,
+        "decision": decision,
+        "ok": bool(result.get("ok", True)) if isinstance(result, dict) else True,
+        "response": result,
+    }
+    if hana_match is not None:
+        data["hana_po_match"] = hana_match
     return ApSkillResult(
         skill_id=SKILL_ID,
-        data={
-            "instance_id": instance_id,
-            "activityid": activity_id,
-            "review": review,
-            "decision": decision,
-            "ok": bool(result.get("ok", True)) if isinstance(result, dict) else True,
-            "response": result,
-        },
+        data=data,
     )

@@ -86,7 +86,7 @@ Use when validating the invoice PO against an SAP connector (`ConfigJson.mode=sa
 | Field | Example |
 |---|---|
 | `resource` | `SAP` (also accepts `SAP ECC`, `S4`, `SAP_XSUAA`, …) |
-| `connector_id` | SAP connector GUID (EZOFIS tenant sample: `983bddbe-6a1a-4cd8-a024-9b4d84ba9981`) |
+| `connector_id` | SAP connector GUID, or HANA Cloud PO connector on EZOFIS tenant: `f7636e21-1a0c-457c-a2b4-e28430705477` (defaults when omitted on tenant `b843b988-00ec-44e3-aca2-b8470133ef63`) |
 | `skills` | include `po_lookup_sap` **before** `po_match` |
 | Sample PO | `PO-60001` (vendor APEX INDUSTRIAL COMPONENTS LTD, total 5203.65 CAD) |
 
@@ -133,9 +133,11 @@ curl.exe -sS -X POST "https://cloud.ezofis.com/chat" ^
   --data-binary "@ap-sap-po.json"
 ```
 
-Expect: `artifacts.po_lookup_sap.po.source == "sap_sample"`, `po_match.decision == "MATCHED"`, high score when vendor/total align.
+Expect (legacy SAP sample): `artifacts.po_lookup_sap.po.source == "sap_sample"`, `po_match.decision == "MATCHED"`.
 
-Console: [https://cloud.ezofis.com/console](https://cloud.ezofis.com/console) → AP document → Resource=`SAP`, Connector=`983bddbe-…`, skills as above.
+**HANA Cloud PO (EZOFIS tenant):** Resource `SAP` or `HANA`, connector `f7636e21-1a0c-457c-a2b4-e28430705477`, `po_number`=`4500069456`. Orchestrator calls Core `POST /api/connector/{id}/hana/purchase-orders` and, after a matched run with `workflow_move_next`, `POST …/hana/purchase-orders/match` to persist `PO_INVOICE_MATCH`.
+
+Console: [https://cloud.ezofis.com/console](https://cloud.ezofis.com/console) → AP document → set Resource + Connector + skills as above.
 
 ### JSON — pre-extracted invoice (skips OCR)
 

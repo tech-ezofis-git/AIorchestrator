@@ -36,7 +36,8 @@ _EXTRACT_PROMPT = (
     '[{"description":"","qty":null,"price":null,"amount":null}]} '
     "PDF OCR often puts table headers and values on separate lines. "
     "If you see 'Invoice #' or 'Invoice No' then later a token like INV-2026-6001, "
-    "that token is invoice_number. Same for 'PO #' / PO-60001 → po_number. "
+    "that token is invoice_number. Same for 'PO #' / PO-60001 → po_number; "
+    "SAP supplier invoices often label the PO as Reference on the line above the id. "
     "Vendor is the seller letterhead (not Bill To). "
     "Invoice Total / Amount Due is total. "
     "If the text is only form labels (Terms, Currency, PO Number) with no values, "
@@ -229,6 +230,10 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
 
 _INV_TOKEN = re.compile(r"\bINV[\s\-/#]*[A-Z0-9]*\d[A-Z0-9\-/]*", re.I)
 _PO_TOKEN = re.compile(r"\bPO[\s\-/#]*\d[A-Z0-9\-/]*", re.I)
+_REFERENCE_PO = re.compile(
+    r"(?:^|\n)\s*Reference\s*\n\s*(\d{8,})\s*(?:\n|$)", re.I | re.MULTILINE
+)
+_INVOICE_NO_INLINE = re.compile(r"Invoice\s*No\.?\s*([^\n]+)", re.I)
 _MONEY_TOKEN = re.compile(r"\b\d{1,3}(?:,\d{3})+\.\d{2}\b|\b\d+\.\d{2}\b")
 _TOTAL_LABEL = re.compile(
     r"(?:invoice\s*total|amount\s*due|balance\s*due|total\s*due)\s*[:\-]?\s*",
@@ -244,6 +249,7 @@ _SKIP_VENDOR_LINE = re.compile(
 _COLUMN_LABELS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^invoice\s*(?:#|no\.?|number)$", re.I), "Invoice No"),
     (re.compile(r"^po\s*(?:#|no\.?|number)?$", re.I), "PO Number"),
+    (re.compile(r"^reference$", re.I), "PO Number"),
     (re.compile(r"^terms$", re.I), "Terms"),
     (re.compile(r"^ship\s*via$", re.I), "Ship Via"),
     (re.compile(r"^shipped$", re.I), "Shipped"),
@@ -381,9 +387,17 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
     invoice_number = field_text(
         merged, "Invoice No", "Invoice #", "Invoice Number", "invoice_number"
     ) or _clean_token(_INV_TOKEN.search(text or ""))
-    po_number = field_text(merged, "PO Number", "PO #", "po_number") or _clean_token(
-        _PO_TOKEN.search(text or "")
-    )
+    po_number = field_text(
+        merged, "PO Number", "PO #", "Reference", "po_number"
+    ) or _clean_token(_PO_TOKEN.search(text or ""))
+    if not po_number:
+        ref = _REFERENCE_PO.search(text or "")
+        if ref:
+            po_number = ref.group(1).strip()
+    if not invoice_number:
+        inv_inline = _INVOICE_NO_INLINE.search(text or "")
+        if inv_inline:
+            invoice_number = inv_inline.group(1).strip()
     vendor = field_text(merged, "Vendor Name", "Supplier", "vendor") or _guess_vendor(text)
     total = merged.get("Invoice Amount") or merged.get("Invoice Total") or _guess_total(text)
     currency = field_text(merged, "Currency", "currency")
