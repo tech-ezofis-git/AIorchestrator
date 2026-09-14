@@ -75,14 +75,23 @@ If `skills` is omitted / null, the **default pipeline** runs:
 
 `review` on move-next is the workflow label, not the internal code: `Matched`, `Partially Matched`, `Not Matched`, or `Non-Invoice`. The body also includes `comments`, `AIAGENTResponse`, `itemId`, `repositoryId`, `formId`, `formEntryId`, `isItemTable` — same shape as apagentv6.
 
-`AIAGENTResponse` (persisted on `workflow.agent_data_validation_*`) includes:
+`AIAGENTResponse` (persisted on `workflow.agent_data_validation_*`) matches the apagentv6 Agent validation shape:
 
 | Field | Example |
 |-------|---------|
 | `decision` | `Matched` |
-| `ai_insight` | `PO vendor, totals, and line amounts match — approve for posting` |
+| `score` | `98.0` |
+| `ai_insight` | `PO vendor totals and line amounts match - approve for posting` |
 | `reason` | Narrative with score, vendor, and line match summary |
 | `source_type` | `HANA Cloud` \| `SAP` \| `QuickBooks` \| `Sage` \| `EZOFIS DB` \| `Not validated` |
+| `debug` | Side-by-side field + line item matching scores |
+| `po_row` | PO master display row (`PO Number`, `Supplier`, `PO Line Item Mapped`, …) |
+| `payment_terms` | Raw + normalized terms / due date |
+| `supplier_validation` | Vendor mismatch / master details |
+| `invoice_errors` | Duplicate / severity |
+| `back_order` | Short-ship detection |
+| `Extracted Invoice JSON` | `invoice_header` + `Line Item` |
+| `matter_validation` | Matter ID status (or `NOT_PRESENT`) |
 
 If `skills` is a list, **only those skills** run (in that order). Unknown ids → 400. Opt-in skills (QB/SAP/Sage, GL, GRN, matter, `workflow_progress`) must be listed explicitly.
 

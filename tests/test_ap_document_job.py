@@ -495,10 +495,18 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
     assert body["AIAGENTResponse"]["decision"] == body["review"]
     assert body["AIAGENTResponse"].get("ai_insight")
     assert body["AIAGENTResponse"].get("source_type")
+    assert "score" in body["AIAGENTResponse"]
+    assert "debug" in body["AIAGENTResponse"]
+    assert "Extracted Invoice JSON" in body["AIAGENTResponse"]
+    assert "supplier_validation" in body["AIAGENTResponse"]
+    assert "back_order" in body["AIAGENTResponse"]
+    assert "payment_terms" in body["AIAGENTResponse"]
+    assert "matter_validation" in body["AIAGENTResponse"]
     assert "decision" not in body
     assert "item_key" not in body
     assert "run_id" not in body
-    assert "po_row" not in body["AIAGENTResponse"]
+    # No PO found on this fixture → po_row omitted/null
+    assert not body["AIAGENTResponse"].get("po_row")
 
 
 def test_move_next_sends_guid_form_entry_id_and_po_row(client, monkeypatch):

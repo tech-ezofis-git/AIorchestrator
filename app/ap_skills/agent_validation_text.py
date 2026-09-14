@@ -88,8 +88,8 @@ def build_ai_insight(
 
     if decision_u == "MATCHED":
         if vendor_ok and totals_ok:
-            return "PO vendor, totals, and line amounts match — approve for posting"
-        return "Invoice matched to purchase order — approve for posting"
+            return "PO vendor totals and line amounts match - approve for posting"
+        return "Invoice matched to purchase order - approve for posting"
     if decision_u == "PARTIALLY_MATCHED":
         if po_found and not vendor_ok:
             return "PO found but vendor differs — send to verifier review"

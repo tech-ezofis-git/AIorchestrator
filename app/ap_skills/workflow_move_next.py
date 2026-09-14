@@ -140,25 +140,25 @@ async def run(ctx: ApContext) -> ApSkillResult:
         invoice = {}
     doc_type = str(invoice.get("doc_type") or "invoice").lower()
     review = _review_label(decision, doc_type=doc_type)
-    comments = str(finalize.get("reason") or "").strip() or (
+
+    from app.ap_skills.agent_validation_response import build_aiagent_response
+
+    agent_response = build_aiagent_response(
+        decision=decision,
+        reason=str(finalize.get("reason") or "").strip(),
+        artifacts={**ctx.artifacts, "finalize_decision": finalize},
+        invoice=invoice,
+        document_job=job,
+        ai_insight=str(finalize.get("ai_insight") or "").strip(),
+        source_type=str(finalize.get("source_type") or "").strip(),
+    )
+    # Non-Invoice / empty reason fallback for workflow comments.
+    comments = str(agent_response.get("reason") or "").strip() or (
         f"Classified as {doc_type}" if review == "Non-Invoice" else review
     )
-    ai_insight = str(finalize.get("ai_insight") or "").strip()
-    source_type = str(finalize.get("source_type") or "").strip()
-    if not ai_insight or not source_type:
-        from app.ap_skills.agent_validation_text import enrichment_for_finalize
-
-        enriched = enrichment_for_finalize(
-            decision=decision,
-            reason=comments,
-            artifacts=ctx.artifacts,
-            invoice=invoice,
-            document_job=job,
-        )
-        ai_insight = ai_insight or enriched["ai_insight"]
-        source_type = source_type or enriched["source_type"]
-        if not str(finalize.get("reason") or "").strip():
-            comments = enriched["reason"]
+    # Keep move-next review label in sync with response decision.
+    if agent_response.get("decision"):
+        review = str(agent_response["decision"])
 
     repository_id = _job_str(job, "repository_id")
     transaction_id = _job_str(job, "transaction_id")
@@ -188,27 +188,13 @@ async def run(ctx: ApContext) -> ApSkillResult:
         "transactionId": transaction_id,
         "instanceId": instance_id,
         "processId": process_id,
-        "AIAGENTResponse": {
-            "decision": review,
-            "reason": finalize.get("reason") or comments,
-            "ai_insight": ai_insight,
-            "source_type": source_type,
-            "invoice_number": finalize.get("invoice_number"),
-            "po_number": finalize.get("po_number"),
-            "duplicate": finalize.get("duplicate"),
-            "backorder": finalize.get("backorder"),
-            "run_id": ctx.run_id,
-            "item_key": ctx.item_key,
-        },
+        "AIAGENTResponse": agent_response,
         "itemId": item_id,
         "repositoryId": repository_id,
         "formId": form_id,
         "isItemTable": True,
     }
     po_match = ctx.artifacts.get("po_match") or {}
-    po_row = po_match.get("po_row") if isinstance(po_match, dict) else None
-    if isinstance(po_row, dict) and po_row:
-        payload["AIAGENTResponse"]["po_row"] = po_row
     if form_entry_id is not None:
         entry = form_entry_id_for_v6_move_next(form_entry_id)
         if entry is not None:
