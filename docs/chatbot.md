@@ -25,6 +25,8 @@ Content-Type: application/json
 
 Response field: `chatbot_result` — `conversation`, `text.blocks`, `hits`, optional `action` / `pending_action`.
 
+`text.blocks` follow the CHATBOT.md UI contract (paragraph, **Filters Applied** / **Filters Tried** bullets, cards, `repo_picker`, optional `action.browse_request` with `filterBy`). Orchestrator does **not** run the legacy 8035 LLM→`search_docs` term pipeline; filters are built from the search query plus document `matched_field` / `matched_value` on hits (e.g. Description → Appointment Letter), similar to CHATBOT.md examples like Supplier / FILFREE.
+
 ## What it does
 
 | Capability | Notes |

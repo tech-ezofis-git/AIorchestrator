@@ -192,6 +192,11 @@ def test_chatbot_search_blocks_and_hits(client):
     doc = next(h for h in result["hits"] if h["type"] == "document")
     assert doc["id"]["requestNo"] == "REQ-9"
     assert doc["ifileName"] == "HR_01.pdf"
+    filters = next(b for b in blocks if b.get("title") == "Filters Applied")
+    labels = {i["label"] for i in filters["items"]}
+    assert "Search" in labels
+    assert "Description" in labels
+    assert result["action"]["browse_request"]["filterBy"].get("search") == "ABC"
 
 
 def test_chatbot_query_alias_and_specific_id(client):
