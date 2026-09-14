@@ -36,3 +36,29 @@ def test_unknown_skill_is_rejected():
 def test_empty_list_is_rejected():
     with pytest.raises(ApSkillError, match="No skills"):
         resolve_skills(requested=[])
+
+
+def test_ezofis_default_pipeline_injects_hana_po_lookup():
+    from app.ap_skills.hana_po import EZOFIS_TENANT_ID
+    from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
+
+    skills = ensure_ezofis_hana_po_lookup(
+        list(DEFAULT_SKILL_ORDER), tenant_id=EZOFIS_TENANT_ID
+    )
+    assert "po_lookup_sap" in skills
+    assert skills.index("po_lookup_sap") < skills.index("po_match")
+
+
+def test_ezofis_inject_skipped_when_lookup_already_present():
+    from app.ap_skills.hana_po import EZOFIS_TENANT_ID
+    from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
+
+    base = ["extract_invoice", "po_lookup_sap", "po_match", "finalize_decision"]
+    assert ensure_ezofis_hana_po_lookup(base, tenant_id=EZOFIS_TENANT_ID) == base
+
+
+def test_non_ezofis_tenant_does_not_inject_hana_lookup():
+    from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
+
+    base = list(DEFAULT_SKILL_ORDER)
+    assert ensure_ezofis_hana_po_lookup(base, tenant_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee") == base

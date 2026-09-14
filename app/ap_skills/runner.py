@@ -25,7 +25,7 @@ from app.ap_skills import (
 )
 from app.ap_skills.ap_metadata import extras_from_artifacts, merge_ids_into_job, push_extract_metadata, resolve_metadata_ids
 from app.ap_skills.ap_progress import ApProgressReporter, RUNNER_OWNED_FLAG, progress_ids
-from app.ap_skills.planner import maybe_reorder, resolve_skills
+from app.ap_skills.planner import ensure_ezofis_hana_po_lookup, maybe_reorder, resolve_skills
 from app.ap_skills.store import ApStore
 from app.ap_skills.types import (
     ApContext,
@@ -213,7 +213,9 @@ class ApSkillRunner:
                 }
 
         # null skills → DEFAULT_SKILL_ORDER; list → exactly those ids.
+        # EZOFIS tenant: always run HANA PO lookup before po_match.
         skills = resolve_skills(requested=requested)
+        skills = ensure_ezofis_hana_po_lookup(skills, tenant_id=tenant_id)
         skills = await maybe_reorder(
             skills,
             llm=self._llm,
