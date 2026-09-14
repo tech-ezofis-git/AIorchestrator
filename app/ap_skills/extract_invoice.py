@@ -170,6 +170,8 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
             "Invoice No",
             "Invoice #",
             "Invoice Number",
+            "Invoice Reference",
+            "invoice_reference",
         ),
         # Normalized (YYYY-MM-DD) when the raw text parses; otherwise kept
         # as-is (never silently dropped) but flagged below so callers can
@@ -238,6 +240,22 @@ _MONEY_TOKEN = re.compile(r"\b\d{1,3}(?:,\d{3})+\.\d{2}\b|\b\d+\.\d{2}\b")
 _TOTAL_LABEL = re.compile(
     r"(?:invoice\s*total|amount\s*due|balance\s*due|total\s*due)\s*[:\-]?\s*",
     re.I,
+)
+_SUBTOTAL_BLOCK = re.compile(
+    r"(?:^|\n)\s*Subtotal\s*\n\s*(?:USD|CAD|EUR|GBP)?\s*([\d,]+\.\d{2})",
+    re.I | re.MULTILINE,
+)
+_TOTAL_BLOCK = re.compile(
+    r"(?:^|\n)\s*Total\s*\n\s*(?:USD|CAD|EUR|GBP)?\s*([\d,]+\.\d{2})",
+    re.I | re.MULTILINE,
+)
+_INVOICE_REFERENCE_BLOCK = re.compile(
+    r"(?:^|\n)\s*Invoice Reference\s*\n\s*([^\n]+)",
+    re.I | re.MULTILINE,
+)
+_PO_NUMBER_BLOCK = re.compile(
+    r"(?:^|\n)\s*PO\s*(?:Number|#|No\.?)\s*\n\s*([^\n]+)",
+    re.I | re.MULTILINE,
 )
 _CURRENCY_TOKEN = re.compile(r"\b(CAD|USD|EUR|GBP|INR|SGD|AED)\b", re.I)
 _VENDOR_ENTITY = re.compile(r"\b(ltd|limited|inc|corp|llc|gmbh|plc|co\.?)\b", re.I)
@@ -431,7 +449,20 @@ def _guess_total(text: str) -> Any:
         money = _MONEY_TOKEN.search(text[match.end() :])
         if money:
             return money.group(0)
+    block = _TOTAL_BLOCK.search(text or "")
+    if block:
+        return block.group(1)
+    sub = _SUBTOTAL_BLOCK.search(text or "")
+    if sub:
+        return sub.group(1)
     return None
+
+
+def _blank_amount(value: Any) -> bool:
+    if value is None:
+        return True
+    token = "".join(ch for ch in str(value).lower() if ch.isalnum())
+    return token in {"", "na", "n", "null", "none"}
 
 
 def _heuristic_from_text(text: str) -> dict[str, Any]:
@@ -439,8 +470,12 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
     labeled = _header_from_labeled_text(text)
     merged = {**labeled, **column}
     invoice_number = field_text(
-        merged, "Invoice No", "Invoice #", "Invoice Number", "invoice_number"
+        merged, "Invoice No", "Invoice #", "Invoice Number", "invoice_number", "Invoice Reference"
     ) or _clean_token(_INV_TOKEN.search(text or ""))
+    if not invoice_number or _blank_amount(invoice_number):
+        ref = _INVOICE_REFERENCE_BLOCK.search(text or "")
+        if ref:
+            invoice_number = ref.group(1).strip()
     po_number = field_text(
         merged, "PO Number", "PO #", "Reference", "po_number"
     ) or _clean_token(_PO_TOKEN.search(text or ""))
@@ -448,19 +483,32 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
         ref = _REFERENCE_PO.search(text or "")
         if ref:
             po_number = ref.group(1).strip()
+    if not po_number:
+        po_block = _PO_NUMBER_BLOCK.search(text or "")
+        if po_block:
+            candidate = po_block.group(1).strip()
+            if any(ch.isdigit() for ch in candidate) and not _blank_amount(candidate):
+                po_number = candidate
     if not invoice_number:
         inv_inline = _INVOICE_NO_INLINE.search(text or "")
         if inv_inline:
             invoice_number = inv_inline.group(1).strip()
+    if invoice_number and _blank_amount(invoice_number):
+        invoice_number = ""
+    if not invoice_number and po_number:
+        # SAP-style docs often put the PO id in Invoice Reference when Invoice Number is N/A.
+        invoice_number = po_number
     vendor = field_text(merged, "Vendor Name", "Supplier", "vendor") or _guess_vendor(text)
     total = merged.get("Invoice Amount") or merged.get("Invoice Total") or _guess_total(text)
+    if _blank_amount(total):
+        total = _guess_total(text)
     currency = field_text(merged, "Currency", "currency")
     if not currency:
         found = _CURRENCY_TOKEN.search(text or "")
         if found:
             currency = found.group(1).upper()
     due_date = field_text(merged, "Due Date", "due_date")
-    invoice_date = field_text(merged, "Invoice Date", "invoice_date", "Shipped")
+    invoice_date = field_text(merged, "Invoice Date", "invoice_date", "Shipped", "Document Date")
     payload = {
         "doc_type": "invoice" if re.search(r"\binvoice\b", text or "", re.I) else "other",
         "invoice_number": invoice_number,

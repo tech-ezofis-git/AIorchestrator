@@ -390,7 +390,7 @@ def _supplier_validation(vendor: dict[str, Any], invoice: dict[str, Any]) -> dic
     if not inv_vendor and not reason:
         reason = "No vendor name found in invoice"
     return {
-        "status": status if status not in (None, "", "MISSING") else None,
+        "status": status if status not in (None, "", "MISSING", "UNVERIFIED") else None,
         "mismatch": mismatch,
         "vendor_master_match": True if vendor.get("source") == "vendor_master" else None,
         "validation_details": {"reason": reason or ""},

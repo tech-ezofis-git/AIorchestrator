@@ -80,10 +80,22 @@ def build_ai_insight(
     po_match = po_match if isinstance(po_match, dict) else {}
     vendor = vendor if isinstance(vendor, dict) else {}
     reason_bits = str(po_match.get("reason") or "").lower()
-    vendor_ok = str(vendor.get("status") or "").upper() == "ACTIVE" or "vendor matches" in reason_bits
+    vendor_ok = (
+        str(vendor.get("status") or "").upper() == "ACTIVE"
+        and str(vendor.get("source") or "").lower() == "po"
+    ) or "vendor matches" in reason_bits
     totals_ok = "totals match" in reason_bits
     po_found = bool(po_match.get("po")) or (
-        "po " in reason_bits and "found" in reason_bits and "not found" not in reason_bits
+        "po " in reason_bits
+        and "found" in reason_bits
+        and "not found" not in reason_bits
+        and "lookup failed" not in reason_bits
+        and "unavailable" not in reason_bits
+        and "stopped" not in reason_bits
+    )
+    hana_down = any(
+        token in reason_bits
+        for token in ("hana database instance is stopped", "hana_unavailable", "is stopped", "hana unavailable")
     )
 
     if decision_u == "MATCHED":
@@ -99,7 +111,11 @@ def build_ai_insight(
     if decision_u in {"NOT_MATCHED", "DUPLICATE"}:
         if decision_u == "DUPLICATE":
             return "Possible duplicate invoice — do not post until cleared"
+        if hana_down:
+            return "HANA Cloud is unavailable — restart the HANA instance and re-run AP"
         if not po_found:
+            if "lookup failed" in reason_bits or "request failed" in reason_bits:
+                return "PO lookup failed — hold for manual review"
             return "Purchase order not found — hold for manual review"
         return "PO match failed — hold for manual review"
     if decision_u == "NON_INVOICE":
@@ -126,12 +142,29 @@ def build_validation_reason(
         parts.append(f"The overall matching score is {float(score):.0f}%.")
 
     vendor_status = str(vendor.get("status") or "").upper()
+    vendor_source = str(vendor.get("source") or "").lower()
     po_reason = str(po_match.get("reason") or "").strip()
     po_reason_l = po_reason.lower()
-    vendor_ok = vendor_status == "ACTIVE" or "vendor matches" in po_reason_l
-    headers_ok = "totals match" in po_reason_l or "within tolerance" in po_reason_l
+    po_present = bool(po_match.get("po"))
+    vendor_ok = (vendor_status == "ACTIVE" and vendor_source == "po") or (
+        po_present and "vendor matches" in po_reason_l
+    )
+    headers_ok = po_present and ("totals match" in po_reason_l or "within tolerance" in po_reason_l)
+    lookup_failed = any(
+        token in po_reason_l
+        for token in (
+            "not found",
+            "lookup failed",
+            "request failed",
+            "is stopped",
+            "unavailable",
+            "no po number",
+        )
+    )
 
-    if vendor_status == "MISMATCH":
+    if lookup_failed or (not po_present and po_reason):
+        parts.append(po_reason)
+    elif vendor_status == "MISMATCH":
         inv_v = vendor.get("vendor") or field_text(invoice, "vendor", "supplier")
         exp_v = vendor.get("expected")
         if inv_v and exp_v:
@@ -144,6 +177,8 @@ def build_validation_reason(
         parts.append("The vendor was identified, and key header fields align within tolerance.")
     elif vendor_ok:
         parts.append("The vendor was identified and matches the PO vendor.")
+    elif vendor_status == "ACTIVE" and vendor_source in {"heuristic", "vendor_master"}:
+        parts.append("A vendor name was found on the invoice but could not be verified against a PO.")
     elif po_reason:
         parts.append(po_reason)
 

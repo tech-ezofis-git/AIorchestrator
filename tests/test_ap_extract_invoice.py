@@ -197,3 +197,34 @@ Net 30
     header = _header_from_column_layout(text)
     assert header["Invoice No"] == "5105665738/2026"
     assert header["PO Number"] == "4500066847"
+
+
+def test_heuristic_uses_invoice_reference_and_subtotal_when_total_na():
+    from app.ap_skills.extract_invoice import _heuristic_from_text
+
+    text = """
+INVOICE
+Invoice Number
+N/A
+Invoice Reference
+4500034567
+Document Date
+2023-10-27
+PO Number
+4500034567
+Currency
+USD
+VENDOR
+PartSupply Corp
+Subtotal
+USD 25,841.72
+Tax
+N/A
+Total
+N/A
+"""
+    inv = _heuristic_from_text(text)
+    assert inv["po_number"] == "4500034567"
+    assert inv["invoice_number"] == "4500034567"
+    assert inv["vendor"]
+    assert "25841.72" in str(inv["total"]).replace(",", "")

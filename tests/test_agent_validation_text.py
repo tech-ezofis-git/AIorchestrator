@@ -50,6 +50,38 @@ def test_ai_insight_not_matched_hold():
     assert "hold" in insight.lower() or "manual" in insight.lower()
 
 
+def test_ai_insight_hana_stopped():
+    insight = build_ai_insight(
+        decision="NOT_MATCHED",
+        po_match={"reason": "HANA Cloud purchase-order query failed: HANA Database instance is stopped"},
+        vendor={"status": "UNVERIFIED", "source": "heuristic"},
+    )
+    assert "hana" in insight.lower()
+    assert "unavailable" in insight.lower() or "restart" in insight.lower()
+
+
+def test_validation_reason_prefers_lookup_failure_over_vendor_heuristic():
+    reason = build_validation_reason(
+        decision="NOT_MATCHED",
+        base_reason="HANA Cloud purchase-order query failed: HANA Database instance is stopped",
+        artifacts={
+            "po_match": {
+                "score": 0,
+                "reason": "HANA Cloud purchase-order query failed: HANA Database instance is stopped",
+                "po": None,
+            },
+            "vendor_validate": {
+                "status": "UNVERIFIED",
+                "source": "heuristic",
+                "reason": "No PO or vendor master available; vendor name was not verified.",
+            },
+        },
+        invoice={"vendor": "PartSupply Corp"},
+    )
+    assert "stopped" in reason.lower()
+    assert "matches the po vendor" not in reason.lower()
+
+
 def test_validation_reason_includes_score_and_lines():
     reason = build_validation_reason(
         decision="PARTIALLY_MATCHED",

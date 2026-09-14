@@ -603,16 +603,25 @@ class EzofisClient:
                     "lookup_error": "invalid_response",
                     "reason": f"HANA PO lookup returned an unexpected response for {po_number}.",
                 }
+            # Prefer explicit API errors (e.g. HANA instance stopped) over not-found.
+            err_text = str(live.get("error") or live.get("detail") or live.get("reason") or "").strip()
+            status_code = live.get("status_code")
+            if err_text or (isinstance(status_code, int) and status_code >= 400):
+                lowered = err_text.lower()
+                lookup_error = "api_error"
+                if "stopped" in lowered or "is stopped" in lowered:
+                    lookup_error = "hana_unavailable"
+                elif "timeout" in lowered or "timed out" in lowered:
+                    lookup_error = "hana_unavailable"
+                return {
+                    "lookup_error": lookup_error,
+                    "reason": err_text
+                    or f"HANA PO lookup failed with HTTP {status_code} for {po_number}.",
+                }
             if live.get("found") is False or int(live.get("count") or 0) == 0:
-                err = live.get("error") or live.get("reason")
                 return {
                     "lookup_error": "not_found",
-                    "reason": str(err or f"Purchase order {po_number} not found in HANA."),
-                }
-            if live.get("error"):
-                return {
-                    "lookup_error": "api_error",
-                    "reason": str(live.get("error") or live.get("detail") or "HANA connector rejected the lookup."),
+                    "reason": f"Purchase order {po_number} not found in HANA.",
                 }
             items = live.get("items") or []
             if isinstance(items, list) and items and isinstance(items[0], dict):
@@ -1226,7 +1235,25 @@ class EzofisClient:
                 response = await client.post(f"{self._base()}{path}", headers=headers, json=body)
                 if response.status_code == 404:
                     return None
-                response.raise_for_status()
+                # Return JSON error bodies (e.g. HANA instance stopped) so callers
+                # can surface a real reason instead of opaque request_failed.
+                if response.status_code >= 400:
+                    parsed: Any = None
+                    if response.content:
+                        try:
+                            parsed = response.json()
+                        except Exception:
+                            parsed = None
+                    if isinstance(parsed, dict):
+                        out = dict(parsed)
+                        out.setdefault("status_code", response.status_code)
+                        if not (out.get("error") or out.get("detail") or out.get("reason")):
+                            out["error"] = response.text[:500] or f"HTTP {response.status_code}"
+                        return out
+                    return {
+                        "error": (response.text or f"HTTP {response.status_code}")[:500],
+                        "status_code": response.status_code,
+                    }
                 if not response.content:
                     return None
                 return response.json()
