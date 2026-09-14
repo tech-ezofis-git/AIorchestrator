@@ -127,6 +127,24 @@ INVOICE
     assert _guess_vendor(text) == "APEX INDUSTRIAL COMPONENTS LTD"
 
 
+def test_guess_vendor_prefers_bill_from_supplier_over_letterhead():
+    text = """
+Velotics Inc. · Company Code 1710
+Page 1
+Velotics Inc.
+ SUPPLIER INVOICE
+Bill From (Supplier)
+Bill To (Customer)
+17300006
+(MFG TopConsult Inc.)
+Velotics Inc.
+1000 Innovation Drive
+Reference
+4500062947
+"""
+    assert _guess_vendor(text) == "MFG TopConsult Inc."
+
+
 def test_shape_ok_rejects_mismatched_label_value_pairs():
     assert _shape_ok("Invoice No", "Fed Ground") is False  # no digits at all
     assert _shape_ok("Invoice No", "INV-2026-6001") is True

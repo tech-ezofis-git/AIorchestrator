@@ -246,6 +246,12 @@ _SKIP_VENDOR_LINE = re.compile(
     r"canada|united\s*states)\b",
     re.I,
 )
+_BILL_FROM_START = re.compile(r"^bill\s*from\b", re.I)
+_PAREN_VENDOR = re.compile(
+    r"\(([^)]*\b(?:ltd|limited|inc|corp|llc|gmbh|plc|co\.?)\b[^)]*)\)",
+    re.I,
+)
+_LETTERHEAD_NOISE = re.compile(r"company\s*code\b", re.I)
 _COLUMN_LABELS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^invoice\s*(?:#|no\.?|number)$", re.I), "Invoice No"),
     (re.compile(r"^po\s*(?:#|no\.?|number)?$", re.I), "PO Number"),
@@ -338,15 +344,56 @@ _BUYER_BLOCK_MAX_LINES = 5
 _BUYER_BLOCK_START = re.compile(r"^(bill\s*to|ship\s*to)\b", re.I)
 
 
+def _guess_vendor_from_bill_from(text: str) -> str:
+    """SAP/Velotics supplier invoices: Bill From (Supplier) then id + (Name Inc.)."""
+    in_from = False
+    seen = 0
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            if in_from:
+                break
+            continue
+        if _BILL_FROM_START.match(line):
+            in_from = True
+            seen = 0
+            continue
+        if not in_from:
+            continue
+        if _BUYER_BLOCK_START.match(line):
+            # Two-column header "Bill From" / "Bill To" on adjacent lines —
+            # keep scanning; supplier values follow both labels.
+            continue
+        seen += 1
+        if seen > 8:
+            break
+        paren = _PAREN_VENDOR.search(line)
+        if paren:
+            return paren.group(1).strip()
+        if (
+            len(line) >= 4
+            and _VENDOR_ENTITY.search(line)
+            and not _SKIP_VENDOR_LINE.match(line)
+            and not _LETTERHEAD_NOISE.search(line)
+        ):
+            return line
+    return ""
+
+
 def _guess_vendor(text: str) -> str:
-    """First entity-suffixed line NOT inside a "Bill To"/"Ship To" block.
+    """Prefer Bill From (Supplier); else first entity line outside Bill To/Ship To.
 
     Previously only the label line itself ("Bill To:") was skipped — the
     buyer's company name on the following line(s) (the actual address
     block) was not, so it could win as the "vendor" if it also happened to
     contain an entity suffix (Ltd/Inc/Corp/...), swapping buyer and seller.
     Now the whole block is skipped until a blank line, a recognized column
-    label, or the line-count cap ends it."""
+    label, or the line-count cap ends it. Velotics-style PDFs also put the
+    buyer letterhead first ("Velotics Inc. · Company Code …"), so Bill From
+    must win when present."""
+    bill_from = _guess_vendor_from_bill_from(text)
+    if bill_from:
+        return bill_from
     in_buyer_block = False
     buyer_block_lines = 0
     for raw_line in (text or "").splitlines():
@@ -365,6 +412,8 @@ def _guess_vendor(text: str) -> str:
             else:
                 continue
         if len(line) < 4 or _SKIP_VENDOR_LINE.match(line) or "@" in line:
+            continue
+        if _LETTERHEAD_NOISE.search(line):
             continue
         if _VENDOR_ENTITY.search(line):
             return line
