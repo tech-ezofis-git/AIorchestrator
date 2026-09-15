@@ -166,7 +166,9 @@ def test_shape_ok_rejects_mismatched_label_value_pairs():
     assert _shape_ok("Due Date", "06/20/26") is True
     assert _shape_ok("Currency", "31") is False
     assert _shape_ok("Currency", "CAD") is True
-    assert _shape_ok("Terms", "anything at all") is True  # unchecked label
+    assert _shape_ok("Terms", "anything at all") is False
+    assert _shape_ok("Terms", "Net 30") is True
+    assert _shape_ok("Terms", "Net One Month") is True
 
 
 def test_column_layout_drops_a_shape_mismatched_pair_but_keeps_the_rest():

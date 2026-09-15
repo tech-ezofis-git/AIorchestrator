@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import json
-import re
-from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from app.ap_skills.agent_validation_text import enrichment_for_finalize, resolve_source_type
+from app.ap_skills.payment_terms import due_date_from_terms, normalize_payment_terms
 from app.ap_skills.types import field_number, field_text, match_lines_by_description, name_similarity
 
 _REVIEW_LABELS = {
@@ -69,6 +68,7 @@ def build_aiagent_response(
     po = po_match.get("po") if isinstance(po_match.get("po"), dict) else {}
     fill = po_match.get("po_row") if isinstance(po_match.get("po_row"), dict) else {}
     po_row = _build_display_po_row(po, fill)
+    payment_terms = _payment_terms(invoice, po)
 
     response: dict[str, Any] = {
         "decision": review,
@@ -81,11 +81,11 @@ def build_aiagent_response(
             "Side-by-side Line Item matching": _line_matching(invoice, po),
         },
         "po_row": po_row or None,
-        "payment_terms": _payment_terms(invoice, po),
+        "payment_terms": payment_terms,
         "supplier_validation": _supplier_validation(vendor, invoice),
         "invoice_errors": _invoice_errors(duplicate, finalize),
         "back_order": _back_order(backorder, finalize),
-        "Extracted Invoice JSON": _extracted_invoice_json(invoice, review),
+        "Extracted Invoice JSON": _extracted_invoice_json(invoice, review, payment_terms),
         "matter_validation": _matter_validation(matter),
     }
     return {k: v for k, v in response.items() if v is not None}
@@ -335,46 +335,23 @@ def _build_display_po_row(po: dict[str, Any], fill_row: dict[str, Any]) -> dict[
 
 
 def _payment_terms(invoice: dict[str, Any], po: dict[str, Any]) -> dict[str, Any]:
-    raw = field_text(invoice, "terms", "Terms", "TERMS") or field_text(po, "terms", "Terms", "TERMS")
-    invoice_date = field_text(invoice, "invoice_date", "Invoice Date")
-    due_date = field_text(invoice, "due_date", "Due Date") or field_text(po, "due_date", "Due Date")
-    normalized = _normalize_terms(raw)
-    if normalized and invoice_date and not due_date and normalized.get("net_days"):
-        parsed = _parse_date(invoice_date)
-        if parsed:
-            due_date = (parsed + timedelta(days=int(normalized["net_days"]))).date().isoformat()
+    raw = field_text(invoice, "terms", "Terms", "TERMS", "Payment Terms", "payment_terms") or field_text(
+        po, "terms", "Terms", "TERMS", "Payment Terms", "payment_terms"
+    )
+    invoice_date = field_text(invoice, "invoice_date", "Invoice Date", "Document Date")
+    due_date = field_text(invoice, "due_date", "Due Date")
+    normalized = normalize_payment_terms(raw)
+    computed = due_date_from_terms(invoice_date=invoice_date, terms=raw)
+    if computed:
+        due_date = computed
+    elif not due_date:
+        due_date = field_text(po, "due_date", "Due Date") or None
     return {
         "raw": raw or None,
         "normalized": normalized,
         "invoice_date": invoice_date or None,
         "due_date": due_date or None,
     }
-
-
-def _normalize_terms(raw: str) -> Optional[dict[str, Any]]:
-    text = str(raw or "").strip()
-    if not text:
-        return None
-    lower = text.lower()
-    if "net one month" in lower or "net 1 month" in lower:
-        return {"basis": "NET", "net_days": 30, "discount": None}
-    m = re.search(r"net\s*(\d+)", lower)
-    if m:
-        return {"basis": "NET", "net_days": int(m.group(1)), "discount": None}
-    m = re.search(r"(\d+)\s*days?", lower)
-    if m:
-        return {"basis": "NET", "net_days": int(m.group(1)), "discount": None}
-    return {"basis": "OTHER", "net_days": None, "discount": None}
-
-
-def _parse_date(value: str) -> Optional[datetime]:
-    text = str(value or "").strip()
-    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%m-%d-%Y"):
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
-    return None
 
 
 def _supplier_validation(vendor: dict[str, Any], invoice: dict[str, Any]) -> dict[str, Any]:
@@ -428,10 +405,29 @@ def _back_order(backorder: dict[str, Any], finalize: dict[str, Any]) -> dict[str
     }
 
 
-def _extracted_invoice_json(invoice: dict[str, Any], review: str) -> dict[str, Any]:
+def _extracted_invoice_json(
+    invoice: dict[str, Any],
+    review: str,
+    payment_terms: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     header_src = invoice.get("invoice_header") if isinstance(invoice.get("invoice_header"), dict) else invoice
     inv_amt = field_number(header_src, "total", "amount", "Invoice Amount")
     tax_amt = field_number(header_src, "tax", "tax_amount", "Invoice Tax Amount")
+    terms = (
+        field_text(header_src, "terms", "Terms", "TERMS", "Payment Terms")
+        or (payment_terms or {}).get("raw")
+        or None
+    )
+    due_date = (
+        (payment_terms or {}).get("due_date")
+        or field_text(header_src, "due_date", "Due Date")
+        or None
+    )
+    invoice_date = (
+        field_text(header_src, "invoice_date", "Invoice Date", "Document Date")
+        or (payment_terms or {}).get("invoice_date")
+        or None
+    )
     header = {
         "Document Type": field_text(header_src, "doc_type", "Document Type", "document_type") or "INVOICE",
         "Invoice No": field_text(header_src, "invoice_number", "Invoice No", "invoice_no") or None,
@@ -439,10 +435,10 @@ def _extracted_invoice_json(invoice: dict[str, Any], review: str) -> dict[str, A
         "PO DATE": field_text(header_src, "po_date", "PO Date", "PO DATE") or None,
         "Vendor Name": field_text(header_src, "vendor", "Vendor Name", "supplier", "Supplier") or None,
         "Currency": field_text(header_src, "currency", "Currency") or None,
-        "TERMS": field_text(header_src, "terms", "Terms", "TERMS") or None,
+        "TERMS": terms,
         "PO Amount": field_text(header_src, "po_amount", "PO Amount") or None,
-        "Invoice Date": field_text(header_src, "invoice_date", "Invoice Date") or None,
-        "Due Date": field_text(header_src, "due_date", "Due Date") or None,
+        "Invoice Date": invoice_date,
+        "Due Date": due_date,
         "Invoice Amount": _display(inv_amt)
         if inv_amt is not None
         else field_text(header_src, "total", "amount", "Invoice Amount") or None,

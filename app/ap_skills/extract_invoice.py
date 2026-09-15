@@ -8,6 +8,7 @@ from functools import lru_cache
 from typing import Any, Optional
 
 from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
+from app.ap_skills.payment_terms import due_date_from_terms, looks_like_payment_terms
 from app.ap_skills.types import ApContext, ApSkillError, ApSkillResult, field_text, norm_token
 
 logger = logging.getLogger("orchestrator.ap.extract_invoice")
@@ -32,13 +33,17 @@ _LINE_KEYS = (
 _EXTRACT_PROMPT = (
     "Extract AP invoice fields from the OCR text. Reply with JSON only, no markdown: "
     '{"doc_type":"invoice"|"other","invoice_number":"","invoice_date":"","due_date":"",'
-    '"vendor":"","po_number":"","total":null,"currency":"","line_items":'
+    '"terms":"","vendor":"","po_number":"","total":null,"currency":"","line_items":'
     '[{"description":"","qty":null,"price":null,"amount":null}]} '
     "PDF OCR often puts table headers and values on separate lines. "
     "If you see 'Invoice #' or 'Invoice No' then later a token like INV-2026-6001, "
     "that token is invoice_number. Same for 'PO #' / PO-60001 → po_number; "
     "SAP supplier invoices often label the PO as Reference on the line above the id. "
-    "Vendor is the seller letterhead (not Bill To). "
+    "Vendor is the seller letterhead (not Bill To). Prefer Bill From (Supplier) over "
+    "company letterhead when both appear. "
+    "Payment Terms / Terms (e.g. Net 30, Net One Month) → terms. "
+    "If due_date is missing but terms and invoice_date are present, leave due_date empty "
+    "(the system will compute it from terms). "
     "Invoice Total / Amount Due is total. "
     "If the text is only form labels (Terms, Currency, PO Number) with no values, "
     "leave every field empty. Do not guess USD or copy a label as a value."
@@ -156,10 +161,31 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(header, dict) and header:
             orig_header = header
             break
-    invoice_date_raw = field_text(src, "invoice_date", "invoiceDate", "Invoice Date", "date")
+    invoice_date_raw = field_text(
+        src, "invoice_date", "invoiceDate", "Invoice Date", "Document Date", "date"
+    )
     due_date_raw = field_text(src, "due_date", "dueDate", "Due Date")
+    terms = field_text(
+        src,
+        "terms",
+        "Terms",
+        "TERMS",
+        "payment_terms",
+        "Payment Terms",
+        "PaymentTerms",
+    )
+    if terms and not looks_like_payment_terms(terms):
+        terms = ""
     invoice_date_norm = _normalize_date(invoice_date_raw) if invoice_date_raw else None
     due_date_norm = _normalize_date(due_date_raw) if due_date_raw else None
+    # Prefer due date derived from payment terms when terms are known.
+    computed_due = due_date_from_terms(
+        invoice_date=invoice_date_norm or invoice_date_raw,
+        terms=terms,
+    )
+    if computed_due:
+        due_date_norm = computed_due
+        due_date_raw = computed_due
     out: dict[str, Any] = {
         "doc_type": (src.get("doc_type") or src.get("Document Type") or "invoice"),
         "invoice_number": field_text(
@@ -178,6 +204,7 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
         # tell "clean ISO date" apart from "unparsed source text".
         "invoice_date": invoice_date_norm or invoice_date_raw,
         "due_date": due_date_norm or due_date_raw,
+        "terms": terms,
         "vendor": field_text(
             src,
             "vendor",
@@ -200,7 +227,7 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
     }
     if invoice_date_raw and not invoice_date_norm:
         out["invoice_date_unparsed"] = True
-    if due_date_raw and not due_date_norm:
+    if due_date_raw and not due_date_norm and not computed_due:
         out["due_date_unparsed"] = True
     header: dict[str, Any] = {}
     if orig_header:
@@ -218,7 +245,11 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
     if out["invoice_date"]:
         header.setdefault("Invoice Date", out["invoice_date"])
     if out["due_date"]:
-        header.setdefault("Due Date", out["due_date"])
+        header["Due Date"] = out["due_date"]
+    if out["terms"]:
+        header["Terms"] = out["terms"]
+        header["TERMS"] = out["terms"]
+        header["Payment Terms"] = out["terms"]
     if out["currency"]:
         header.setdefault("Currency", out["currency"])
     if total is not None:
@@ -257,6 +288,14 @@ _PO_NUMBER_BLOCK = re.compile(
     r"(?:^|\n)\s*PO\s*(?:Number|#|No\.?)\s*\n\s*([^\n]+)",
     re.I | re.MULTILINE,
 )
+_TERMS_BLOCK = re.compile(
+    r"(?:^|\n)\s*(?:Payment\s*)?Terms\s*(?:\n|:)\s*([^\n]+)",
+    re.I | re.MULTILINE,
+)
+_INVOICE_DATE_BLOCK = re.compile(
+    r"(?:^|\n)\s*(?:Invoice Date|Document Date)\s*(?:\n|:)\s*([^\n]+)",
+    re.I | re.MULTILINE,
+)
 _CURRENCY_TOKEN = re.compile(r"\b(CAD|USD|EUR|GBP|INR|SGD|AED)\b", re.I)
 _VENDOR_ENTITY = re.compile(r"\b(ltd|limited|inc|corp|llc|gmbh|plc|co\.?)\b", re.I)
 _SKIP_VENDOR_LINE = re.compile(
@@ -277,10 +316,12 @@ _COLUMN_LABELS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^po\s*(?:#|no\.?|number)?$", re.I), "PO Number"),
     (re.compile(r"^reference$", re.I), "PO Number"),
     (re.compile(r"^terms$", re.I), "Terms"),
+    (re.compile(r"^payment\s*terms$", re.I), "Terms"),
     (re.compile(r"^ship\s*via$", re.I), "Ship Via"),
     (re.compile(r"^shipped$", re.I), "Shipped"),
     (re.compile(r"^due\s*date$", re.I), "Due Date"),
     (re.compile(r"^invoice\s*date$", re.I), "Invoice Date"),
+    (re.compile(r"^document\s*date$", re.I), "Invoice Date"),
     (re.compile(r"^currency$", re.I), "Currency"),
 )
 
@@ -315,6 +356,8 @@ def _shape_ok(label: str, value: str) -> bool:
         return _normalize_date(value) is not None
     if label == "Currency":
         return bool(_CURRENCY_TOKEN.fullmatch(value.strip()))
+    if label == "Terms":
+        return looks_like_payment_terms(value)
     return True
 
 
@@ -509,6 +552,17 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
             currency = found.group(1).upper()
     due_date = field_text(merged, "Due Date", "due_date")
     invoice_date = field_text(merged, "Invoice Date", "invoice_date", "Shipped", "Document Date")
+    if not invoice_date:
+        date_match = _INVOICE_DATE_BLOCK.search(text or "")
+        if date_match:
+            invoice_date = date_match.group(1).strip()
+    terms = field_text(merged, "Terms", "TERMS", "Payment Terms", "payment_terms", "terms")
+    if not terms or not looks_like_payment_terms(terms):
+        terms_match = _TERMS_BLOCK.search(text or "")
+        if terms_match and looks_like_payment_terms(terms_match.group(1)):
+            terms = terms_match.group(1).strip()
+        else:
+            terms = ""
     payload = {
         "doc_type": "invoice" if re.search(r"\binvoice\b", text or "", re.I) else "other",
         "invoice_number": invoice_number,
@@ -518,6 +572,7 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
         "currency": currency,
         "due_date": due_date,
         "invoice_date": invoice_date,
+        "terms": terms,
         "invoice_header": merged,
     }
     return _as_invoice(payload)
