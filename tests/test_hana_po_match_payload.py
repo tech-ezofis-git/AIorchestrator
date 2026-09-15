@@ -49,7 +49,7 @@ def test_build_hana_po_invoice_match_body_full_shape():
     assert body["currency"] == "USD"
     assert body["totalAmount"] == 368.94
     assert body["status"] == "Matched"
-    assert body["invoiceStatus"] == "Open"
+    assert body["invoiceStatus"] == "Follow-On Documents"
     assert len(body["items"]) == 1
     assert body["items"][0]["materialId"] == "MZ-RM-R100-02"
 

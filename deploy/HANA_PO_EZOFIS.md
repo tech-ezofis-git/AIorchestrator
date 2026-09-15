@@ -23,7 +23,7 @@ After **Matched** / **Partially Matched**, `workflow_move_next` sends:
   "currency": "USD",
   "totalAmount": 368.94,
   "status": "Matched",
-  "invoiceStatus": "Open",
+  "invoiceStatus": "Follow-On Documents",
   "items": [
     {
       "itemNumber": 10,
@@ -42,7 +42,7 @@ After **Matched** / **Partially Matched**, `workflow_move_next` sends:
 }
 ```
 
-`items` come from HANA lookup `match_items` (passthrough from Core lookup response). Invoice header fields come from extracted invoice JSON; `invoiceStatus` defaults to `Open`.
+`items` come from HANA lookup `match_items` (passthrough from Core lookup response). Invoice header fields come from extracted invoice JSON; `invoiceStatus` defaults to `Follow-On Documents`.
 
 ## Orchestrator AP
 

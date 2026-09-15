@@ -93,7 +93,7 @@ def build_hana_po_invoice_match_body(
     status: str,
     invoice: dict[str, Any],
     po: Optional[dict[str, Any]] = None,
-    invoice_status: str = "Open",
+    invoice_status: str = "Follow-On Documents",
 ) -> dict[str, Any]:
     """Body for ``POST /connector/{id}/hana/purchase-orders/match``."""
     po = po or {}
