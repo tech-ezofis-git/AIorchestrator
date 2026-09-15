@@ -5,7 +5,11 @@ import logging
 import uuid
 from typing import Any, Optional, Union
 
-from app.ap_skills.hana_po import is_hana_po_connector, resolve_hana_connector_id
+from app.ap_skills.hana_po import (
+    build_hana_po_invoice_match_body,
+    is_hana_po_connector,
+    resolve_hana_connector_id,
+)
 from app.ap_skills.types import ApContext, ApSkillResult, field_text, invoice_from
 
 logger = logging.getLogger("orchestrator.ap.workflow_move_next")
@@ -217,14 +221,20 @@ async def run(ctx: ApContext) -> ApSkillResult:
         ).strip()
         if po_number and invoice_number and connector_id:
             match_status = "Matched" if decision.upper() == "MATCHED" else "Partially Matched"
+            po_record = po_lookup.get("po") if isinstance(po_lookup.get("po"), dict) else {}
+            match_body = build_hana_po_invoice_match_body(
+                instance_id=instance_id,
+                po_number=po_number,
+                invoice_number=invoice_number,
+                status=match_status,
+                invoice=invoice,
+                po=po_record,
+            )
             try:
                 hana_match = await ctx.ezofis.save_hana_po_invoice_match(
                     tenant_id=ctx.tenant_id,
                     connector_id=connector_id,
-                    po_number=po_number,
-                    instance_id=instance_id,
-                    invoice_number=invoice_number,
-                    status=match_status,
+                    body=match_body,
                 )
             except Exception as exc:
                 logger.warning(

@@ -7,7 +7,42 @@ From `HANA_Cloud_Purchase_Order_API.docx`:
 | Tenant | `b843b988-00ec-44e3-aca2-b8470133ef63` |
 | Connector | `f7636e21-1a0c-457c-a2b4-e28430705477` |
 | Lookup | `POST /api/connector/{connectorId}/hana/purchase-orders` `{ "poNumber": "…" }` |
-| Match | `POST /api/connector/{connectorId}/hana/purchase-orders/match` |
+| Match | `POST /api/connector/{connectorId}/hana/purchase-orders/match` (full invoice + PO line payload) |
+
+### Match request body (orchestrator → Core)
+
+After **Matched** / **Partially Matched**, `workflow_move_next` sends:
+
+```json
+{
+  "instanceId": "<workflow instance guid>",
+  "poNumber": "4500069456",
+  "invoiceNumber": "56700989",
+  "supplierName": "EV Parts Inc.",
+  "invoiceDate": "2026-09-11",
+  "currency": "USD",
+  "totalAmount": 368.94,
+  "status": "Matched",
+  "invoiceStatus": "Open",
+  "items": [
+    {
+      "itemNumber": 10,
+      "itemCategory": "Standard",
+      "materialId": "MZ-RM-R100-02",
+      "materialDescription": "BKR-100 Handle Bars",
+      "materialGroup": "ZHANDLE",
+      "plant": "1710",
+      "orderQuantity": 129,
+      "unitOfMeasure": "PC",
+      "netPrice": 2.86,
+      "priceUnit": 1,
+      "netValue": 368.94
+    }
+  ]
+}
+```
+
+`items` come from HANA lookup `match_items` (passthrough from Core lookup response). Invoice header fields come from extracted invoice JSON; `invoiceStatus` defaults to `Open`.
 
 ## Orchestrator AP
 

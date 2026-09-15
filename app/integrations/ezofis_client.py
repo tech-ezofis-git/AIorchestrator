@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 import httpx
 
+from app.ap_skills.hana_po import hana_match_item_from_row
 from app.config import Settings, get_settings
 
 logger = logging.getLogger("orchestrator.ezofis")
@@ -554,6 +555,7 @@ class EzofisClient:
     @staticmethod
     def _normalize_hana_po_item(item: dict[str, Any], *, po_number: str) -> dict[str, Any]:
         lines: list[dict[str, Any]] = []
+        match_items: list[dict[str, Any]] = []
         for row in item.get("items") or []:
             if not isinstance(row, dict):
                 continue
@@ -566,6 +568,9 @@ class EzofisClient:
                     "amount": row.get("netValue") or row.get("net_value"),
                 }
             )
+            mapped = hana_match_item_from_row(row)
+            if mapped:
+                match_items.append(mapped)
         return {
             "po_number": item.get("poNumber") or item.get("po_number") or po_number,
             "vendor": item.get("supplierName") or item.get("supplier_name") or item.get("supplierId"),
@@ -574,6 +579,7 @@ class EzofisClient:
             "currency": item.get("currency"),
             "po_date": item.get("poDate") or item.get("po_date"),
             "lines": lines,
+            "match_items": match_items,
             "matches": item.get("matches") if isinstance(item.get("matches"), list) else [],
             "source": "hana_cloud",
         }
@@ -640,9 +646,15 @@ class EzofisClient:
                     "items": [
                         {
                             "itemNumber": 10,
+                            "itemCategory": "Standard",
+                            "materialId": "MZ-RM-R100-02",
                             "materialDescription": "BKR-100 Handle Bars",
+                            "materialGroup": "ZHANDLE",
+                            "plant": "1710",
                             "orderQuantity": 129,
+                            "unitOfMeasure": "PC",
                             "netPrice": 2.86,
+                            "priceUnit": 1,
                             "netValue": 368.94,
                         }
                     ],
@@ -660,18 +672,9 @@ class EzofisClient:
         *,
         tenant_id: str,
         connector_id: str,
-        po_number: str,
-        instance_id: str,
-        invoice_number: str,
-        status: str = "Matched",
+        body: dict[str, Any],
     ) -> dict[str, Any]:
         """POST /connector/{id}/hana/purchase-orders/match — DBADMIN.PO_INVOICE_MATCH."""
-        body: dict[str, Any] = {
-            "poNumber": po_number,
-            "instanceId": instance_id,
-            "invoiceNumber": invoice_number,
-            "status": status,
-        }
         if not self._live_enabled():
             return {
                 "updated": True,
