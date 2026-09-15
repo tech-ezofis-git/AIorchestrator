@@ -518,17 +518,46 @@ class EzofisClient:
             purchase_order = live.get("purchaseOrder") or live.get("purchase_order")
             source = live.get("source") or "sap"
             if isinstance(purchase_order, dict) and purchase_order:
-                return {
+                out: dict[str, Any] = {
                     "po_number": purchase_order.get("po_number")
                     or purchase_order.get("poNumber")
                     or live.get("poNumber")
                     or po_number,
-                    "vendor": purchase_order.get("vendor"),
+                    "vendor": purchase_order.get("vendor")
+                    or purchase_order.get("supplierName")
+                    or purchase_order.get("supplier_name"),
+                    "supplier_id": purchase_order.get("supplier_id")
+                    or purchase_order.get("supplierId"),
                     "total": purchase_order.get("total"),
                     "currency": purchase_order.get("currency"),
-                    "lines": purchase_order.get("lines") or [],
+                    "po_date": purchase_order.get("po_date") or purchase_order.get("poDate"),
+                    "terms": purchase_order.get("terms") or purchase_order.get("Terms"),
+                    "buyer": purchase_order.get("buyer") or purchase_order.get("Buyer"),
+                    "supplier_address": purchase_order.get("supplier_address")
+                    or purchase_order.get("Supplier Address"),
+                    "ship_to_address": purchase_order.get("ship_to_address")
+                    or purchase_order.get("Ship To Address"),
+                    "lines": purchase_order.get("lines")
+                    or purchase_order.get("items")
+                    or [],
                     "source": source,
                 }
+                # Preserve any extra SAP PO Master columns from Core.
+                skip = {
+                    "po_number",
+                    "poNumber",
+                    "vendor",
+                    "supplierName",
+                    "supplier_name",
+                    "lines",
+                    "items",
+                }
+                for key, value in purchase_order.items():
+                    if key in skip or key in out:
+                        continue
+                    if value is not None and value != "":
+                        out[key] = value
+                return {k: v for k, v in out.items() if v is not None and v != ""}
             if live.get("po_number") or live.get("vendor"):
                 out = dict(live)
                 out.setdefault("source", source)
@@ -559,18 +588,21 @@ class EzofisClient:
         for row in item.get("items") or []:
             if not isinstance(row, dict):
                 continue
-            lines.append(
-                {
-                    "line_no": row.get("itemNumber") or row.get("item_number"),
-                    "description": row.get("materialDescription") or row.get("material_description"),
-                    "qty": row.get("orderQuantity") or row.get("order_quantity"),
-                    "unit_price": row.get("netPrice") or row.get("net_price"),
-                    "amount": row.get("netValue") or row.get("net_value"),
-                }
-            )
             mapped = hana_match_item_from_row(row)
             if mapped:
                 match_items.append(mapped)
+            # Keep both matching aliases and full SAP/HANA master columns on lines.
+            line: dict[str, Any] = {
+                "line_no": row.get("itemNumber") or row.get("item_number"),
+                "description": row.get("materialDescription") or row.get("material_description"),
+                "qty": row.get("orderQuantity") or row.get("order_quantity"),
+                "unit_price": row.get("netPrice") or row.get("net_price"),
+                "amount": row.get("netValue") or row.get("net_value"),
+                "uom": row.get("unitOfMeasure") or row.get("unit_of_measure"),
+                "part_number": row.get("materialId") or row.get("material_id"),
+            }
+            line.update(mapped)
+            lines.append({k: v for k, v in line.items() if v is not None and v != ""})
         return {
             "po_number": item.get("poNumber") or item.get("po_number") or po_number,
             "vendor": item.get("supplierName") or item.get("supplier_name") or item.get("supplierId"),

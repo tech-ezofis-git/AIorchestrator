@@ -31,7 +31,7 @@ _PO_ROW_SCALARS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         "PO Date",
-        ("PO Date", "PO_Date", "po_date"),
+        ("PO Date", "PO_Date", "po_date", "poDate"),
         ("PO Date", "PO_Date", "po_date"),
     ),
     (
@@ -50,6 +50,11 @@ _PO_ROW_SCALARS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
         ("Buyer", "Buyer Name", "buyer"),
     ),
     (
+        "Supplier Id",
+        ("Supplier Id", "Supplier ID", "supplier_id", "supplierId"),
+        ("Supplier Id", "Supplier ID", "supplier_id", "supplierId"),
+    ),
+    (
         "Supplier Address",
         ("Supplier Address", "Supplier_Address", "supplier_address", "Vendor Address", "vendor_address"),
         ("Supplier Address", "supplier_address", "Vendor Address", "vendor_address"),
@@ -61,7 +66,7 @@ _PO_ROW_SCALARS: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ),
     (
         "Vendor",
-        ("vendor", "supplier", "Vendor", "Supplier", "Vendor Name"),
+        ("vendor", "supplier", "Vendor", "Supplier", "Vendor Name", "supplierName"),
         ("vendor", "supplier", "Vendor", "Supplier", "Vendor Name"),
     ),
 )
@@ -202,7 +207,7 @@ def _po_scalar(po: dict[str, Any], *keys: str) -> Any:
 
 def _po_line_mapped(po: dict[str, Any]) -> list[dict[str, Any]]:
     raw: Any = None
-    for key in ("PO Line Item Mapped", "PO Line Item", "PO_Line_Item", "lines"):
+    for key in ("PO Line Item Mapped", "PO Line Item", "PO_Line_Item", "match_items", "lines", "items"):
         value = po.get(key)
         if value:
             raw = value
@@ -218,25 +223,57 @@ def _po_line_mapped(po: dict[str, Any]) -> list[dict[str, Any]]:
     for row in raw:
         if not isinstance(row, dict) or not row:
             continue
-        if any(key in row for key in ("Description", "Quantity", "Unit Cost", "Line")):
-            mapped.append(row)
-            continue
-        item: dict[str, Any] = {}
-        line_id = row.get("id") or row.get("Line") or row.get("line")
-        if line_id not in (None, ""):
+        if any(key in row for key in ("Description", "Quantity", "Unit Cost", "Line", "Material Id", "Item Number")):
+            # Already display-shaped (or partially); still fill SAP columns if missing.
+            item = dict(row)
+        else:
+            item = {}
+        line_id = (
+            row.get("itemNumber")
+            or row.get("item_number")
+            or row.get("id")
+            or row.get("Line")
+            or row.get("line")
+            or row.get("line_no")
+        )
+        if line_id not in (None, "") and "Line" not in item:
             item["Line"] = line_id
-        description = field_text(row, "description", "Description")
-        if description:
+        if "Item Number" not in item and line_id not in (None, ""):
+            item["Item Number"] = line_id
+
+        for label, keys in (
+            ("Item Category", ("itemCategory", "item_category", "Item Category")),
+            ("Material Id", ("materialId", "material_id", "Material Id", "Part Number", "part_number", "item_no")),
+            ("Material Description", ("materialDescription", "material_description", "description", "Description")),
+            ("Material Group", ("materialGroup", "material_group", "Material Group")),
+            ("Plant", ("plant", "Plant")),
+            ("Unit of Measure", ("unitOfMeasure", "unit_of_measure", "UOM", "uom")),
+            ("Price Unit", ("priceUnit", "price_unit", "Price Unit")),
+        ):
+            if item.get(label) not in (None, ""):
+                continue
+            text = field_text(row, *keys)
+            if text:
+                item[label] = text
+
+        description = field_text(row, "description", "Description", "materialDescription", "material_description")
+        if description and "Description" not in item:
             item["Description"] = description
-        qty = field_number(row, "qty", "Quantity", "quantity")
+        if description and "Material Description" not in item:
+            item["Material Description"] = description
+
+        qty = field_number(row, "orderQuantity", "order_quantity", "qty", "Quantity", "quantity")
         if qty is not None:
-            item["Quantity"] = qty
-        price = field_number(row, "price", "Unit Cost", "unit_cost", "unit_price")
+            item.setdefault("Quantity", qty)
+            item.setdefault("Order Quantity", qty)
+        price = field_number(row, "netPrice", "net_price", "price", "Unit Cost", "unit_cost", "unit_price", "rate")
         if price is not None:
-            item["Unit Cost"] = price
-        amount = field_number(row, "amount", "Extended", "extended")
+            item.setdefault("Unit Cost", price)
+            item.setdefault("Net Price", price)
+        amount = field_number(row, "netValue", "net_value", "amount", "Extended", "extended", "line_amount")
         if amount is not None:
-            item["Extended"] = amount
+            item.setdefault("Extended", amount)
+            item.setdefault("Net Value", amount)
         if item:
             mapped.append(item)
     return mapped

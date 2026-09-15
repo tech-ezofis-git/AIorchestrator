@@ -85,7 +85,7 @@ If `skills` is omitted / null, the **default pipeline** runs:
 | `reason` | Narrative with score, vendor, and line match summary |
 | `source_type` | `HANA Cloud` \| `SAP` \| `QuickBooks` \| `Sage` \| `EZOFIS DB` \| `Not validated` |
 | `debug` | Side-by-side field + line item matching scores |
-| `po_row` | PO master display row (`PO Number`, `Supplier`, `PO Line Item Mapped`, …) |
+| `po_row` | PO master display row — header (`PO Number`, `Supplier`, `Supplier Id`, `PO Date`, `Currency`, `PO Amount`, …) plus `PO Line Item Mapped` with full SAP/HANA line columns (`Item Number`, `Item Category`, `Material Id`, `Material Description`, `Material Group`, `Plant`, `Order Quantity`, `Unit of Measure`, `Net Price`, `Price Unit`, `Net Value`) |
 | `payment_terms` | Raw + normalized terms / due date |
 | `supplier_validation` | Vendor mismatch / master details |
 | `invoice_errors` | Duplicate / severity |
