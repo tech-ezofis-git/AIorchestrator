@@ -4962,13 +4962,17 @@ const viewChatBtn = document.getElementById('viewChatBtn');
 const viewCatalogBtn = document.getElementById('viewCatalogBtn');
 
 function setView(name) {
-  const catalog = name === 'catalog';
-  document.body.classList.toggle('catalog-open', catalog);
-  if (chatView) chatView.style.display = catalog ? 'none' : '';
-  if (catalogView) catalogView.classList.toggle('visible', catalog);
-  viewChatBtn.classList.toggle('active', !catalog);
-  viewCatalogBtn.classList.toggle('active', catalog);
-  if (catalog) {
+  const isCatalog = name === 'catalog';
+  const isChat = !isCatalog;
+
+  document.body.classList.toggle('catalog-open', isCatalog);
+  if (chatView) chatView.style.display = isChat ? '' : 'none';
+  if (catalogView) catalogView.classList.toggle('visible', isCatalog);
+
+  viewChatBtn.classList.toggle('active', isChat);
+  viewCatalogBtn.classList.toggle('active', isCatalog);
+
+  if (isCatalog) {
     chatGateResolved = false;
     closeTenantGate();
     catalogView.scrollTop = 0;

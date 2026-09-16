@@ -125,6 +125,14 @@ from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
 from app.agents.global_search_agent import GlobalSearchAgent
 from app.agents.chatbot_agent import ChatbotAgent
+from app.report_agent import ReportAgentService
+from app.models.report_agent import (
+    GeneratePromptRequest,
+    GeneratePromptResponse,
+    GenerateReportPlanRequest,
+    GenerateReportPlanResponse,
+    ReportAgentTemplate,
+)
 from app.config import get_settings
 from app.control.audit import AuditMiddleware, configure_app_logging
 from app.control.audit_store import AuditStore
@@ -523,6 +531,12 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.GLOBAL_SEARCH, global_search_agent.handle)
     agent_router.register(Intent.CHATBOT, chatbot_agent.handle)
 
+    report_agent_service = ReportAgentService(
+        tenant_pools=tenant_pools,
+        db_pool=db_pool,
+        catalog_store=catalog_store,
+    )
+
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
     app.state.ap_tenant_pools = tenant_pools
@@ -539,6 +553,7 @@ async def lifespan(app: FastAPI):
     app.state.audit_store = audit_store
     app.state.memory_store = memory_store
     app.state.response_cache = response_cache
+    app.state.report_agent_service = report_agent_service
     # Exposed for the Test Console's GET/POST /console/llm-config below —
     # the same shared instance every agent already calls through, so
     # reconfiguring it here takes effect everywhere with no app restart.
@@ -818,6 +833,71 @@ async def ez_data_import(request: Request, payload: DataImportRequest) -> dict:
                     detail={**exc.detail, **diag},
                 ) from None
         raise
+
+
+@app.get("/api/report-agent/templates", response_model=list[ReportAgentTemplate])
+async def list_report_templates(request: Request) -> list[ReportAgentTemplate]:
+    """Return the 10 supported business report templates."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    return service.get_supported_templates()
+
+
+@app.post("/api/report-agent/generate-prompt", response_model=GeneratePromptResponse)
+async def generate_report_prompt(
+    request: Request, payload: GeneratePromptRequest
+) -> GeneratePromptResponse:
+    """Dynamic Report Agent prompt generation from live database metadata discovery."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        return await service.generate_prompt(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_agent_prompt_failed")
+        raise HTTPException(status_code=500, detail="Failed to generate report prompt.") from exc
+
+
+@app.post(
+    "/api/report-agent/generate-report-plan",
+    response_model=GenerateReportPlanResponse,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": GenerateReportPlanRequest.model_json_schema(
+                        ref_template="#/components/schemas/{model}"
+                    ),
+                    "examples": {
+                        "prompt": {
+                            "summary": "Dynamic Report Prompt with Tenant ID",
+                            "value": {
+                                "prompt": "string",
+                                "tenantId": "string"
+                            },
+                        }
+                    },
+                }
+            },
+        }
+    },
+)
+async def generate_report_plan(
+    request: Request, payload: GenerateReportPlanRequest
+) -> GenerateReportPlanResponse:
+    """Generate structured Report Plan, safe SQL query, live database data preview, and validation."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        return await service.generate_report_plan(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_agent_plan_failed")
+        raise HTTPException(status_code=500, detail=f"Failed to generate report plan: {str(exc)}") from exc
 
 
 @app.get("/console", response_class=HTMLResponse)
