@@ -211,6 +211,17 @@ class DocumentPayload(BaseModel):
             "SAP, HANA, QuickBooks, or Sage."
         ),
     )
+    master_form_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "master_form_id",
+            "masterFormId",
+            "MasterFormId",
+            "po_master_form_id",
+            "poMasterFormId",
+        ),
+        description="InternalForm / Ezofis PO master form id (ezfb_{token}_items). Separate from invoice form_id.",
+    )
     matter_master_id: Optional[str] = Field(default=None, description="Matter master id for matter_validate.")
     form_id: Optional[str] = Field(
         default=None,

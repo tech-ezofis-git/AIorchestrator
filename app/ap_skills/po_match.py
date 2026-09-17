@@ -100,14 +100,31 @@ async def run(ctx: ApContext) -> ApSkillResult:
             # SAP ran and missed / failed — keep its reason if form master also misses.
             sap_lookup_reason = str(artifact.get("reason") or "").strip() or None
     if not po:
-        form_id = (ctx.form_id or str(ctx.document_job.get("form_id") or "").strip() or None)
+        job = ctx.document_job or {}
+        # Prefer Workflow PoMaster form (master_form_id); invoice form_id is write-back only.
+        form_id = (
+            str(job.get("master_form_id") or job.get("masterFormId") or "").strip()
+            or ctx.form_id
+            or str(job.get("form_id") or "").strip()
+            or None
+        )
         po = await ctx.ezofis.lookup_po(
             tenant_id=ctx.tenant_id,
             po_number=po_number,
             form_id=form_id,
         )
+        # Live Core has no GET /masters/po yet — read ezfb_*_items on the tenant DB.
+        if not po and form_id and ctx.store is not None and hasattr(ctx.store, "lookup_ezfb_po"):
+            try:
+                po = await ctx.store.lookup_ezfb_po(
+                    tenant_id=ctx.tenant_id,
+                    form_id=form_id,
+                    po_number=po_number,
+                )
+            except Exception:
+                po = None
     # EZOFIS safety net: only when Workflow/payload asks for SAP/HANA
-    # (InternalForm must stay on /masters/po above).
+    # (InternalForm must stay on form / ezfb master above).
     if not po:
         from app.ap_skills.hana_po import (
             is_ezofis_tenant,

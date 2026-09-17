@@ -907,6 +907,57 @@ def test_ezofis_internal_form_skips_hana_lookup(client, monkeypatch):
     assert artifacts["po_match"]["po"]["source"] == "form"
 
 
+def test_ezofis_internal_form_uses_ezfb_when_masters_po_missing(client, monkeypatch):
+    """Live Core has no /masters/po — fall back to tenant ezfb PO master table."""
+
+    async def fake_lookup_po(self, **kwargs):
+        return None  # simulates GET /masters/po → 404
+
+    async def fake_ezfb(self, **kwargs):
+        assert kwargs["form_id"] == "168f611f-464e-47c5-be1d-d194d5a3c0dc"
+        assert kwargs["po_number"] == "PO-1"
+        return {
+            "po_number": "PO-1",
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "currency": "USD",
+            "lines": [],
+            "source": "form",
+            "form_id": kwargs["form_id"],
+            "ezfb_table": "ezfb_168f611f_items",
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po",
+        fake_lookup_po,
+    )
+    monkeypatch.setattr(
+        "app.ap_skills.store.ApStore.lookup_ezfb_po",
+        fake_ezfb,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-ezfb-master",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-ezfb-master",
+                tenant_id="b843b988-00ec-44e3-aca2-b8470133ef63",
+                master_source="InternalForm",
+                master_form_id="168f611f-464e-47c5-be1d-d194d5a3c0dc",
+                form_id="invoice-form-id",
+                skills=["extract_invoice", "po_match", "finalize_decision"],
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["ap_result"]["artifacts"]
+    assert "po_lookup_sap" not in artifacts
+    assert artifacts["po_match"]["decision"] == "MATCHED"
+    assert artifacts["po_match"]["po"]["ezfb_table"] == "ezfb_168f611f_items"
+
+
 def test_sap_connector_lookup_feeds_po_match(client, monkeypatch):
     async def fake_sap(self, **kwargs):
         return {

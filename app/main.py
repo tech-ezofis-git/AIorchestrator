@@ -1856,6 +1856,10 @@ _CHAT_MULTIPART_SCHEMA = {
             "type": "string",
             "description": "Workflow PO master: InternalForm, SAP, HANA, QuickBooks, or Sage.",
         },
+        "master_form_id": {
+            "type": "string",
+            "description": "InternalForm PO master form id (ezfb table). Separate from invoice formid.",
+        },
         "matter_master_id": {"type": "string", "description": "Matter master id."},
         "formid": {
             "type": "string",
@@ -2370,6 +2374,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "connector_id": payload.payload.connector_id if payload.payload else None,
             "resource": payload.payload.resource if payload.payload else None,
             "master_source": payload.payload.master_source if payload.payload else None,
+            "master_form_id": payload.payload.master_form_id if payload.payload else None,
             "matter_master_id": payload.payload.matter_master_id if payload.payload else None,
             "form_id": payload.payload.form_id if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,

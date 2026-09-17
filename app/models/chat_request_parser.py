@@ -100,6 +100,11 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or _form_str(form.get("masterSource"))
         or _form_str(form.get("MasterSource"))
     )
+    master_form_id = (
+        _form_str(form.get("master_form_id"))
+        or _form_str(form.get("masterFormId"))
+        or _form_str(form.get("MasterFormId"))
+    )
     matter_master_id = _form_str(form.get("matter_master_id"))
     parameters = _parse_form_string_list(form, "parameters")
     tableparameters = _parse_form_string_list(form, "tableparameters")
@@ -213,6 +218,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             connector_id=connector_id,
             resource=resource,
             master_source=master_source,
+            master_form_id=master_form_id,
             matter_master_id=matter_master_id,
             form_id=form_id,
         )
