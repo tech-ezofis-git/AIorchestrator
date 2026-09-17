@@ -949,6 +949,83 @@
     overflow: hidden;
   }
   .pack-tab-panel.hidden { display: none; }
+  .ap-pipe-skill-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: thin;
+  }
+  .ap-pipe-skill-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    font-size: 12px;
+  }
+  .ap-pipe-skill-row.off { opacity: 0.55; }
+  .ap-pipe-skill-row label {
+    display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer;
+    font-weight: 600; color: var(--ink);
+  }
+  .ap-pipe-skill-row .ap-pipe-move { display: flex; gap: 4px; }
+  .ap-pipe-skill-row .ap-pipe-move button {
+    padding: 4px 8px; font-size: 11px; line-height: 1;
+  }
+  .ap-pipe-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    padding: 10px 14px 14px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .ap-pipe-form .span-all { grid-column: 1 / -1; }
+  .ap-pipe-form label { font-size: 11px; font-weight: 600; color: var(--ink-2); display: block; margin-bottom: 4px; }
+  .ap-pipe-form input[type="text"],
+  .ap-pipe-form input[type="number"] {
+    width: 100%;
+  }
+  .ap-pipe-form .check-row {
+    display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600;
+  }
+  .ap-pipe-actions {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    padding: 0 14px 14px;
+  }
+  .ap-pipe-banner {
+    margin: 10px 14px 0;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    line-height: 1.4;
+    background: #fff7ed;
+    color: #9a3412;
+  }
+  .ap-pipe-banner.ok { background: #ecfdf5; color: var(--ok); }
+  .ap-pipe-readonly {
+    padding: 10px 14px 14px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    font-size: 12px;
+  }
+  .ap-pipe-readonly pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--ink-2);
+  }
   .pack-split {
     flex: 1;
     min-height: 0;
@@ -1808,6 +1885,10 @@ Due Date,DATE</textarea>
         <h2 id="packInspectorTitle">Agent pack</h2>
         <p class="pack-inspector-sub" id="packInspectorSub">Defaults and tenant overlays</p>
       </div>
+      <div class="pack-tabs" id="apInstrMainTabs" hidden style="margin-bottom:8px">
+        <button type="button" class="pack-tab" data-ap-main-tab="pipeline">Pipeline</button>
+        <button type="button" class="pack-tab active" data-ap-main-tab="instructions">Instructions</button>
+      </div>
       <div class="pack-tabs">
         <button type="button" class="pack-tab active" data-pack-tab="platform">Platform</button>
         <button type="button" class="pack-tab" data-pack-tab="tenant">Tenant</button>
@@ -1839,6 +1920,78 @@ Due Date,DATE</textarea>
         <details class="pack-log-details" id="summaryLogsWrap" hidden>
           <summary>Change log</summary>
           <div id="summarySkillLogs" class="tenant-log"></div>
+        </details>
+      </div>
+    </div>
+  </aside>
+
+  <aside class="panel pack-inspector" id="apPipelineInspector">
+    <div class="pack-inspector-head">
+      <div class="pack-inspector-title">
+        <h2>AP Configuration</h2>
+        <p class="pack-inspector-sub">Pipeline (executable) and Instructions (soft LLM guidance)</p>
+      </div>
+      <div class="pack-tabs" style="margin-bottom:8px">
+        <button type="button" class="pack-tab active" data-ap-main-tab="pipeline">Pipeline</button>
+        <button type="button" class="pack-tab" data-ap-main-tab="instructions">Instructions</button>
+      </div>
+      <div class="pack-tabs" id="apPipeSubTabs">
+        <button type="button" class="pack-tab active" data-ap-pipe-tab="platform">Platform</button>
+        <button type="button" class="pack-tab" data-ap-pipe-tab="tenant">Tenant</button>
+      </div>
+    </div>
+    <div class="pack-inspector-body">
+      <div id="apPipeFlagBanner" class="ap-pipe-banner" hidden></div>
+      <div id="apPipeTabPlatform" class="pack-tab-panel">
+        <div class="ap-pipe-readonly">
+          <p class="field-hint" style="margin:0 0 8px">Product default (read-only). Seeded from code on boot.</p>
+          <pre id="apPipePlatformJson">Loading…</pre>
+        </div>
+      </div>
+      <div id="apPipeTabTenant" class="pack-tab-panel hidden">
+        <div class="pack-tenant-banner locked" id="apPipeTenantZone">
+          <span id="apPipeTenantHint">Set tenant id (AP options or console tenant) to edit.</span>
+        </div>
+        <div id="apPipeStatus" class="tenant-skills-status"></div>
+        <div class="ap-pipe-skill-list" id="apPipeSkillList"></div>
+        <div class="ap-pipe-form">
+          <div>
+            <label for="apPipeConnector">Default connector id</label>
+            <input type="text" id="apPipeConnector" placeholder="optional GUID" />
+          </div>
+          <div>
+            <label for="apPipeResource">Default resource</label>
+            <input type="text" id="apPipeResource" placeholder="SAP / HANA / QUICKBOOKS" />
+          </div>
+          <div>
+            <label for="apPipeApproved">approved threshold</label>
+            <input type="number" id="apPipeApproved" placeholder="inherit (80)" />
+          </div>
+          <div>
+            <label for="apPipePartial">partial threshold</label>
+            <input type="number" id="apPipePartial" placeholder="inherit (50)" />
+          </div>
+          <div class="span-all">
+            <label for="apPipeTolerance">amount_tolerance (ratio, e.g. 0.02)</label>
+            <input type="number" step="0.001" id="apPipeTolerance" placeholder="inherit (0.02)" />
+          </div>
+          <div class="span-all check-row">
+            <input type="checkbox" id="apPipeUsePlanner" />
+            <label for="apPipeUsePlanner" style="margin:0">use_planner (LLM reorder when skills omitted)</label>
+          </div>
+          <div class="span-all check-row">
+            <input type="checkbox" id="apPipeForceHana" checked />
+            <label for="apPipeForceHana" style="margin:0">force_hana_po_lookup (EZOFIS inject)</label>
+          </div>
+        </div>
+        <div class="ap-pipe-actions">
+          <button type="button" class="btn-primary" id="apPipeSaveBtn">Save tenant pipeline</button>
+          <button type="button" class="btn-ghost" id="apPipeReloadBtn">Reload</button>
+          <button type="button" class="btn-ghost" id="apPipeLoadPlatformBtn">Copy platform</button>
+        </div>
+        <details class="pack-log-details" id="apPipeLogsWrap" hidden>
+          <summary>Change log</summary>
+          <div id="apPipeLogs" class="tenant-log"></div>
         </details>
       </div>
     </div>
@@ -2199,6 +2352,9 @@ function setConsoleTenantId(tenantId) {
   if (typeof loadSummaryTenantCustom === 'function') {
     try { loadSummaryTenantCustom(); } catch (_) { /* pack UI may load later */ }
   }
+  if (typeof loadApPipelineConsole === 'function' && composerMode === 'ap') {
+    try { loadApPipelineConsole(); } catch (_) { /* AP pipeline UI may load later */ }
+  }
   return refreshConsoleAgents();
 }
 
@@ -2550,9 +2706,12 @@ function setComposerMode(mode) {
   }
   const layout = document.querySelector('.layout');
   const packInspector = document.getElementById('summaryPackInspector');
+  const apPipeInspector = document.getElementById('apPipelineInspector');
   const packOpen = isPackAgent(mode);
-  if (layout) layout.classList.toggle('pack-inspector-open', packOpen);
+  const apPipeOpen = mode === 'ap';
+  if (layout) layout.classList.toggle('pack-inspector-open', packOpen || apPipeOpen);
   if (packInspector) packInspector.classList.toggle('visible', packOpen);
+  if (apPipeInspector) apPipeInspector.classList.toggle('visible', apPipeOpen);
   syncCapButtonActiveState();
   syncSendBtn();
   if (mode === 'summary') {
@@ -2569,6 +2728,7 @@ function setComposerMode(mode) {
     loadAgentSkillsPack('ocr');
   } else if (mode === 'ap') {
     messageInput.placeholder = 'Optional note';
+    setApMainView('pipeline');
   } else if (mode === 'prompt') {
     messageInput.placeholder = 'Paste the prompt';
     loadAgentSkillsPack('prompt');
@@ -2695,13 +2855,14 @@ function setSummarySkillsStatus(kind, text) {
   el.textContent = text;
 }
 
-const PACK_AGENTS = ['summary', 'ocr', 'insight', 'prompt', 'pdf'];
+const PACK_AGENTS = ['summary', 'ocr', 'insight', 'prompt', 'pdf', 'ap'];
 const PACK_AGENT_LABELS = {
   summary: 'Summary',
   ocr: 'OCR',
   insight: 'Insight',
   prompt: 'Prompt',
   pdf: 'PDF',
+  ap: 'AP',
 };
 const PACK_TENANT_FIELDS = {
   summary: 'summaryTenant',
@@ -2709,6 +2870,7 @@ const PACK_TENANT_FIELDS = {
   insight: 'insightTenant',
   prompt: 'summaryTenant',
   pdf: 'summaryTenant',
+  ap: 'apTenant',
 };
 
 const summaryPackState = {
@@ -2732,8 +2894,14 @@ function setPackInspectorChrome(agent) {
   const label = PACK_AGENT_LABELS[agent] || agent;
   const title = document.getElementById('packInspectorTitle');
   const sub = document.getElementById('packInspectorSub');
-  if (title) title.textContent = label + ' pack';
-  if (sub) sub.textContent = 'Platform defaults (read-only) and tenant overlays for ' + label;
+  const apTabs = document.getElementById('apInstrMainTabs');
+  if (title) title.textContent = agent === 'ap' ? 'AP Instructions' : (label + ' pack');
+  if (sub) {
+    sub.textContent = agent === 'ap'
+      ? 'Soft LLM guidance only — does not replace po_match or Pipeline skill order'
+      : ('Platform defaults (read-only) and tenant overlays for ' + label);
+  }
+  if (apTabs) apTabs.hidden = agent !== 'ap';
 }
 
 function customItemKey(kind, id) {
@@ -3285,9 +3453,318 @@ document.getElementById('summaryRuleSaveBtn').addEventListener('click', saveSumm
   el.addEventListener('input', loadSummaryTenantCustom);
   el.addEventListener('change', loadSummaryTenantCustom);
 });
-document.querySelectorAll('.pack-tab').forEach(tab => {
+document.querySelectorAll('#summaryPackInspector .pack-tab').forEach(tab => {
   tab.addEventListener('click', () => switchPackTab(tab.dataset.packTab));
 });
+
+/* —— AP Pipeline inspector (Phase 4) —— */
+const apPipeState = {
+  platform: null,
+  tenant: null,
+  known: null,
+  draftOrder: [],
+  draftEnabled: null,
+  fromDb: false,
+};
+
+function apPipeTenantId() {
+  const ap = (document.getElementById('apTenant')?.value || '').trim();
+  if (ap) return ap;
+  return (getConsoleTenantId() || '').trim();
+}
+
+function setApPipeStatus(kind, text) {
+  const el = document.getElementById('apPipeStatus');
+  if (!el) return;
+  if (!text) {
+    el.className = 'tenant-skills-status';
+    el.textContent = '';
+    return;
+  }
+  el.className = 'tenant-skills-status ' + kind;
+  el.textContent = text;
+}
+
+function switchApPipeTab(tabName) {
+  document.querySelectorAll('#apPipelineInspector .pack-tab[data-ap-pipe-tab]').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.apPipeTab === tabName);
+  });
+  const platform = document.getElementById('apPipeTabPlatform');
+  const tenant = document.getElementById('apPipeTabTenant');
+  if (platform) platform.classList.toggle('hidden', tabName !== 'platform');
+  if (tenant) tenant.classList.toggle('hidden', tabName !== 'tenant');
+}
+
+function apPipeConfigFromForm() {
+  const enabled = [];
+  apPipeState.draftOrder.forEach(id => {
+    if (apPipeState.draftEnabled === null || apPipeState.draftEnabled.includes(id)) {
+      enabled.push(id);
+    }
+  });
+  const allOn = apPipeState.draftEnabled === null
+    || (apPipeState.draftEnabled.length === apPipeState.draftOrder.length
+      && apPipeState.draftOrder.every(id => apPipeState.draftEnabled.includes(id)));
+  const numOrNull = (id) => {
+    const el = document.getElementById(id);
+    const v = (el && el.value || '').trim();
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    skills_order: apPipeState.draftOrder.slice(),
+    skills_enabled: allOn ? null : enabled,
+    default_connector_id: (document.getElementById('apPipeConnector')?.value || '').trim() || null,
+    default_resource: (document.getElementById('apPipeResource')?.value || '').trim() || null,
+    thresholds: {
+      approved: numOrNull('apPipeApproved'),
+      partial: numOrNull('apPipePartial'),
+      amount_tolerance: numOrNull('apPipeTolerance'),
+    },
+    flags: {
+      use_planner: !!document.getElementById('apPipeUsePlanner')?.checked,
+      force_hana_po_lookup: !!document.getElementById('apPipeForceHana')?.checked,
+    },
+  };
+}
+
+function applyApPipeConfigToForm(cfg) {
+  const config = cfg || {};
+  const known = (apPipeState.known && apPipeState.known.all_skills) || [];
+  let order = Array.isArray(config.skills_order) ? config.skills_order.slice() : [];
+  if (!order.length) order = (apPipeState.known && apPipeState.known.default_order) || known.slice();
+  known.forEach(id => { if (!order.includes(id)) order.push(id); });
+  apPipeState.draftOrder = order;
+  if (config.skills_enabled == null) {
+    apPipeState.draftEnabled = null;
+  } else {
+    apPipeState.draftEnabled = Array.isArray(config.skills_enabled)
+      ? config.skills_enabled.slice()
+      : [];
+  }
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v == null ? '' : String(v);
+  };
+  setVal('apPipeConnector', config.default_connector_id);
+  setVal('apPipeResource', config.default_resource);
+  const th = config.thresholds || {};
+  setVal('apPipeApproved', th.approved);
+  setVal('apPipePartial', th.partial);
+  setVal('apPipeTolerance', th.amount_tolerance);
+  const flags = config.flags || {};
+  const planner = document.getElementById('apPipeUsePlanner');
+  const hana = document.getElementById('apPipeForceHana');
+  if (planner) planner.checked = !!flags.use_planner;
+  if (hana) hana.checked = flags.force_hana_po_lookup !== false;
+  renderApPipeSkillList();
+}
+
+function renderApPipeSkillList() {
+  const el = document.getElementById('apPipeSkillList');
+  if (!el) return;
+  const order = apPipeState.draftOrder || [];
+  if (!order.length) {
+    el.innerHTML = '<div class="pack-empty">No skills in draft.</div>';
+    return;
+  }
+  el.innerHTML = order.map((id, idx) => {
+    const on = apPipeState.draftEnabled === null || apPipeState.draftEnabled.includes(id);
+    return (
+      '<div class="ap-pipe-skill-row' + (on ? '' : ' off') + '" data-skill="' + escapeHtml(id) + '">'
+      + '<label><input type="checkbox" class="ap-pipe-enable"' + (on ? ' checked' : '') + ' />'
+      + '<span>' + escapeHtml(id) + '</span></label>'
+      + '<span></span>'
+      + '<div class="ap-pipe-move">'
+      + '<button type="button" class="btn-ghost ap-pipe-up" data-idx="' + idx + '"' + (idx === 0 ? ' disabled' : '') + '>↑</button>'
+      + '<button type="button" class="btn-ghost ap-pipe-down" data-idx="' + idx + '"' + (idx === order.length - 1 ? ' disabled' : '') + '>↓</button>'
+      + '</div></div>'
+    );
+  }).join('');
+  el.querySelectorAll('.ap-pipe-enable').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const row = cb.closest('.ap-pipe-skill-row');
+      const skill = row && row.dataset.skill;
+      if (!skill) return;
+      if (apPipeState.draftEnabled === null) {
+        apPipeState.draftEnabled = apPipeState.draftOrder.slice();
+      }
+      if (cb.checked) {
+        if (!apPipeState.draftEnabled.includes(skill)) apPipeState.draftEnabled.push(skill);
+      } else {
+        apPipeState.draftEnabled = apPipeState.draftEnabled.filter(s => s !== skill);
+      }
+      row.classList.toggle('off', !cb.checked);
+    });
+  });
+  el.querySelectorAll('.ap-pipe-up').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.idx);
+      if (i <= 0) return;
+      const arr = apPipeState.draftOrder;
+      [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+      renderApPipeSkillList();
+    });
+  });
+  el.querySelectorAll('.ap-pipe-down').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.idx);
+      const arr = apPipeState.draftOrder;
+      if (i >= arr.length - 1) return;
+      [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+      renderApPipeSkillList();
+    });
+  });
+}
+
+function renderApPipeLogs(logs) {
+  const wrap = document.getElementById('apPipeLogsWrap');
+  const el = document.getElementById('apPipeLogs');
+  if (!wrap || !el) return;
+  const rows = Array.isArray(logs) ? logs : [];
+  wrap.hidden = rows.length === 0;
+  el.innerHTML = rows.map(row => {
+    const when = escapeHtml(String(row.changed_at || '').slice(0, 19));
+    const who = escapeHtml(row.changed_by || '');
+    const action = escapeHtml(row.action || '');
+    return '<div class="tenant-log-row"><strong>' + action + '</strong> · ' + who + ' · ' + when + '</div>';
+  }).join('');
+}
+
+async function loadApPipelineConsole() {
+  const tenantId = apPipeTenantId();
+  const zone = document.getElementById('apPipeTenantZone');
+  const hint = document.getElementById('apPipeTenantHint');
+  const banner = document.getElementById('apPipeFlagBanner');
+  const url = '/console/ap-pipeline' + (tenantId ? ('?tenant_id=' + encodeURIComponent(tenantId)) : '');
+  setApPipeStatus('', 'Loading…');
+  try {
+    const res = await fetch(url);
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      setApPipeStatus('error', msg);
+      return;
+    }
+    apPipeState.fromDb = !!data.ap_pipeline_from_db;
+    apPipeState.known = data.known_skills || null;
+    apPipeState.platform = (data.platform && data.platform.config) || null;
+    apPipeState.tenant = data.tenant || null;
+    const platformPre = document.getElementById('apPipePlatformJson');
+    if (platformPre) {
+      platformPre.textContent = JSON.stringify(apPipeState.platform || {}, null, 2);
+    }
+    if (banner) {
+      if (data.ap_pipeline_from_db) {
+        banner.hidden = false;
+        banner.className = 'ap-pipe-banner ok';
+        banner.textContent = 'AP_PIPELINE_FROM_DB is on — omitted payload.skills uses this Catalog config.';
+      } else {
+        banner.hidden = false;
+        banner.className = 'ap-pipe-banner';
+        banner.textContent = 'AP_PIPELINE_FROM_DB is off — runner still uses code defaults. Saves are stored for when the flag is enabled.';
+      }
+    }
+    if (zone && hint) {
+      if (tenantId) {
+        zone.classList.remove('locked');
+        hint.innerHTML = 'Tenant <strong>' + escapeHtml(tenantId) + '</strong> — edit and Save to Catalog.';
+      } else {
+        zone.classList.add('locked');
+        hint.textContent = 'Set tenant id (AP options or console tenant) to edit.';
+      }
+    }
+    const baseCfg = (data.tenant && data.tenant.config)
+      || (data.platform && data.platform.config)
+      || {};
+    applyApPipeConfigToForm(baseCfg);
+    renderApPipeLogs(data.logs || []);
+    setApPipeStatus('ok', tenantId
+      ? ((data.tenant ? 'Tenant override loaded' : 'No tenant row yet — editing from platform default') + '.')
+      : 'Platform defaults loaded (select a tenant to save overrides).');
+  } catch (e) {
+    setApPipeStatus('error', 'Failed to load AP pipeline.');
+  }
+}
+
+async function saveApPipelineTenant() {
+  const tenantId = apPipeTenantId();
+  if (!tenantId) {
+    setApPipeStatus('error', 'Set tenant_id first.');
+    return;
+  }
+  const config = apPipeConfigFromForm();
+  if (!config.skills_order.length) {
+    setApPipeStatus('error', 'skills_order cannot be empty.');
+    return;
+  }
+  setApPipeStatus('', 'Saving…');
+  try {
+    const res = await fetch('/console/ap-pipeline/tenant', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant_id: tenantId, config, changed_by: 'console' }),
+    });
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      setApPipeStatus('error', msg);
+      return;
+    }
+    setApPipeStatus('ok', 'Saved tenant pipeline.');
+    addSystemMessage('Saved AP pipeline for tenant ' + tenantId + '.');
+    await loadApPipelineConsole();
+  } catch (e) {
+    setApPipeStatus('error', 'Save failed.');
+  }
+}
+
+document.querySelectorAll('#apPipelineInspector .pack-tab[data-ap-pipe-tab]').forEach(tab => {
+  tab.addEventListener('click', () => switchApPipeTab(tab.dataset.apPipeTab));
+});
+document.querySelectorAll('[data-ap-main-tab]').forEach(tab => {
+  tab.addEventListener('click', () => setApMainView(tab.dataset.apMainTab));
+});
+
+function setApMainView(view) {
+  const name = view === 'instructions' ? 'instructions' : 'pipeline';
+  document.querySelectorAll('[data-ap-main-tab]').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.apMainTab === name);
+  });
+  const pipe = document.getElementById('apPipelineInspector');
+  const pack = document.getElementById('summaryPackInspector');
+  const layout = document.querySelector('.layout');
+  if (composerMode !== 'ap') return;
+  if (layout) layout.classList.add('pack-inspector-open');
+  if (name === 'instructions') {
+    if (pipe) pipe.classList.remove('visible');
+    if (pack) pack.classList.add('visible');
+    loadAgentSkillsPack('ap');
+  } else {
+    if (pack) pack.classList.remove('visible');
+    if (pipe) pipe.classList.add('visible');
+    loadApPipelineConsole();
+  }
+}
+
+const apPipeSaveBtn = document.getElementById('apPipeSaveBtn');
+if (apPipeSaveBtn) apPipeSaveBtn.addEventListener('click', saveApPipelineTenant);
+const apPipeReloadBtn = document.getElementById('apPipeReloadBtn');
+if (apPipeReloadBtn) apPipeReloadBtn.addEventListener('click', loadApPipelineConsole);
+const apPipeLoadPlatformBtn = document.getElementById('apPipeLoadPlatformBtn');
+if (apPipeLoadPlatformBtn) {
+  apPipeLoadPlatformBtn.addEventListener('click', () => {
+    applyApPipeConfigToForm(apPipeState.platform || {});
+    setApPipeStatus('ok', 'Copied platform defaults into the form (not saved yet).');
+  });
+}
+const apTenantEl = document.getElementById('apTenant');
+if (apTenantEl) {
+  apTenantEl.addEventListener('change', () => {
+    if (composerMode === 'ap') loadApPipelineConsole();
+  });
+}
 
 function fieldRow(label, value) {
   if (value === null || value === undefined) return '';

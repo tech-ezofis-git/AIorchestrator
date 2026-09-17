@@ -144,6 +144,7 @@ def resolve_pack_dir_from_settings(agent: str, settings: Optional[object] = None
         "ocr": getattr(settings, "ocr_skill_dir", None),
         "insight": getattr(settings, "insight_skill_dir", None),
         "prompt": getattr(settings, "prompt_skill_dir", None),
+        "ap": getattr(settings, "ap_skill_dir", None),
     }.get(agent)
     if specific:
         return Path(str(specific)).expanduser()

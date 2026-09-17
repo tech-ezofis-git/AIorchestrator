@@ -57,6 +57,9 @@ class FakeDBPool:
         self.catalog_models: dict[str, dict[str, Any]] = {}
         self.catalog_tenant_models: dict[str, dict[str, Any]] = {}
         self.catalog_tenant_agent_models: dict[str, dict[str, Any]] = {}
+        self.platform_ap_pipeline: dict[str, dict[str, Any]] = {}
+        self.tenant_ap_pipeline: dict[str, dict[str, Any]] = {}
+        self.tenant_ap_pipeline_logs: list[dict[str, Any]] = []
 
     def _catalog_agent_by_id(self, agent_id: Any) -> Optional[dict[str, Any]]:
         return self.catalog_agents.get(str(agent_id))
@@ -447,6 +450,29 @@ class FakeDBPool:
         if "FROM ap_tenant_plans" in query:
             tenant_id = args[0]
             return self.ap_tenant_plans.get(str(tenant_id))
+        if "FROM platform_ap_pipeline" in query:
+            pipeline_key = str(args[0]) if args else "default"
+            row = self.platform_ap_pipeline.get(pipeline_key)
+            if row is None or not row.get("is_active", True):
+                return None
+            return {"config_json": row.get("config_json")}
+        if "FROM tenant_ap_pipeline" in query:
+            tenant_id = str(args[0]) if args else ""
+            row = self.tenant_ap_pipeline.get(tenant_id)
+            if row is None:
+                return None
+            if "is_active = TRUE" in query and not row.get("is_active", True):
+                return None
+            if "SELECT id, config_json" in query or "SELECT id," in query:
+                return {
+                    "id": row.get("id"),
+                    "config_json": row.get("config_json"),
+                    "version": row.get("version", 1),
+                    "is_active": row.get("is_active", True),
+                    "updated_by": row.get("updated_by"),
+                    "updated_at": row.get("updated_at"),
+                }
+            return {"config_json": row.get("config_json")}
         if "information_schema.tables" in query.lower():
             return None
         if "workflowinstance" in query.lower() or "repositoryitem" in query.lower():
@@ -550,6 +576,16 @@ class FakeDBPool:
             return []
         if "information_schema" in query.lower():
             return []
+        if "FROM tenant_ap_pipeline_logs" in query:
+            tenant_id = str(args[0]) if args else ""
+            limit = int(args[1]) if len(args) > 1 else 20
+            rows = [
+                row
+                for row in self.tenant_ap_pipeline_logs
+                if row.get("tenant_id") == tenant_id
+            ]
+            rows.sort(key=lambda r: r.get("changed_at") or self._now(), reverse=True)
+            return rows[:limit]
         raise AssertionError(f"FakeDBPool.fetch: unrecognized query: {query!r}")
 
     async def execute(self, query: str, *args: Any):
@@ -557,6 +593,56 @@ class FakeDBPool:
             return
         if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
             return self._handle_catalog_execute(query, args)
+        if "INSERT INTO platform_ap_pipeline" in query:
+            row_id, pipeline_key, config_json, updated_by = args
+            key = str(pipeline_key)
+            existing = self.platform_ap_pipeline.get(key)
+            version = 1 if existing is None else int(existing.get("version") or 0) + 1
+            self.platform_ap_pipeline[key] = {
+                "id": existing["id"] if existing else row_id,
+                "pipeline_key": key,
+                "config_json": _json_val(config_json),
+                "version": version,
+                "is_active": True,
+                "updated_by": updated_by,
+                "created_at": existing["created_at"] if existing else self._now(),
+                "updated_at": self._now(),
+            }
+            return
+        if "INSERT INTO tenant_ap_pipeline_logs" in query:
+            tenant_id, pipeline_id, action, old_value, new_value, changed_by = args
+            self.tenant_ap_pipeline_logs.append(
+                {
+                    "id": len(self.tenant_ap_pipeline_logs) + 1,
+                    "tenant_id": str(tenant_id),
+                    "pipeline_id": pipeline_id,
+                    "action": action,
+                    "old_value": old_value,
+                    "new_value": new_value,
+                    "changed_by": changed_by,
+                    "changed_at": self._now(),
+                }
+            )
+            return
+        if "INSERT INTO tenant_ap_pipeline" in query:
+            # Flexible arg order: id, tenant_id, config_json, ...updated_by
+            row_id = args[0]
+            tenant_id = str(args[1])
+            config_json = args[2]
+            updated_by = args[3] if len(args) > 3 else None
+            existing = self.tenant_ap_pipeline.get(tenant_id)
+            version = 1 if existing is None else int(existing.get("version") or 0) + 1
+            self.tenant_ap_pipeline[tenant_id] = {
+                "id": existing["id"] if existing else row_id,
+                "tenant_id": tenant_id,
+                "config_json": _json_val(config_json),
+                "version": version,
+                "is_active": True,
+                "updated_by": updated_by,
+                "created_at": existing["created_at"] if existing else self._now(),
+                "updated_at": self._now(),
+            }
+            return
         if "INSERT INTO memories" in query:
             user_id, fact = args
             self.memories.append({"user_id": user_id, "fact": fact})

@@ -212,15 +212,61 @@ class ApSkillRunner:
                     "deduplicated": True,
                 }
 
-        # null skills → DEFAULT_SKILL_ORDER; list → exactly those ids.
-        # EZOFIS tenant: always run HANA PO lookup before po_match.
-        skills = resolve_skills(requested=requested)
-        skills = ensure_ezofis_hana_po_lookup(skills, tenant_id=tenant_id)
+        # null skills → pipeline (Catalog when flag on) or DEFAULT_SKILL_ORDER;
+        # list → exactly those ids. EZOFIS: HANA PO lookup before po_match
+        # unless Catalog flags.force_hana_po_lookup is false.
+        pipeline = None
+        if getattr(self._settings, "ap_pipeline_from_db", False):
+            from app.ap_pipeline.resolve import (
+                apply_connector_defaults,
+                merge_thresholds,
+                resolve_pipeline_config,
+            )
+
+            try:
+                pipeline = await resolve_pipeline_config(tenant_id)
+            except Exception as exc:
+                logger.warning(
+                    "ap_pipeline_resolve_failed",
+                    extra={"error_type": type(exc).__name__, "tenant_id": tenant_id},
+                )
+                pipeline = None
+            if pipeline is not None:
+                apply_connector_defaults(document_job, pipeline)
+                thresholds = merge_thresholds(
+                    plan_thresholds=thresholds,
+                    pipeline=pipeline,
+                )
+
+        default_order = None
+        enabled = None
+        force_hana = True
+        use_planner = bool(getattr(self._settings, "ap_llm_planner", False))
+        if pipeline is not None:
+            flags = pipeline.flags or {}
+            if "force_hana_po_lookup" in flags:
+                force_hana = bool(flags["force_hana_po_lookup"])
+            if requested is None:
+                default_order = list(pipeline.skills_order)
+                enabled = pipeline.skills_enabled
+                if "use_planner" in flags:
+                    use_planner = bool(flags["use_planner"])
+
+        skills = resolve_skills(
+            requested=requested,
+            enabled=enabled,
+            default_order=default_order,
+        )
+        skills = ensure_ezofis_hana_po_lookup(
+            skills, tenant_id=tenant_id, force=force_hana
+        )
         skills = await maybe_reorder(
             skills,
             llm=self._llm,
-            use_planner=bool(getattr(self._settings, "ap_llm_planner", False)) and requested is None,
+            use_planner=use_planner and requested is None,
             llm_overrides=document_job.get("llm_overrides"),
+            tenant_id=tenant_id,
+            settings=self._settings,
         )
         if not skills:
             raise ApSkillError("No skills to run.")

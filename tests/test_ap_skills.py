@@ -12,10 +12,30 @@ def test_null_skills_uses_default_order_with_finalize_and_move_next():
     assert skills[-1] == "workflow_move_next"
 
 
-def test_enabled_arg_ignored_for_null_skills():
-    # Tenant plan no longer gates the default pipeline.
-    skills = resolve_skills(requested=None, enabled=["extract_invoice"])
-    assert skills == list(DEFAULT_SKILL_ORDER)
+def test_enabled_filters_default_order_when_provided():
+    skills = resolve_skills(
+        requested=None,
+        enabled=["extract_invoice", "finalize_decision", "workflow_move_next"],
+    )
+    assert skills == ["extract_invoice", "finalize_decision", "workflow_move_next"]
+
+
+def test_default_order_override_used_when_skills_omitted():
+    skills = resolve_skills(
+        requested=None,
+        default_order=["extract_invoice", "po_match", "finalize_decision"],
+    )
+    assert skills == ["extract_invoice", "po_match", "finalize_decision"]
+
+
+def test_enabled_with_default_order_filters_preserving_order():
+    skills = resolve_skills(
+        requested=None,
+        default_order=["extract_invoice", "po_match", "vendor_validate", "finalize_decision"],
+        enabled=["extract_invoice", "vendor_validate", "finalize_decision"],
+    )
+    assert skills == ["extract_invoice", "vendor_validate", "finalize_decision"]
+    assert "po_match" not in skills
 
 
 def test_explicit_list_runs_exactly_those_ids():

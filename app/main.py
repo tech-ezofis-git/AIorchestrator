@@ -343,11 +343,29 @@ async def lifespan(app: FastAPI):
         if db_presets:
             set_runtime_presets(db_presets)
         from app.agent_packs import seed_platform_packs_from_disk, set_catalog_store
+        from app.ap_pipeline import seed_platform_ap_pipeline, set_catalog_store as set_ap_pipeline_catalog
 
         set_catalog_store(catalog_store)
+        set_ap_pipeline_catalog(catalog_store)
         if getattr(settings, "agent_packs_from_db", True):
-            seeded = await seed_platform_packs_from_disk(catalog_store, settings=settings)
-            logger.info("agent_packs_seed_complete", extra={"counts": seeded})
+            try:
+                seeded = await seed_platform_packs_from_disk(catalog_store, settings=settings)
+                logger.info("agent_packs_seed_complete", extra={"counts": seeded})
+            except Exception as pack_exc:
+                logger.warning(
+                    "agent_packs_seed_failed",
+                    extra={"error_type": type(pack_exc).__name__},
+                )
+        # Always seed platform pipeline when Catalog is up — flag only gates
+        # runner reads (Phase 3). Idempotent upsert from DEFAULT_SKILL_ORDER.
+        try:
+            pipeline_seeded = await seed_platform_ap_pipeline(catalog_store)
+            logger.info("ap_pipeline_seed_complete", extra=pipeline_seeded)
+        except Exception as pipeline_exc:
+            logger.warning(
+                "ap_pipeline_seed_failed",
+                extra={"error_type": type(pipeline_exc).__name__},
+            )
     except Exception as exc:
         logger.warning(
             "catalog_bootstrap_failed",
@@ -356,8 +374,10 @@ async def lifespan(app: FastAPI):
         set_runtime_presets(None)
         try:
             from app.agent_packs import set_catalog_store
+            from app.ap_pipeline import set_catalog_store as set_ap_pipeline_catalog
 
             set_catalog_store(None)
+            set_ap_pipeline_catalog(None)
         except Exception:
             pass
 
@@ -978,7 +998,7 @@ class SummaryCustomRuleUpdate(BaseModel):
 
 SummaryCustomSkillUpdate = SummaryCustomRuleUpdate
 
-_PACK_CONSOLE_AGENTS = frozenset({"summary", "ocr", "insight", "prompt", "pdf"})
+_PACK_CONSOLE_AGENTS = frozenset({"summary", "ocr", "insight", "prompt", "pdf", "ap"})
 
 
 def _pack_console_agent(agent: str) -> str:
@@ -1374,6 +1394,60 @@ async def delete_summary_custom_rule(
     return await delete_agent_pack_custom_rule(
         "summary", item_id, request, tenant_id=tenant_id, changed_by=changed_by
     )
+
+
+class ApPipelineTenantUpsert(BaseModel):
+    tenant_id: str
+    config: dict
+    changed_by: Optional[str] = "console"
+
+
+@app.get("/console/ap-pipeline")
+async def get_ap_pipeline_console(
+    request: Request,
+    tenant_id: Optional[str] = Query(None),
+) -> dict:
+    """Platform + optional tenant AP pipeline config for the console Pipeline tab."""
+    from app.ap_pipeline import console as ap_pipeline_console
+    from app.ap_pipeline.store import ApPipelineStoreError
+
+    try:
+        from app.config import get_settings
+
+        return await ap_pipeline_console.console_get(
+            tenant_id=tenant_id,
+            settings=get_settings(),
+        )
+    except ApPipelineStoreError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning(
+            "ap_pipeline_console_get_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.put("/console/ap-pipeline/tenant")
+async def put_ap_pipeline_tenant(payload: ApPipelineTenantUpsert, request: Request) -> dict:
+    """Upsert tenant_ap_pipeline and write an audit log row."""
+    from app.ap_pipeline import console as ap_pipeline_console
+    from app.ap_pipeline.store import ApPipelineStoreError
+
+    try:
+        return await ap_pipeline_console.console_put_tenant(
+            tenant_id=payload.tenant_id,
+            config=payload.config if isinstance(payload.config, dict) else {},
+            changed_by=payload.changed_by or "console",
+        )
+    except ApPipelineStoreError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning(
+            "ap_pipeline_console_put_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 class CatalogAgentCreate(BaseModel):

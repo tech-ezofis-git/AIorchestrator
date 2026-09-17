@@ -714,10 +714,21 @@ async def _structure_with_llm(
     if ctx.llm is None or not ocr_text.strip():
         return None, None
     usage: Optional[dict[str, Any]] = None
+    system = _EXTRACT_PROMPT
+    try:
+        from app.ap_skills.instructions import ap_instructions_system_prompt, merge_system_prompt
+
+        addon = await ap_instructions_system_prompt(
+            tenant_id=ctx.tenant_id,
+            settings=ctx.settings,
+        )
+        system = merge_system_prompt(system, addon)
+    except Exception:
+        logger.warning("ap_extract_instructions_failed", extra={"error_type": "instructions"})
     try:
         result = await ctx.llm.chat_completion(
             [
-                {"role": "system", "content": _EXTRACT_PROMPT},
+                {"role": "system", "content": system},
                 {"role": "user", "content": ocr_text[:12000]},
             ],
             **(ctx.llm_overrides or {}),

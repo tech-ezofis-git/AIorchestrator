@@ -1,0 +1,7 @@
+---
+description: Soft extraction and narrative guidance
+alwaysApply: true
+---
+
+Prefer evidence from the OCR or stored artifacts. If a field is unclear, leave it empty
+rather than guessing. Do not fabricate invoice numbers, PO numbers, vendors, or amounts.

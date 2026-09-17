@@ -22,16 +22,26 @@ def resolve_skills(
     *,
     requested: Optional[list[str]],
     enabled: Optional[list[str]] = None,
+    default_order: Optional[list[str]] = None,
 ) -> list[str]:
     """Resolve which skills to run.
 
-    - ``requested is None`` → always ``DEFAULT_SKILL_ORDER`` (includes
-      finalize_decision + workflow_move_next). ``enabled`` is ignored.
-    - ``requested`` is a list → run exactly those ids (must be known).
+    - ``requested is None`` → ``default_order`` or ``DEFAULT_SKILL_ORDER``.
+      When ``enabled`` is a list, keep only those ids (preserving order).
+    - ``requested`` is a list → run exactly those ids (must be known);
+      ``enabled`` / ``default_order`` are ignored.
     """
-    del enabled  # retained for call-site compat; gating is payload-driven now
     if requested is None:
-        return list(DEFAULT_SKILL_ORDER)
+        order = list(default_order) if default_order is not None else list(DEFAULT_SKILL_ORDER)
+        unknown = [s for s in order if s not in ALL_SKILLS]
+        if unknown:
+            raise ApSkillError(f"Unknown skill(s): {', '.join(unknown)}")
+        if enabled is not None:
+            allowed = {str(s) for s in enabled if str(s) in ALL_SKILLS}
+            order = [s for s in order if s in allowed]
+        if not order:
+            raise ApSkillError("No skills to run.")
+        return order
 
     unknown = [s for s in requested if s not in ALL_SKILLS]
     if unknown:
@@ -41,13 +51,22 @@ def resolve_skills(
     return list(requested)
 
 
-def ensure_ezofis_hana_po_lookup(skills: list[str], *, tenant_id: str) -> list[str]:
+def ensure_ezofis_hana_po_lookup(
+    skills: list[str],
+    *,
+    tenant_id: str,
+    force: bool = True,
+) -> list[str]:
     """EZOFIS PO master is HANA — inject ``po_lookup_sap`` before ``po_match``.
 
     Workflow AP jobs often omit connector skills (default pipeline is
     extract → po_match). Without HANA lookup, po_match only hits the form
     master and reports NOT_MATCHED for real HANA POs (e.g. 4500068161).
+
+    ``force=False`` skips injection (Catalog ``flags.force_hana_po_lookup``).
     """
+    if not force:
+        return skills
     if not is_ezofis_tenant(tenant_id):
         return skills
     if "po_match" not in skills or "po_lookup_sap" in skills:
@@ -67,14 +86,24 @@ async def maybe_reorder(
     llm: Any,
     use_planner: bool,
     llm_overrides: Optional[dict[str, Any]] = None,
+    tenant_id: Optional[str] = None,
+    settings: Any = None,
 ) -> list[str]:
     if not use_planner or llm is None or len(skills) < 2:
         return skills
     allowed = set(skills)
+    system = _PLANNER_PROMPT
+    try:
+        from app.ap_skills.instructions import ap_instructions_system_prompt, merge_system_prompt
+
+        addon = await ap_instructions_system_prompt(tenant_id=tenant_id, settings=settings)
+        system = merge_system_prompt(system, addon)
+    except Exception:
+        logger.warning("ap_planner_instructions_failed", extra={"error_type": "instructions"})
     try:
         result = await llm.chat_completion(
             [
-                {"role": "system", "content": _PLANNER_PROMPT},
+                {"role": "system", "content": system},
                 {
                     "role": "user",
                     "content": json.dumps({"allowed_skills": skills}, default=str),

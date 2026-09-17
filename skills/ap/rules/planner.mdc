@@ -1,0 +1,9 @@
+---
+description: Planner reorder constraints (soft)
+alwaysApply: true
+---
+
+When asked to order AP skills, reply with JSON only: `{"skills":["..."]}`.
+Use only skill ids from the allowed list. Prefer `extract_invoice` first when present,
+`finalize_decision` before any `workflow_*`, and `workflow_move_next` last when present.
+Never invent skill ids.
