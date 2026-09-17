@@ -465,15 +465,24 @@ class ApSkillRunner:
             finalize = ctx.artifacts.get("finalize_decision") or {}
             decision = finalize.get("decision") or (ctx.artifacts.get("po_match") or {}).get("decision")
             status, data_quality = _run_status_and_quality(ctx.artifacts, finalize)
+            move = ctx.artifacts.get("workflow_move_next") or {}
+            move_failed = (
+                isinstance(move, dict)
+                and move.get("ok") is False
+                and not move.get("skipped")
+            )
             await self._store.finish_run(
                 run_id=run_id,
                 tenant_id=tenant_id,
-                status=status,
+                status="failed" if move_failed else status,
                 decision=decision,
                 credits_charged=credits_charged,
                 data_quality=data_quality,
             )
-            await progress.completed()
+            if move_failed:
+                await progress.failed()
+            else:
+                await progress.completed()
             return {
                 "run_id": run_id,
                 "tenant_id": tenant_id,
@@ -481,7 +490,7 @@ class ApSkillRunner:
                 "skills_run": skills_run,
                 "credits_charged": credits_charged,
                 "decision": decision,
-                "status": status,
+                "status": "failed" if move_failed else status,
                 "data_quality": data_quality,
                 "token_usage": token_usage_total,
                 "artifacts": {k: ctx.artifacts[k] for k in skills_run},

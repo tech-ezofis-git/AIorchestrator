@@ -883,7 +883,15 @@ class EzofisClient:
                         body = response.json()
                         if isinstance(body, dict):
                             if "ok" not in body:
-                                body["ok"] = bool(body.get("success", True))
+                                success = body.get("success")
+                                if success is None:
+                                    success = body.get("Success")
+                                body["ok"] = True if success is None else bool(success)
+                            # Surface Core Message for "not advanced" detection.
+                            if not body.get("detail") and not body.get("message"):
+                                msg = body.get("message") or body.get("Message")
+                                if msg:
+                                    body["detail"] = str(msg)
                             return body
                     except Exception:
                         pass

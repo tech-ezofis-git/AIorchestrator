@@ -248,14 +248,36 @@ async def run(ctx: ApContext) -> ApSkillResult:
         instance_id=instance_id,
         payload=payload,
     )
+    ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+    detail = ""
+    if isinstance(result, dict):
+        detail = str(
+            result.get("detail")
+            or result.get("message")
+            or result.get("Message")
+            or ""
+        ).strip()
+    # Core used to return HTTP 200 + ok while intentionally not advancing
+    # AP AGENT ("review is not Approve") — treat that as failure so progress
+    # is not marked COMPLETED with the ticket still stuck on AP AGENT 1.
+    not_advanced = "not advanced" in detail.lower() or "review is not approve" in detail.lower()
+    if not_advanced:
+        ok = False
+        logger.error(
+            "ap_move_next_did_not_advance",
+            extra={"instance_id": instance_id, "review": review, "detail": detail[:200]},
+        )
     data: dict[str, Any] = {
         "instance_id": instance_id,
         "activityid": activity_id,
         "review": review,
         "decision": decision,
-        "ok": bool(result.get("ok", True)) if isinstance(result, dict) else True,
+        "ok": ok,
         "response": result,
     }
+    if not ok:
+        data["skipped"] = False
+        data["reason"] = detail or "move_next_failed"
     if hana_match is not None:
         data["hana_po_match"] = hana_match
     return ApSkillResult(
