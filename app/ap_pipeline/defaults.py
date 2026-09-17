@@ -29,8 +29,8 @@ def default_platform_config() -> dict[str, Any]:
         },
         "flags": {
             "use_planner": False,
-            # Documents current EZOFIS injection; runner still gates on tenant
-            # via ensure_ezofis_hana_po_lookup until Phase 3 reads this flag.
+            # When true, EZOFIS may inject po_lookup_sap before po_match —
+            # only if Workflow/payload asks for SAP/HANA (not InternalForm).
             "force_hana_po_lookup": True,
         },
     }

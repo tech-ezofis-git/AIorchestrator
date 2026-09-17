@@ -58,15 +58,40 @@ def test_empty_list_is_rejected():
         resolve_skills(requested=[])
 
 
-def test_ezofis_default_pipeline_injects_hana_po_lookup():
+def test_ezofis_injects_hana_when_workflow_asks_sap():
     from app.ap_skills.hana_po import EZOFIS_TENANT_ID
     from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
 
     skills = ensure_ezofis_hana_po_lookup(
-        list(DEFAULT_SKILL_ORDER), tenant_id=EZOFIS_TENANT_ID
+        list(DEFAULT_SKILL_ORDER),
+        tenant_id=EZOFIS_TENANT_ID,
+        document_job={"resource": "SAP"},
     )
     assert "po_lookup_sap" in skills
     assert skills.index("po_lookup_sap") < skills.index("po_match")
+
+
+def test_ezofis_skips_hana_inject_for_internal_form():
+    from app.ap_skills.hana_po import EZOFIS_TENANT_ID
+    from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
+
+    base = list(DEFAULT_SKILL_ORDER)
+    assert (
+        ensure_ezofis_hana_po_lookup(
+            base,
+            tenant_id=EZOFIS_TENANT_ID,
+            document_job={"master_source": "InternalForm"},
+        )
+        == base
+    )
+    assert (
+        ensure_ezofis_hana_po_lookup(
+            base,
+            tenant_id=EZOFIS_TENANT_ID,
+            document_job={},
+        )
+        == base
+    )
 
 
 def test_ezofis_inject_skipped_when_lookup_already_present():
@@ -74,11 +99,25 @@ def test_ezofis_inject_skipped_when_lookup_already_present():
     from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
 
     base = ["extract_invoice", "po_lookup_sap", "po_match", "finalize_decision"]
-    assert ensure_ezofis_hana_po_lookup(base, tenant_id=EZOFIS_TENANT_ID) == base
+    assert (
+        ensure_ezofis_hana_po_lookup(
+            base,
+            tenant_id=EZOFIS_TENANT_ID,
+            document_job={"resource": "HANA"},
+        )
+        == base
+    )
 
 
 def test_non_ezofis_tenant_does_not_inject_hana_lookup():
     from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
 
     base = list(DEFAULT_SKILL_ORDER)
-    assert ensure_ezofis_hana_po_lookup(base, tenant_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee") == base
+    assert (
+        ensure_ezofis_hana_po_lookup(
+            base,
+            tenant_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            document_job={"resource": "SAP"},
+        )
+        == base
+    )

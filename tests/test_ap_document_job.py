@@ -858,6 +858,55 @@ def test_ezofis_tenant_defaults_hana_connector_without_payload_id(client, monkey
     assert calls and calls[0]["connector_id"] == "f7636e21-1a0c-457c-a2b4-e28430705477"
 
 
+def test_ezofis_internal_form_skips_hana_lookup(client, monkeypatch):
+    hana_calls = []
+
+    async def fake_hana(self, **kwargs):
+        hana_calls.append(kwargs)
+        return {"lookup_error": "should_not_run", "reason": "HANA must not run for InternalForm"}
+
+    async def fake_form_po(self, **kwargs):
+        return {
+            "po_number": kwargs["po_number"],
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "currency": "USD",
+            "lines": [],
+            "source": "form",
+            "form_id": "form-1",
+        }
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po_hana",
+        fake_hana,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po",
+        fake_form_po,
+    )
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-ap-internal-form",
+            "intent": "ap",
+            "payload": _ap_payload(
+                item_id="doc-internal-form",
+                tenant_id="b843b988-00ec-44e3-aca2-b8470133ef63",
+                master_source="InternalForm",
+                form_id="form-1",
+                skills=["extract_invoice", "po_match", "finalize_decision"],
+            ),
+        },
+    )
+    assert response.status_code == 200, response.text
+    artifacts = response.json()["ap_result"]["artifacts"]
+    assert "po_lookup_sap" not in artifacts
+    assert hana_calls == []
+    assert artifacts["po_match"]["decision"] == "MATCHED"
+    assert artifacts["po_match"]["po"]["source"] == "form"
+
+
 def test_sap_connector_lookup_feeds_po_match(client, monkeypatch):
     async def fake_sap(self, **kwargs):
         return {

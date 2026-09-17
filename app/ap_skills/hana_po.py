@@ -32,6 +32,85 @@ def resolve_hana_connector_id(*, tenant_id: str, connector_id: str) -> str:
     return ""
 
 
+_FORM_MASTER_TOKENS = frozenset(
+    {
+        "INTERNALFORM",
+        "INTERNAL_FORM",
+        "EZOFIS",
+        "FORM",
+        "EZFB",
+        "MASTERFORM",
+        "POMASTERFORM",
+    }
+)
+_OTHER_CONNECTOR_RESOURCES = frozenset({"QUICKBOOKS", "QB", "SAGE"})
+
+
+def _norm_master_token(value: str) -> str:
+    return (
+        (value or "")
+        .strip()
+        .upper()
+        .replace(" ", "")
+        .replace("-", "")
+        .replace("_", "")
+    )
+
+
+def wants_sap_or_hana_po_master(
+    document_job: Optional[dict[str, Any]] = None,
+    *,
+    thresholds: Optional[dict[str, Any]] = None,
+) -> bool:
+    """True when Workflow/payload asks for SAP or HANA Cloud PO master.
+
+    Core Phase 4: ``masterSource=InternalForm`` leaves resource/connector
+    unset so AP uses ``/masters/po``. SAP sets ``resource=SAP`` (+ skills).
+    Empty resource + empty masterSource → InternalForm (do not force HANA).
+    """
+    job = document_job if isinstance(document_job, dict) else {}
+    thresholds = thresholds if isinstance(thresholds, dict) else {}
+
+    master_raw = str(
+        job.get("master_source")
+        or job.get("masterSource")
+        or job.get("MasterSource")
+        or ""
+    ).strip()
+    if master_raw:
+        master = _norm_master_token(master_raw)
+        if master in _FORM_MASTER_TOKENS or "INTERNALFORM" in master:
+            return False
+        if master in {"QUICKBOOKS", "QB", "SAGE"}:
+            return False
+        if "HANA" in master or master.startswith("SAP") or master in {"S4", "S4HANA"}:
+            return True
+        return False
+
+    resource = str(
+        job.get("resource") or thresholds.get("po_resource") or ""
+    ).strip().upper()
+    if resource:
+        compact = resource.replace(" ", "_").replace("-", "_")
+        slashless = compact.replace("/", "")
+        formish = _norm_master_token(resource)
+        if formish in _FORM_MASTER_TOKENS or compact in _OTHER_CONNECTOR_RESOURCES:
+            return False
+        if "HANA" in resource:
+            return True
+        if (
+            compact.startswith("SAP")
+            or slashless.startswith("SAP")
+            or compact in {"S4", "S/4"}
+            or slashless in {"S4", "S4HANA"}
+        ):
+            return True
+        return False
+
+    # No Workflow masterSource / resource → InternalForm (ezfb PO master).
+    return False
+
+
 # Core POST …/hana/purchase-orders/match item shape (camelCase).
 _HANA_MATCH_ITEM_KEYS: tuple[tuple[str, str], ...] = (
     ("itemNumber", "item_number"),

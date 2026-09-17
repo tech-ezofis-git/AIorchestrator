@@ -213,8 +213,9 @@ class ApSkillRunner:
                 }
 
         # null skills → pipeline (Catalog when flag on) or DEFAULT_SKILL_ORDER;
-        # list → exactly those ids. EZOFIS: HANA PO lookup before po_match
-        # unless Catalog flags.force_hana_po_lookup is false.
+        # list → exactly those ids. EZOFIS: inject HANA/SAP lookup before
+        # po_match only when Workflow/payload asks for SAP/HANA and Catalog
+        # flags.force_hana_po_lookup is not false.
         pipeline = None
         if getattr(self._settings, "ap_pipeline_from_db", False):
             from app.ap_pipeline.resolve import (
@@ -258,7 +259,11 @@ class ApSkillRunner:
             default_order=default_order,
         )
         skills = ensure_ezofis_hana_po_lookup(
-            skills, tenant_id=tenant_id, force=force_hana
+            skills,
+            tenant_id=tenant_id,
+            force=force_hana,
+            document_job=document_job,
+            thresholds=thresholds,
         )
         skills = await maybe_reorder(
             skills,

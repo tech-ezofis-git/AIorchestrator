@@ -1851,7 +1851,11 @@ _CHAT_MULTIPART_SCHEMA = {
         "processId": {"type": "string", "description": "Workflow process id for move-next."},
         "activityid": {"type": "string", "description": "Workflow step ActivityId for move-next. Omitted => lookup workflow.WorkflowSteps (AP AGENT 1)."},
         "connector_id": {"type": "string", "description": "QB/Sage/SAP connector id for PO lookup skills."},
-        "resource": {"type": "string", "description": "PO resource: QUICKBOOKS, SAP, or SAGE."},
+        "resource": {"type": "string", "description": "PO resource: QUICKBOOKS, SAP, HANA, or SAGE."},
+        "master_source": {
+            "type": "string",
+            "description": "Workflow PO master: InternalForm, SAP, HANA, QuickBooks, or Sage.",
+        },
         "matter_master_id": {"type": "string", "description": "Matter master id."},
         "formid": {
             "type": "string",
@@ -2365,6 +2369,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "activity_id": payload.payload.activity_id if payload.payload else None,
             "connector_id": payload.payload.connector_id if payload.payload else None,
             "resource": payload.payload.resource if payload.payload else None,
+            "master_source": payload.payload.master_source if payload.payload else None,
             "matter_master_id": payload.payload.matter_master_id if payload.payload else None,
             "form_id": payload.payload.form_id if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,

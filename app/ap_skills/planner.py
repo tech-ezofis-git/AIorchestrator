@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any, Optional
 
-from app.ap_skills.hana_po import is_ezofis_tenant
+from app.ap_skills.hana_po import is_ezofis_tenant, wants_sap_or_hana_po_master
 from app.ap_skills.types import ALL_SKILLS, DEFAULT_SKILL_ORDER, ApSkillError
 
 logger = logging.getLogger("orchestrator.ap_planner")
@@ -56,12 +56,14 @@ def ensure_ezofis_hana_po_lookup(
     *,
     tenant_id: str,
     force: bool = True,
+    document_job: Optional[dict[str, Any]] = None,
+    thresholds: Optional[dict[str, Any]] = None,
 ) -> list[str]:
-    """EZOFIS PO master is HANA — inject ``po_lookup_sap`` before ``po_match``.
+    """Inject ``po_lookup_sap`` before ``po_match`` when Workflow asks for SAP/HANA.
 
-    Workflow AP jobs often omit connector skills (default pipeline is
-    extract → po_match). Without HANA lookup, po_match only hits the form
-    master and reports NOT_MATCHED for real HANA POs (e.g. 4500068161).
+    Honors Workflow PO master config (Core Phase 4):
+    - InternalForm / Ezofis (no resource / masterSource) → form ``/masters/po``
+    - SAP / HANA → inject connector lookup when Catalog allows it
 
     ``force=False`` skips injection (Catalog ``flags.force_hana_po_lookup``).
     """
@@ -70,6 +72,8 @@ def ensure_ezofis_hana_po_lookup(
     if not is_ezofis_tenant(tenant_id):
         return skills
     if "po_match" not in skills or "po_lookup_sap" in skills:
+        return skills
+    if not wants_sap_or_hana_po_master(document_job, thresholds=thresholds):
         return skills
     out = list(skills)
     out.insert(out.index("po_match"), "po_lookup_sap")

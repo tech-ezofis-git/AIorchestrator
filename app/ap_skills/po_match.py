@@ -106,12 +106,21 @@ async def run(ctx: ApContext) -> ApSkillResult:
             po_number=po_number,
             form_id=form_id,
         )
-    # EZOFIS safety net: if connector skill was omitted/skipped, still hit HANA.
+    # EZOFIS safety net: only when Workflow/payload asks for SAP/HANA
+    # (InternalForm must stay on /masters/po above).
     if not po:
-        from app.ap_skills.hana_po import is_ezofis_tenant, resolve_hana_connector_id
+        from app.ap_skills.hana_po import (
+            is_ezofis_tenant,
+            resolve_hana_connector_id,
+            wants_sap_or_hana_po_master,
+        )
 
-        if is_ezofis_tenant(ctx.tenant_id) and hasattr(ctx.ezofis, "lookup_po_hana"):
-            job = ctx.document_job or {}
+        job = ctx.document_job or {}
+        if (
+            is_ezofis_tenant(ctx.tenant_id)
+            and wants_sap_or_hana_po_master(job, thresholds=ctx.thresholds)
+            and hasattr(ctx.ezofis, "lookup_po_hana")
+        ):
             connector_id = resolve_hana_connector_id(
                 tenant_id=ctx.tenant_id,
                 connector_id=str(job.get("connector_id") or "").strip(),

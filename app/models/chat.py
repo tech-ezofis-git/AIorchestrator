@@ -195,7 +195,21 @@ class DocumentPayload(BaseModel):
     resource: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("resource", "Resource"),
-        description="PO resource hint: QUICKBOOKS, SAP, or SAGE.",
+        description="PO resource hint: QUICKBOOKS, SAP, HANA, or SAGE.",
+    )
+    master_source: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "master_source",
+            "masterSource",
+            "MasterSource",
+            "po_master_source",
+            "poMasterSource",
+        ),
+        description=(
+            "Workflow PO master: InternalForm / Ezofis (form /masters/po), "
+            "SAP, HANA, QuickBooks, or Sage."
+        ),
     )
     matter_master_id: Optional[str] = Field(default=None, description="Matter master id for matter_validate.")
     form_id: Optional[str] = Field(
