@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     # Local sample: SQLite path for tenant Summary extras (custom rules only).
     # Defaults stay on disk; not used in Docker unless set explicitly.
     tenant_skills_sqlite_path: Optional[str] = None
+    # When true (and Catalog DB has platform packs), load SKILL/rules from
+    # Catalog + tenant_agent_* tables instead of disk/SQLite. Disk remains
+    # seed source and fallback when Catalog packs are empty.
+    agent_packs_from_db: bool = True
 
     # --- Ezofis cloud API (AP skills: auth, credits, PO/vendor masters) ---
     ezofis_api_base: str = "https://cloud.ezofis.com/api"

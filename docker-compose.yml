@@ -8,6 +8,10 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://orchestrator:orchestrator@postgres:5432/orchestrator
+      # Override .env Azure catalog host for local compose so packs/seed use
+      # the same Postgres service (agent packs live in Catalog tables).
+      CATALOG_DATABASE_URL: postgresql://orchestrator:orchestrator@postgres:5432/orchestrator
+      AGENT_PACKS_FROM_DB: "true"
     depends_on:
       postgres:
         condition: service_healthy
@@ -17,6 +21,7 @@ services:
     volumes:
       - ./app:/app/app
       - ./skills:/app/skills
+      - ./db/migrations:/app/db/migrations:ro
 
   postgres:
     image: pgvector/pgvector:pg16

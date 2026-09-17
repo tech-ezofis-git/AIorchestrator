@@ -60,12 +60,20 @@ USER_PROMPT_PREFIX_JSON = (
 
 
 def system_prompt(*, settings=None, tenant_id: Optional[str] = None) -> str:
-    """LLM system prompt = Summary SKILL.md + rules/*.mdc + tenant extras."""
+    """LLM system prompt = Summary SKILL.md + rules/*.mdc + tenant extras (sync/disk)."""
     if tenant_id:
         from app.tenant_skills.overlay import get_summary_skill
 
         return get_summary_skill(tenant_id=tenant_id, settings=settings).system_prompt
     return get_skill("summary", settings=settings).system_prompt
+
+
+async def async_system_prompt(*, settings=None, tenant_id: Optional[str] = None) -> str:
+    """Prefer Catalog DB packs when seeded; fallback to disk/SQLite."""
+    from app.agent_packs.overlay import get_agent_skill
+
+    skill = await get_agent_skill("summary", tenant_id=tenant_id, settings=settings)
+    return skill.system_prompt
 
 
 def __getattr__(name: str):

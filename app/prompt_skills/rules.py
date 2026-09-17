@@ -13,6 +13,12 @@ def system_prompt(*, settings=None) -> str:
     return get_skill("prompt", settings=settings).system_prompt
 
 
+async def async_system_prompt(*, settings=None, tenant_id=None) -> str:
+    from app.agent_packs.overlay import get_agent_skill
+
+    return (await get_agent_skill("prompt", tenant_id=tenant_id, settings=settings)).system_prompt
+
+
 def __getattr__(name: str):
     if name == "SYSTEM_PROMPT":
         return system_prompt()

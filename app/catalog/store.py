@@ -16,6 +16,7 @@ logger = logging.getLogger("orchestrator.catalog")
 _MIGRATIONS = (
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0005_create_catalog_tables.sql",
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0006_create_catalog_tenant_agent_models.sql",
+    Path(__file__).resolve().parents[2] / "db" / "migrations" / "0008_create_agent_pack_tables.sql",
 )
 # Preset ids include dots (gpt-4.1-nano). Letters, digits, dots, hyphens, underscores.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
