@@ -7,8 +7,8 @@ from app.catalog.store import _MIGRATIONS, _split_sql
 from app.config import Settings
 
 
-def test_ap_pipeline_from_db_defaults_false() -> None:
-    assert Settings().ap_pipeline_from_db is False
+def test_ap_pipeline_from_db_defaults_true() -> None:
+    assert Settings().ap_pipeline_from_db is True
 
 
 def test_ap_pipeline_migration_is_registered_and_splits() -> None:

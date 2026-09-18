@@ -58,13 +58,12 @@ def test_empty_list_is_rejected():
         resolve_skills(requested=[])
 
 
-def test_ezofis_injects_hana_when_workflow_asks_sap():
-    from app.ap_skills.hana_po import EZOFIS_TENANT_ID
+def test_workflow_injects_sap_lookup_for_any_tenant_when_asked():
     from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
 
     skills = ensure_ezofis_hana_po_lookup(
         list(DEFAULT_SKILL_ORDER),
-        tenant_id=EZOFIS_TENANT_ID,
+        tenant_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         document_job={"resource": "SAP"},
     )
     assert "po_lookup_sap" in skills
@@ -109,15 +108,11 @@ def test_ezofis_inject_skipped_when_lookup_already_present():
     )
 
 
-def test_non_ezofis_tenant_does_not_inject_hana_lookup():
-    from app.ap_skills.planner import ensure_ezofis_hana_po_lookup
+def test_resolve_connector_id_never_invents_default():
+    from app.ap_skills.hana_po import EZOFIS_TENANT_ID, resolve_connector_id, resolve_hana_connector_id
 
-    base = list(DEFAULT_SKILL_ORDER)
+    assert resolve_connector_id(connector_id="", tenant_id=EZOFIS_TENANT_ID) == ""
+    assert resolve_hana_connector_id(tenant_id=EZOFIS_TENANT_ID, connector_id="") == ""
     assert (
-        ensure_ezofis_hana_po_lookup(
-            base,
-            tenant_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            document_job={"resource": "SAP"},
-        )
-        == base
+        resolve_connector_id(connector_id="abc-123", tenant_id=EZOFIS_TENANT_ID) == "abc-123"
     )

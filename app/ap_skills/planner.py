@@ -5,11 +5,13 @@ import json
 import logging
 from typing import Any, Optional
 
-from app.ap_skills.hana_po import is_ezofis_tenant, wants_sap_or_hana_po_master
+from app.ap_skills.hana_po import wants_sap_or_hana_po_master
 from app.ap_skills.types import ALL_SKILLS, DEFAULT_SKILL_ORDER, ApSkillError
 
 logger = logging.getLogger("orchestrator.ap_planner")
 
+# Code fallback only when Catalog/disk AP pack is missing. Primary copy lives in
+# skills/ap/rules/planner.mdc (seeded to platform_agent_rules).
 _PLANNER_PROMPT = (
     "You order AP invoice-processing skills. Reply with JSON only: "
     '{"skills": ["extract_invoice", "..."]}. Use only the allowed skill ids, '
@@ -61,15 +63,12 @@ def ensure_ezofis_hana_po_lookup(
 ) -> list[str]:
     """Inject ``po_lookup_sap`` before ``po_match`` when Workflow asks for SAP/HANA.
 
-    Honors Workflow PO master config (Core Phase 4):
-    - InternalForm / Ezofis (no resource / masterSource) → form ``/masters/po``
-    - SAP / HANA → inject connector lookup when Catalog allows it
-
-    ``force=False`` skips injection (Catalog ``flags.force_hana_po_lookup``).
+    Phase 3: any tenant — gated only on payload/Workflow + Catalog ``force``.
+    Core should already stamp skills; this is a Catalog-opt-in safety net.
+    ``tenant_id`` is unused (kept for call-site compatibility).
     """
+    _ = tenant_id
     if not force:
-        return skills
-    if not is_ezofis_tenant(tenant_id):
         return skills
     if "po_match" not in skills or "po_lookup_sap" in skills:
         return skills
@@ -78,8 +77,8 @@ def ensure_ezofis_hana_po_lookup(
     out = list(skills)
     out.insert(out.index("po_match"), "po_lookup_sap")
     logger.info(
-        "ap_ezofis_hana_po_lookup_injected",
-        extra={"tenant_id": tenant_id, "skills": out},
+        "ap_workflow_sap_hana_po_lookup_injected",
+        extra={"skills": out},
     )
     return out
 
@@ -96,14 +95,17 @@ async def maybe_reorder(
     if not use_planner or llm is None or len(skills) < 2:
         return skills
     allowed = set(skills)
-    system = _PLANNER_PROMPT
     try:
-        from app.ap_skills.instructions import ap_instructions_system_prompt, merge_system_prompt
+        from app.ap_skills.instructions import resolve_system_prompt
 
-        addon = await ap_instructions_system_prompt(tenant_id=tenant_id, settings=settings)
-        system = merge_system_prompt(system, addon)
+        system = await resolve_system_prompt(
+            code_fallback=_PLANNER_PROMPT,
+            tenant_id=tenant_id,
+            settings=settings,
+        )
     except Exception:
         logger.warning("ap_planner_instructions_failed", extra={"error_type": "instructions"})
+        system = _PLANNER_PROMPT
     try:
         result = await llm.chat_completion(
             [

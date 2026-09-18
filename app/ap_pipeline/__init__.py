@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from app.ap_pipeline.defaults import DEFAULT_PIPELINE_KEY, default_platform_config
+from app.ap_pipeline.policy import apply_policy_to_thresholds, review_label, workflow_step_name
 from app.ap_pipeline.resolve import (
     ResolvedPipeline,
     resolve_pipeline_config,
@@ -12,8 +13,11 @@ from app.ap_pipeline.seed import seed_platform_ap_pipeline
 __all__ = [
     "DEFAULT_PIPELINE_KEY",
     "ResolvedPipeline",
+    "apply_policy_to_thresholds",
     "default_platform_config",
     "resolve_pipeline_config",
+    "review_label",
     "seed_platform_ap_pipeline",
     "set_catalog_store",
+    "workflow_step_name",
 ]

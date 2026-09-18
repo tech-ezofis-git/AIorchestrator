@@ -4,17 +4,10 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from app.ap_pipeline.policy import review_label
 from app.ap_skills.agent_validation_text import enrichment_for_finalize, resolve_source_type
 from app.ap_skills.payment_terms import due_date_from_terms, normalize_payment_terms
 from app.ap_skills.types import field_number, field_text, match_lines_by_description, name_similarity
-
-_REVIEW_LABELS = {
-    "MATCHED": "Matched",
-    "PARTIALLY_MATCHED": "Partially Matched",
-    "NOT_MATCHED": "Not Matched",
-    "NON_INVOICE": "Non-Invoice",
-    "DUPLICATE": "Not Matched",
-}
 
 
 def build_aiagent_response(
@@ -26,6 +19,7 @@ def build_aiagent_response(
     document_job: Optional[dict[str, Any]] = None,
     ai_insight: str = "",
     source_type: str = "",
+    thresholds: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Full Agent validation JSON persisted on ``AIAGENTResponse``."""
     artifacts = artifacts if isinstance(artifacts, dict) else {}
@@ -40,9 +34,7 @@ def build_aiagent_response(
     matter = artifacts.get("matter_validate") if isinstance(artifacts.get("matter_validate"), dict) else {}
 
     decision_u = str(decision or finalize.get("decision") or "").strip().upper()
-    review = _REVIEW_LABELS.get(decision_u, str(decision or "Not Matched").strip() or "Not Matched")
-    if review not in ("Matched", "Partially Matched", "Not Matched", "Non-Invoice"):
-        review = "Not Matched"
+    review = review_label(decision_u or decision, thresholds=thresholds)
 
     base_reason = str(reason or finalize.get("reason") or "").strip()
     if not ai_insight or not source_type or not base_reason:

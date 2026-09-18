@@ -125,10 +125,10 @@ class Settings(BaseSettings):
     # seed source and fallback when Catalog packs are empty.
     agent_packs_from_db: bool = True
     # When true, ApSkillRunner resolves default skill order / pipeline knobs
-    # from Catalog platform_ap_pipeline + tenant_ap_pipeline. Default false
-    # for safe rollback; local compose sets AP_PIPELINE_FROM_DB=true.
+    # from Catalog platform_ap_pipeline + tenant_ap_pipeline. Default true
+    # (Phase 2 — pipeline from DB). Rollback: AP_PIPELINE_FROM_DB=false.
     # Env: AP_PIPELINE_FROM_DB.
-    ap_pipeline_from_db: bool = False
+    ap_pipeline_from_db: bool = True
 
     # --- Ezofis cloud API (AP skills: auth, credits, PO/vendor masters) ---
     ezofis_api_base: str = "https://cloud.ezofis.com/api"

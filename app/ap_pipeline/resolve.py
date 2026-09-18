@@ -33,6 +33,7 @@ class ResolvedPipeline:
     default_resource: Optional[str] = None
     thresholds: dict[str, Any] = field(default_factory=dict)
     flags: dict[str, Any] = field(default_factory=dict)
+    policy: dict[str, Any] = field(default_factory=dict)
     source: str = "code"  # tenant | platform | code
 
 
@@ -77,7 +78,7 @@ def _sanitize_enabled(enabled: Any) -> Optional[list[str]]:
 
 
 def _merge_layer(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    """Shallow-merge overlay onto base; nested thresholds/flags merge key-wise.
+    """Shallow-merge overlay onto base; nested thresholds/flags/policy merge key-wise.
 
     Null overlay values do not wipe base (treat null as inherit).
     """
@@ -85,10 +86,16 @@ def _merge_layer(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any
     for key, value in overlay.items():
         if value is None:
             continue
-        if key in ("thresholds", "flags") and isinstance(value, dict):
+        if key in ("thresholds", "flags", "policy") and isinstance(value, dict):
             nested = dict(merged.get(key) or {})
             for nk, nv in value.items():
-                if nv is not None:
+                if nv is None:
+                    continue
+                if nk == "review_labels" and isinstance(nv, dict) and isinstance(nested.get(nk), dict):
+                    labels = dict(nested[nk])
+                    labels.update(nv)
+                    nested[nk] = labels
+                else:
                     nested[nk] = nv
             merged[key] = nested
         else:
@@ -120,6 +127,7 @@ def _to_resolved(cfg: dict[str, Any], *, source: str) -> ResolvedPipeline:
     )
     connector = cfg.get("default_connector_id")
     resource = cfg.get("default_resource")
+    policy = cfg.get("policy") if isinstance(cfg.get("policy"), dict) else {}
     return ResolvedPipeline(
         skills_order=order,
         skills_enabled=_sanitize_enabled(cfg.get("skills_enabled")),
@@ -129,6 +137,7 @@ def _to_resolved(cfg: dict[str, Any], *, source: str) -> ResolvedPipeline:
         if isinstance(cfg.get("thresholds"), dict)
         else {},
         flags=dict(cfg.get("flags") or {}) if isinstance(cfg.get("flags"), dict) else {},
+        policy=dict(policy),
         source=source,
     )
 
@@ -228,3 +237,24 @@ def merge_thresholds(
             if value is not None:
                 out[key] = value
     return out
+
+
+def attach_pipeline_policy(
+    thresholds: dict[str, Any],
+    pipeline: Optional[ResolvedPipeline],
+    *,
+    settings: Any = None,
+) -> dict[str, Any]:
+    """Merge Catalog thresholds + flatten ``policy`` onto thresholds for skills."""
+    from app.ap_pipeline.policy import apply_policy_to_thresholds
+
+    merged = dict(thresholds or {})
+    if pipeline is not None:
+        for key, value in (pipeline.thresholds or {}).items():
+            if value is not None and merged.get(key) is None:
+                merged[key] = value
+    return apply_policy_to_thresholds(
+        merged,
+        pipeline_policy=(pipeline.policy if pipeline is not None else None),
+        settings=settings,
+    )

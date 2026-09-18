@@ -101,7 +101,23 @@ async def run(ctx: ApContext) -> ApSkillResult:
             sap_lookup_reason = str(artifact.get("reason") or "").strip() or None
     if not po:
         job = ctx.document_job or {}
-        # Prefer Workflow PoMaster form (master_form_id); invoice form_id is write-back only.
+        from app.ap_skills.hana_po import wants_form_po_master
+
+        # Connector masters (SAP/HANA/QB/Sage): do not fall back to form/ezfb.
+        if not wants_form_po_master(job, thresholds=ctx.thresholds):
+            reason = sap_lookup_reason or f"PO {po_number} was not found."
+            return ApSkillResult(
+                skill_id=SKILL_ID,
+                data={
+                    "po_number": po_number,
+                    "po": None,
+                    "score": 0,
+                    "decision": "NOT_MATCHED",
+                    "reason": reason,
+                },
+            )
+
+        # InternalForm: Workflow PoMaster form (master_form_id); invoice form_id is write-back only.
         form_id = (
             str(job.get("master_form_id") or job.get("masterFormId") or "").strip()
             or ctx.form_id
@@ -123,34 +139,6 @@ async def run(ctx: ApContext) -> ApSkillResult:
                 )
             except Exception:
                 po = None
-    # EZOFIS safety net: only when Workflow/payload asks for SAP/HANA
-    # (InternalForm must stay on form / ezfb master above).
-    if not po:
-        from app.ap_skills.hana_po import (
-            is_ezofis_tenant,
-            resolve_hana_connector_id,
-            wants_sap_or_hana_po_master,
-        )
-
-        job = ctx.document_job or {}
-        if (
-            is_ezofis_tenant(ctx.tenant_id)
-            and wants_sap_or_hana_po_master(job, thresholds=ctx.thresholds)
-            and hasattr(ctx.ezofis, "lookup_po_hana")
-        ):
-            connector_id = resolve_hana_connector_id(
-                tenant_id=ctx.tenant_id,
-                connector_id=str(job.get("connector_id") or "").strip(),
-            )
-            hana_po = await ctx.ezofis.lookup_po_hana(
-                tenant_id=ctx.tenant_id,
-                po_number=po_number,
-                connector_id=connector_id or "mock",
-            )
-            if isinstance(hana_po, dict) and not hana_po.get("lookup_error"):
-                po = hana_po
-            elif isinstance(hana_po, dict) and hana_po.get("lookup_error") and not sap_lookup_reason:
-                sap_lookup_reason = str(hana_po.get("reason") or "").strip() or None
     if not po:
         reason = sap_lookup_reason or f"PO {po_number} was not found."
         return ApSkillResult(

@@ -816,7 +816,8 @@ def test_hana_connector_lookup_feeds_po_match(client, monkeypatch):
     assert artifacts["po_match"]["decision"] == "MATCHED"
 
 
-def test_ezofis_tenant_defaults_hana_connector_without_payload_id(client, monkeypatch):
+def test_missing_connector_id_does_not_invent_ezofis_hana_guid(client, monkeypatch):
+    """Phase 3: no silent HANA connector default from tenant GUID."""
     calls = []
 
     async def fake_hana(self, **kwargs):
@@ -838,12 +839,12 @@ def test_ezofis_tenant_defaults_hana_connector_without_payload_id(client, monkey
     response = client.post(
         "/chat",
         json={
-            "session_id": "s-ap-hana-default-conn",
+            "session_id": "s-ap-hana-no-default-conn",
             "intent": "ap",
             "payload": _ap_payload(
-                item_id="doc-hana-def",
+                item_id="doc-hana-no-def",
                 tenant_id="b843b988-00ec-44e3-aca2-b8470133ef63",
-                resource="SAP",
+                resource="HANA",
                 skills=["extract_invoice", "po_lookup_sap", "po_match", "finalize_decision"],
                 invoice_json={
                     **SAMPLE_INVOICE,
@@ -855,7 +856,10 @@ def test_ezofis_tenant_defaults_hana_connector_without_payload_id(client, monkey
         },
     )
     assert response.status_code == 200, response.text
-    assert calls and calls[0]["connector_id"] == "f7636e21-1a0c-457c-a2b4-e28430705477"
+    assert calls
+    # Mock client path uses "mock" — never the hard-coded HANA_PO_CONNECTOR_ID.
+    assert calls[0]["connector_id"] == "mock"
+    assert calls[0]["connector_id"] != "f7636e21-1a0c-457c-a2b4-e28430705477"
 
 
 def test_ezofis_internal_form_skips_hana_lookup(client, monkeypatch):

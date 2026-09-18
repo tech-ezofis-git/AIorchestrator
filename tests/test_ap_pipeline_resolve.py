@@ -47,7 +47,7 @@ async def test_resolve_empty_tenant_matches_code_defaults_after_seed():
     assert resolved.source == "platform"
     assert resolved.skills_order == list(DEFAULT_SKILL_ORDER)
     assert resolved.skills_enabled is None
-    assert resolved.flags.get("force_hana_po_lookup") is True
+    assert resolved.flags.get("force_hana_po_lookup") is False
 
 
 @pytest.mark.asyncio
@@ -222,5 +222,80 @@ async def test_runner_honors_tenant_disable_po_match():
     assert result["skills_run"][0] == "extract_invoice"
 
 
-def test_settings_default_flag_still_false_for_safe_rollback():
+def test_settings_default_flag_true_with_false_rollback():
+    assert Settings().ap_pipeline_from_db is True
     assert Settings(ap_pipeline_from_db=False).ap_pipeline_from_db is False
+
+
+@pytest.mark.asyncio
+async def test_runner_no_silent_hana_inject_when_catalog_flag_false():
+    """Phase 2: platform force_hana=false → no po_lookup_sap even for SAP master."""
+    from app.ap_skills.hana_po import EZOFIS_TENANT_ID
+
+    db = FakeDBPool()
+    catalog = CatalogStore(db)
+    await seed_platform_ap_pipeline(catalog)
+    set_catalog_store(catalog)
+
+    settings = Settings(ap_pipeline_from_db=True, ap_llm_planner=False)
+    runner = ApSkillRunner(
+        store=ApStore(db),
+        ezofis=EzofisClient(settings),
+        settings=settings,
+    )
+    result = await runner.run(
+        session_id="s-no-silent-hana",
+        document_job={
+            "tenant_id": EZOFIS_TENANT_ID,
+            "item_id": "doc-sap-master",
+            "invoice_json": SAMPLE_INVOICE,
+            "force_rerun": True,
+            "master_source": "SAP",
+            "resource": "SAP",
+        },
+    )
+    assert "po_lookup_sap" not in result["skills_run"]
+    assert result["skills_run"] == list(DEFAULT_SKILL_ORDER)
+
+
+@pytest.mark.asyncio
+async def test_runner_tenant_pipeline_order_drives_skills():
+    """Exit: changing Catalog tenant order changes which skills run."""
+    db = FakeDBPool()
+    catalog = CatalogStore(db)
+    await seed_platform_ap_pipeline(catalog)
+    custom_order = [
+        "extract_invoice",
+        "finalize_decision",
+        "workflow_move_next",
+    ]
+    db.tenant_ap_pipeline["t-custom-order"] = {
+        "id": "tid-custom",
+        "tenant_id": "t-custom-order",
+        "config_json": {
+            "skills_order": custom_order,
+            "skills_enabled": None,
+            "thresholds": {},
+            "flags": {"use_planner": False, "force_hana_po_lookup": False},
+        },
+        "version": 1,
+        "is_active": True,
+    }
+    set_catalog_store(catalog)
+
+    settings = Settings(ap_pipeline_from_db=True)
+    runner = ApSkillRunner(
+        store=ApStore(db),
+        ezofis=EzofisClient(settings),
+        settings=settings,
+    )
+    result = await runner.run(
+        session_id="s-custom-order",
+        document_job={
+            "tenant_id": "t-custom-order",
+            "item_id": "doc-custom",
+            "invoice_json": SAMPLE_INVOICE,
+            "force_rerun": True,
+        },
+    )
+    assert result["skills_run"] == custom_order

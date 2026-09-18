@@ -212,14 +212,15 @@ class ApSkillRunner:
                     "deduplicated": True,
                 }
 
-        # null skills → pipeline (Catalog when flag on) or DEFAULT_SKILL_ORDER;
-        # list → exactly those ids. EZOFIS: inject HANA/SAP lookup before
-        # po_match only when Workflow/payload asks for SAP/HANA and Catalog
-        # flags.force_hana_po_lookup is not false.
+        # null skills → Catalog pipeline (when AP_PIPELINE_FROM_DB) else
+        # DEFAULT_SKILL_ORDER; explicit skills list wins. HANA/SAP inject is
+        # Catalog-gated (flags.force_hana_po_lookup) — no silent force.
         pipeline = None
-        if getattr(self._settings, "ap_pipeline_from_db", False):
+        pipeline_from_db = bool(getattr(self._settings, "ap_pipeline_from_db", False))
+        if pipeline_from_db:
             from app.ap_pipeline.resolve import (
                 apply_connector_defaults,
+                attach_pipeline_policy,
                 merge_thresholds,
                 resolve_pipeline_config,
             )
@@ -239,14 +240,28 @@ class ApSkillRunner:
                     pipeline=pipeline,
                 )
 
+        # Always flatten Catalog/code policy onto thresholds (step name, labels, floors).
+        from app.ap_pipeline.policy import apply_policy_to_thresholds
+        from app.ap_pipeline.resolve import attach_pipeline_policy
+
+        if pipeline is not None:
+            thresholds = attach_pipeline_policy(
+                thresholds, pipeline, settings=self._settings
+            )
+        else:
+            thresholds = apply_policy_to_thresholds(
+                thresholds, pipeline_policy=None, settings=self._settings
+            )
+
         default_order = None
         enabled = None
-        force_hana = True
+        # Catalog path: opt-in only. Legacy rollback (flag off): allow inject
+        # when Workflow asks for SAP/HANA (previous code default).
+        force_hana = False if pipeline_from_db else True
         use_planner = bool(getattr(self._settings, "ap_llm_planner", False))
         if pipeline is not None:
             flags = pipeline.flags or {}
-            if "force_hana_po_lookup" in flags:
-                force_hana = bool(flags["force_hana_po_lookup"])
+            force_hana = bool(flags.get("force_hana_po_lookup", False))
             if requested is None:
                 default_order = list(pipeline.skills_order)
                 enabled = pipeline.skills_enabled

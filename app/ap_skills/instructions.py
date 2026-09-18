@@ -1,4 +1,9 @@
-"""Soft AP Instructions from Catalog/disk packs (agent_slug=ap)."""
+"""AP Instructions from Catalog/disk packs (agent_slug=ap) — primary LLM system prompt.
+
+Same pattern as OCR/Summary: Catalog (platform + tenant) drives the system prompt.
+Python keeps only a short code fallback when the pack is missing.
+Deterministic skills (po_match, lookups, workflow) stay in code.
+"""
 from __future__ import annotations
 
 import logging
@@ -12,9 +17,9 @@ async def ap_instructions_system_prompt(
     tenant_id: Optional[str] = None,
     settings: Any = None,
 ) -> str:
-    """Platform + tenant AP instruction pack as an LLM system-prompt addon.
+    """Platform + tenant AP instruction pack as the primary LLM system prompt.
 
-    Empty string when the pack is missing — callers keep their hard-coded prompts.
+    Empty string when the pack is missing — callers use ``code_fallback``.
     Never used to replace Python skills (po_match, etc.).
     """
     try:
@@ -32,7 +37,21 @@ async def ap_instructions_system_prompt(
         return ""
 
 
+async def resolve_system_prompt(
+    *,
+    code_fallback: str,
+    tenant_id: Optional[str] = None,
+    settings: Any = None,
+) -> str:
+    """OCR-style: Catalog/disk pack wins; otherwise the short code fallback."""
+    pack = await ap_instructions_system_prompt(tenant_id=tenant_id, settings=settings)
+    if pack:
+        return pack
+    return (code_fallback or "").strip()
+
+
 def merge_system_prompt(base: str, addon: str) -> str:
+    """Legacy soft-append helper (pre Phase-1). Prefer ``resolve_system_prompt``."""
     base = (base or "").strip()
     addon = (addon or "").strip()
     if not addon:

@@ -12,7 +12,7 @@ services:
       # the same Postgres service (agent packs live in Catalog tables).
       CATALOG_DATABASE_URL: postgresql://orchestrator:orchestrator@postgres:5432/orchestrator
       AGENT_PACKS_FROM_DB: "true"
-      # Runner reads Catalog pipeline when true (Phase 3); seed still runs either way.
+      # Runner reads Catalog pipeline when true (default true in Settings; Phase 2).
       AP_PIPELINE_FROM_DB: "true"
     depends_on:
       postgres:

@@ -80,9 +80,27 @@ def validate_pipeline_config(raw: dict[str, Any]) -> dict[str, Any]:
         },
         "flags": {
             "use_planner": bool(flags.get("use_planner", False)),
-            "force_hana_po_lookup": bool(flags.get("force_hana_po_lookup", True)),
+            "force_hana_po_lookup": bool(flags.get("force_hana_po_lookup", False)),
         },
     }
+    policy_raw = raw.get("policy") if isinstance(raw.get("policy"), dict) else None
+    if policy_raw is not None:
+        policy: dict[str, Any] = {}
+        step = policy_raw.get("workflow_step_name")
+        if step is not None and str(step).strip():
+            policy["workflow_step_name"] = str(step).strip()
+        labels = policy_raw.get("review_labels")
+        if isinstance(labels, dict) and labels:
+            policy["review_labels"] = {
+                str(k).strip().upper(): str(v).strip()
+                for k, v in labels.items()
+                if str(k).strip() and str(v).strip()
+            }
+        floor = _opt_num(policy_raw.get("line_match_floor"))
+        if floor is not None:
+            policy["line_match_floor"] = float(floor)
+        if policy:
+            out["policy"] = policy
     return out
 
 
