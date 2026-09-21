@@ -69,6 +69,11 @@ def test_console_serves_html(client):
     assert "/console/agent-packs/" in response.text
     assert "summaryRuleSaveBtn" in response.text
     assert "Enable" in response.text
+    assert 'id="apPipelineInspector"' in response.text
+    assert 'id="apSkillsChips"' in response.text
+    assert "ap-workbench" in response.text
+    assert "AP Agent" in response.text
+    assert "Let the planner decide skill order" in response.text
     assert "const body = attachConsoleTenantBody({ session_id: sessionId, message });" in response.text
     assert "function restoreEmptyState" in response.text
     assert "function renderChatReply" in response.text

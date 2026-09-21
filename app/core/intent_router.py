@@ -56,7 +56,6 @@ class Intent(str, Enum):
     PDF = "pdf"
     GLOBAL_SEARCH = "global_search"
     CHATBOT = "chatbot"
-    DASHBOARD = "dashboard"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the
