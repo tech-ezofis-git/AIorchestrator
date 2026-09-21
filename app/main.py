@@ -125,7 +125,10 @@ from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
 from app.agents.global_search_agent import GlobalSearchAgent
 from app.agents.chatbot_agent import ChatbotAgent
+from app.agents.dashboard_agent import DashboardAgent
 from app.config import get_settings
+from app.dashboard.llm import configure_dashboard_llm
+from app.dashboard.store import DashboardStore, DashboardStoreUnavailableError
 from app.control.audit import AuditMiddleware, configure_app_logging
 from app.control.audit_store import AuditStore
 from app.control.content_filter import ContentFilterRejectedError, check_content
@@ -534,6 +537,9 @@ async def lifespan(app: FastAPI):
         limit=20,
         rag_limit=max(settings.search_top_n, 5),
     )
+    configure_dashboard_llm(llm_adapter)
+    dashboard_store = DashboardStore(tenant_pools=tenant_pools, catalog_store=catalog_store)
+    dashboard_agent = DashboardAgent(dashboard_store)
 
     rate_limiter = RateLimiter(
         redis_client,
@@ -554,6 +560,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.PDF, pdf_agent.handle)
     agent_router.register(Intent.GLOBAL_SEARCH, global_search_agent.handle)
     agent_router.register(Intent.CHATBOT, chatbot_agent.handle)
+    agent_router.register(Intent.DASHBOARD, dashboard_agent.handle)
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
@@ -577,6 +584,8 @@ async def lifespan(app: FastAPI):
     app.state.llm_adapter = llm_adapter
     app.state.runtime_models = runtime_models
     app.state.catalog_store = catalog_store
+    app.state.dashboard_store = dashboard_store
+    app.state.dashboard_agent = dashboard_agent
     app.state.catalog_agent = catalog_agent
     app.state.ezofis_client = ezofis_client
 
@@ -614,6 +623,20 @@ async def health() -> dict:
         "ezofis_env": settings.ezofis_env,
         "ezofis_login_configured": bool(email and password),
     }
+
+
+@app.get("/dashboard/targets")
+async def dashboard_targets(request: Request, tenant_id: str) -> dict:
+    store: DashboardStore = request.app.state.dashboard_store
+    try:
+        return await store.list_targets(tenant_id=tenant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DashboardStoreUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Dashboard store is currently unavailable, please try again.",
+        ) from exc
 
 
 @app.get("/api/pdf/download/{filename}")
@@ -998,7 +1021,19 @@ class SummaryCustomRuleUpdate(BaseModel):
 
 SummaryCustomSkillUpdate = SummaryCustomRuleUpdate
 
-_PACK_CONSOLE_AGENTS = frozenset({"summary", "ocr", "insight", "prompt", "pdf", "ap"})
+_PACK_CONSOLE_AGENTS = frozenset(
+    {
+        "summary",
+        "ocr",
+        "insight",
+        "prompt",
+        "pdf",
+        "ap",
+        "dashboard-prompts",
+        "dashboard-schema",
+        "dashboard-data",
+    }
+)
 
 
 def _pack_console_agent(agent: str) -> str:
@@ -1968,6 +2003,62 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "dashboard_prompts": {
+                            "summary": "Dashboard prompts: intent=dashboard, payload.phase=prompts",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "payload": {
+                                    "phase": "prompts",
+                                    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                                    "repository_id": "a6169a5c-1468-4fb5-90a9-220082a89f2a",
+                                },
+                            },
+                        },
+                        "dashboard_schema": {
+                            "summary": "Dashboard schema: intent=dashboard, payload.phase=schema",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "message": "I need an AP dashboard",
+                                "payload": {
+                                    "phase": "schema",
+                                    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                                    "repository_id": "a6169a5c-1468-4fb5-90a9-220082a89f2a",
+                                },
+                            },
+                        },
+                        "dashboard_schema_workflow": {
+                            "summary": "Dashboard schema from payload.workflow_id (resolves repository)",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "message": "I need an AP dashboard",
+                                "payload": {
+                                    "phase": "schema",
+                                    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                                    "workflow_id": "452859c2-9bbe-4e17-acd2-f11524a0650e",
+                                },
+                            },
+                        },
+                        "dashboard_data": {
+                            "summary": "Dashboard data: intent=dashboard, payload.dashboard_json (returns text/html)",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "message": "apply",
+                                "payload": {
+                                    "phase": "data",
+                                    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                                    "repository_id": "a6169a5c-1468-4fb5-90a9-220082a89f2a",
+                                    "dashboard_json": {
+                                        "phase": "schema",
+                                        "kpis": [],
+                                        "charts": [],
+                                    },
+                                },
+                            },
+                        },
                         "ap_invoice_json": {
                             "summary": "AP skills from invoice JSON",
                             "value": {
@@ -2066,7 +2157,7 @@ _CHAT_MULTIPART_SCHEMA = {
         }
     },
 )
-async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatResponse:
+async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatResponse | HTMLResponse:
     started_at = time.perf_counter()
     parsed = await parse_chat_request(request)
     payload = parsed.chat
@@ -2103,6 +2194,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 message = query_alias
             else:
                 message = "help"
+        elif explicit == "dashboard":
+            message = "I need a dashboard."
         elif (
             has_filepath
             or has_upload
@@ -2246,6 +2339,17 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "recent_hits": getattr(p, "recent_hits", None) if p else None,
             "upload_file": getattr(p, "upload_file", None) if p else None,
             "pending_action_id": getattr(p, "pending_action_id", None) if p else None,
+        }
+    elif intent == Intent.DASHBOARD:
+        p = payload.payload
+        document_job = {
+            "tenant_id": p.tenant_id if p else None,
+            "repository_id": p.repository_id if p else None,
+            "workflow_id": p.workflow_id if p else None,
+            "dashboard_json": getattr(p, "dashboard_json", None) if p else None,
+            "repository_name": getattr(p, "repository_name", None) if p else None,
+            "workflow_name": getattr(p, "workflow_name", None) if p else None,
+            "phase": getattr(p, "phase", None) if p else None,
         }
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
@@ -2476,6 +2580,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DashboardStoreUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Dashboard store is currently unavailable, please try again.",
+        ) from exc
     except LLMAdapterError as exc:
         raise HTTPException(
             status_code=502, detail="Upstream LLM provider error, please try again."
@@ -2528,6 +2637,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         redacted_response_snippet=_snippet_for_audit(intent.value, result["reply"]),
     )
 
+    dashboard = result.get("dashboard_result") if isinstance(result.get("dashboard_result"), dict) else None
+    html = result.get("html")
+    if dashboard and dashboard.get("phase") == "data" and isinstance(html, str) and html.strip():
+        return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
+
     return response_composer.compose_chat_response(
         session_id=payload.session_id,
         reply=result["reply"],
@@ -2548,6 +2662,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         pdf_result=result.get("pdf_result"),
         global_search_result=result.get("global_search_result"),
         chatbot_result=result.get("chatbot_result"),
+        dashboard_result=result.get("dashboard_result"),
+        html=result.get("html"),
     )
 
 

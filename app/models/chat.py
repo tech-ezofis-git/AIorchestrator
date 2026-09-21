@@ -3,7 +3,53 @@ import json
 import re
 from typing import Any, Optional
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_serializer, model_validator
+
+
+def unwrap_dashboard_json(value: Any) -> Any:
+    """Accept kpis/charts blob, dashboard_result, a ChatResponse envelope, or a JSON string."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            return value
+    if not isinstance(value, dict):
+        return value
+    inner = value.get("dashboard_result")
+    top_kpis = value.get("kpis")
+    if isinstance(inner, dict) and isinstance(inner.get("kpis"), list) and not isinstance(top_kpis, list):
+        return inner
+    return value
+
+
+_DASHBOARD_COMPETING_KEYS = (
+    "filepath",
+    "blobPath",
+    "ocr_text",
+    "summary_json",
+    "insight_json",
+    "pdf_json",
+    "invoice_json",
+    "query",
+    "item_id",
+)
+
+
+def _nonempty_job_value(value: Any) -> bool:
+    return value not in (None, "", [], {})
+
+
+def _dashboard_ids_from(merged: dict[str, Any]) -> tuple[Any, Any, Any, Any]:
+    tenant = merged.get("tenant_id") or merged.get("tenantId")
+    repo = merged.get("repository_id") or merged.get("repositoryId") or merged.get("repository")
+    workflow = merged.get("workflow_id") or merged.get("workflowId")
+    dash = merged.get("dashboard_json") or merged.get("dashboardJson")
+    return tenant, repo, workflow, dash
 
 
 class DocumentPayload(BaseModel):
@@ -69,6 +115,35 @@ class DocumentPayload(BaseModel):
             "Optional dashboard or business area (e.g. AP Aging, Cash Flow) "
             "to steer insight tone. Wins over insight_json.area / dashboard."
         ),
+    )
+    dashboard_json: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("dashboard_json", "dashboardJson"),
+        description="Edited KPI/chart schema from the dashboard schema call. When set, /chat hydrates widgets (data call).",
+    )
+
+    @field_validator("dashboard_json", mode="before")
+    @classmethod
+    def _unwrap_dashboard_json(cls, value: Any) -> Any:
+        return unwrap_dashboard_json(value)
+    phase: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("phase", "dashboard_phase", "dashboardPhase"),
+        description=(
+            "Dashboard step on POST /chat intent=dashboard: "
+            "`prompts` (suggest message), `schema` (propose widgets), `data` (hydrate). "
+            "Omitted: schema unless dashboard_json is set (then data)."
+        ),
+    )
+    repository_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("repository_name", "repositoryName"),
+        description="Optional repository label for dashboard prompt hinting.",
+    )
+    workflow_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("workflow_name", "workflowName"),
+        description="Optional workflow label for dashboard prompt hinting.",
     )
     pdf_json: Optional[Any] = Field(
         default=None,
@@ -421,7 +496,10 @@ class ChatRequest(BaseModel):
     )
     intent: Optional[str] = Field(
         default=None,
-        description="Explicit agent. Empty/omitted => chat. Unknown values rejected by the route.",
+        description=(
+            "Explicit agent. Empty/omitted => keyword classify. "
+            "Dashboard uses intent=dashboard with payload.phase prompts|schema|data."
+        ),
     )
     instruction: Optional[str] = Field(
         default=None,
@@ -462,7 +540,22 @@ class ChatRequest(BaseModel):
                 continue
             if merged.get(key) in (None, "") and value not in (None, ""):
                 merged[key] = value
-        for key in ("query", "tenantId", "specificId", "workspaceId", "actionFrom"):
+        for key in (
+            "query",
+            "tenantId",
+            "tenant_id",
+            "repository_id",
+            "repositoryId",
+            "repository",
+            "workflow_id",
+            "workflowId",
+            "dashboard_json",
+            "dashboardJson",
+            "phase",
+            "specificId",
+            "workspaceId",
+            "actionFrom",
+        ):
             if data.get(key) not in (None, "") and merged.get(key) in (None, ""):
                 merged[key] = data[key]
         if not harvested and not merged:
@@ -471,7 +564,16 @@ class ChatRequest(BaseModel):
         if harvested.get("session_id") not in (None, "") and out.get("session_id") in (None, ""):
             out["session_id"] = harvested["session_id"]
         if merged:
+            dash = merged.get("dashboard_json") or merged.get("dashboardJson")
+            if dash is not None:
+                merged["dashboard_json"] = unwrap_dashboard_json(dash)
             out["payload"] = merged
+        competing = any(_nonempty_job_value(merged.get(key)) for key in _DASHBOARD_COMPETING_KEYS)
+        tenant, repo, workflow, dash = _dashboard_ids_from(merged)
+        has_dash = isinstance(dash, dict)
+        if not str(out.get("intent") or "").strip() and not competing:
+            if has_dash or (_nonempty_job_value(tenant) and (_nonempty_job_value(repo) or _nonempty_job_value(workflow))):
+                out["intent"] = "dashboard"
         return out
 
     @model_validator(mode="after")
@@ -491,6 +593,16 @@ class ChatRequest(BaseModel):
         )
         has_prompt = bool(payload and (payload.prompt or "").strip())
         has_global_query = bool(payload and (payload.query or "").strip())
+        has_dashboard = bool(payload and payload.dashboard_json)
+        has_dashboard_target = bool(
+            payload
+            and (payload.tenant_id or "").strip()
+            and (
+                (payload.repository_id or "").strip()
+                or (payload.workflow_id or "").strip()
+                or payload.dashboard_json
+            )
+        )
         msg = (self.message or "").strip()
         if (
             not msg
@@ -502,6 +614,8 @@ class ChatRequest(BaseModel):
             and not has_ap_doc
             and not has_prompt
             and not has_global_query
+            and not has_dashboard
+            and not has_dashboard_target
         ):
             # Multipart uploads attach file bytes outside this model; main.py
             # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap/pdf after parsing.
@@ -513,6 +627,7 @@ class ChatRequest(BaseModel):
                 "pdf",
                 "global_search",
                 "chatbot",
+                "dashboard",
             }:
                 return self
             raise ValueError(
@@ -630,3 +745,29 @@ class ChatResponse(BaseModel):
             "`reply` is a short status line."
         ),
     )
+    dashboard_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Dashboard agent output via POST /chat intent=dashboard. "
+            "phase=prompts | schema | data. Item rows are capped at 50."
+        ),
+    )
+    html: Optional[str] = Field(
+        default=None,
+        description="Rendered dashboard HTML on the data phase; null on schema.",
+    )
+
+    @model_serializer(mode="wrap")
+    def _compact_dashboard_envelope(self, serializer):
+        data = serializer(self)
+        if not isinstance(data, dict) or data.get("dashboard_result") is None:
+            return data
+        keep = (
+            "session_id",
+            "reply",
+            "correlation_id",
+            "latency_ms",
+            "dashboard_result",
+            "html",
+        )
+        return {key: data.get(key) for key in keep}
