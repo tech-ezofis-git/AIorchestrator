@@ -16,3 +16,11 @@ app/tenant_skills/data/*.sqlite
 # Generated PDFs
 app/static/generated_pdfs/*.pdf
 !app/static/generated_pdfs/.gitkeep
+
+# Report Agent Documentation & Notes
+report-agent-dynamic-prompt-implementation.md
+report-agent-model-driven-design.md
+report-agent-phase-2-report-plan.md
+report-builder-ai-agent.md
+docs/report-agent-live-prompt-plan.md
+docs/report-agent-ui-only.md
