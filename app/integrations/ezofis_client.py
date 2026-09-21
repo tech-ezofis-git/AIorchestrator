@@ -10,6 +10,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 import httpx
@@ -18,6 +21,28 @@ from app.ap_skills.hana_po import hana_match_item_from_row
 from app.config import Settings, get_settings
 
 logger = logging.getLogger("orchestrator.ezofis")
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert UUID/Decimal/datetime (and nested structures) for httpx json=."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return str(value)
 
 
 class EzofisClient:
@@ -869,8 +894,10 @@ class EzofisClient:
         try:
             headers = await self._auth_headers(tenant_id)
             url = f"{self._base()}/Workflows/instances/{instance_id}/move-next"
+            # asyncpg UUID / Decimal can appear inside AIAGENTResponse — make JSON-safe.
+            body = _json_safe(payload)
             async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
-                response = await client.post(url, headers=headers, json=payload)
+                response = await client.post(url, headers=headers, json=body)
                 if response.status_code not in (200, 201, 204):
                     detail = (response.text or "")[:300]
                     logger.warning(
@@ -880,19 +907,19 @@ class EzofisClient:
                     return {"ok": False, "status_code": response.status_code, "detail": detail}
                 if response.content:
                     try:
-                        body = response.json()
-                        if isinstance(body, dict):
-                            if "ok" not in body:
-                                success = body.get("success")
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            if "ok" not in parsed:
+                                success = parsed.get("success")
                                 if success is None:
-                                    success = body.get("Success")
-                                body["ok"] = True if success is None else bool(success)
+                                    success = parsed.get("Success")
+                                parsed["ok"] = True if success is None else bool(success)
                             # Surface Core Message for "not advanced" detection.
-                            if not body.get("detail") and not body.get("message"):
-                                msg = body.get("message") or body.get("Message")
+                            if not parsed.get("detail") and not parsed.get("message"):
+                                msg = parsed.get("message") or parsed.get("Message")
                                 if msg:
-                                    body["detail"] = str(msg)
-                            return body
+                                    parsed["detail"] = str(msg)
+                            return parsed
                     except Exception:
                         pass
                 return {"ok": True}

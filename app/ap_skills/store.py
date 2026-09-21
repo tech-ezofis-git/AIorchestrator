@@ -1421,16 +1421,23 @@ class ApStore:
                 "supplier",
                 "vendor",
             )
-            total = _ci_get(
-                data,
+            total = None
+            for amount_key in (
                 "PO Amount",
                 "POAmount",
-                "Amount",
-                "Total",
                 "PoAmount",
+                "Invoice_Amount",
                 "InvoiceAmount",
+                "Invoice Amount",
+                "Total",
+                "Amount",
                 "total",
-            )
+            ):
+                candidate = _ci_get(data, amount_key)
+                coerced = _coerce_po_amount(candidate)
+                if coerced is not None:
+                    total = coerced
+                    break
             currency = _ci_get(data, "Currency", "currency")
             po_val = _ci_get(
                 data,
@@ -1444,7 +1451,7 @@ class ApStore:
             out: dict[str, Any] = {
                 "po_number": str(po_val or needle).strip(),
                 "vendor": str(vendor).strip() if vendor not in (None, "") else None,
-                "total": _coerce_po_amount(total),
+                "total": total,
                 "currency": str(currency).strip() if currency not in (None, "") else None,
                 "lines": [],
                 "source": "form",
@@ -1455,7 +1462,11 @@ class ApStore:
             for key, value in data.items():
                 if value in (None, "") or key in out:
                     continue
-                out[key] = value
+                # asyncpg may return UUID — keep JSON-serializable for move-next.
+                if isinstance(value, uuid.UUID):
+                    out[key] = str(value)
+                else:
+                    out[key] = value
             return out
         except Exception as exc:
             logger.warning(

@@ -118,8 +118,15 @@ async def run(ctx: ApContext) -> ApSkillResult:
             )
 
         # InternalForm: Workflow PoMaster form (master_form_id); invoice form_id is write-back only.
+        # Prefer Core-stamped master_form_id, then tenant thresholds, never treat invoice form as PO master first.
+        thresholds = ctx.thresholds or {}
         form_id = (
             str(job.get("master_form_id") or job.get("masterFormId") or "").strip()
+            or str(
+                thresholds.get("master_form_id")
+                or thresholds.get("po_master_form_id")
+                or ""
+            ).strip()
             or ctx.form_id
             or str(job.get("form_id") or "").strip()
             or None
