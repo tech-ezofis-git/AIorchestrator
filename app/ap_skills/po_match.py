@@ -118,8 +118,14 @@ async def run(ctx: ApContext) -> ApSkillResult:
             )
 
         # InternalForm: Workflow PoMaster form (master_form_id); invoice form_id is write-back only.
-        # Prefer Core-stamped master_form_id, then tenant thresholds, never treat invoice form as PO master first.
+        # Prefer Core-stamped master_form_id, then tenant thresholds. Never treat the invoice
+        # write-back form as the PO master (extract writes InvoiceAmount/PO# there → false MATCH).
         thresholds = ctx.thresholds or {}
+        invoice_form_id = (
+            str(ctx.form_id or "").strip()
+            or str(job.get("form_id") or job.get("formid") or job.get("formId") or "").strip()
+            or None
+        )
         form_id = (
             str(job.get("master_form_id") or job.get("masterFormId") or "").strip()
             or str(
@@ -127,10 +133,24 @@ async def run(ctx: ApContext) -> ApSkillResult:
                 or thresholds.get("po_master_form_id")
                 or ""
             ).strip()
-            or ctx.form_id
-            or str(job.get("form_id") or "").strip()
             or None
         )
+        if form_id and invoice_form_id and form_id.lower() == invoice_form_id.lower():
+            form_id = None
+        if not form_id and invoice_form_id:
+            return ApSkillResult(
+                skill_id=SKILL_ID,
+                data={
+                    "po_number": po_number,
+                    "po": None,
+                    "score": 0,
+                    "decision": "NOT_MATCHED",
+                    "reason": (
+                        f"PO {po_number} was not validated: PoMaster form id is missing "
+                        "(refusing to use the invoice form as PO master)."
+                    ),
+                },
+            )
         po = await ctx.ezofis.lookup_po(
             tenant_id=ctx.tenant_id,
             po_number=po_number,
@@ -173,6 +193,8 @@ async def run(ctx: ApContext) -> ApSkillResult:
         reasons.append("Vendor matches PO.")
     elif inv_vendor and po_vendor:
         reasons.append("Vendor differs from PO vendor.")
+    elif not po_vendor:
+        reasons.append("PO master has no vendor.")
 
     inv_total = field_number(invoice, "total", "amount")
     po_total = field_number(po, "total", "amount")
@@ -187,11 +209,17 @@ async def run(ctx: ApContext) -> ApSkillResult:
         reasons.append("Missing total on invoice or PO.")
 
     score = min(100.0, round(score, 2))
+    decision = decision_from_score(score, approved=approved, partial=partial)
+    # Full MATCHED requires real master evidence: PO amount + strong vendor match.
+    # PO-number-only (or amount echo without vendor) must stay partial / not matched.
+    if decision == "MATCHED" and (po_total is None or sim < 0.85):
+        decision = "PARTIALLY_MATCHED"
+        reasons.append("Capped to partial: full match needs PO amount and matching vendor.")
     data: dict[str, Any] = {
         "po_number": po_number,
         "po": po,
         "score": score,
-        "decision": decision_from_score(score, approved=approved, partial=partial),
+        "decision": decision,
         "vendor_similarity": sim,
         "reason": " ".join(reasons),
     }

@@ -105,7 +105,7 @@ def test_ap_formid_alias_is_passed_to_po_lookup(client, monkeypatch):
         json={
             "session_id": "s-ap-formid",
             "intent": "ap",
-            "payload": _ap_payload(formid=guid),
+            "payload": _ap_payload(formid="invoice-form-id", master_form_id=guid),
         },
     )
     assert response.status_code == 200, response.text
@@ -127,7 +127,7 @@ def test_ap_numeric_form_id_selects_ezfb_table(client, monkeypatch):
         json={
             "session_id": "s-ap-form-num",
             "intent": "ap",
-            "payload": _ap_payload(form_id="98"),
+            "payload": _ap_payload(form_id="invoice-form-id", master_form_id="98"),
         },
     )
     assert response.status_code == 200, response.text
@@ -455,9 +455,16 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
         move_calls.append(kwargs)
         return {"ok": True, "mock": True}
 
+    async def no_po(self, **kwargs):
+        return None
+
     monkeypatch.setattr(
         "app.integrations.ezofis_client.EzofisClient.workflow_move_next",
         tracking_move,
+    )
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.lookup_po",
+        no_po,
     )
 
     response = client.post(
@@ -475,6 +482,8 @@ def test_move_next_forwards_apagent_workflow_ids(client, monkeypatch):
                 repositoryItemId="item-guid",
                 processId="200",
                 activityid="DR97uPaylMtwahvi3XYr_",
+                master_form_id="po-master-form",
+                form_id="invoice-form",
             ),
         },
     )
@@ -898,7 +907,8 @@ def test_ezofis_internal_form_skips_hana_lookup(client, monkeypatch):
                 item_id="doc-internal-form",
                 tenant_id="b843b988-00ec-44e3-aca2-b8470133ef63",
                 master_source="InternalForm",
-                form_id="form-1",
+                master_form_id="form-1",
+                form_id="invoice-form-id",
                 skills=["extract_invoice", "po_match", "finalize_decision"],
             ),
         },
@@ -1039,7 +1049,8 @@ def test_metadata_push_runs_after_every_skill_with_non_null_values(client, monke
                 repository_id="repo",
                 repository_item_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
                 form_entry_id="42",
-                form_id="form-guid",
+                form_id="invoice-form-guid",
+                master_form_id="po-master-form-guid",
                 skills=skills,
             ),
         },

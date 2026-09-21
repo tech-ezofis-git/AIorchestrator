@@ -1422,22 +1422,28 @@ class ApStore:
                 "vendor",
             )
             total = None
+            # Only PO-master amount columns — never InvoiceAmount (invoice write-back
+            # forms would echo the extracted invoice total and false-MATCH).
             for amount_key in (
                 "PO Amount",
                 "POAmount",
                 "PoAmount",
-                "Invoice_Amount",
-                "InvoiceAmount",
-                "Invoice Amount",
-                "Total",
-                "Amount",
-                "total",
+                "Po Amount",
             ):
                 candidate = _ci_get(data, amount_key)
                 coerced = _coerce_po_amount(candidate)
                 if coerced is not None:
                     total = coerced
                     break
+            if total is None:
+                # Generic Total/Amount only when the row looks like a PO master
+                # (has a PO number column value), still never Invoice*.
+                for amount_key in ("Total", "Amount", "total"):
+                    candidate = _ci_get(data, amount_key)
+                    coerced = _coerce_po_amount(candidate)
+                    if coerced is not None:
+                        total = coerced
+                        break
             currency = _ci_get(data, "Currency", "currency")
             po_val = _ci_get(
                 data,
