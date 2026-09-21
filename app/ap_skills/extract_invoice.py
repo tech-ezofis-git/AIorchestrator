@@ -8,6 +8,7 @@ from functools import lru_cache
 from typing import Any, Optional
 
 from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
+from app.ap_skills.payment_terms import due_date_from_terms, looks_like_payment_terms
 from app.ap_skills.types import ApContext, ApSkillError, ApSkillResult, field_text, norm_token
 
 logger = logging.getLogger("orchestrator.ap.extract_invoice")
@@ -29,18 +30,14 @@ _LINE_KEYS = (
     "lines",
 )
 
+# Code fallback only when Catalog/disk AP pack is missing. Primary copy lives in
+# skills/ap/rules/extract.mdc (seeded to platform_agent_rules).
 _EXTRACT_PROMPT = (
     "Extract AP invoice fields from the OCR text. Reply with JSON only, no markdown: "
     '{"doc_type":"invoice"|"other","invoice_number":"","invoice_date":"","due_date":"",'
-    '"vendor":"","po_number":"","total":null,"currency":"","line_items":'
+    '"terms":"","vendor":"","po_number":"","total":null,"currency":"","line_items":'
     '[{"description":"","qty":null,"price":null,"amount":null}]} '
-    "PDF OCR often puts table headers and values on separate lines. "
-    "If you see 'Invoice #' or 'Invoice No' then later a token like INV-2026-6001, "
-    "that token is invoice_number. Same for 'PO #' / PO-60001 → po_number. "
-    "Vendor is the seller letterhead (not Bill To). "
-    "Invoice Total / Amount Due is total. "
-    "If the text is only form labels (Terms, Currency, PO Number) with no values, "
-    "leave every field empty. Do not guess USD or copy a label as a value."
+    "Do not invent values; leave unknowns empty."
 )
 
 
@@ -155,10 +152,31 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(header, dict) and header:
             orig_header = header
             break
-    invoice_date_raw = field_text(src, "invoice_date", "invoiceDate", "Invoice Date", "date")
+    invoice_date_raw = field_text(
+        src, "invoice_date", "invoiceDate", "Invoice Date", "Document Date", "date"
+    )
     due_date_raw = field_text(src, "due_date", "dueDate", "Due Date")
+    terms = field_text(
+        src,
+        "terms",
+        "Terms",
+        "TERMS",
+        "payment_terms",
+        "Payment Terms",
+        "PaymentTerms",
+    )
+    if terms and not looks_like_payment_terms(terms):
+        terms = ""
     invoice_date_norm = _normalize_date(invoice_date_raw) if invoice_date_raw else None
     due_date_norm = _normalize_date(due_date_raw) if due_date_raw else None
+    # Prefer due date derived from payment terms when terms are known.
+    computed_due = due_date_from_terms(
+        invoice_date=invoice_date_norm or invoice_date_raw,
+        terms=terms,
+    )
+    if computed_due:
+        due_date_norm = computed_due
+        due_date_raw = computed_due
     out: dict[str, Any] = {
         "doc_type": (src.get("doc_type") or src.get("Document Type") or "invoice"),
         "invoice_number": field_text(
@@ -169,12 +187,15 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
             "Invoice No",
             "Invoice #",
             "Invoice Number",
+            "Invoice Reference",
+            "invoice_reference",
         ),
         # Normalized (YYYY-MM-DD) when the raw text parses; otherwise kept
         # as-is (never silently dropped) but flagged below so callers can
         # tell "clean ISO date" apart from "unparsed source text".
         "invoice_date": invoice_date_norm or invoice_date_raw,
         "due_date": due_date_norm or due_date_raw,
+        "terms": terms,
         "vendor": field_text(
             src,
             "vendor",
@@ -197,7 +218,7 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
     }
     if invoice_date_raw and not invoice_date_norm:
         out["invoice_date_unparsed"] = True
-    if due_date_raw and not due_date_norm:
+    if due_date_raw and not due_date_norm and not computed_due:
         out["due_date_unparsed"] = True
     header: dict[str, Any] = {}
     if orig_header:
@@ -215,7 +236,11 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
     if out["invoice_date"]:
         header.setdefault("Invoice Date", out["invoice_date"])
     if out["due_date"]:
-        header.setdefault("Due Date", out["due_date"])
+        header["Due Date"] = out["due_date"]
+    if out["terms"]:
+        header["Terms"] = out["terms"]
+        header["TERMS"] = out["terms"]
+        header["Payment Terms"] = out["terms"]
     if out["currency"]:
         header.setdefault("Currency", out["currency"])
     if total is not None:
@@ -229,10 +254,38 @@ def _as_invoice(data: dict[str, Any]) -> dict[str, Any]:
 
 _INV_TOKEN = re.compile(r"\bINV[\s\-/#]*[A-Z0-9]*\d[A-Z0-9\-/]*", re.I)
 _PO_TOKEN = re.compile(r"\bPO[\s\-/#]*\d[A-Z0-9\-/]*", re.I)
+_REFERENCE_PO = re.compile(
+    r"(?:^|\n)\s*Reference\s*\n\s*(\d{8,})\s*(?:\n|$)", re.I | re.MULTILINE
+)
+_INVOICE_NO_INLINE = re.compile(r"Invoice\s*No\.?\s*([^\n]+)", re.I)
 _MONEY_TOKEN = re.compile(r"\b\d{1,3}(?:,\d{3})+\.\d{2}\b|\b\d+\.\d{2}\b")
 _TOTAL_LABEL = re.compile(
     r"(?:invoice\s*total|amount\s*due|balance\s*due|total\s*due)\s*[:\-]?\s*",
     re.I,
+)
+_SUBTOTAL_BLOCK = re.compile(
+    r"(?:^|\n)\s*Subtotal\s*\n\s*(?:USD|CAD|EUR|GBP)?\s*([\d,]+\.\d{2})",
+    re.I | re.MULTILINE,
+)
+_TOTAL_BLOCK = re.compile(
+    r"(?:^|\n)\s*Total\s*\n\s*(?:USD|CAD|EUR|GBP)?\s*([\d,]+\.\d{2})",
+    re.I | re.MULTILINE,
+)
+_INVOICE_REFERENCE_BLOCK = re.compile(
+    r"(?:^|\n)\s*Invoice Reference\s*\n\s*([^\n]+)",
+    re.I | re.MULTILINE,
+)
+_PO_NUMBER_BLOCK = re.compile(
+    r"(?:^|\n)\s*PO\s*(?:Number|#|No\.?)\s*\n\s*([^\n]+)",
+    re.I | re.MULTILINE,
+)
+_TERMS_BLOCK = re.compile(
+    r"(?:^|\n)\s*(?:Payment\s*)?Terms\s*(?:\n|:)\s*([^\n]+)",
+    re.I | re.MULTILINE,
+)
+_INVOICE_DATE_BLOCK = re.compile(
+    r"(?:^|\n)\s*(?:Invoice Date|Document Date)\s*(?:\n|:)\s*([^\n]+)",
+    re.I | re.MULTILINE,
 )
 _CURRENCY_TOKEN = re.compile(r"\b(CAD|USD|EUR|GBP|INR|SGD|AED)\b", re.I)
 _VENDOR_ENTITY = re.compile(r"\b(ltd|limited|inc|corp|llc|gmbh|plc|co\.?)\b", re.I)
@@ -241,14 +294,25 @@ _SKIP_VENDOR_LINE = re.compile(
     r"canada|united\s*states)\b",
     re.I,
 )
+_BILL_FROM_START = re.compile(r"^bill\s*from\b", re.I)
+_PAREN_VENDOR = re.compile(
+    r"\(([^)]*\b(?:ltd|limited|inc|corp|llc|gmbh|plc|co\.?)\b[^)]*)\)",
+    re.I,
+)
+# Velotics/SAP Bill From often uses "(Domestic US Supplier 1)" with no Inc/Ltd.
+_PAREN_ANY = re.compile(r"\(([^)]{3,80})\)")
+_LETTERHEAD_NOISE = re.compile(r"company\s*code\b", re.I)
 _COLUMN_LABELS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"^invoice\s*(?:#|no\.?|number)$", re.I), "Invoice No"),
     (re.compile(r"^po\s*(?:#|no\.?|number)?$", re.I), "PO Number"),
+    (re.compile(r"^reference$", re.I), "PO Number"),
     (re.compile(r"^terms$", re.I), "Terms"),
+    (re.compile(r"^payment\s*terms$", re.I), "Terms"),
     (re.compile(r"^ship\s*via$", re.I), "Ship Via"),
     (re.compile(r"^shipped$", re.I), "Shipped"),
     (re.compile(r"^due\s*date$", re.I), "Due Date"),
     (re.compile(r"^invoice\s*date$", re.I), "Invoice Date"),
+    (re.compile(r"^document\s*date$", re.I), "Invoice Date"),
     (re.compile(r"^currency$", re.I), "Currency"),
 )
 
@@ -283,6 +347,8 @@ def _shape_ok(label: str, value: str) -> bool:
         return _normalize_date(value) is not None
     if label == "Currency":
         return bool(_CURRENCY_TOKEN.fullmatch(value.strip()))
+    if label == "Terms":
+        return looks_like_payment_terms(value)
     return True
 
 
@@ -332,15 +398,59 @@ _BUYER_BLOCK_MAX_LINES = 5
 _BUYER_BLOCK_START = re.compile(r"^(bill\s*to|ship\s*to)\b", re.I)
 
 
+def _guess_vendor_from_bill_from(text: str) -> str:
+    """SAP/Velotics supplier invoices: Bill From (Supplier) then id + (Name Inc.)."""
+    in_from = False
+    seen = 0
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            if in_from:
+                break
+            continue
+        if _BILL_FROM_START.match(line):
+            in_from = True
+            seen = 0
+            continue
+        if not in_from:
+            continue
+        if _BUYER_BLOCK_START.match(line):
+            # Two-column header "Bill From" / "Bill To" on adjacent lines —
+            # keep scanning; supplier values follow both labels.
+            continue
+        seen += 1
+        if seen > 8:
+            break
+        paren = _PAREN_VENDOR.search(line) or _PAREN_ANY.search(line)
+        if paren:
+            name = paren.group(1).strip()
+            # Skip pure ids / codes in parentheses.
+            if name and not name.replace("-", "").replace(" ", "").isdigit():
+                return name
+        if (
+            len(line) >= 4
+            and _VENDOR_ENTITY.search(line)
+            and not _SKIP_VENDOR_LINE.match(line)
+            and not _LETTERHEAD_NOISE.search(line)
+        ):
+            return line
+    return ""
+
+
 def _guess_vendor(text: str) -> str:
-    """First entity-suffixed line NOT inside a "Bill To"/"Ship To" block.
+    """Prefer Bill From (Supplier); else first entity line outside Bill To/Ship To.
 
     Previously only the label line itself ("Bill To:") was skipped — the
     buyer's company name on the following line(s) (the actual address
     block) was not, so it could win as the "vendor" if it also happened to
     contain an entity suffix (Ltd/Inc/Corp/...), swapping buyer and seller.
     Now the whole block is skipped until a blank line, a recognized column
-    label, or the line-count cap ends it."""
+    label, or the line-count cap ends it. Velotics-style PDFs also put the
+    buyer letterhead first ("Velotics Inc. · Company Code …"), so Bill From
+    must win when present."""
+    bill_from = _guess_vendor_from_bill_from(text)
+    if bill_from:
+        return bill_from
     in_buyer_block = False
     buyer_block_lines = 0
     for raw_line in (text or "").splitlines():
@@ -360,6 +470,8 @@ def _guess_vendor(text: str) -> str:
                 continue
         if len(line) < 4 or _SKIP_VENDOR_LINE.match(line) or "@" in line:
             continue
+        if _LETTERHEAD_NOISE.search(line):
+            continue
         if _VENDOR_ENTITY.search(line):
             return line
     return ""
@@ -371,7 +483,20 @@ def _guess_total(text: str) -> Any:
         money = _MONEY_TOKEN.search(text[match.end() :])
         if money:
             return money.group(0)
+    block = _TOTAL_BLOCK.search(text or "")
+    if block:
+        return block.group(1)
+    sub = _SUBTOTAL_BLOCK.search(text or "")
+    if sub:
+        return sub.group(1)
     return None
+
+
+def _blank_amount(value: Any) -> bool:
+    if value is None:
+        return True
+    token = "".join(ch for ch in str(value).lower() if ch.isalnum())
+    return token in {"", "na", "n", "null", "none"}
 
 
 def _heuristic_from_text(text: str) -> dict[str, Any]:
@@ -379,20 +504,56 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
     labeled = _header_from_labeled_text(text)
     merged = {**labeled, **column}
     invoice_number = field_text(
-        merged, "Invoice No", "Invoice #", "Invoice Number", "invoice_number"
+        merged, "Invoice No", "Invoice #", "Invoice Number", "invoice_number", "Invoice Reference"
     ) or _clean_token(_INV_TOKEN.search(text or ""))
-    po_number = field_text(merged, "PO Number", "PO #", "po_number") or _clean_token(
-        _PO_TOKEN.search(text or "")
-    )
+    if not invoice_number or _blank_amount(invoice_number):
+        ref = _INVOICE_REFERENCE_BLOCK.search(text or "")
+        if ref:
+            invoice_number = ref.group(1).strip()
+    po_number = field_text(
+        merged, "PO Number", "PO #", "Reference", "po_number"
+    ) or _clean_token(_PO_TOKEN.search(text or ""))
+    if not po_number:
+        ref = _REFERENCE_PO.search(text or "")
+        if ref:
+            po_number = ref.group(1).strip()
+    if not po_number:
+        po_block = _PO_NUMBER_BLOCK.search(text or "")
+        if po_block:
+            candidate = po_block.group(1).strip()
+            if any(ch.isdigit() for ch in candidate) and not _blank_amount(candidate):
+                po_number = candidate
+    if not invoice_number:
+        inv_inline = _INVOICE_NO_INLINE.search(text or "")
+        if inv_inline:
+            invoice_number = inv_inline.group(1).strip()
+    if invoice_number and _blank_amount(invoice_number):
+        invoice_number = ""
+    if not invoice_number and po_number:
+        # SAP-style docs often put the PO id in Invoice Reference when Invoice Number is N/A.
+        invoice_number = po_number
     vendor = field_text(merged, "Vendor Name", "Supplier", "vendor") or _guess_vendor(text)
     total = merged.get("Invoice Amount") or merged.get("Invoice Total") or _guess_total(text)
+    if _blank_amount(total):
+        total = _guess_total(text)
     currency = field_text(merged, "Currency", "currency")
     if not currency:
         found = _CURRENCY_TOKEN.search(text or "")
         if found:
             currency = found.group(1).upper()
     due_date = field_text(merged, "Due Date", "due_date")
-    invoice_date = field_text(merged, "Invoice Date", "invoice_date", "Shipped")
+    invoice_date = field_text(merged, "Invoice Date", "invoice_date", "Shipped", "Document Date")
+    if not invoice_date:
+        date_match = _INVOICE_DATE_BLOCK.search(text or "")
+        if date_match:
+            invoice_date = date_match.group(1).strip()
+    terms = field_text(merged, "Terms", "TERMS", "Payment Terms", "payment_terms", "terms")
+    if not terms or not looks_like_payment_terms(terms):
+        terms_match = _TERMS_BLOCK.search(text or "")
+        if terms_match and looks_like_payment_terms(terms_match.group(1)):
+            terms = terms_match.group(1).strip()
+        else:
+            terms = ""
     payload = {
         "doc_type": "invoice" if re.search(r"\binvoice\b", text or "", re.I) else "other",
         "invoice_number": invoice_number,
@@ -402,6 +563,7 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
         "currency": currency,
         "due_date": due_date,
         "invoice_date": invoice_date,
+        "terms": terms,
         "invoice_header": merged,
     }
     return _as_invoice(payload)
@@ -544,9 +706,20 @@ async def _structure_with_llm(
         return None, None
     usage: Optional[dict[str, Any]] = None
     try:
+        from app.ap_skills.instructions import resolve_system_prompt
+
+        system = await resolve_system_prompt(
+            code_fallback=_EXTRACT_PROMPT,
+            tenant_id=ctx.tenant_id,
+            settings=ctx.settings,
+        )
+    except Exception:
+        logger.warning("ap_extract_instructions_failed", extra={"error_type": "instructions"})
+        system = _EXTRACT_PROMPT
+    try:
         result = await ctx.llm.chat_completion(
             [
-                {"role": "system", "content": _EXTRACT_PROMPT},
+                {"role": "system", "content": system},
                 {"role": "user", "content": ocr_text[:12000]},
             ],
             **(ctx.llm_overrides or {}),

@@ -50,7 +50,12 @@ REPO_ITEM_TABLES = ("repositoryitem", "repositoryitems", "repository_item")
 DEFAULT_LIMIT = 20
 # Per-workflow V6 link: item_id → workflow_instance_id.
 _ATTACHMENT_PREFIXES = ("workflow_attachments_", "workflowattachments_")
+_COMMENT_PREFIXES = ("workflow_comments_", "workflowcomments_")
+_INSTANCE_PREFIXES = ("workflow_instances_", "workflowinstances_")
+_MAILBOX_PREFIXES = ("inbox_", "sent_", "completed_")
+_TRANSACTION_PREFIXES = ("transaction_",)
 _LINK_TABLE_LIMIT = 200
+_CHATBOT_SOURCE_TABLE_LIMIT = 40
 
 
 def normalize_query(raw: str) -> str:
@@ -708,12 +713,26 @@ async def _search_table(
     repo_col = _pick_col(by_lower, "wrepositoryid", "repositoryid", "repository_id")
     wf_col = _pick_col(by_lower, "wworkflowid", "workflowid", "workflow_id", "iworkflowid")
     inst_col = _pick_col(
-        by_lower, "instanceid", "instance_id", "winstanceid", "workflowinstanceid"
+        by_lower,
+        "instanceid",
+        "instance_id",
+        "winstanceid",
+        "workflowinstanceid",
+        "workflow_instance_id",
     )
     req_col = _pick_col(
-        by_lower, "requestno", "request_no", "requestnumber", "request_number"
+        by_lower,
+        "reference_number",
+        "referencenumber",
+        "requestno",
+        "request_no",
+        "requestnumber",
+        "request_number",
     )
     form_col = _pick_col(by_lower, "formid", "form_id", "wformid")
+    stage_col = _pick_col(
+        by_lower, "stage", "stage_name", "stagename", "stage_type", "stagetype", "current_stage"
+    )
 
     like_param = f"%{query}%"
     clauses = [f"CAST({quote_ident(col)} AS text) ILIKE $1" for col in text_cols]
@@ -757,6 +776,8 @@ async def _search_table(
         select_cols.append(f"{quote_ident(req_col)} AS request_no")
     if form_col:
         select_cols.append(f"{quote_ident(form_col)} AS form_id")
+    if stage_col:
+        select_cols.append(f"{quote_ident(stage_col)} AS stage")
     for i, col in enumerate(text_cols):
         select_cols.append(f"{quote_ident(col)} AS {quote_ident(f'm{i}')}")
 
@@ -937,6 +958,98 @@ async def _search_table(
                     "masterFormId": form_id,
                     "masterFormName": display_name or form_name,
                 }
+        elif entity_type == "comment":
+            inst = _str(row_get(row, "instance_id"))
+            wf_id = _str(row_get(row, "workflow_id"))
+            req = _str(row_get(row, "request_no"))
+            suffix = _table_suffix(table, _COMMENT_PREFIXES)
+            wf_name = ""
+            if suffix and inst:
+                meta = await _lookup_instance_meta(
+                    db,
+                    suffix=suffix,
+                    process_id=inst,
+                    cache=instance_meta_cache,
+                )
+                wf_id = wf_id or meta.get("workflowId") or ""
+                wf_name = meta.get("workflowName") or ""
+                req = req or meta.get("requestNo") or ""
+            if not wf_id and suffix:
+                wf_id = await _lookup_workflow_id_by_suffix(db, suffix)
+            if wf_id and not wf_name:
+                wf_name = await _lookup_name(
+                    db,
+                    table_candidates=WORKFLOW_TABLES,
+                    entity_id=wf_id,
+                    prefer_schemas=("workflow", "dbo", "public"),
+                    cache=wf_cache,
+                )
+            hit_kwargs["name"] = _snippet(matched_value) or entity_name
+            hit_kwargs["description"] = description or matched_value
+            hit_kwargs["requestNo"] = req or None
+            hit_kwargs["id"] = {
+                "commentId": entity_id,
+                "workflowId": int(wf_id) if str(wf_id).isdigit() else (wf_id or 0),
+                "workflowName": wf_name,
+                "instanceId": inst,
+                "requestNo": req,
+                "stage": _str(row_get(row, "stage")),
+            }
+        elif entity_type == "ticket":
+            is_instance_table = table.lower().startswith(_INSTANCE_PREFIXES)
+            inst = entity_id if is_instance_table else _str(row_get(row, "instance_id"))
+            if not inst:
+                inst = entity_id
+            wf_id = _str(row_get(row, "workflow_id"))
+            req = _str(row_get(row, "request_no"))
+            stage = _str(row_get(row, "stage"))
+            suffix = (
+                _table_suffix(table, _INSTANCE_PREFIXES)
+                or _table_suffix(table, _MAILBOX_PREFIXES)
+                or _table_suffix(table, _TRANSACTION_PREFIXES)
+            )
+            wf_name = ""
+            if is_instance_table and matched_field.lower() in {
+                "workflow_name",
+                "workflowname",
+                "name",
+            }:
+                wf_name = entity_name
+            if suffix and inst and not (wf_id and req and wf_name):
+                meta = await _lookup_instance_meta(
+                    db,
+                    suffix=suffix,
+                    process_id=inst,
+                    cache=instance_meta_cache,
+                )
+                wf_id = wf_id or meta.get("workflowId") or ""
+                wf_name = wf_name or meta.get("workflowName") or ""
+                req = req or meta.get("requestNo") or ""
+            if not wf_id and suffix:
+                wf_id = await _lookup_workflow_id_by_suffix(db, suffix)
+            if wf_id and not wf_name:
+                wf_name = await _lookup_name(
+                    db,
+                    table_candidates=WORKFLOW_TABLES,
+                    entity_id=wf_id,
+                    prefer_schemas=("workflow", "dbo", "public"),
+                    cache=wf_cache,
+                )
+            display = req or matched_value or entity_name
+            hit_kwargs["name"] = display
+            hit_kwargs["entity_name"] = display
+            hit_kwargs["requestNo"] = req or None
+            if stage:
+                meta["stage"] = stage
+                hit_kwargs["metadata"] = meta
+            hit_kwargs["id"] = {
+                "workflowId": int(wf_id) if str(wf_id).isdigit() else (wf_id or 0),
+                "workflowName": wf_name,
+                "instanceId": inst,
+                "requestNo": req,
+                "stage": stage,
+                "sourceTable": table,
+            }
 
         hits.append(SearchHit(**hit_kwargs))
         if len(hits) >= limit:
@@ -1119,4 +1232,115 @@ async def search_forms(
             form_meta_cache=form_cache,
         )
         hits.extend(part)
+    return hits[:limit]
+
+
+async def search_comments(
+    db: Any,
+    query: str,
+    *,
+    limit: int = DEFAULT_LIMIT,
+) -> list[SearchHit]:
+    """Search workflow.workflow_comments_{suffix} (and aliases) for comment text."""
+    tables = await _find_tables_by_prefixes(
+        db, _COMMENT_PREFIXES, limit=_CHATBOT_SOURCE_TABLE_LIMIT
+    )
+    if not tables:
+        return []
+    hits: list[SearchHit] = []
+    wf_cache: dict[str, str] = {}
+    for schema, table in tables:
+        remaining = limit - len(hits)
+        if remaining <= 0:
+            break
+        part = await _search_table(
+            db,
+            schema=schema,
+            table=table,
+            query=query,
+            entity_type="comment",
+            limit=remaining,
+            extra_text=(
+                "comments",
+                "comment",
+                "body",
+                "message",
+                "external_comments_by",
+                "embed_json",
+            ),
+            workflow_name_cache=wf_cache,
+        )
+        hits.extend(part)
+    return hits[:limit]
+
+
+async def search_tickets(
+    db: Any,
+    query: str,
+    *,
+    limit: int = DEFAULT_LIMIT,
+) -> list[SearchHit]:
+    """Search instances, mailbox, and transaction tables for ticket text / requestNo."""
+    prefixes_extra = (
+        (
+            _INSTANCE_PREFIXES,
+            (
+                "reference_number",
+                "referencenumber",
+                "request_no",
+                "requestno",
+                "customer_name",
+                "customer_email",
+                "department",
+                "category",
+                "tags",
+                "context",
+                "workflow_name",
+            ),
+        ),
+        (
+            _MAILBOX_PREFIXES,
+            (
+                "reference_number",
+                "referencenumber",
+                "request_no",
+                "requestno",
+                "name",
+                "stage",
+            ),
+        ),
+        (
+            _TRANSACTION_PREFIXES,
+            (
+                "reference_number",
+                "referencenumber",
+                "name",
+                "stage",
+                "stage_name",
+                "stage_type",
+                "review",
+            ),
+        ),
+    )
+    hits: list[SearchHit] = []
+    wf_cache: dict[str, str] = {}
+    for prefixes, extra in prefixes_extra:
+        tables = await _find_tables_by_prefixes(
+            db, prefixes, limit=_CHATBOT_SOURCE_TABLE_LIMIT
+        )
+        for schema, table in tables:
+            remaining = limit - len(hits)
+            if remaining <= 0:
+                return hits[:limit]
+            part = await _search_table(
+                db,
+                schema=schema,
+                table=table,
+                query=query,
+                entity_type="ticket",
+                limit=remaining,
+                extra_text=extra,
+                workflow_name_cache=wf_cache,
+            )
+            hits.extend(part)
     return hits[:limit]

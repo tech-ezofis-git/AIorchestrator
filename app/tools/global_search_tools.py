@@ -3,9 +3,11 @@ from typing import Any, Optional
 
 from app.global_search.rag_search import search_documents_rag
 from app.global_search.sql_search import (
+    search_comments,
     search_document_metadata,
     search_forms,
     search_repositories,
+    search_tickets,
     search_workflows,
 )
 from app.knowledge.hybrid_search import HybridSearch
@@ -87,6 +89,37 @@ SEARCH_FORMS_SCHEMA = ToolSchema(
     },
 )
 
+SEARCH_COMMENTS_SCHEMA = ToolSchema(
+    name="search_comments",
+    description="Search workflow.workflow_comments_{suffix} comment text across the tenant.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "tenant_id": {"type": "string"},
+            "limit": {"type": "integer"},
+        },
+        "required": ["query", "tenant_id"],
+    },
+)
+
+SEARCH_TICKETS_SCHEMA = ToolSchema(
+    name="search_tickets",
+    description=(
+        "Search workflow instances, inbox/sent/completed, and transaction tables "
+        "for requestNo / stage / ticket text."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "tenant_id": {"type": "string"},
+            "limit": {"type": "integer"},
+        },
+        "required": ["query", "tenant_id"],
+    },
+)
+
 
 def _search_db(tenant_pools: Any, catalog_store: Any):
     async def acquire(tenant_id: str):
@@ -146,6 +179,28 @@ def make_search_forms_handler(tenant_pools: Any, catalog_store: Any = None):
     async def handler(*, query: str, tenant_id: str, limit: int = 20) -> list[dict[str, Any]]:
         db = await acquire(tenant_id)
         hits = await search_forms(db, query, limit=limit)
+        return [h.model_dump() for h in hits]
+
+    return handler
+
+
+def make_search_comments_handler(tenant_pools: Any, catalog_store: Any = None):
+    acquire = _search_db(tenant_pools, catalog_store)
+
+    async def handler(*, query: str, tenant_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        db = await acquire(tenant_id)
+        hits = await search_comments(db, query, limit=limit)
+        return [h.model_dump() for h in hits]
+
+    return handler
+
+
+def make_search_tickets_handler(tenant_pools: Any, catalog_store: Any = None):
+    acquire = _search_db(tenant_pools, catalog_store)
+
+    async def handler(*, query: str, tenant_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        db = await acquire(tenant_id)
+        hits = await search_tickets(db, query, limit=limit)
         return [h.model_dump() for h in hits]
 
     return handler

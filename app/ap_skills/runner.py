@@ -16,6 +16,7 @@ from app.ap_skills import (
     grn_match,
     matter_validate,
     po_lookup_quickbooks,
+    po_lookup_sap,
     po_lookup_sage,
     po_match,
     vendor_validate,
@@ -24,7 +25,7 @@ from app.ap_skills import (
 )
 from app.ap_skills.ap_metadata import extras_from_artifacts, merge_ids_into_job, push_extract_metadata, resolve_metadata_ids
 from app.ap_skills.ap_progress import ApProgressReporter, RUNNER_OWNED_FLAG, progress_ids
-from app.ap_skills.planner import maybe_reorder, resolve_skills
+from app.ap_skills.planner import ensure_ezofis_hana_po_lookup, maybe_reorder, resolve_skills
 from app.ap_skills.store import ApStore
 from app.ap_skills.types import (
     ApContext,
@@ -91,6 +92,7 @@ def _within_dedupe_window(finished_at: Any, window_seconds: float) -> bool:
 REGISTRY: dict[str, SkillFn] = {
     extract_invoice.SKILL_ID: extract_invoice.run,
     po_lookup_quickbooks.SKILL_ID: po_lookup_quickbooks.run,
+    po_lookup_sap.SKILL_ID: po_lookup_sap.run,
     po_lookup_sage.SKILL_ID: po_lookup_sage.run,
     po_match.SKILL_ID: po_match.run,
     gl_match.SKILL_ID: gl_match.run,
@@ -210,13 +212,81 @@ class ApSkillRunner:
                     "deduplicated": True,
                 }
 
-        # null skills → DEFAULT_SKILL_ORDER; list → exactly those ids.
-        skills = resolve_skills(requested=requested)
+        # null skills → Catalog pipeline (when AP_PIPELINE_FROM_DB) else
+        # DEFAULT_SKILL_ORDER; explicit skills list wins. HANA/SAP inject is
+        # Catalog-gated (flags.force_hana_po_lookup) — no silent force.
+        pipeline = None
+        pipeline_from_db = bool(getattr(self._settings, "ap_pipeline_from_db", False))
+        if pipeline_from_db:
+            from app.ap_pipeline.resolve import (
+                apply_connector_defaults,
+                attach_pipeline_policy,
+                merge_thresholds,
+                resolve_pipeline_config,
+            )
+
+            try:
+                pipeline = await resolve_pipeline_config(tenant_id)
+            except Exception as exc:
+                logger.warning(
+                    "ap_pipeline_resolve_failed",
+                    extra={"error_type": type(exc).__name__, "tenant_id": tenant_id},
+                )
+                pipeline = None
+            if pipeline is not None:
+                apply_connector_defaults(document_job, pipeline)
+                thresholds = merge_thresholds(
+                    plan_thresholds=thresholds,
+                    pipeline=pipeline,
+                )
+
+        # Always flatten Catalog/code policy onto thresholds (step name, labels, floors).
+        from app.ap_pipeline.policy import apply_policy_to_thresholds
+        from app.ap_pipeline.resolve import attach_pipeline_policy
+
+        if pipeline is not None:
+            thresholds = attach_pipeline_policy(
+                thresholds, pipeline, settings=self._settings
+            )
+        else:
+            thresholds = apply_policy_to_thresholds(
+                thresholds, pipeline_policy=None, settings=self._settings
+            )
+
+        default_order = None
+        enabled = None
+        # Catalog path: opt-in only. Legacy rollback (flag off): allow inject
+        # when Workflow asks for SAP/HANA (previous code default).
+        force_hana = False if pipeline_from_db else True
+        use_planner = bool(getattr(self._settings, "ap_llm_planner", False))
+        if pipeline is not None:
+            flags = pipeline.flags or {}
+            force_hana = bool(flags.get("force_hana_po_lookup", False))
+            if requested is None:
+                default_order = list(pipeline.skills_order)
+                enabled = pipeline.skills_enabled
+                if "use_planner" in flags:
+                    use_planner = bool(flags["use_planner"])
+
+        skills = resolve_skills(
+            requested=requested,
+            enabled=enabled,
+            default_order=default_order,
+        )
+        skills = ensure_ezofis_hana_po_lookup(
+            skills,
+            tenant_id=tenant_id,
+            force=force_hana,
+            document_job=document_job,
+            thresholds=thresholds,
+        )
         skills = await maybe_reorder(
             skills,
             llm=self._llm,
-            use_planner=bool(getattr(self._settings, "ap_llm_planner", False)) and requested is None,
+            use_planner=use_planner and requested is None,
             llm_overrides=document_job.get("llm_overrides"),
+            tenant_id=tenant_id,
+            settings=self._settings,
         )
         if not skills:
             raise ApSkillError("No skills to run.")
@@ -410,15 +480,24 @@ class ApSkillRunner:
             finalize = ctx.artifacts.get("finalize_decision") or {}
             decision = finalize.get("decision") or (ctx.artifacts.get("po_match") or {}).get("decision")
             status, data_quality = _run_status_and_quality(ctx.artifacts, finalize)
+            move = ctx.artifacts.get("workflow_move_next") or {}
+            move_failed = (
+                isinstance(move, dict)
+                and move.get("ok") is False
+                and not move.get("skipped")
+            )
             await self._store.finish_run(
                 run_id=run_id,
                 tenant_id=tenant_id,
-                status=status,
+                status="failed" if move_failed else status,
                 decision=decision,
                 credits_charged=credits_charged,
                 data_quality=data_quality,
             )
-            await progress.completed()
+            if move_failed:
+                await progress.failed()
+            else:
+                await progress.completed()
             return {
                 "run_id": run_id,
                 "tenant_id": tenant_id,
@@ -426,7 +505,7 @@ class ApSkillRunner:
                 "skills_run": skills_run,
                 "credits_charged": credits_charged,
                 "decision": decision,
-                "status": status,
+                "status": "failed" if move_failed else status,
                 "data_quality": data_quality,
                 "token_usage": token_usage_total,
                 "artifacts": {k: ctx.artifacts[k] for k in skills_run},

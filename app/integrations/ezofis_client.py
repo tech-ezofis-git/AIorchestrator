@@ -7,12 +7,14 @@ credits and PO/vendor masters stay mocked so unit tests need no network.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import logging
 from typing import Any, Optional
 
 import httpx
 
+from app.ap_skills.hana_po import hana_match_item_from_row
 from app.config import Settings, get_settings
 
 logger = logging.getLogger("orchestrator.ezofis")
@@ -474,6 +476,254 @@ class EzofisClient:
             "mock": True,
         }
 
+    async def lookup_po_sap(
+        self, *, tenant_id: str, po_number: str, connector_id: str
+    ) -> Optional[dict[str, Any]]:
+        if not po_number:
+            return None
+        if self._live_enabled():
+            live = await self._post_json(
+                f"/connector/{connector_id}/sap/purchase-orders/lookup",
+                tenant_id=tenant_id,
+                body={"poNumber": po_number},
+            )
+            if live is None:
+                # Transport/auth/HTTP failure — distinct from a clean not-found.
+                return {
+                    "lookup_error": "request_failed",
+                    "reason": (
+                        f"SAP PO lookup request failed for connector {connector_id} "
+                        f"(check Ezofis API auth, connector id, and network)."
+                    ),
+                }
+            if not isinstance(live, dict):
+                return {
+                    "lookup_error": "invalid_response",
+                    "reason": f"SAP PO lookup returned an unexpected response for {po_number}.",
+                }
+            if live.get("found") is False:
+                # Prefer explicit Core reason when present (sample miss vs live not configured).
+                reason = live.get("reason") or live.get("Reason")
+                if reason:
+                    return {
+                        "lookup_error": "not_found",
+                        "reason": str(reason),
+                    }
+                return None
+            if live.get("error"):
+                return {
+                    "lookup_error": "api_error",
+                    "reason": str(live.get("error") or live.get("detail") or "SAP connector rejected the lookup."),
+                }
+            purchase_order = live.get("purchaseOrder") or live.get("purchase_order")
+            source = live.get("source") or "sap"
+            if isinstance(purchase_order, dict) and purchase_order:
+                out: dict[str, Any] = {
+                    "po_number": purchase_order.get("po_number")
+                    or purchase_order.get("poNumber")
+                    or live.get("poNumber")
+                    or po_number,
+                    "vendor": purchase_order.get("vendor")
+                    or purchase_order.get("supplierName")
+                    or purchase_order.get("supplier_name"),
+                    "supplier_id": purchase_order.get("supplier_id")
+                    or purchase_order.get("supplierId"),
+                    "total": purchase_order.get("total"),
+                    "currency": purchase_order.get("currency"),
+                    "po_date": purchase_order.get("po_date") or purchase_order.get("poDate"),
+                    "terms": purchase_order.get("terms") or purchase_order.get("Terms"),
+                    "buyer": purchase_order.get("buyer") or purchase_order.get("Buyer"),
+                    "supplier_address": purchase_order.get("supplier_address")
+                    or purchase_order.get("Supplier Address"),
+                    "ship_to_address": purchase_order.get("ship_to_address")
+                    or purchase_order.get("Ship To Address"),
+                    "lines": purchase_order.get("lines")
+                    or purchase_order.get("items")
+                    or [],
+                    "source": source,
+                }
+                # Preserve any extra SAP PO Master columns from Core.
+                skip = {
+                    "po_number",
+                    "poNumber",
+                    "vendor",
+                    "supplierName",
+                    "supplier_name",
+                    "lines",
+                    "items",
+                }
+                for key, value in purchase_order.items():
+                    if key in skip or key in out:
+                        continue
+                    if value is not None and value != "":
+                        out[key] = value
+                return {k: v for k, v in out.items() if v is not None and v != ""}
+            if live.get("po_number") or live.get("vendor"):
+                out = dict(live)
+                out.setdefault("source", source)
+                return out
+            return None
+        return {
+            "po_number": po_number,
+            "vendor": "ACME Supplies",
+            "total": 1234.56,
+            "currency": "USD",
+            "lines": [
+                {
+                    "line_no": 1,
+                    "description": "Widget",
+                    "qty": 10,
+                    "unit_price": 123.456,
+                    "amount": 1234.56,
+                }
+            ],
+            "source": "sap_sample",
+            "mock": True,
+        }
+
+    @staticmethod
+    def _normalize_hana_po_item(item: dict[str, Any], *, po_number: str) -> dict[str, Any]:
+        lines: list[dict[str, Any]] = []
+        match_items: list[dict[str, Any]] = []
+        for row in item.get("items") or []:
+            if not isinstance(row, dict):
+                continue
+            mapped = hana_match_item_from_row(row)
+            if mapped:
+                match_items.append(mapped)
+            # Keep both matching aliases and full SAP/HANA master columns on lines.
+            line: dict[str, Any] = {
+                "line_no": row.get("itemNumber") or row.get("item_number"),
+                "description": row.get("materialDescription") or row.get("material_description"),
+                "qty": row.get("orderQuantity") or row.get("order_quantity"),
+                "unit_price": row.get("netPrice") or row.get("net_price"),
+                "amount": row.get("netValue") or row.get("net_value"),
+                "uom": row.get("unitOfMeasure") or row.get("unit_of_measure"),
+                "part_number": row.get("materialId") or row.get("material_id"),
+            }
+            line.update(mapped)
+            lines.append({k: v for k, v in line.items() if v is not None and v != ""})
+        return {
+            "po_number": item.get("poNumber") or item.get("po_number") or po_number,
+            "vendor": item.get("supplierName") or item.get("supplier_name") or item.get("supplierId"),
+            "supplier_id": item.get("supplierId") or item.get("supplier_id"),
+            "total": item.get("total"),
+            "currency": item.get("currency"),
+            "po_date": item.get("poDate") or item.get("po_date"),
+            "lines": lines,
+            "match_items": match_items,
+            "matches": item.get("matches") if isinstance(item.get("matches"), list) else [],
+            "source": "hana_cloud",
+        }
+
+    async def lookup_po_hana(
+        self, *, tenant_id: str, po_number: str, connector_id: str
+    ) -> Optional[dict[str, Any]]:
+        """POST /connector/{id}/hana/purchase-orders — HANA Cloud PURCHASE_ORDERS table."""
+        if not po_number:
+            return None
+        if self._live_enabled():
+            live = await self._post_json(
+                f"/connector/{connector_id}/hana/purchase-orders",
+                tenant_id=tenant_id,
+                body={"poNumber": po_number},
+            )
+            if live is None:
+                return {
+                    "lookup_error": "request_failed",
+                    "reason": (
+                        f"HANA PO lookup request failed for connector {connector_id} "
+                        f"(check Ezofis API auth, HanaDatabaseJson on connector, and network)."
+                    ),
+                }
+            if not isinstance(live, dict):
+                return {
+                    "lookup_error": "invalid_response",
+                    "reason": f"HANA PO lookup returned an unexpected response for {po_number}.",
+                }
+            # Prefer explicit API errors (e.g. HANA instance stopped) over not-found.
+            err_text = str(live.get("error") or live.get("detail") or live.get("reason") or "").strip()
+            status_code = live.get("status_code")
+            if err_text or (isinstance(status_code, int) and status_code >= 400):
+                lowered = err_text.lower()
+                lookup_error = "api_error"
+                if "stopped" in lowered or "is stopped" in lowered:
+                    lookup_error = "hana_unavailable"
+                elif "timeout" in lowered or "timed out" in lowered:
+                    lookup_error = "hana_unavailable"
+                return {
+                    "lookup_error": lookup_error,
+                    "reason": err_text
+                    or f"HANA PO lookup failed with HTTP {status_code} for {po_number}.",
+                }
+            if live.get("found") is False or int(live.get("count") or 0) == 0:
+                return {
+                    "lookup_error": "not_found",
+                    "reason": f"Purchase order {po_number} not found in HANA.",
+                }
+            items = live.get("items") or []
+            if isinstance(items, list) and items and isinstance(items[0], dict):
+                return self._normalize_hana_po_item(items[0], po_number=po_number)
+            return None
+        # Offline mock aligned with HANA_Cloud_Purchase_Order_API.docx sample PO.
+        if po_number.strip() == "4500069456":
+            return self._normalize_hana_po_item(
+                {
+                    "poNumber": "4500069456",
+                    "supplierName": "EV Parts Inc.",
+                    "supplierId": "USSU-VSF01",
+                    "currency": "USD",
+                    "poDate": "2026-09-11",
+                    "total": 368.94,
+                    "items": [
+                        {
+                            "itemNumber": 10,
+                            "itemCategory": "Standard",
+                            "materialId": "MZ-RM-R100-02",
+                            "materialDescription": "BKR-100 Handle Bars",
+                            "materialGroup": "ZHANDLE",
+                            "plant": "1710",
+                            "orderQuantity": 129,
+                            "unitOfMeasure": "PC",
+                            "netPrice": 2.86,
+                            "priceUnit": 1,
+                            "netValue": 368.94,
+                        }
+                    ],
+                    "matches": [],
+                },
+                po_number=po_number,
+            )
+        return {
+            "lookup_error": "not_found",
+            "reason": f"HANA PO {po_number} not found (mock — try 4500069456).",
+        }
+
+    async def save_hana_po_invoice_match(
+        self,
+        *,
+        tenant_id: str,
+        connector_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        """POST /connector/{id}/hana/purchase-orders/match — DBADMIN.PO_INVOICE_MATCH."""
+        if not self._live_enabled():
+            return {
+                "updated": True,
+                "created": True,
+                "mock": True,
+                "connectorId": connector_id,
+                **body,
+            }
+        result = await self._post_json(
+            f"/connector/{connector_id}/hana/purchase-orders/match",
+            tenant_id=tenant_id,
+            body=body,
+        )
+        if isinstance(result, dict):
+            return result
+        return {"updated": False, "error": "invalid_response"}
+
     async def report_ap_progress(
         self,
         *,
@@ -633,13 +883,392 @@ class EzofisClient:
                         body = response.json()
                         if isinstance(body, dict):
                             if "ok" not in body:
-                                body["ok"] = bool(body.get("success", True))
+                                success = body.get("success")
+                                if success is None:
+                                    success = body.get("Success")
+                                body["ok"] = True if success is None else bool(success)
+                            # Surface Core Message for "not advanced" detection.
+                            if not body.get("detail") and not body.get("message"):
+                                msg = body.get("message") or body.get("Message")
+                                if msg:
+                                    body["detail"] = str(msg)
                             return body
                     except Exception:
                         pass
                 return {"ok": True}
         except Exception as exc:
             logger.warning("ezofis_move_next_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
+    async def start_workflow(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: str,
+        context: Optional[str] = None,
+        env_type: Optional[str] = None,
+        form_data: Optional[dict[str, Any]] = None,
+        skills: Optional[list[str]] = None,
+        attachment_file_name: Optional[str] = None,
+        attachment_content_base64: Optional[str] = None,
+        attachment_content_type: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST /Workflows/{id}/start/json — start a workflow instance."""
+        wf_id = str(workflow_id or "").strip()
+        if not wf_id:
+            return {"ok": False, "error": "workflow_id is required"}
+        body: dict[str, Any] = {}
+        if context is not None:
+            body["context"] = context
+        if env_type is not None:
+            body["envType"] = env_type
+        if form_data is not None:
+            body["formData"] = form_data
+        if skills is not None:
+            body["skills"] = skills
+        att_name = str(attachment_file_name or "").strip()
+        att_b64 = str(attachment_content_base64 or "").strip()
+        if att_name and att_b64:
+            try:
+                raw = base64.b64decode(att_b64, validate=False)
+            except Exception:
+                return {"ok": False, "error": "attachment_content_base64 is invalid"}
+            body["attachment"] = {
+                "content": base64.b64encode(raw).decode("ascii"),
+                "fileName": att_name,
+                "contentType": attachment_content_type or "application/octet-stream",
+            }
+        if not self._live_enabled():
+            return {
+                "ok": True,
+                "mock": True,
+                "instanceId": "00000000-0000-0000-0000-000000000001",
+                "workflowId": wf_id,
+                "firstTransactionId": "100",
+                "payload": {k: v for k, v in body.items() if k != "attachment"},
+                "hasAttachment": bool(body.get("attachment")),
+            }
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/Workflows/{wf_id}/start/json"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, json=body)
+                if response.status_code not in (200, 201):
+                    detail = (response.text or "")[:400]
+                    logger.warning(
+                        "ezofis_start_workflow_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                return result
+        except Exception as exc:
+            logger.warning("ezofis_start_workflow_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
+    async def attach_workflow_file(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: str,
+        instance_id: str,
+        repository_id: str,
+        file_name: str,
+        content_base64: str,
+        content_type: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST /Workflows/{wf}/instances/{inst}/attachments — multipart archive upload."""
+        wf_id = str(workflow_id or "").strip()
+        inst_id = str(instance_id or "").strip()
+        repo_id = str(repository_id or "").strip()
+        name = str(file_name or "").strip()
+        if not all([wf_id, inst_id, repo_id, name]):
+            return {"ok": False, "error": "workflow_id, instance_id, repository_id, and file_name are required"}
+        try:
+            raw = base64.b64decode(content_base64 or "", validate=False)
+        except Exception:
+            return {"ok": False, "error": "content_base64 is invalid"}
+        if not self._live_enabled():
+            return {
+                "ok": True,
+                "mock": True,
+                "workflowId": wf_id,
+                "instanceId": inst_id,
+                "repositoryId": repo_id,
+                "fileName": name,
+                "itemId": "00000000-0000-0000-0000-000000000004",
+            }
+        try:
+            headers = await self._auth_headers(tenant_id)
+            headers.pop("Content-Type", None)
+            url = f"{self._base()}/Workflows/{wf_id}/instances/{inst_id}/attachments"
+            data: dict[str, str] = {"repositoryId": repo_id}
+            if transaction_id:
+                data["transactionId"] = str(transaction_id).strip()
+            files = {"file": (name, raw, content_type or "application/octet-stream")}
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, data=data, files=files)
+                if response.status_code not in (200, 201):
+                    detail = (response.text or "")[:400]
+                    logger.warning(
+                        "ezofis_attach_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                return result
+        except Exception as exc:
+            logger.warning("ezofis_attach_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
+    async def start_ticket_with_attachments(
+        self,
+        *,
+        tenant_id: str,
+        workflow_id: str,
+        repository_id: Optional[str] = None,
+        context: Optional[str] = None,
+        form_data: Optional[dict[str, Any]] = None,
+        file_name: Optional[str] = None,
+        content_base64: Optional[str] = None,
+        content_type: Optional[str] = None,
+        extra_attachments: Optional[list[dict[str, Any]]] = None,
+    ) -> dict[str, Any]:
+        """Start a workflow ticket and optionally attach one or more files."""
+        start = await self.start_workflow(
+            tenant_id=tenant_id,
+            workflow_id=workflow_id,
+            context=context,
+            form_data=form_data,
+            attachment_file_name=file_name,
+            attachment_content_base64=content_base64,
+            attachment_content_type=content_type,
+        )
+        if not start.get("ok"):
+            return start
+        instance_id = str(
+            start.get("instanceId") or start.get("InstanceId") or ""
+        ).strip()
+        attached: list[dict[str, Any]] = []
+        extras = list(extra_attachments or [])
+        # If start had no inline attachment but we have file + repository, attach after start.
+        if (
+            instance_id
+            and repository_id
+            and file_name
+            and content_base64
+            and not start.get("hasAttachment")
+            and self._live_enabled()
+        ):
+            extras = [
+                {
+                    "file_name": file_name,
+                    "content_base64": content_base64,
+                    "content_type": content_type,
+                    "repository_id": repository_id,
+                },
+                *extras,
+            ]
+        elif (
+            instance_id
+            and repository_id
+            and file_name
+            and content_base64
+            and not self._live_enabled()
+            and not start.get("hasAttachment")
+        ):
+            extras = [
+                {
+                    "file_name": file_name,
+                    "content_base64": content_base64,
+                    "content_type": content_type,
+                    "repository_id": repository_id,
+                },
+                *extras,
+            ]
+        for att in extras:
+            if not isinstance(att, dict):
+                continue
+            repo = str(att.get("repository_id") or repository_id or "").strip()
+            fname = str(att.get("file_name") or "").strip()
+            b64 = str(att.get("content_base64") or "").strip()
+            if not (repo and fname and b64 and instance_id):
+                attached.append({"ok": False, "error": "incomplete_attachment"})
+                continue
+            attached.append(
+                await self.attach_workflow_file(
+                    tenant_id=tenant_id,
+                    workflow_id=workflow_id,
+                    instance_id=instance_id,
+                    repository_id=repo,
+                    file_name=fname,
+                    content_base64=b64,
+                    content_type=att.get("content_type"),
+                )
+            )
+        out = dict(start)
+        out["attachments"] = attached
+        out["instanceId"] = instance_id or out.get("instanceId")
+        return out
+
+    async def upload_repository_file(
+        self,
+        *,
+        tenant_id: str,
+        repository_id: str,
+        file_name: str,
+        content_base64: str,
+        content_type: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+        instance_id: Optional[str] = None,
+        process_id: Optional[str] = None,
+        transaction_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST /repositories/{id}/items/upload — multipart file upload."""
+        repo_id = str(repository_id or "").strip()
+        name = str(file_name or "").strip()
+        if not repo_id:
+            return {"ok": False, "error": "repository_id is required"}
+        if not name:
+            return {"ok": False, "error": "file_name is required"}
+        try:
+            raw = base64.b64decode(content_base64 or "", validate=False)
+        except Exception:
+            return {"ok": False, "error": "content_base64 is invalid"}
+        if not self._live_enabled():
+            return {
+                "ok": True,
+                "mock": True,
+                "itemId": "00000000-0000-0000-0000-000000000002",
+                "fileName": name,
+                "repositoryId": repo_id,
+                "fileSize": len(raw),
+            }
+        try:
+            headers = await self._auth_headers(tenant_id)
+            # Multipart must not force JSON content-type from auth helpers.
+            headers.pop("Content-Type", None)
+            url = f"{self._base()}/repositories/{repo_id}/items/upload"
+            data: dict[str, str] = {}
+            if workflow_id:
+                data["workflowId"] = str(workflow_id).strip()
+            if instance_id:
+                data["instanceId"] = str(instance_id).strip()
+            if process_id:
+                data["processId"] = str(process_id).strip()
+            if transaction_id:
+                data["transactionId"] = str(transaction_id).strip()
+            files = {
+                "file": (name, raw, content_type or "application/octet-stream"),
+            }
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, data=data, files=files)
+                if response.status_code not in (200, 201):
+                    detail = (response.text or "")[:400]
+                    logger.warning(
+                        "ezofis_upload_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                return result
+        except Exception as exc:
+            logger.warning("ezofis_upload_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
+    async def create_user(
+        self,
+        *,
+        tenant_id: str,
+        email: str,
+        display_name: str,
+        password: Optional[str] = None,
+        role: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        user_name: Optional[str] = None,
+        department: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """POST /Users — create a user (admin)."""
+        email_norm = str(email or "").strip()
+        display = str(display_name or "").strip()
+        if not email_norm:
+            return {"ok": False, "error": "email is required"}
+        if not display:
+            return {"ok": False, "error": "display_name is required"}
+        body: dict[str, Any] = {
+            "email": email_norm,
+            "displayName": display,
+        }
+        if password is not None:
+            body["password"] = password
+        if role is not None:
+            body["role"] = role
+        if first_name is not None:
+            body["firstName"] = first_name
+        if last_name is not None:
+            body["lastName"] = last_name
+        if user_name is not None:
+            body["userName"] = user_name
+        if department is not None:
+            body["department"] = department
+        if not self._live_enabled():
+            return {
+                "ok": True,
+                "mock": True,
+                "userId": "00000000-0000-0000-0000-000000000003",
+                "email": email_norm,
+                "displayName": display,
+            }
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/Users"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.post(url, headers=headers, json=body)
+                if response.status_code not in (200, 201):
+                    detail = (response.text or "")[:400]
+                    logger.warning(
+                        "ezofis_create_user_failed",
+                        extra={"status_code": response.status_code, "detail": detail[:200]},
+                    )
+                    return {"ok": False, "status_code": response.status_code, "detail": detail}
+                result: dict[str, Any] = {"ok": True, "status_code": response.status_code}
+                if response.content:
+                    try:
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            result.update(parsed)
+                            result["ok"] = True
+                    except Exception:
+                        pass
+                return result
+        except Exception as exc:
+            logger.warning("ezofis_create_user_error", extra={"error_type": type(exc).__name__})
             return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
 
     async def _post_json(self, path: str, *, tenant_id: str, body: dict[str, Any]) -> Any:
@@ -649,7 +1278,25 @@ class EzofisClient:
                 response = await client.post(f"{self._base()}{path}", headers=headers, json=body)
                 if response.status_code == 404:
                     return None
-                response.raise_for_status()
+                # Return JSON error bodies (e.g. HANA instance stopped) so callers
+                # can surface a real reason instead of opaque request_failed.
+                if response.status_code >= 400:
+                    parsed: Any = None
+                    if response.content:
+                        try:
+                            parsed = response.json()
+                        except Exception:
+                            parsed = None
+                    if isinstance(parsed, dict):
+                        out = dict(parsed)
+                        out.setdefault("status_code", response.status_code)
+                        if not (out.get("error") or out.get("detail") or out.get("reason")):
+                            out["error"] = response.text[:500] or f"HTTP {response.status_code}"
+                        return out
+                    return {
+                        "error": (response.text or f"HTTP {response.status_code}")[:500],
+                        "status_code": response.status_code,
+                    }
                 if not response.content:
                     return None
                 return response.json()

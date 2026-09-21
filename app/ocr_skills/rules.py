@@ -17,6 +17,13 @@ def system_prompt(*, max_recommended_fields: int = 15, settings=None) -> str:
     return prompt.replace("at most N ", f"at most {max_recommended_fields} ")
 
 
+async def async_system_prompt(*, max_recommended_fields: int = 15, settings=None, tenant_id=None) -> str:
+    from app.agent_packs.overlay import get_agent_skill
+
+    prompt = (await get_agent_skill("ocr", tenant_id=tenant_id, settings=settings)).system_prompt
+    return prompt.replace("at most N ", f"at most {max_recommended_fields} ")
+
+
 def __getattr__(name: str):
     if name == "SYSTEM_PROMPT":
         return system_prompt()

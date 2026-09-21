@@ -54,3 +54,19 @@ def test_build_po_row_skips_fields_already_on_invoice():
 
 def test_build_po_row_skips_mock_po():
     assert build_po_row({}, {"vendor": "ACME Supplies", "mock": True, "terms": "Net 30"}) == {}
+
+
+def test_build_po_row_allows_sap_sample_even_if_mock_flag():
+    invoice = {"po_number": "PO-60001", "vendor": "ACME Supplies", "total": 1500}
+    po = {
+        "po_number": "PO-60001",
+        "vendor": "ACME Supplies",
+        "total": 1500,
+        "currency": "USD",
+        "source": "sap_sample",
+        "mock": True,
+        "lines": [{"description": "Widget A", "qty": 10, "unit_price": 100, "amount": 1000}],
+    }
+    row = build_po_row(invoice, po)
+    assert row["Currency"] == "USD"
+    assert row["PO Line Item Mapped"][0]["Description"] == "Widget A"

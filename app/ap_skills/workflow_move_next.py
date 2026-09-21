@@ -5,32 +5,26 @@ import logging
 import uuid
 from typing import Any, Optional, Union
 
-from app.ap_skills.types import ApContext, ApSkillResult, invoice_from
+from app.ap_pipeline.policy import review_label, workflow_step_name
+from app.ap_skills.hana_po import (
+    build_hana_po_invoice_match_body,
+    is_hana_po_connector,
+    resolve_connector_id,
+)
+from app.ap_skills.types import ApContext, ApSkillResult, field_text, invoice_from
 
 logger = logging.getLogger("orchestrator.ap.workflow_move_next")
 
 SKILL_ID = "workflow_move_next"
 
-# Workflow UI / .NET move-next review strings (apagentv6 utils.py).
-_REVIEW_LABELS = {
-    "MATCHED": "Matched",
-    "PARTIALLY_MATCHED": "Partially Matched",
-    "NOT_MATCHED": "Not Matched",
-    "NON_INVOICE": "Non-Invoice",
-    "DUPLICATE": "Not Matched",
-}
 
-
-def _review_label(decision: str, *, doc_type: str = "") -> str:
-    if decision == "NON_INVOICE" or str(doc_type or "").lower() == "other":
-        return "Non-Invoice"
-    mapped = _REVIEW_LABELS.get(str(decision or "").strip().upper())
-    if mapped:
-        return mapped
-    raw = str(decision or "").strip()
-    if raw in ("Matched", "Partially Matched", "Not Matched", "Non-Invoice"):
-        return raw
-    return "Not Matched"
+def _review_label(decision: str, *, doc_type: str = "", thresholds: Optional[dict[str, Any]] = None, settings: Any = None) -> str:
+    return review_label(
+        decision,
+        thresholds=thresholds,
+        settings=settings,
+        doc_type=doc_type,
+    )
 
 
 def _job_str(job: dict[str, Any], *keys: str) -> Optional[str]:
@@ -76,11 +70,11 @@ async def _resolve_activity_id(ctx: ApContext, job: dict[str, Any], workflow_id:
     store = ctx.store
     if store is None or not hasattr(store, "fetch_workflow_activity_id"):
         return None
-    step_name = str(getattr(ctx.settings, "ap_agent_workflow_step_name", None) or "AP AGENT 1").strip()
+    step_name = workflow_step_name(thresholds=ctx.thresholds, settings=ctx.settings)
     return await store.fetch_workflow_activity_id(
         tenant_id=ctx.tenant_id,
         workflow_id=workflow_id,
-        step_name=step_name or "AP AGENT 1",
+        step_name=step_name,
     )
 
 
@@ -138,10 +132,32 @@ async def run(ctx: ApContext) -> ApSkillResult:
     except Exception:
         invoice = {}
     doc_type = str(invoice.get("doc_type") or "invoice").lower()
-    review = _review_label(decision, doc_type=doc_type)
-    comments = str(finalize.get("reason") or "").strip() or (
+    review = _review_label(
+        decision,
+        doc_type=doc_type,
+        thresholds=ctx.thresholds,
+        settings=ctx.settings,
+    )
+
+    from app.ap_skills.agent_validation_response import build_aiagent_response
+
+    agent_response = build_aiagent_response(
+        decision=decision,
+        reason=str(finalize.get("reason") or "").strip(),
+        artifacts={**ctx.artifacts, "finalize_decision": finalize},
+        invoice=invoice,
+        document_job=job,
+        ai_insight=str(finalize.get("ai_insight") or "").strip(),
+        source_type=str(finalize.get("source_type") or "").strip(),
+        thresholds=ctx.thresholds,
+    )
+    # Non-Invoice / empty reason fallback for workflow comments.
+    comments = str(agent_response.get("reason") or "").strip() or (
         f"Classified as {doc_type}" if review == "Non-Invoice" else review
     )
+    # Keep move-next review label in sync with response decision.
+    if agent_response.get("decision"):
+        review = str(agent_response["decision"])
 
     repository_id = _job_str(job, "repository_id")
     transaction_id = _job_str(job, "transaction_id")
@@ -171,43 +187,99 @@ async def run(ctx: ApContext) -> ApSkillResult:
         "transactionId": transaction_id,
         "instanceId": instance_id,
         "processId": process_id,
-        "AIAGENTResponse": {
-            "decision": review,
-            "reason": finalize.get("reason"),
-            "invoice_number": finalize.get("invoice_number"),
-            "po_number": finalize.get("po_number"),
-            "duplicate": finalize.get("duplicate"),
-            "backorder": finalize.get("backorder"),
-            "run_id": ctx.run_id,
-            "item_key": ctx.item_key,
-        },
+        "AIAGENTResponse": agent_response,
         "itemId": item_id,
         "repositoryId": repository_id,
         "formId": form_id,
         "isItemTable": True,
     }
     po_match = ctx.artifacts.get("po_match") or {}
-    po_row = po_match.get("po_row") if isinstance(po_match, dict) else None
-    if isinstance(po_row, dict) and po_row:
-        payload["AIAGENTResponse"]["po_row"] = po_row
     if form_entry_id is not None:
         entry = form_entry_id_for_v6_move_next(form_entry_id)
         if entry is not None:
             payload["formEntryId"] = entry
     payload = {k: v for k, v in payload.items() if v is not None}
+
+    hana_match: dict[str, Any] | None = None
+    connector_id = resolve_connector_id(
+        connector_id=str(job.get("connector_id") or "").strip(),
+    )
+    po_lookup = ctx.artifacts.get("po_lookup_sap") or {}
+    resource = str(job.get("resource") or "").strip().upper()
+    use_hana = (
+        is_hana_po_connector(connector_id)
+        or po_lookup.get("source") == "hana"
+        or "HANA" in resource
+    )
+    if use_hana and decision.upper() in {"MATCHED", "PARTIALLY_MATCHED"}:
+        po_number = str(finalize.get("po_number") or po_match.get("po_number") or "").strip()
+        invoice_number = str(
+            finalize.get("invoice_number")
+            or field_text(invoice, "invoice_number", "invoiceNumber", "invoice_no")
+            or ""
+        ).strip()
+        if po_number and invoice_number and connector_id:
+            match_status = "Matched" if decision.upper() == "MATCHED" else "Partially Matched"
+            po_record = po_lookup.get("po") if isinstance(po_lookup.get("po"), dict) else {}
+            match_body = build_hana_po_invoice_match_body(
+                instance_id=instance_id,
+                po_number=po_number,
+                invoice_number=invoice_number,
+                status=match_status,
+                invoice=invoice,
+                po=po_record,
+            )
+            try:
+                hana_match = await ctx.ezofis.save_hana_po_invoice_match(
+                    tenant_id=ctx.tenant_id,
+                    connector_id=connector_id,
+                    body=match_body,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "hana_po_match_save_failed",
+                    extra={"instance_id": instance_id, "po_number": po_number},
+                )
+                hana_match = {"ok": False, "error": type(exc).__name__}
+
     result = await ctx.ezofis.workflow_move_next(
         tenant_id=ctx.tenant_id,
         instance_id=instance_id,
         payload=payload,
     )
+    ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+    detail = ""
+    if isinstance(result, dict):
+        detail = str(
+            result.get("detail")
+            or result.get("message")
+            or result.get("Message")
+            or ""
+        ).strip()
+    # Core used to return HTTP 200 + ok while intentionally not advancing
+    # AP AGENT ("review is not Approve") — treat that as failure so progress
+    # is not marked COMPLETED with the ticket still stuck on AP AGENT 1.
+    not_advanced = "not advanced" in detail.lower() or "review is not approve" in detail.lower()
+    if not_advanced:
+        ok = False
+        logger.error(
+            "ap_move_next_did_not_advance",
+            extra={"instance_id": instance_id, "review": review, "detail": detail[:200]},
+        )
+    data: dict[str, Any] = {
+        "instance_id": instance_id,
+        "activityid": activity_id,
+        "review": review,
+        "decision": decision,
+        "ok": ok,
+        "response": result,
+    }
+    if not ok:
+        data["skipped"] = False
+        data["reason"] = detail or "move_next_failed"
+    if hana_match is not None:
+        data["hana_po_match"] = hana_match
     return ApSkillResult(
         skill_id=SKILL_ID,
-        data={
-            "instance_id": instance_id,
-            "activityid": activity_id,
-            "review": review,
-            "decision": decision,
-            "ok": bool(result.get("ok", True)) if isinstance(result, dict) else True,
-            "response": result,
-        },
+        data=data,
     )

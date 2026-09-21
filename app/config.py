@@ -116,9 +116,19 @@ class Settings(BaseSettings):
     ocr_skill_dir: Optional[str] = None
     insight_skill_dir: Optional[str] = None
     prompt_skill_dir: Optional[str] = None
+    ap_skill_dir: Optional[str] = None
     # Local sample: SQLite path for tenant Summary extras (custom rules only).
     # Defaults stay on disk; not used in Docker unless set explicitly.
     tenant_skills_sqlite_path: Optional[str] = None
+    # When true (and Catalog DB has platform packs), load SKILL/rules from
+    # Catalog + tenant_agent_* tables instead of disk/SQLite. Disk remains
+    # seed source and fallback when Catalog packs are empty.
+    agent_packs_from_db: bool = True
+    # When true, ApSkillRunner resolves default skill order / pipeline knobs
+    # from Catalog platform_ap_pipeline + tenant_ap_pipeline. Default true
+    # (Phase 2 — pipeline from DB). Rollback: AP_PIPELINE_FROM_DB=false.
+    # Env: AP_PIPELINE_FROM_DB.
+    ap_pipeline_from_db: bool = True
 
     # --- Ezofis cloud API (AP skills: auth, credits, PO/vendor masters) ---
     ezofis_api_base: str = "https://cloud.ezofis.com/api"

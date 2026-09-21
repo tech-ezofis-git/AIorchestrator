@@ -34,19 +34,23 @@ async def run(ctx: ApContext) -> ApSkillResult:
             },
         )
 
-    # Prefer existing QuickBooks PO if already looked up.
-    qb = ctx.artifacts.get("po_lookup_quickbooks") or {}
-    if isinstance(qb, dict) and isinstance(qb.get("po"), dict):
-        return ApSkillResult(
-            skill_id=SKILL_ID,
-            data={
-                "po_number": po_number,
-                "po": None,
-                "source": "sage",
-                "skipped": True,
-                "reason": "QuickBooks PO already available; Sage lookup skipped.",
-            },
-        )
+    # Prefer existing connector PO if already looked up.
+    for prior_skill, label in (
+        ("po_lookup_sap", "SAP"),
+        ("po_lookup_quickbooks", "QuickBooks"),
+    ):
+        prior = ctx.artifacts.get(prior_skill) or {}
+        if isinstance(prior, dict) and isinstance(prior.get("po"), dict):
+            return ApSkillResult(
+                skill_id=SKILL_ID,
+                data={
+                    "po_number": po_number,
+                    "po": None,
+                    "source": "sage",
+                    "skipped": True,
+                    "reason": f"{label} PO already available; Sage lookup skipped.",
+                },
+            )
 
     connector_id = str(job.get("connector_id") or ctx.thresholds.get("sage_connector_id") or "").strip()
     if not connector_id and hasattr(ctx.ezofis, "_live_enabled") and ctx.ezofis._live_enabled():

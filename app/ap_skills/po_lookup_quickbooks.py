@@ -34,6 +34,20 @@ async def run(ctx: ApContext) -> ApSkillResult:
                 "reason": f"Resource is {resource}, not QUICKBOOKS.",
             },
         )
+
+    sap = ctx.artifacts.get("po_lookup_sap") or {}
+    if isinstance(sap, dict) and isinstance(sap.get("po"), dict):
+        return ApSkillResult(
+            skill_id=SKILL_ID,
+            data={
+                "po_number": po_number,
+                "po": None,
+                "source": "quickbooks",
+                "skipped": True,
+                "reason": "SAP PO already available; QuickBooks lookup skipped.",
+            },
+        )
+
     if not connector_id and ctx.ezofis._live_enabled() if hasattr(ctx.ezofis, "_live_enabled") else False:
         raise ApSkillError("po_lookup_quickbooks requires payload.connector_id when live Ezofis is enabled.")
 

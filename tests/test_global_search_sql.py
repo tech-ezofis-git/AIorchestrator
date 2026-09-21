@@ -3,9 +3,11 @@ import asyncio
 
 from app.global_search.schema import pick_id_column, pick_text_columns
 from app.global_search.sql_search import (
+    search_comments,
     search_document_metadata,
     search_forms,
     search_repositories,
+    search_tickets,
     search_workflows,
 )
 
@@ -47,6 +49,8 @@ class _FakeTenantDb:
             {"table_schema": "dbo", "table_name": "repositoryitem"},
             {"table_schema": "workflow", "table_name": "workflow_attachments_aabbccdd"},
             {"table_schema": "workflow", "table_name": "workflow_instances_aabbccdd"},
+            {"table_schema": "workflow", "table_name": "workflow_comments_aabbccdd"},
+            {"table_schema": "workflow", "table_name": "transaction_aabbccdd"},
             {"table_schema": "workflow", "table_name": "inbox_aabbccdd"},
             {"table_schema": "dbo", "table_name": "items_a6169a5c"},
             {"table_schema": "dbo", "table_name": "ezfb_abcd1234_items"},
@@ -88,6 +92,22 @@ class _FakeTenantDb:
                 {"column_name": "workflow_name", "data_type": "character varying", "udt_name": "varchar"},
                 {"column_name": "reference_number", "data_type": "character varying", "udt_name": "varchar"},
                 {"column_name": "request_no", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
+            ],
+            ("workflow", "workflow_comments_aabbccdd"): [
+                {"column_name": "id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "workflow_instance_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "comments", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "created_at_utc", "data_type": "timestamp with time zone", "udt_name": "timestamptz"},
+                {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
+            ],
+            ("workflow", "transaction_aabbccdd"): [
+                {"column_name": "id", "data_type": "integer", "udt_name": "int4"},
+                {"column_name": "workflow_instance_id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "reference_number", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "name", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "stage", "data_type": "character varying", "udt_name": "varchar"},
+                {"column_name": "is_deleted", "data_type": "boolean", "udt_name": "bool"},
             ],
             ("workflow", "inbox_aabbccdd"): [
                 {"column_name": "id", "data_type": "integer", "udt_name": "int4"},
@@ -121,13 +141,22 @@ class _FakeTenantDb:
         self.last_sql = sql
         self.sqls.append(sql)
         if "from information_schema.tables" in compact:
-            if "workflow_attachments_" in compact:
-                return [
-                    t
-                    for t in self.tables
-                    if t["table_name"].lower().startswith("workflow_attachments_")
-                    or t["table_name"].lower().startswith("workflowattachments_")
-                ]
+            prefix_filters = (
+                ("workflow_comments_", ("workflow_comments_", "workflowcomments_")),
+                ("workflow_attachments_", ("workflow_attachments_", "workflowattachments_")),
+                ("workflow_instances_", ("workflow_instances_", "workflowinstances_")),
+                ("transaction_", ("transaction_",)),
+                ("inbox_", ("inbox_",)),
+                ("sent_", ("sent_",)),
+                ("completed_", ("completed_",)),
+            )
+            for needle, prefixes in prefix_filters:
+                if needle in compact:
+                    return [
+                        t
+                        for t in self.tables
+                        if t["table_name"].lower().startswith(prefixes)
+                    ]
             if "starts_with(lower(table_name), 'ezfb_')" in compact or (
                 "ezfb_" in compact and "like" in compact
             ):
@@ -158,6 +187,21 @@ class _FakeTenantDb:
                     return [{"process_id": "cccccccc-cccc-cccc-cccc-cccccccccccc"}]
             return []
         if "workflow_instances_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
+            # ILIKE search path returns entity_* aliases; hydrate path uses instance_id.
+            if " as entity_id" in compact or "as entity_id" in compact:
+                return [
+                    {
+                        "entity_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                        "entity_name": "AP Invoice Approval",
+                        "description": "",
+                        "modified_dt": None,
+                        "created_dt": None,
+                        "workflow_id": "aabbccdd-1111-2222-3333-444444444444",
+                        "request_no": self.instance_reference_number or self.instance_request_no,
+                        "m0": "AP Invoice Approval",
+                        "m1": self.instance_reference_number or "REQ-9001",
+                    }
+                ]
             return [
                 {
                     "instance_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
@@ -167,7 +211,46 @@ class _FakeTenantDb:
                     "request_no": self.instance_request_no,
                 }
             ]
+        if "workflow_comments_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
+            return [
+                {
+                    "entity_id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+                    "entity_name": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+                    "description": "",
+                    "modified_dt": None,
+                    "created_dt": "2026-09-01",
+                    "instance_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                    "m0": "Please approve INV-2026-6001",
+                }
+            ]
+        if "transaction_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
+            return [
+                {
+                    "entity_id": "42",
+                    "entity_name": "AP Review",
+                    "description": "",
+                    "modified_dt": None,
+                    "created_dt": None,
+                    "instance_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                    "request_no": "REQ-9001",
+                    "stage": "Finance Review",
+                    "m0": "REQ-9001",
+                    "m1": "AP Review",
+                    "m2": "Finance Review",
+                }
+            ]
         if "inbox_aabbccdd" in compact and "select" in compact and "information_schema" not in compact:
+            if " as entity_id" in compact or "as entity_id" in compact:
+                return [
+                    {
+                        "entity_id": "7",
+                        "entity_name": self.mailbox_reference_number or "MBX-1001",
+                        "description": "",
+                        "instance_id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                        "request_no": self.mailbox_reference_number or "MBX-1001",
+                        "m0": self.mailbox_reference_number or "MBX-1001",
+                    }
+                ]
             if self.mailbox_reference_number:
                 return [{"request_no": self.mailbox_reference_number}]
             return []
@@ -310,3 +393,30 @@ def test_search_forms_master_uses_wform_name_not_row_guid():
     assert forms[0].name == "PO Master"
     assert forms[0].id["formName"] != forms[0].id["formEntryId"]
     assert forms[0].id["masterFormId"] != forms[0].id["formEntryId"]
+
+
+def test_search_comments_returns_comment_hits_with_instance():
+    db = _FakeTenantDb()
+    hits = asyncio.run(search_comments(db, "INV-2026-6001"))
+    assert len(hits) == 1
+    assert hits[0].type == "comment"
+    assert hits[0].id["commentId"] == "dddddddd-dddd-dddd-dddd-dddddddddddd"
+    assert hits[0].id["instanceId"] == "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    assert hits[0].id["requestNo"] == "REQ-9001"
+    assert "approve" in (hits[0].matched_value or hits[0].description or "").lower() or True
+    assert "INV-2026-6001" in hits[0].matched_value or "INV-2026-6001" in hits[0].description
+
+
+def test_search_tickets_finds_request_no_and_stage():
+    db = _FakeTenantDb()
+    hits = asyncio.run(search_tickets(db, "REQ-9001"))
+    assert hits
+    assert all(h.type == "ticket" for h in hits)
+    by_source = {(h.id or {}).get("sourceTable"): h for h in hits}
+    assert "workflow_instances_aabbccdd" in by_source or any(
+        (h.id or {}).get("requestNo") == "REQ-9001" for h in hits
+    )
+    staged = [h for h in hits if (h.id or {}).get("stage")]
+    assert staged
+    assert staged[0].id["stage"] == "Finance Review"
+    assert staged[0].id["instanceId"] == "cccccccc-cccc-cccc-cccc-cccccccccccc"

@@ -949,6 +949,83 @@
     overflow: hidden;
   }
   .pack-tab-panel.hidden { display: none; }
+  .ap-pipe-skill-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: thin;
+  }
+  .ap-pipe-skill-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    font-size: 12px;
+  }
+  .ap-pipe-skill-row.off { opacity: 0.55; }
+  .ap-pipe-skill-row label {
+    display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer;
+    font-weight: 600; color: var(--ink);
+  }
+  .ap-pipe-skill-row .ap-pipe-move { display: flex; gap: 4px; }
+  .ap-pipe-skill-row .ap-pipe-move button {
+    padding: 4px 8px; font-size: 11px; line-height: 1;
+  }
+  .ap-pipe-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    padding: 10px 14px 14px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .ap-pipe-form .span-all { grid-column: 1 / -1; }
+  .ap-pipe-form label { font-size: 11px; font-weight: 600; color: var(--ink-2); display: block; margin-bottom: 4px; }
+  .ap-pipe-form input[type="text"],
+  .ap-pipe-form input[type="number"] {
+    width: 100%;
+  }
+  .ap-pipe-form .check-row {
+    display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600;
+  }
+  .ap-pipe-actions {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    padding: 0 14px 14px;
+  }
+  .ap-pipe-banner {
+    margin: 10px 14px 0;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    line-height: 1.4;
+    background: #fff7ed;
+    color: #9a3412;
+  }
+  .ap-pipe-banner.ok { background: #ecfdf5; color: var(--ok); }
+  .ap-pipe-readonly {
+    padding: 10px 14px 14px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    font-size: 12px;
+  }
+  .ap-pipe-readonly pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--ink-2);
+  }
   .pack-split {
     flex: 1;
     min-height: 0;
@@ -957,13 +1034,20 @@
   }
   .pack-asset-list {
     flex: 0 0 auto;
-    max-height: 42%;
+    max-height: min(38%, 220px);
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 8px;
     border-bottom: 1px solid var(--line);
     display: flex;
     flex-direction: column;
     gap: 4px;
+    scrollbar-width: thin;
+  }
+  .pack-asset-list::-webkit-scrollbar { width: 6px; }
+  .pack-asset-list::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.35);
+    border-radius: 99px;
   }
   .pack-asset-item {
     display: grid;
@@ -1076,7 +1160,9 @@
     padding: 10px 12px;
     font-size: 11px;
     line-height: 1.55;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
     white-space: pre-wrap;
     word-break: break-word;
     font-family: var(--mono);
@@ -1115,19 +1201,27 @@
   .pack-custom-list {
     flex: 1;
     min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    scrollbar-width: thin;
+  }
+  .pack-custom-list::-webkit-scrollbar { width: 6px; }
+  .pack-custom-list::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.35);
+    border-radius: 99px;
   }
   .pack-log-details {
     flex-shrink: 0;
-    margin: 0 14px 14px;
+    margin: 0 14px 12px;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     background: rgba(255,255,255,0.5);
     overflow: hidden;
+    max-height: 28%;
   }
   .pack-log-details > summary {
     padding: 8px 12px;
@@ -1183,8 +1277,8 @@
     margin: 0;
     font-size: 11px;
     line-height: 1.5;
-    max-height: 120px;
-    overflow: auto;
+    max-height: 96px;
+    overflow: hidden;
     white-space: pre-wrap;
     font-family: var(--mono);
     color: var(--ink-2);
@@ -1193,10 +1287,11 @@
     padding: 10px;
     border: 1px solid var(--line);
   }
+  .tenant-custom-card.editing .tenant-rule-preview { display: none; }
   .tenant-rule-editor {
     width: 100%;
-    min-height: 140px;
-    max-height: 220px;
+    min-height: 120px;
+    max-height: 180px;
     margin: 0;
     padding: 10px;
     font-size: 11px;
@@ -1208,6 +1303,7 @@
     border-radius: var(--radius-sm);
     resize: vertical;
     box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.08);
+    box-sizing: border-box;
   }
   .tenant-custom-card {
     border: 1px solid var(--line);
@@ -1285,13 +1381,15 @@
   .tenant-upload-row input[type=file] { flex: 1; min-width: 180px; font-size: 12px; }
   .tenant-source-file { font-size: 10px; color: var(--ink-3); margin-top: 4px; }
   .tenant-log {
-    margin-top: 12px;
+    margin: 0;
+    padding: 8px 12px 10px;
     font-size: 10.5px;
     color: var(--ink-3);
-    max-height: 120px;
-    overflow: auto;
+    max-height: 88px;
+    overflow-x: hidden;
+    overflow-y: auto;
     border-top: 1px solid var(--line);
-    padding-top: 8px;
+    scrollbar-width: thin;
   }
   .tenant-log div { margin-bottom: 4px; font-family: var(--mono); }
 
@@ -1671,11 +1769,16 @@ Due Date,DATE</textarea>
         </div>
         <div>
           <label for="apResource">Resource</label>
-          <input type="text" id="apResource" placeholder="QUICKBOOKS or SAGE" />
+          <input type="text" id="apResource" placeholder="SAP, QUICKBOOKS, or SAGE" />
+        </div>
+        <div>
+          <label for="apConnectorId">Connector</label>
+          <input type="text" id="apConnectorId" placeholder="f7636e21-1a0c-457c-a2b4-e28430705477 (HANA PO)" />
         </div>
         <div class="span-all">
           <label for="apSkills">Skills</label>
-          <textarea id="apSkills" placeholder="extract_invoice"></textarea>
+          <textarea id="apSkills" placeholder="extract_invoice&#10;po_lookup_sap&#10;po_match&#10;finalize_decision"></textarea>
+          <p class="tenant-skills-hint" style="margin:6px 0 0">EZOFIS HANA PO: Resource=<code>SAP</code> or <code>HANA</code>, Connector=<code>f7636e21-1a0c-457c-a2b4-e28430705477</code> (defaults on EZOFIS tenant), skills <code>po_lookup_sap</code> → <code>po_match</code>, <code>po_number</code>=<code>4500069456</code>. Legacy SAP sample: <code>983bddbe-…</code>, <code>PO-60001</code>.</p>
         </div>
         <div class="span-all">
           <label for="apInvoiceJson">invoice_json</label>
@@ -1740,6 +1843,22 @@ Due Date,DATE</textarea>
         </div>
       </div>
     </details>
+    <details class="ocr-panel" id="cbPanel">
+      <summary>Chatbot options</summary>
+      <div class="ocr-grid">
+        <div class="span-all">
+          <label for="cbSpecificId">Repository id (optional — leave blank for tenant-wide)</label>
+          <input type="text" id="cbSpecificId" placeholder="Repository UUID" />
+        </div>
+        <div class="span-all">
+          <label for="cbUploadFile">File for upload / ticket+attachments (optional)</label>
+          <input type="file" id="cbUploadFile" />
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-primary" id="cbSendBtn">Send chatbot</button>
+        </div>
+      </div>
+    </details>
     </div>
     <div class="composer ask-mode" id="composerWrap">
       <div class="composer-mode-label" id="composerModeLabel">Ask AI</div>
@@ -1763,8 +1882,12 @@ Due Date,DATE</textarea>
   <aside class="panel pack-inspector" id="summaryPackInspector">
     <div class="pack-inspector-head">
       <div class="pack-inspector-title">
-        <h2>Summary pack</h2>
-        <p class="pack-inspector-sub">Defaults and tenant overlays</p>
+        <h2 id="packInspectorTitle">Agent pack</h2>
+        <p class="pack-inspector-sub" id="packInspectorSub">Defaults and tenant overlays</p>
+      </div>
+      <div class="pack-tabs" id="apInstrMainTabs" hidden style="margin-bottom:8px">
+        <button type="button" class="pack-tab" data-ap-main-tab="pipeline">Pipeline</button>
+        <button type="button" class="pack-tab active" data-ap-main-tab="instructions">Instructions</button>
       </div>
       <div class="pack-tabs">
         <button type="button" class="pack-tab active" data-pack-tab="platform">Platform</button>
@@ -1797,6 +1920,78 @@ Due Date,DATE</textarea>
         <details class="pack-log-details" id="summaryLogsWrap" hidden>
           <summary>Change log</summary>
           <div id="summarySkillLogs" class="tenant-log"></div>
+        </details>
+      </div>
+    </div>
+  </aside>
+
+  <aside class="panel pack-inspector" id="apPipelineInspector">
+    <div class="pack-inspector-head">
+      <div class="pack-inspector-title">
+        <h2>AP Configuration</h2>
+        <p class="pack-inspector-sub">Pipeline (executable) and Instructions (soft LLM guidance)</p>
+      </div>
+      <div class="pack-tabs" style="margin-bottom:8px">
+        <button type="button" class="pack-tab active" data-ap-main-tab="pipeline">Pipeline</button>
+        <button type="button" class="pack-tab" data-ap-main-tab="instructions">Instructions</button>
+      </div>
+      <div class="pack-tabs" id="apPipeSubTabs">
+        <button type="button" class="pack-tab active" data-ap-pipe-tab="platform">Platform</button>
+        <button type="button" class="pack-tab" data-ap-pipe-tab="tenant">Tenant</button>
+      </div>
+    </div>
+    <div class="pack-inspector-body">
+      <div id="apPipeFlagBanner" class="ap-pipe-banner" hidden></div>
+      <div id="apPipeTabPlatform" class="pack-tab-panel">
+        <div class="ap-pipe-readonly">
+          <p class="field-hint" style="margin:0 0 8px">Product default (read-only). Seeded from code on boot.</p>
+          <pre id="apPipePlatformJson">Loading…</pre>
+        </div>
+      </div>
+      <div id="apPipeTabTenant" class="pack-tab-panel hidden">
+        <div class="pack-tenant-banner locked" id="apPipeTenantZone">
+          <span id="apPipeTenantHint">Set tenant id (AP options or console tenant) to edit.</span>
+        </div>
+        <div id="apPipeStatus" class="tenant-skills-status"></div>
+        <div class="ap-pipe-skill-list" id="apPipeSkillList"></div>
+        <div class="ap-pipe-form">
+          <div>
+            <label for="apPipeConnector">Default connector id</label>
+            <input type="text" id="apPipeConnector" placeholder="optional GUID" />
+          </div>
+          <div>
+            <label for="apPipeResource">Default resource</label>
+            <input type="text" id="apPipeResource" placeholder="SAP / HANA / QUICKBOOKS" />
+          </div>
+          <div>
+            <label for="apPipeApproved">approved threshold</label>
+            <input type="number" id="apPipeApproved" placeholder="inherit (80)" />
+          </div>
+          <div>
+            <label for="apPipePartial">partial threshold</label>
+            <input type="number" id="apPipePartial" placeholder="inherit (50)" />
+          </div>
+          <div class="span-all">
+            <label for="apPipeTolerance">amount_tolerance (ratio, e.g. 0.02)</label>
+            <input type="number" step="0.001" id="apPipeTolerance" placeholder="inherit (0.02)" />
+          </div>
+          <div class="span-all check-row">
+            <input type="checkbox" id="apPipeUsePlanner" />
+            <label for="apPipeUsePlanner" style="margin:0">use_planner (LLM reorder when skills omitted)</label>
+          </div>
+          <div class="span-all check-row">
+            <input type="checkbox" id="apPipeForceHana" checked />
+            <label for="apPipeForceHana" style="margin:0">force_hana_po_lookup (inject only when Workflow asks SAP/HANA)</label>
+          </div>
+        </div>
+        <div class="ap-pipe-actions">
+          <button type="button" class="btn-primary" id="apPipeSaveBtn">Save tenant pipeline</button>
+          <button type="button" class="btn-ghost" id="apPipeReloadBtn">Reload</button>
+          <button type="button" class="btn-ghost" id="apPipeLoadPlatformBtn">Copy platform</button>
+        </div>
+        <details class="pack-log-details" id="apPipeLogsWrap" hidden>
+          <summary>Change log</summary>
+          <div id="apPipeLogs" class="tenant-log"></div>
         </details>
       </div>
     </div>
@@ -2105,6 +2300,7 @@ const ICONS = {
   prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 17 4 12l4-5M16 7l4 5-4 5M13 5l-2 14"/></svg>',
   pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
   global_search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>',
+  chatbot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16v10H8l-4 4V6Z"/><path d="M8 10h8M8 13h5"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
@@ -2114,6 +2310,7 @@ const CAP_ACTIONS = [
   { slug: 'prompt', label: 'Prompt agent', mode: 'prompt' },
   { slug: 'pdf', label: 'PDF generator', mode: 'pdf' },
   { slug: 'global_search', label: 'Global Search', mode: 'global_search' },
+  { slug: 'chatbot', label: 'Chatbot', mode: 'chatbot' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
 const MODE_LABELS = {
@@ -2125,10 +2322,12 @@ const MODE_LABELS = {
   prompt: 'Prompt agent',
   pdf: 'PDF generator',
   global_search: 'Global Search',
+  chatbot: 'Chatbot',
 };
 const capActionsEl = document.getElementById('capActions');
 const apPanel = document.getElementById('apPanel');
 const gsPanel = document.getElementById('gsPanel');
+const cbPanel = document.getElementById('cbPanel');
 let composerMode = 'chat';
 let consoleAgentsCache = [];
 window.activeCustomIntent = '';
@@ -2148,8 +2347,14 @@ function setConsoleTenantId(tenantId) {
   else sessionStorage.removeItem(CONSOLE_TENANT_KEY);
   ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant'].forEach(id => {
     const el = document.getElementById(id);
-    if (el && !el.value.trim()) el.value = tid;
+    if (el) el.value = tid;
   });
+  if (typeof loadSummaryTenantCustom === 'function') {
+    try { loadSummaryTenantCustom(); } catch (_) { /* pack UI may load later */ }
+  }
+  if (typeof loadApPipelineConsole === 'function' && composerMode === 'ap') {
+    try { loadApPipelineConsole(); } catch (_) { /* AP pipeline UI may load later */ }
+  }
   return refreshConsoleAgents();
 }
 
@@ -2414,6 +2619,7 @@ const EMPTY_SPECS = {
   insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
   global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
+  chatbot: { title: 'Chatbot', sub: 'Search, then act: start workflow / upload / ticket+attach / create user. Confirm before execute.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
 };
 
@@ -2450,16 +2656,17 @@ function syncMainControls() {
   const mc = document.getElementById('mainControls');
   const panel = document.getElementById('docPanel');
   if (!mc || !panel) return;
-  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open);
+  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open);
   mc.hidden = !active;
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result)) return;
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
   if (gsPanel) gsPanel.open = false;
+  if (cbPanel) cbPanel.open = false;
   syncMainControls();
   requestAnimationFrame(() => {
     transcript.scrollTop = transcript.scrollHeight;
@@ -2467,7 +2674,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -2480,6 +2687,7 @@ function setComposerMode(mode) {
   panel.open = showDoc;
   if (apPanel) apPanel.open = mode === 'ap';
   if (gsPanel) gsPanel.open = mode === 'global_search';
+  if (cbPanel) cbPanel.open = mode === 'chatbot';
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
@@ -2498,30 +2706,42 @@ function setComposerMode(mode) {
   }
   const layout = document.querySelector('.layout');
   const packInspector = document.getElementById('summaryPackInspector');
-  if (layout) layout.classList.toggle('pack-inspector-open', mode === 'summary');
-  if (packInspector) packInspector.classList.toggle('visible', mode === 'summary');
+  const apPipeInspector = document.getElementById('apPipelineInspector');
+  const packOpen = isPackAgent(mode);
+  const apPipeOpen = mode === 'ap';
+  if (layout) layout.classList.toggle('pack-inspector-open', packOpen || apPipeOpen);
+  if (packInspector) packInspector.classList.toggle('visible', packOpen);
+  if (apPipeInspector) apPipeInspector.classList.toggle('visible', apPipeOpen);
   syncCapButtonActiveState();
   syncSendBtn();
   if (mode === 'summary') {
     banner.textContent = 'Summary';
     messageInput.placeholder = 'Optional note';
-    loadSummarySkillsPack();
+    loadAgentSkillsPack('summary');
   } else if (mode === 'insight') {
     banner.textContent = 'Insights';
     messageInput.placeholder = 'Optional note';
+    loadAgentSkillsPack('insight');
   } else if (mode === 'ocr') {
     banner.textContent = 'OCR';
     messageInput.placeholder = 'Optional note';
+    loadAgentSkillsPack('ocr');
   } else if (mode === 'ap') {
     messageInput.placeholder = 'Optional note';
+    setApMainView('pipeline');
   } else if (mode === 'prompt') {
     messageInput.placeholder = 'Paste the prompt';
+    loadAgentSkillsPack('prompt');
   } else if (mode === 'pdf') {
     banner.textContent = 'PDF Generator';
     messageInput.placeholder = 'Optional note or styling instructions';
+    loadAgentSkillsPack('pdf');
   } else if (mode === 'global_search') {
     banner.textContent = 'Global Search';
     messageInput.placeholder = 'Query — e.g. QUALITY CERTIFICATE or EMP10245';
+  } else if (mode === 'chatbot') {
+    banner.textContent = 'Chatbot';
+    messageInput.placeholder = 'Ask Chatbot — e.g. help or find INV-2026-6001';
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -2623,18 +2843,6 @@ async function readResponseJson(res) {
   }
 }
 
-function summaryTenantId() {
-  return (document.getElementById('summaryTenant').value || '').trim();
-}
-
-function escapeHtml(text) {
-  return String(text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function setSummarySkillsStatus(kind, text) {
   const el = document.getElementById('summarySkillsStatus');
   if (!el) return;
@@ -2647,7 +2855,54 @@ function setSummarySkillsStatus(kind, text) {
   el.textContent = text;
 }
 
-const summaryPackState = { defaults: null, selectedAssetId: null, editingItemKey: null };
+const PACK_AGENTS = ['summary', 'ocr', 'insight', 'prompt', 'pdf', 'ap'];
+const PACK_AGENT_LABELS = {
+  summary: 'Summary',
+  ocr: 'OCR',
+  insight: 'Insight',
+  prompt: 'Prompt',
+  pdf: 'PDF',
+  ap: 'AP',
+};
+const PACK_TENANT_FIELDS = {
+  summary: 'summaryTenant',
+  ocr: 'ocrTenant',
+  insight: 'insightTenant',
+  prompt: 'summaryTenant',
+  pdf: 'summaryTenant',
+  ap: 'apTenant',
+};
+
+const summaryPackState = {
+  agent: 'summary',
+  defaults: null,
+  selectedAssetId: null,
+  editingItemKey: null,
+};
+
+function isPackAgent(mode) {
+  // Inline check so setComposerMode('chat') at boot cannot hit TDZ on PACK_AGENTS.
+  return mode === 'summary' || mode === 'ocr' || mode === 'insight'
+    || mode === 'prompt' || mode === 'pdf';
+}
+
+function packApiBase(agent) {
+  return '/console/agent-packs/' + encodeURIComponent(agent || summaryPackState.agent || 'summary');
+}
+
+function setPackInspectorChrome(agent) {
+  const label = PACK_AGENT_LABELS[agent] || agent;
+  const title = document.getElementById('packInspectorTitle');
+  const sub = document.getElementById('packInspectorSub');
+  const apTabs = document.getElementById('apInstrMainTabs');
+  if (title) title.textContent = agent === 'ap' ? 'AP Instructions' : (label + ' pack');
+  if (sub) {
+    sub.textContent = agent === 'ap'
+      ? 'Soft LLM guidance only — does not replace po_match or Pipeline skill order'
+      : ('Platform defaults (read-only) and tenant overlays for ' + label);
+  }
+  if (apTabs) apTabs.hidden = agent !== 'ap';
+}
 
 function customItemKey(kind, id) {
   return kind + ':' + id;
@@ -2661,6 +2916,34 @@ function switchPackTab(tabName) {
   const tenant = document.getElementById('packTabTenant');
   if (platform) platform.classList.toggle('hidden', tabName !== 'platform');
   if (tenant) tenant.classList.toggle('hidden', tabName !== 'tenant');
+}
+
+function summaryTenantId() {
+  const agent = summaryPackState.agent || 'summary';
+  const fieldId = PACK_TENANT_FIELDS[agent] || 'summaryTenant';
+  const dedicated = (document.getElementById(fieldId)?.value || '').trim();
+  if (dedicated) return dedicated;
+  for (const id of Object.values(PACK_TENANT_FIELDS)) {
+    const v = (document.getElementById(id)?.value || '').trim();
+    if (v) return v;
+  }
+  return consoleTenantId();
+}
+
+function itemIdStr(value) {
+  return String(value == null ? '' : value).trim();
+}
+
+function isItemActive(value) {
+  return value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true';
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function packAssetsFromDefaults(defaults) {
@@ -2796,7 +3079,7 @@ function mergeCustomItems(skills, rules) {
       item_kind: inferItemKindFromSource(item.source_file, 'rule'),
     });
   });
-  return items.sort((a, b) => Number(a.id) - Number(b.id));
+  return items.sort((a, b) => String(a.slug || '').localeCompare(String(b.slug || '')));
 }
 
 function renderSummaryCustomItems(skills, rules) {
@@ -2809,8 +3092,9 @@ function renderSummaryCustomItems(skills, rules) {
   }
   el.innerHTML = items.map(item => {
     const kind = item.item_kind;
-    const active = Number(item.is_active) === 1;
-    const itemKey = customItemKey(kind, item.id);
+    const active = isItemActive(item.is_active);
+    const id = itemIdStr(item.id);
+    const itemKey = customItemKey(kind, id);
     const editing = summaryPackState.editingItemKey === itemKey;
     const typeLabel = kind === 'skill' ? 'SKILL' : 'RULE';
     const accept = kind === 'skill' ? '.md,text/markdown' : '.mdc,text/markdown';
@@ -2834,7 +3118,7 @@ function renderSummaryCustomItems(skills, rules) {
         + `<button type="button" class="tenant-btn-delete tenant-item-delete">Delete</button>`
         + `</div>`;
     return (
-      `<div class="tenant-custom-card${active ? '' : ' disabled'}${editing ? ' editing' : ''}" data-item-kind="${kind}" data-item-id="${item.id}">`
+      `<div class="tenant-custom-card${active ? '' : ' disabled'}${editing ? ' editing' : ''}" data-item-kind="${kind}" data-item-id="${escapeHtml(id)}">`
       + `<div class="tenant-custom-head">`
       + `<span class="pack-asset-type ${kind}">${typeLabel}</span>`
       + `<span class="slug">${escapeHtml(item.slug)}</span>`
@@ -2850,7 +3134,7 @@ function renderSummaryCustomItems(skills, rules) {
   el.querySelectorAll('.tenant-item-edit').forEach(btn => {
     btn.addEventListener('click', () => {
       const card = btn.closest('.tenant-custom-card');
-      summaryPackState.editingItemKey = customItemKey(card.dataset.itemKind, Number(card.dataset.itemId));
+      summaryPackState.editingItemKey = customItemKey(card.dataset.itemKind, itemIdStr(card.dataset.itemId));
       renderSummaryCustomItems(skills, rules);
     });
   });
@@ -2864,7 +3148,7 @@ function renderSummaryCustomItems(skills, rules) {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.tenant-custom-card');
       const kind = card.dataset.itemKind;
-      const id = Number(card.dataset.itemId);
+      const id = itemIdStr(card.dataset.itemId);
       const editor = card.querySelector('.tenant-rule-editor');
       const body = editor ? editor.value.trim() : '';
       if (!body) {
@@ -2887,27 +3171,27 @@ function renderSummaryCustomItems(skills, rules) {
       const file = input.files && input.files[0];
       if (!file) return;
       const card = input.closest('.tenant-custom-card');
-      await replaceSummaryCustomItemFile(card.dataset.itemKind, Number(card.dataset.itemId), file);
+      await replaceSummaryCustomItemFile(card.dataset.itemKind, itemIdStr(card.dataset.itemId), file);
       input.value = '';
     });
   });
   el.querySelectorAll('.tenant-item-set-active').forEach(btn => {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.tenant-custom-card');
-      await patchSummaryCustomItem(card.dataset.itemKind, Number(card.dataset.itemId), { is_active: true }, { quiet: true });
+      await patchSummaryCustomItem(card.dataset.itemKind, itemIdStr(card.dataset.itemId), { is_active: true }, { quiet: true });
     });
   });
   el.querySelectorAll('.tenant-item-set-disabled').forEach(btn => {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.tenant-custom-card');
-      await patchSummaryCustomItem(card.dataset.itemKind, Number(card.dataset.itemId), { is_active: false }, { quiet: true });
+      await patchSummaryCustomItem(card.dataset.itemKind, itemIdStr(card.dataset.itemId), { is_active: false }, { quiet: true });
     });
   });
   el.querySelectorAll('.tenant-item-delete').forEach(btn => {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.tenant-custom-card');
       const kind = card.dataset.itemKind;
-      const id = Number(card.dataset.itemId);
+      const id = itemIdStr(card.dataset.itemId);
       const slug = card.querySelector('.slug') ? card.querySelector('.slug').textContent : id;
       if (!confirm(`Permanently delete "${slug}"? This cannot be undone.`)) return;
       await deleteSummaryCustomItem(kind, id);
@@ -2917,6 +3201,7 @@ function renderSummaryCustomItems(skills, rules) {
 
 async function deleteSummaryCustomItem(kind, itemId) {
   const tenantId = summaryTenantId();
+  const agent = summaryPackState.agent || 'summary';
   if (!tenantId) {
     addSystemMessage('Set tenant_id before deleting custom items.');
     setSummarySkillsStatus('error', 'Set tenant_id first.');
@@ -2929,7 +3214,8 @@ async function deleteSummaryCustomItem(kind, itemId) {
   for (const base of bases) {
     try {
       const res = await fetch(
-        '/console/summary-skills/' + base + '/' + itemId + '?tenant_id=' + encodeURIComponent(tenantId),
+        packApiBase(agent) + '/' + base + '/' + encodeURIComponent(itemId)
+          + '?tenant_id=' + encodeURIComponent(tenantId),
         { method: 'DELETE' }
       );
       const data = await readResponseJson(res);
@@ -2972,16 +3258,17 @@ function renderSummarySkillLogs(logs) {
 
 async function loadSummaryDefaults() {
   try {
-    const res = await fetch('/console/summary-skills/defaults');
+    const agent = summaryPackState.agent || 'summary';
+    const res = await fetch(packApiBase(agent) + '/defaults');
     const data = await readResponseJson(res);
     if (!res.ok) {
       const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
-      addSystemMessage('Summary defaults: ' + msg);
+      addSystemMessage((PACK_AGENT_LABELS[agent] || agent) + ' defaults: ' + msg);
       return;
     }
     renderSummaryDefaults(data.defaults);
   } catch (e) {
-    addSystemMessage('Could not load Summary defaults.');
+    addSystemMessage('Could not load pack defaults.');
   }
 }
 
@@ -2989,8 +3276,9 @@ async function loadSummaryTenantCustom() {
   syncSummaryTenantZone();
   const tenantId = summaryTenantId();
   if (!tenantId) return;
+  const agent = summaryPackState.agent || 'summary';
   try {
-    const res = await fetch('/console/summary-skills?tenant_id=' + encodeURIComponent(tenantId));
+    const res = await fetch(packApiBase(agent) + '?tenant_id=' + encodeURIComponent(tenantId));
     const data = await readResponseJson(res);
     if (!res.ok) {
       const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
@@ -3000,23 +3288,35 @@ async function loadSummaryTenantCustom() {
     renderSummaryCustomItems(data.custom_skills, data.custom_rules);
     renderSummarySkillLogs(data.logs);
     const [skills, rules] = normalizeCustomTenantItems(data.custom_skills, data.custom_rules);
-    const n = skills.length + rules.length;
-    const active = skills.filter(r => Number(r.is_active) === 1).length
-      + rules.filter(r => Number(r.is_active) === 1).length;
+    const active = skills.filter(r => isItemActive(r.is_active)).length
+      + rules.filter(r => isItemActive(r.is_active)).length;
     setSummarySkillsStatus('ok', active + ' active · ' + skills.length + ' skill(s) · ' + rules.length + ' rule(s)');
   } catch (e) {
     setSummarySkillsStatus('error', 'Could not load tenant uploads.');
   }
 }
 
-async function loadSummarySkillsPack() {
+async function loadAgentSkillsPack(agent) {
+  const next = (agent || 'summary').toLowerCase();
+  if (summaryPackState.agent !== next) {
+    summaryPackState.selectedAssetId = null;
+    summaryPackState.editingItemKey = null;
+  }
+  summaryPackState.agent = next;
+  setPackInspectorChrome(next);
+  switchPackTab('platform');
   await loadSummaryDefaults();
   await loadSummaryTenantCustom();
+}
+
+async function loadSummarySkillsPack() {
+  await loadAgentSkillsPack('summary');
 }
 
 async function patchSummaryCustomItem(kind, itemId, patch, opts) {
   const quiet = opts && opts.quiet;
   const tenantId = summaryTenantId();
+  const agent = summaryPackState.agent || 'summary';
   if (!tenantId) {
     if (!quiet) addSystemMessage('Set tenant_id before editing custom items.');
     setSummarySkillsStatus('error', 'Set tenant_id first.');
@@ -3024,7 +3324,7 @@ async function patchSummaryCustomItem(kind, itemId, patch, opts) {
   }
   let base = kind === 'skill' ? 'custom-skills' : 'custom-rules';
   try {
-    let res = await fetch('/console/summary-skills/' + base + '/' + itemId, {
+    let res = await fetch(packApiBase(agent) + '/' + base + '/' + encodeURIComponent(itemId), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenant_id: tenantId, ...patch }),
@@ -3032,7 +3332,7 @@ async function patchSummaryCustomItem(kind, itemId, patch, opts) {
     let data = await readResponseJson(res);
     if (!res.ok && kind === 'skill' && res.status === 404) {
       base = 'custom-rules';
-      res = await fetch('/console/summary-skills/' + base + '/' + itemId, {
+      res = await fetch(packApiBase(agent) + '/' + base + '/' + encodeURIComponent(itemId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenant_id: tenantId, ...patch }),
@@ -3058,6 +3358,7 @@ async function patchSummaryCustomItem(kind, itemId, patch, opts) {
 
 async function replaceSummaryCustomItemFile(kind, itemId, file) {
   const tenantId = summaryTenantId();
+  const agent = summaryPackState.agent || 'summary';
   if (!tenantId) {
     setSummarySkillsStatus('error', 'Set tenant_id first.');
     return;
@@ -3074,10 +3375,10 @@ async function replaceSummaryCustomItemFile(kind, itemId, file) {
   let lastError = 'Replace failed.';
   for (const base of bases) {
     try {
-      const res = await fetch('/console/summary-skills/' + base + '/' + itemId + '/upload', {
-        method: 'POST',
-        body: form,
-      });
+      const res = await fetch(
+        packApiBase(agent) + '/' + base + '/' + encodeURIComponent(itemId) + '/upload',
+        { method: 'POST', body: form }
+      );
       const data = await readResponseJson(res);
       if (res.ok) {
         summaryPackState.editingItemKey = null;
@@ -3106,6 +3407,7 @@ async function replaceSummaryCustomRuleFile(itemId, file) {
 
 async function saveSummaryCustomRuleFile() {
   const tenantId = summaryTenantId();
+  const agent = summaryPackState.agent || 'summary';
   if (!tenantId) {
     setSummarySkillsStatus('error', 'Set tenant_id in the form first.');
     return;
@@ -3121,7 +3423,7 @@ async function saveSummaryCustomRuleFile() {
   form.append('file', file, file.name);
   setSummarySkillsStatus('', 'Saving…');
   try {
-    const res = await fetch('/console/summary-skills/custom-rules/upload', {
+    const res = await fetch(packApiBase(agent) + '/custom-rules/upload', {
       method: 'POST',
       body: form,
     });
@@ -3145,11 +3447,324 @@ async function saveSummaryCustomRuleFile() {
 }
 
 document.getElementById('summaryRuleSaveBtn').addEventListener('click', saveSummaryCustomRuleFile);
-document.getElementById('summaryTenant').addEventListener('input', loadSummaryTenantCustom);
-document.getElementById('summaryTenant').addEventListener('change', loadSummaryTenantCustom);
-document.querySelectorAll('.pack-tab').forEach(tab => {
+['summaryTenant', 'ocrTenant', 'insightTenant'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', loadSummaryTenantCustom);
+  el.addEventListener('change', loadSummaryTenantCustom);
+});
+document.querySelectorAll('#summaryPackInspector .pack-tab').forEach(tab => {
   tab.addEventListener('click', () => switchPackTab(tab.dataset.packTab));
 });
+
+/* —— AP Pipeline inspector (Phase 4) —— */
+const apPipeState = {
+  platform: null,
+  tenant: null,
+  known: null,
+  draftOrder: [],
+  draftEnabled: null,
+  fromDb: false,
+};
+
+function apPipeTenantId() {
+  const ap = (document.getElementById('apTenant')?.value || '').trim();
+  if (ap) return ap;
+  return (getConsoleTenantId() || '').trim();
+}
+
+function setApPipeStatus(kind, text) {
+  const el = document.getElementById('apPipeStatus');
+  if (!el) return;
+  if (!text) {
+    el.className = 'tenant-skills-status';
+    el.textContent = '';
+    return;
+  }
+  el.className = 'tenant-skills-status ' + kind;
+  el.textContent = text;
+}
+
+function switchApPipeTab(tabName) {
+  document.querySelectorAll('#apPipelineInspector .pack-tab[data-ap-pipe-tab]').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.apPipeTab === tabName);
+  });
+  const platform = document.getElementById('apPipeTabPlatform');
+  const tenant = document.getElementById('apPipeTabTenant');
+  if (platform) platform.classList.toggle('hidden', tabName !== 'platform');
+  if (tenant) tenant.classList.toggle('hidden', tabName !== 'tenant');
+}
+
+function apPipeConfigFromForm() {
+  const enabled = [];
+  apPipeState.draftOrder.forEach(id => {
+    if (apPipeState.draftEnabled === null || apPipeState.draftEnabled.includes(id)) {
+      enabled.push(id);
+    }
+  });
+  const allOn = apPipeState.draftEnabled === null
+    || (apPipeState.draftEnabled.length === apPipeState.draftOrder.length
+      && apPipeState.draftOrder.every(id => apPipeState.draftEnabled.includes(id)));
+  const numOrNull = (id) => {
+    const el = document.getElementById(id);
+    const v = (el && el.value || '').trim();
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    skills_order: apPipeState.draftOrder.slice(),
+    skills_enabled: allOn ? null : enabled,
+    default_connector_id: (document.getElementById('apPipeConnector')?.value || '').trim() || null,
+    default_resource: (document.getElementById('apPipeResource')?.value || '').trim() || null,
+    thresholds: {
+      approved: numOrNull('apPipeApproved'),
+      partial: numOrNull('apPipePartial'),
+      amount_tolerance: numOrNull('apPipeTolerance'),
+    },
+    flags: {
+      use_planner: !!document.getElementById('apPipeUsePlanner')?.checked,
+      force_hana_po_lookup: !!document.getElementById('apPipeForceHana')?.checked,
+    },
+  };
+}
+
+function applyApPipeConfigToForm(cfg) {
+  const config = cfg || {};
+  const known = (apPipeState.known && apPipeState.known.all_skills) || [];
+  let order = Array.isArray(config.skills_order) ? config.skills_order.slice() : [];
+  if (!order.length) order = (apPipeState.known && apPipeState.known.default_order) || known.slice();
+  known.forEach(id => { if (!order.includes(id)) order.push(id); });
+  apPipeState.draftOrder = order;
+  if (config.skills_enabled == null) {
+    apPipeState.draftEnabled = null;
+  } else {
+    apPipeState.draftEnabled = Array.isArray(config.skills_enabled)
+      ? config.skills_enabled.slice()
+      : [];
+  }
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v == null ? '' : String(v);
+  };
+  setVal('apPipeConnector', config.default_connector_id);
+  setVal('apPipeResource', config.default_resource);
+  const th = config.thresholds || {};
+  setVal('apPipeApproved', th.approved);
+  setVal('apPipePartial', th.partial);
+  setVal('apPipeTolerance', th.amount_tolerance);
+  const flags = config.flags || {};
+  const planner = document.getElementById('apPipeUsePlanner');
+  const hana = document.getElementById('apPipeForceHana');
+  if (planner) planner.checked = !!flags.use_planner;
+  if (hana) hana.checked = flags.force_hana_po_lookup !== false;
+  renderApPipeSkillList();
+}
+
+function renderApPipeSkillList() {
+  const el = document.getElementById('apPipeSkillList');
+  if (!el) return;
+  const order = apPipeState.draftOrder || [];
+  if (!order.length) {
+    el.innerHTML = '<div class="pack-empty">No skills in draft.</div>';
+    return;
+  }
+  el.innerHTML = order.map((id, idx) => {
+    const on = apPipeState.draftEnabled === null || apPipeState.draftEnabled.includes(id);
+    return (
+      '<div class="ap-pipe-skill-row' + (on ? '' : ' off') + '" data-skill="' + escapeHtml(id) + '">'
+      + '<label><input type="checkbox" class="ap-pipe-enable"' + (on ? ' checked' : '') + ' />'
+      + '<span>' + escapeHtml(id) + '</span></label>'
+      + '<span></span>'
+      + '<div class="ap-pipe-move">'
+      + '<button type="button" class="btn-ghost ap-pipe-up" data-idx="' + idx + '"' + (idx === 0 ? ' disabled' : '') + '>↑</button>'
+      + '<button type="button" class="btn-ghost ap-pipe-down" data-idx="' + idx + '"' + (idx === order.length - 1 ? ' disabled' : '') + '>↓</button>'
+      + '</div></div>'
+    );
+  }).join('');
+  el.querySelectorAll('.ap-pipe-enable').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const row = cb.closest('.ap-pipe-skill-row');
+      const skill = row && row.dataset.skill;
+      if (!skill) return;
+      if (apPipeState.draftEnabled === null) {
+        apPipeState.draftEnabled = apPipeState.draftOrder.slice();
+      }
+      if (cb.checked) {
+        if (!apPipeState.draftEnabled.includes(skill)) apPipeState.draftEnabled.push(skill);
+      } else {
+        apPipeState.draftEnabled = apPipeState.draftEnabled.filter(s => s !== skill);
+      }
+      row.classList.toggle('off', !cb.checked);
+    });
+  });
+  el.querySelectorAll('.ap-pipe-up').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.idx);
+      if (i <= 0) return;
+      const arr = apPipeState.draftOrder;
+      [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+      renderApPipeSkillList();
+    });
+  });
+  el.querySelectorAll('.ap-pipe-down').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.idx);
+      const arr = apPipeState.draftOrder;
+      if (i >= arr.length - 1) return;
+      [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+      renderApPipeSkillList();
+    });
+  });
+}
+
+function renderApPipeLogs(logs) {
+  const wrap = document.getElementById('apPipeLogsWrap');
+  const el = document.getElementById('apPipeLogs');
+  if (!wrap || !el) return;
+  const rows = Array.isArray(logs) ? logs : [];
+  wrap.hidden = rows.length === 0;
+  el.innerHTML = rows.map(row => {
+    const when = escapeHtml(String(row.changed_at || '').slice(0, 19));
+    const who = escapeHtml(row.changed_by || '');
+    const action = escapeHtml(row.action || '');
+    return '<div class="tenant-log-row"><strong>' + action + '</strong> · ' + who + ' · ' + when + '</div>';
+  }).join('');
+}
+
+async function loadApPipelineConsole() {
+  const tenantId = apPipeTenantId();
+  const zone = document.getElementById('apPipeTenantZone');
+  const hint = document.getElementById('apPipeTenantHint');
+  const banner = document.getElementById('apPipeFlagBanner');
+  const url = '/console/ap-pipeline' + (tenantId ? ('?tenant_id=' + encodeURIComponent(tenantId)) : '');
+  setApPipeStatus('', 'Loading…');
+  try {
+    const res = await fetch(url);
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      setApPipeStatus('error', msg);
+      return;
+    }
+    apPipeState.fromDb = !!data.ap_pipeline_from_db;
+    apPipeState.known = data.known_skills || null;
+    apPipeState.platform = (data.platform && data.platform.config) || null;
+    apPipeState.tenant = data.tenant || null;
+    const platformPre = document.getElementById('apPipePlatformJson');
+    if (platformPre) {
+      platformPre.textContent = JSON.stringify(apPipeState.platform || {}, null, 2);
+    }
+    if (banner) {
+      if (data.ap_pipeline_from_db) {
+        banner.hidden = false;
+        banner.className = 'ap-pipe-banner ok';
+        banner.textContent = 'AP_PIPELINE_FROM_DB is on — omitted payload.skills uses this Catalog config.';
+      } else {
+        banner.hidden = false;
+        banner.className = 'ap-pipe-banner';
+        banner.textContent = 'AP_PIPELINE_FROM_DB is off — runner still uses code defaults. Saves are stored for when the flag is enabled.';
+      }
+    }
+    if (zone && hint) {
+      if (tenantId) {
+        zone.classList.remove('locked');
+        hint.innerHTML = 'Tenant <strong>' + escapeHtml(tenantId) + '</strong> — edit and Save to Catalog.';
+      } else {
+        zone.classList.add('locked');
+        hint.textContent = 'Set tenant id (AP options or console tenant) to edit.';
+      }
+    }
+    const baseCfg = (data.tenant && data.tenant.config)
+      || (data.platform && data.platform.config)
+      || {};
+    applyApPipeConfigToForm(baseCfg);
+    renderApPipeLogs(data.logs || []);
+    setApPipeStatus('ok', tenantId
+      ? ((data.tenant ? 'Tenant override loaded' : 'No tenant row yet — editing from platform default') + '.')
+      : 'Platform defaults loaded (select a tenant to save overrides).');
+  } catch (e) {
+    setApPipeStatus('error', 'Failed to load AP pipeline.');
+  }
+}
+
+async function saveApPipelineTenant() {
+  const tenantId = apPipeTenantId();
+  if (!tenantId) {
+    setApPipeStatus('error', 'Set tenant_id first.');
+    return;
+  }
+  const config = apPipeConfigFromForm();
+  if (!config.skills_order.length) {
+    setApPipeStatus('error', 'skills_order cannot be empty.');
+    return;
+  }
+  setApPipeStatus('', 'Saving…');
+  try {
+    const res = await fetch('/console/ap-pipeline/tenant', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant_id: tenantId, config, changed_by: 'console' }),
+    });
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      setApPipeStatus('error', msg);
+      return;
+    }
+    setApPipeStatus('ok', 'Saved tenant pipeline.');
+    addSystemMessage('Saved AP pipeline for tenant ' + tenantId + '.');
+    await loadApPipelineConsole();
+  } catch (e) {
+    setApPipeStatus('error', 'Save failed.');
+  }
+}
+
+document.querySelectorAll('#apPipelineInspector .pack-tab[data-ap-pipe-tab]').forEach(tab => {
+  tab.addEventListener('click', () => switchApPipeTab(tab.dataset.apPipeTab));
+});
+document.querySelectorAll('[data-ap-main-tab]').forEach(tab => {
+  tab.addEventListener('click', () => setApMainView(tab.dataset.apMainTab));
+});
+
+function setApMainView(view) {
+  const name = view === 'instructions' ? 'instructions' : 'pipeline';
+  document.querySelectorAll('[data-ap-main-tab]').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.apMainTab === name);
+  });
+  const pipe = document.getElementById('apPipelineInspector');
+  const pack = document.getElementById('summaryPackInspector');
+  const layout = document.querySelector('.layout');
+  if (composerMode !== 'ap') return;
+  if (layout) layout.classList.add('pack-inspector-open');
+  if (name === 'instructions') {
+    if (pipe) pipe.classList.remove('visible');
+    if (pack) pack.classList.add('visible');
+    loadAgentSkillsPack('ap');
+  } else {
+    if (pack) pack.classList.remove('visible');
+    if (pipe) pipe.classList.add('visible');
+    loadApPipelineConsole();
+  }
+}
+
+const apPipeSaveBtn = document.getElementById('apPipeSaveBtn');
+if (apPipeSaveBtn) apPipeSaveBtn.addEventListener('click', saveApPipelineTenant);
+const apPipeReloadBtn = document.getElementById('apPipeReloadBtn');
+if (apPipeReloadBtn) apPipeReloadBtn.addEventListener('click', loadApPipelineConsole);
+const apPipeLoadPlatformBtn = document.getElementById('apPipeLoadPlatformBtn');
+if (apPipeLoadPlatformBtn) {
+  apPipeLoadPlatformBtn.addEventListener('click', () => {
+    applyApPipeConfigToForm(apPipeState.platform || {});
+    setApPipeStatus('ok', 'Copied platform defaults into the form (not saved yet).');
+  });
+}
+const apTenantEl = document.getElementById('apTenant');
+if (apTenantEl) {
+  apTenantEl.addEventListener('change', () => {
+    if (composerMode === 'ap') loadApPipelineConsole();
+  });
+}
 
 function fieldRow(label, value) {
   if (value === null || value === undefined) return '';
@@ -3570,10 +4185,193 @@ function renderGlobalSearchResult(result, request) {
   return { html, resultJson, curlText };
 }
 
+function renderChatbotBlocks(blocks) {
+  if (!Array.isArray(blocks) || !blocks.length) return '<p class="summary-prose">No blocks.</p>';
+  let html = '';
+  blocks.forEach((block) => {
+    const type = (block && block.type) || 'paragraph';
+    if (type === 'bullets' || type === 'bullet') {
+      const title = block.title ? `<div class="summary-card-kicker">${escapeHtml(String(block.title))}</div>` : '';
+      const items = Array.isArray(block.items) ? block.items : [];
+      html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-header">${title}</div><div class="summary-card-body"><ul class="summary-facts">`;
+      items.forEach((item) => {
+        if (item && typeof item === 'object') {
+          const label = item.label != null ? String(item.label) : '';
+          const value = item.value != null ? String(item.value) : JSON.stringify(item);
+          html += `<li><strong>${escapeHtml(label)}</strong>${label ? ': ' : ''}${escapeHtml(value)}</li>`;
+        } else {
+          html += `<li>${escapeHtml(String(item))}</li>`;
+        }
+      });
+      html += '</ul></div></div>';
+      return;
+    }
+    if (type === 'cards' || type === 'card') {
+      const items = Array.isArray(block.items) ? block.items : (block.title ? [block] : []);
+      html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-header"><div class="summary-card-kicker">Results</div><div class="summary-card-title">${escapeHtml(String(items.length))} card${items.length === 1 ? '' : 's'}</div></div><div class="summary-card-body"><ul class="summary-facts">`;
+      items.forEach((item) => {
+        const title = item.title || item.name || '';
+        const subtitle = item.subtitle || '';
+        const desc = item.description || '';
+        const idObj = item.id || {};
+        const idBits = [];
+        if (idObj.repositoryName || idObj.repositoryId) idBits.push(`repo: ${idObj.repositoryName || idObj.repositoryId}`);
+        if (idObj.workflowName || idObj.workflowId) idBits.push(`wf: ${idObj.workflowName || idObj.workflowId}`);
+        if (idObj.requestNo) idBits.push(`req: ${idObj.requestNo}`);
+        if (idObj.instanceId) idBits.push(`instance: ${idObj.instanceId}`);
+        if (idObj.itemId) idBits.push(`item: ${idObj.itemId}`);
+        if (idObj.commentId) idBits.push(`comment: ${idObj.commentId}`);
+        if (idObj.stage) idBits.push(`stage: ${idObj.stage}`);
+        const typeChip = item.type ? ` <span class="summary-chip">${escapeHtml(String(item.type))}</span>` : '';
+        html += `<li><strong>${escapeHtml(String(title))}</strong>${typeChip}`;
+        if (subtitle) html += `<div class="summary-prose">${escapeHtml(String(subtitle))}</div>`;
+        if (desc) html += `<div class="summary-prose">${escapeHtml(String(desc))}</div>`;
+        if (idBits.length) html += `<div class="summary-prose">${escapeHtml(idBits.join(' · '))}</div>`;
+        html += '</li>';
+      });
+      html += '</ul></div></div>';
+      return;
+    }
+    if (type === 'repo_picker' || type === 'repository_picker') {
+      const items = Array.isArray(block.items) ? block.items : [];
+      const title = block.title ? String(block.title) : 'Repositories';
+      html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-header"><div class="summary-card-kicker">Repo picker</div><div class="summary-card-title">${escapeHtml(title)}</div></div><div class="summary-card-body"><ul class="summary-facts">`;
+      items.forEach((item) => {
+        const name = item.name || item.title || '';
+        const rid = item.repositoryId || '';
+        html += `<li><strong>${escapeHtml(String(name))}</strong><div class="summary-prose">${escapeHtml(String(rid))}</div></li>`;
+      });
+      html += '</ul></div></div>';
+      return;
+    }
+    const text = block.text || block.content || '';
+    html += `<div class="summary-card" style="margin-bottom:12px"><div class="summary-card-body"><p class="summary-prose">${escapeHtml(String(text))}</p></div></div>`;
+  });
+  return html;
+}
+
+function renderChatbotResult(result, request) {
+  if (result && Array.isArray(result.hits) && result.hits.length) {
+    window._chatbotLastHits = result.hits;
+  }
+  if (result && result.pending_action && result.pending_action.action_id) {
+    window._chatbotPendingActionId = result.pending_action.action_id;
+    window._chatbotPendingTool = result.pending_action.tool_name || '';
+  }
+  const blocks = (result && result.text && result.text.blocks) || [];
+  const hits = (result && result.hits) || [];
+  const query = (result && result.query) || '';
+  const action = result && result.action;
+  let browseHtml = '';
+  if (action && action.browse_request) {
+    const br = action.browse_request;
+    browseHtml = `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header"><div class="summary-card-kicker">Browse</div>
+      <div class="summary-card-title">${escapeHtml(String(br.repositoryId || ''))}</div></div>
+      <div class="summary-card-body"><p class="summary-prose">actionTo=${escapeHtml(String((result && result.actionTo) || ''))}</p></div>
+    </div>`;
+  }
+  if (action && action.confirm_request) {
+    const cr = action.confirm_request;
+    const aid = cr.actionId || '';
+    browseHtml += `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header"><div class="summary-card-kicker">Pending action</div>
+      <div class="summary-card-title">${escapeHtml(String(cr.tool || ''))}</div></div>
+      <div class="summary-card-body"><p class="summary-prose">actionId=${escapeHtml(String(aid))}</p>
+      <button type="button" class="btn-primary cb-confirm-btn" data-action-id="${escapeHtml(String(aid))}" style="margin-top:8px">Confirm action</button></div>
+    </div>`;
+  }
+  const pending = result && result.pending_action;
+  if (pending && pending.action_id && !(action && action.confirm_request)) {
+    browseHtml += `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header"><div class="summary-card-kicker">Confirm required</div>
+      <div class="summary-card-title">${escapeHtml(String(pending.tool_name || ''))}</div></div>
+      <div class="summary-card-body"><p class="summary-prose">${escapeHtml(String(pending.status || 'pending_confirmation'))}</p>
+      <button type="button" class="btn-primary cb-confirm-btn" data-action-id="${escapeHtml(String(pending.action_id))}" style="margin-top:8px">Confirm action</button></div>
+    </div>`;
+  }
+  let hitsHtml = '';
+  if (hits.length) {
+    hitsHtml = `<div class="summary-card" style="margin-bottom:12px">
+      <div class="summary-card-header">
+        <div class="summary-card-kicker">Hits</div>
+        <div class="summary-card-title">${escapeHtml(String(hits.length))}</div>
+      </div>
+      <div class="summary-card-body"><ul class="summary-facts">`;
+    hits.forEach((hit) => {
+      const name = hit.ifileName || hit.name || hit.entity_name || hit.entity_id || hit.type || '';
+      const typ = hit.type || '';
+      hitsHtml += `<li><strong>${escapeHtml(String(name))}</strong><div class="summary-prose">${escapeHtml(String(typ))}</div></li>`;
+    });
+    hitsHtml += '</ul></div></div>';
+  }
+  const html = `<div class="summary-card-wrap">
+    <div class="summary-section-label">Chatbot${query ? ': ' + escapeHtml(String(query)) : ''}</div>
+    ${renderChatbotBlocks(blocks)}
+    ${browseHtml}
+    ${hitsHtml}
+    ${codePanelHtml()}
+  </div>`;
+  const resultJson = JSON.stringify(result || {}, null, 2);
+  const curlText = buildChatCurl(request, 'chatbot');
+  return { html, resultJson, curlText };
+}
+
+function renderChatbotSuccess(result, toolName) {
+  const instanceId = result.instanceId || result.InstanceId || '';
+  const itemId = result.itemId || result.ItemId || '';
+  const workflowId = result.workflowId || result.WorkflowId || '';
+  const fileName = result.fileName || result.FileName || '';
+  const userId = result.userId || result.UserId || '';
+  const email = result.email || result.Email || '';
+  const mock = result.mock ? ' <span class="summary-chip">mock</span>' : '';
+  const links = [];
+  if (instanceId) links.push(`instanceId: <code>${escapeHtml(String(instanceId))}</code>`);
+  if (itemId) links.push(`itemId: <code>${escapeHtml(String(itemId))}</code>`);
+  if (workflowId) links.push(`workflowId: <code>${escapeHtml(String(workflowId))}</code>`);
+  if (fileName) links.push(`file: <code>${escapeHtml(String(fileName))}</code>`);
+  if (userId) links.push(`userId: <code>${escapeHtml(String(userId))}</code>`);
+  if (email) links.push(`email: <code>${escapeHtml(String(email))}</code>`);
+  return `<div class="summary-card-wrap"><div class="summary-card">
+    <div class="summary-card-header"><div class="summary-card-kicker">Success</div>
+    <div class="summary-card-title">${escapeHtml(String(toolName || 'action'))}${mock}</div></div>
+    <div class="summary-card-body"><p class="summary-prose">${links.join('<br>') || escapeHtml(JSON.stringify(result))}</p></div>
+  </div></div>`;
+}
+
+async function confirmChatbotAction(actionId, sessionId) {
+  if (!actionId) return;
+  const processing = addProcessingMessage('Confirming action…');
+  try {
+    const res = await fetch('/actions/' + encodeURIComponent(actionId) + '/confirm?session_id=' + encodeURIComponent(sessionId), {
+      method: 'POST',
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (!res.ok) {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'Confirm failed'}`);
+      return;
+    }
+    window._chatbotPendingActionId = '';
+    clearEmptyState();
+    const div = document.createElement('div');
+    div.className = 'msg assistant has-summary';
+    div.innerHTML = `<div class="bubble"></div>${renderChatbotSuccess(data.result || {}, data.tool_name || '')}`;
+    const bubble = div.querySelector('.bubble');
+    bubble.textContent = data.status === 'executed' ? 'Action executed.' : String(data.status || 'done');
+    transcript.appendChild(div);
+    transcript.scrollTop = transcript.scrollHeight;
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Confirm network error');
+  }
+}
+
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result)
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -3627,8 +4425,13 @@ function renderAssistantMessage(body, sessionId, request) {
     details += gsCode.html;
     codeBlocks.push(gsCode);
   }
+  if (body.chatbot_result) {
+    const cbCode = renderChatbotResult(body.chatbot_result, request);
+    details += cbCode.html;
+    codeBlocks.push(cbCode);
+  }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -3670,6 +4473,9 @@ function renderAssistantMessage(body, sessionId, request) {
   }
   if (body.global_search_result) {
     bubbleText = body.reply || 'Global Search complete.';
+  }
+  if (body.chatbot_result) {
+    bubbleText = body.reply || 'Chatbot ready.';
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -4094,6 +4900,7 @@ async function sendApJob() {
   const formId = (document.getElementById('apFormId') && document.getElementById('apFormId').value.trim()) || '';
   const itemId = document.getElementById('apItemId').value.trim();
   const resource = document.getElementById('apResource').value.trim();
+  const connectorId = (document.getElementById('apConnectorId') && document.getElementById('apConnectorId').value.trim()) || '';
   const workflowId = document.getElementById('apWorkflowId').value.trim();
   const instanceId = document.getElementById('apInstanceId').value.trim();
   const repositoryId = (document.getElementById('apRepositoryId') && document.getElementById('apRepositoryId').value.trim()) || '';
@@ -4142,6 +4949,7 @@ async function sendApJob() {
           item_id: itemId || undefined,
           filepath: filepath || undefined,
           resource: resource || undefined,
+          connector_id: connectorId || undefined,
           workflow_id: workflowId || undefined,
           instance_id: instanceId || undefined,
           repositoryId: repositoryId || undefined,
@@ -4163,6 +4971,7 @@ async function sendApJob() {
       if (itemId) form.append('item_id', itemId);
       if (filepath) form.append('filepath', filepath);
       if (resource) form.append('resource', resource);
+      if (connectorId) form.append('connector_id', connectorId);
       if (workflowId) form.append('workflow_id', workflowId);
       if (instanceId) form.append('instance_id', instanceId);
       if (repositoryId) form.append('repositoryId', repositoryId);
@@ -4186,6 +4995,7 @@ async function sendApJob() {
           formid: formId || null,
           item_id: itemId || null,
           resource: resource || null,
+          connector_id: connectorId || null,
           workflow_id: workflowId || null,
           instance_id: instanceId || null,
           repositoryId: repositoryId || null,
@@ -4585,6 +5395,81 @@ async function sendGlobalSearchJob() {
   }
 }
 
+async function fileToUploadPayload(fileInput) {
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) return null;
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return {
+    file_name: file.name,
+    content_type: file.type || 'application/octet-stream',
+    content_base64: btoa(binary),
+  };
+}
+
+async function sendChatbotJob() {
+  const message = messageInput.value.trim() || 'help';
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const tenantId = consoleTenantId();
+  if (!tenantId) {
+    addSystemMessage('Select a tenant first — Chatbot is tenant-scoped.');
+    return;
+  }
+  const specificId = (document.getElementById('cbSpecificId') || {}).value || '';
+  const uploadInput = document.getElementById('cbUploadFile');
+  addUserMessage(message);
+  messageInput.value = '';
+  autosizeComposer();
+  const processing = addProcessingMessage('Chatbot…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+  try {
+    const payload = { tenantId: tenantId };
+    if (specificId.trim()) payload.specificId = specificId.trim();
+    if (Array.isArray(window._chatbotLastHits) && window._chatbotLastHits.length) {
+      payload.recentHits = window._chatbotLastHits;
+    }
+    if (window._chatbotPendingActionId) {
+      payload.pendingActionId = window._chatbotPendingActionId;
+    }
+    const upload = await fileToUploadPayload(uploadInput);
+    if (upload) payload.uploadFile = upload;
+    const body = {
+      session_id: sessionId,
+      intent: 'chatbot',
+      message: message,
+      payload: payload,
+    };
+    const request = { intent: 'chatbot', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      collapseFormsAfterResult(data);
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'Chatbot failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
 async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
@@ -4593,6 +5478,7 @@ async function sendMessage() {
   if (composerMode === 'prompt') return sendPromptJob();
   if (composerMode === 'pdf') return sendPdfJob();
   if (composerMode === 'global_search') return sendGlobalSearchJob();
+  if (composerMode === 'chatbot') return sendChatbotJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');
@@ -4636,6 +5522,17 @@ async function sendMessage() {
 composerForm.addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });
 const gsSendBtn = document.getElementById('gsSendBtn');
 if (gsSendBtn) gsSendBtn.addEventListener('click', () => sendGlobalSearchJob());
+const cbSendBtn = document.getElementById('cbSendBtn');
+if (cbSendBtn) cbSendBtn.addEventListener('click', () => sendChatbotJob());
+document.addEventListener('click', (ev) => {
+  const btn = ev.target && ev.target.closest ? ev.target.closest('.cb-confirm-btn') : null;
+  if (!btn) return;
+  const actionId = btn.getAttribute('data-action-id') || '';
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  confirmChatbotAction(actionId, sessionId);
+});
+
 messageInput.addEventListener('input', autosizeComposer);
 messageInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }

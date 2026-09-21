@@ -57,7 +57,7 @@ async def run(
         [
             {
                 "role": "system",
-                "content": rules.system_prompt(
+                "content": await rules.async_system_prompt(
                     max_recommended_fields=max_recommended_fields
                 ),
             },

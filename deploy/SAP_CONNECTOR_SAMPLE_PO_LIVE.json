@@ -1,0 +1,15 @@
+{
+  "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+  "tenant_name": "EZOFIS",
+  "connector_id": "983bddbe-6a1a-4cd8-a024-9b4d84ba9981",
+  "connector_name": "SAP BTP XSUAA",
+  "provider_code": "SAP_XSUAA",
+  "mode": "sample",
+  "sample_po_numbers": [
+    "PO-60001",
+    "PO-SAP-1001",
+    "PO-SAP-1002"
+  ],
+  "preserved_keys": [],
+  "api_base": "https://cloud.ezofis.com/api"
+}

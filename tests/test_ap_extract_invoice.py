@@ -127,6 +127,38 @@ INVOICE
     assert _guess_vendor(text) == "APEX INDUSTRIAL COMPONENTS LTD"
 
 
+def test_guess_vendor_prefers_bill_from_supplier_over_letterhead():
+    text = """
+Velotics Inc. · Company Code 1710
+Page 1
+Velotics Inc.
+ SUPPLIER INVOICE
+Bill From (Supplier)
+Bill To (Customer)
+17300006
+(MFG TopConsult Inc.)
+Velotics Inc.
+1000 Innovation Drive
+Reference
+4500062947
+"""
+    assert _guess_vendor(text) == "MFG TopConsult Inc."
+
+
+def test_guess_vendor_bill_from_without_inc_suffix():
+    text = """
+Velotics Inc. · Company Code 1710
+Bill From (Supplier)
+Bill To (Customer)
+17300001
+(Domestic US Supplier 1)
+Velotics Inc.
+Reference
+4500063646
+"""
+    assert _guess_vendor(text) == "Domestic US Supplier 1"
+
+
 def test_shape_ok_rejects_mismatched_label_value_pairs():
     assert _shape_ok("Invoice No", "Fed Ground") is False  # no digits at all
     assert _shape_ok("Invoice No", "INV-2026-6001") is True
@@ -134,7 +166,9 @@ def test_shape_ok_rejects_mismatched_label_value_pairs():
     assert _shape_ok("Due Date", "06/20/26") is True
     assert _shape_ok("Currency", "31") is False
     assert _shape_ok("Currency", "CAD") is True
-    assert _shape_ok("Terms", "anything at all") is True  # unchecked label
+    assert _shape_ok("Terms", "anything at all") is False
+    assert _shape_ok("Terms", "Net 30") is True
+    assert _shape_ok("Terms", "Net One Month") is True
 
 
 def test_column_layout_drops_a_shape_mismatched_pair_but_keeps_the_rest():
@@ -152,3 +186,47 @@ PO-60001
     assert "Invoice No" not in header
     assert header["PO Number"] == "PO-60001"
     assert header["Due Date"] == "06/20/26"
+
+
+def test_column_layout_maps_sap_reference_to_po_number():
+    text = """Invoice #
+Reference
+Terms
+5105665738/2026
+4500066847
+Net 30
+"""
+    header = _header_from_column_layout(text)
+    assert header["Invoice No"] == "5105665738/2026"
+    assert header["PO Number"] == "4500066847"
+
+
+def test_heuristic_uses_invoice_reference_and_subtotal_when_total_na():
+    from app.ap_skills.extract_invoice import _heuristic_from_text
+
+    text = """
+INVOICE
+Invoice Number
+N/A
+Invoice Reference
+4500034567
+Document Date
+2023-10-27
+PO Number
+4500034567
+Currency
+USD
+VENDOR
+PartSupply Corp
+Subtotal
+USD 25,841.72
+Tax
+N/A
+Total
+N/A
+"""
+    inv = _heuristic_from_text(text)
+    assert inv["po_number"] == "4500034567"
+    assert inv["invoice_number"] == "4500034567"
+    assert inv["vendor"]
+    assert "25841.72" in str(inv["total"]).replace(",", "")

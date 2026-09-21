@@ -78,11 +78,11 @@ async def run(ctx: ApContext) -> ApSkillResult:
     return ApSkillResult(
         skill_id=SKILL_ID,
         data={
-            "status": "ACTIVE",
+            "status": "UNVERIFIED",
             "vendor": vendor,
             "expected": None,
-            "match_score": 100,
+            "match_score": 0,
             "source": "heuristic",
-            "reason": "No PO or vendor master available; vendor name looks usable.",
+            "reason": "No PO or vendor master available; vendor name was not verified.",
         },
     )

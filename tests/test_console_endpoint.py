@@ -44,6 +44,13 @@ def test_console_serves_html(client):
     assert 'id="gsWorkspaceId"' not in response.text
     assert 'id="gsActionFrom"' not in response.text
     assert "buildChatCurl(request, 'global_search')" in response.text
+    assert "Chatbot" in response.text
+    assert 'id="cbPanel"' in response.text
+    assert "intent: 'chatbot'" in response.text
+    assert "function sendChatbotJob" in response.text
+    assert "function renderChatbotResult" in response.text
+    assert "cbSpecificId" in response.text
+    assert "buildChatCurl(request, 'chatbot')" in response.text
     assert 'id="promptFields"' in response.text
     assert "buildChatCurl" in response.text
     assert "function renderOcrResult" in response.text
