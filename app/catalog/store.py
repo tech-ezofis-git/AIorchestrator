@@ -16,6 +16,7 @@ logger = logging.getLogger("orchestrator.catalog")
 _MIGRATIONS = (
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0005_create_catalog_tables.sql",
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0006_create_catalog_tenant_agent_models.sql",
+    Path(__file__).resolve().parents[2] / "db" / "migrations" / "0007_add_agent_default_model.sql",
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0008_create_agent_pack_tables.sql",
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0009_create_ap_pipeline_tables.sql",
 )
