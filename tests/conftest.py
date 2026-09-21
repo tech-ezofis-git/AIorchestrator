@@ -48,6 +48,12 @@ def client(monkeypatch):
     monkeypatch.setenv("OCR_EXTRACT_URL", "")
     monkeypatch.delenv("AZURE_STORAGE_CONNECTION_STRING", raising=False)
     monkeypatch.delenv("CATALOG_DATABASE_URL", raising=False)
+    # Force mock Ezofis masters (pydantic still reads .env; empty overrides).
+    monkeypatch.setenv("EZOFIS_LOGIN_EMAIL", "")
+    monkeypatch.setenv("EZOFIS_LOGIN_PASSWORD", "")
+    monkeypatch.setenv("EZOFIS_ENV", "trial")
+    # Existing AP tests assert pre-Catalog behavior; enable flag in dedicated tests.
+    monkeypatch.setenv("AP_PIPELINE_FROM_DB", "false")
     from app.config import get_settings
 
     get_settings.cache_clear()

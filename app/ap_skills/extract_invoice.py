@@ -30,23 +30,14 @@ _LINE_KEYS = (
     "lines",
 )
 
+# Code fallback only when Catalog/disk AP pack is missing. Primary copy lives in
+# skills/ap/rules/extract.mdc (seeded to platform_agent_rules).
 _EXTRACT_PROMPT = (
     "Extract AP invoice fields from the OCR text. Reply with JSON only, no markdown: "
     '{"doc_type":"invoice"|"other","invoice_number":"","invoice_date":"","due_date":"",'
     '"terms":"","vendor":"","po_number":"","total":null,"currency":"","line_items":'
     '[{"description":"","qty":null,"price":null,"amount":null}]} '
-    "PDF OCR often puts table headers and values on separate lines. "
-    "If you see 'Invoice #' or 'Invoice No' then later a token like INV-2026-6001, "
-    "that token is invoice_number. Same for 'PO #' / PO-60001 → po_number; "
-    "SAP supplier invoices often label the PO as Reference on the line above the id. "
-    "Vendor is the seller letterhead (not Bill To). Prefer Bill From (Supplier) over "
-    "company letterhead when both appear. "
-    "Payment Terms / Terms (e.g. Net 30, Net One Month) → terms. "
-    "If due_date is missing but terms and invoice_date are present, leave due_date empty "
-    "(the system will compute it from terms). "
-    "Invoice Total / Amount Due is total. "
-    "If the text is only form labels (Terms, Currency, PO Number) with no values, "
-    "leave every field empty. Do not guess USD or copy a label as a value."
+    "Do not invent values; leave unknowns empty."
 )
 
 
@@ -715,9 +706,20 @@ async def _structure_with_llm(
         return None, None
     usage: Optional[dict[str, Any]] = None
     try:
+        from app.ap_skills.instructions import resolve_system_prompt
+
+        system = await resolve_system_prompt(
+            code_fallback=_EXTRACT_PROMPT,
+            tenant_id=ctx.tenant_id,
+            settings=ctx.settings,
+        )
+    except Exception:
+        logger.warning("ap_extract_instructions_failed", extra={"error_type": "instructions"})
+        system = _EXTRACT_PROMPT
+    try:
         result = await ctx.llm.chat_completion(
             [
-                {"role": "system", "content": _EXTRACT_PROMPT},
+                {"role": "system", "content": system},
                 {"role": "user", "content": ocr_text[:12000]},
             ],
             **(ctx.llm_overrides or {}),

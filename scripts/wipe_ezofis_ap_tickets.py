@@ -31,6 +31,15 @@ from app.catalog.url import (
 from app.config import get_settings
 
 TENANT = "b843b988-00ec-44e3-aca2-b8470133ef63"
+# Public DNS for the flexible server (ezv6psql is private/VNet-only).
+PUBLIC_PG_HOST = "postgrev6southinddb.postgres.database.azure.com"
+
+
+def rewrite_pg_host(url_or_cs: str) -> str:
+    """Map private/catalog hostnames to the public flexible-server FQDN."""
+    text = url_or_cs or ""
+    return text.replace("ezv6psql.postgres.database.azure.com", PUBLIC_PG_HOST)
+
 
 WORKFLOW_PREDICATE = """
 table_schema = 'workflow'
@@ -95,7 +104,9 @@ AND (
 
 async def connect_pools():
     settings = get_settings()
-    catalog_url = normalize_catalog_url(settings.catalog_database_url or "")
+    catalog_url = normalize_catalog_url(
+        rewrite_pg_host(settings.catalog_database_url or "")
+    )
     catalog_pool = await asyncpg.create_pool(
         catalog_url,
         min_size=1,
@@ -106,6 +117,7 @@ async def connect_pools():
     cs = await store.fetch_tenant_connection_string(TENANT)
     if not cs:
         raise SystemExit("No tenant ConnectionString for EZOFIS")
+    cs = rewrite_pg_host(cs)
     app_dsn_raw = asyncpg_url_from_connection_string(cs)
     app_dsn = normalize_catalog_url(app_dsn_raw)
     app_pool = await asyncpg.create_pool(
@@ -120,7 +132,7 @@ async def connect_pools():
     if derived:
         # Prefer swapping catalog host credentials onto tenant DB name.
         try:
-            swapped = replace_database_name(catalog_url, derived)
+            swapped = rewrite_pg_host(replace_database_name(catalog_url, derived))
             ap_dsn = normalize_catalog_url(swapped)
             ap_pool = await asyncpg.create_pool(
                 ap_dsn, min_size=1, max_size=2, **catalog_pool_kwargs(swapped)

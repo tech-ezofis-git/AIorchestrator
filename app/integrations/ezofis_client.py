@@ -10,6 +10,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import uuid
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 import httpx
@@ -18,6 +21,28 @@ from app.ap_skills.hana_po import hana_match_item_from_row
 from app.config import Settings, get_settings
 
 logger = logging.getLogger("orchestrator.ezofis")
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert UUID/Decimal/datetime (and nested structures) for httpx json=."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+    return str(value)
 
 
 class EzofisClient:
@@ -56,6 +81,33 @@ class EzofisClient:
             "content": None,
             "mock": True,
         }
+
+    async def get_workflow(self, *, tenant_id: str, workflow_id: str) -> dict[str, Any]:
+        """GET /workflows/{id} — includes designer workflowJson (AP_AGENT PoMaster)."""
+        wf_id = str(workflow_id or "").strip()
+        if not wf_id:
+            return {"ok": False, "error": "workflow_id is required"}
+        if not self._live_enabled():
+            return {"ok": True, "mock": True, "id": wf_id, "workflowJson": None}
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/workflows/{wf_id}"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.get(url, headers=headers)
+                if response.status_code != 200:
+                    return {
+                        "ok": False,
+                        "status_code": response.status_code,
+                        "detail": (response.text or "")[:300],
+                    }
+                data = response.json() if response.content else {}
+                if isinstance(data, dict):
+                    data["ok"] = True
+                    return data
+                return {"ok": True, "data": data}
+        except Exception as exc:
+            logger.warning("ezofis_get_workflow_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
 
     async def fetch_document(self, document_id: str) -> dict[str, Any]:
         return {
@@ -518,17 +570,46 @@ class EzofisClient:
             purchase_order = live.get("purchaseOrder") or live.get("purchase_order")
             source = live.get("source") or "sap"
             if isinstance(purchase_order, dict) and purchase_order:
-                return {
+                out: dict[str, Any] = {
                     "po_number": purchase_order.get("po_number")
                     or purchase_order.get("poNumber")
                     or live.get("poNumber")
                     or po_number,
-                    "vendor": purchase_order.get("vendor"),
+                    "vendor": purchase_order.get("vendor")
+                    or purchase_order.get("supplierName")
+                    or purchase_order.get("supplier_name"),
+                    "supplier_id": purchase_order.get("supplier_id")
+                    or purchase_order.get("supplierId"),
                     "total": purchase_order.get("total"),
                     "currency": purchase_order.get("currency"),
-                    "lines": purchase_order.get("lines") or [],
+                    "po_date": purchase_order.get("po_date") or purchase_order.get("poDate"),
+                    "terms": purchase_order.get("terms") or purchase_order.get("Terms"),
+                    "buyer": purchase_order.get("buyer") or purchase_order.get("Buyer"),
+                    "supplier_address": purchase_order.get("supplier_address")
+                    or purchase_order.get("Supplier Address"),
+                    "ship_to_address": purchase_order.get("ship_to_address")
+                    or purchase_order.get("Ship To Address"),
+                    "lines": purchase_order.get("lines")
+                    or purchase_order.get("items")
+                    or [],
                     "source": source,
                 }
+                # Preserve any extra SAP PO Master columns from Core.
+                skip = {
+                    "po_number",
+                    "poNumber",
+                    "vendor",
+                    "supplierName",
+                    "supplier_name",
+                    "lines",
+                    "items",
+                }
+                for key, value in purchase_order.items():
+                    if key in skip or key in out:
+                        continue
+                    if value is not None and value != "":
+                        out[key] = value
+                return {k: v for k, v in out.items() if v is not None and v != ""}
             if live.get("po_number") or live.get("vendor"):
                 out = dict(live)
                 out.setdefault("source", source)
@@ -559,18 +640,21 @@ class EzofisClient:
         for row in item.get("items") or []:
             if not isinstance(row, dict):
                 continue
-            lines.append(
-                {
-                    "line_no": row.get("itemNumber") or row.get("item_number"),
-                    "description": row.get("materialDescription") or row.get("material_description"),
-                    "qty": row.get("orderQuantity") or row.get("order_quantity"),
-                    "unit_price": row.get("netPrice") or row.get("net_price"),
-                    "amount": row.get("netValue") or row.get("net_value"),
-                }
-            )
             mapped = hana_match_item_from_row(row)
             if mapped:
                 match_items.append(mapped)
+            # Keep both matching aliases and full SAP/HANA master columns on lines.
+            line: dict[str, Any] = {
+                "line_no": row.get("itemNumber") or row.get("item_number"),
+                "description": row.get("materialDescription") or row.get("material_description"),
+                "qty": row.get("orderQuantity") or row.get("order_quantity"),
+                "unit_price": row.get("netPrice") or row.get("net_price"),
+                "amount": row.get("netValue") or row.get("net_value"),
+                "uom": row.get("unitOfMeasure") or row.get("unit_of_measure"),
+                "part_number": row.get("materialId") or row.get("material_id"),
+            }
+            line.update(mapped)
+            lines.append({k: v for k, v in line.items() if v is not None and v != ""})
         return {
             "po_number": item.get("poNumber") or item.get("po_number") or po_number,
             "vendor": item.get("supplierName") or item.get("supplier_name") or item.get("supplierId"),
@@ -837,8 +921,10 @@ class EzofisClient:
         try:
             headers = await self._auth_headers(tenant_id)
             url = f"{self._base()}/Workflows/instances/{instance_id}/move-next"
+            # asyncpg UUID / Decimal can appear inside AIAGENTResponse — make JSON-safe.
+            body = _json_safe(payload)
             async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
-                response = await client.post(url, headers=headers, json=payload)
+                response = await client.post(url, headers=headers, json=body)
                 if response.status_code not in (200, 201, 204):
                     detail = (response.text or "")[:300]
                     logger.warning(
@@ -848,11 +934,19 @@ class EzofisClient:
                     return {"ok": False, "status_code": response.status_code, "detail": detail}
                 if response.content:
                     try:
-                        body = response.json()
-                        if isinstance(body, dict):
-                            if "ok" not in body:
-                                body["ok"] = bool(body.get("success", True))
-                            return body
+                        parsed = response.json()
+                        if isinstance(parsed, dict):
+                            if "ok" not in parsed:
+                                success = parsed.get("success")
+                                if success is None:
+                                    success = parsed.get("Success")
+                                parsed["ok"] = True if success is None else bool(success)
+                            # Surface Core Message for "not advanced" detection.
+                            if not parsed.get("detail") and not parsed.get("message"):
+                                msg = parsed.get("message") or parsed.get("Message")
+                                if msg:
+                                    parsed["detail"] = str(msg)
+                            return parsed
                     except Exception:
                         pass
                 return {"ok": True}

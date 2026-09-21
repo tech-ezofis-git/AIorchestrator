@@ -44,7 +44,12 @@ def test_console_serves_html(client):
     assert 'id="gsWorkspaceId"' not in response.text
     assert 'id="gsActionFrom"' not in response.text
     assert "buildChatCurl(request, 'global_search')" in response.text
-    assert "Chatbot" in response.text
+    assert "Dashboard agent" in response.text
+    assert 'id="dashPanel"' in response.text
+    assert "dash-next-btn" in response.text
+    assert "Next: Propose schema" in response.text
+    assert "function renderDashboardResult" in response.text
+    assert "intent: 'dashboard'" in response.text
     assert 'id="cbPanel"' in response.text
     assert "intent: 'chatbot'" in response.text
     assert "function sendChatbotJob" in response.text
@@ -61,9 +66,14 @@ def test_console_serves_html(client):
     assert 'data-pack-tab="tenant"' in response.text
     assert "tenant-item-edit" in response.text
     assert "custom-skills" in response.text
-    assert "/console/summary-skills/defaults" in response.text
+    assert "/console/agent-packs/" in response.text
     assert "summaryRuleSaveBtn" in response.text
     assert "Enable" in response.text
+    assert 'id="apPipelineInspector"' in response.text
+    assert 'id="apSkillsChips"' in response.text
+    assert "ap-workbench" in response.text
+    assert "AP Agent" in response.text
+    assert "Let the planner decide skill order" in response.text
     assert "const body = attachConsoleTenantBody({ session_id: sessionId, message });" in response.text
     assert "function restoreEmptyState" in response.text
     assert "function renderChatReply" in response.text

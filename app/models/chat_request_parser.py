@@ -95,6 +95,16 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     )
     connector_id = _form_str(form.get("connector_id"))
     resource = _form_str(form.get("resource"))
+    master_source = (
+        _form_str(form.get("master_source"))
+        or _form_str(form.get("masterSource"))
+        or _form_str(form.get("MasterSource"))
+    )
+    master_form_id = (
+        _form_str(form.get("master_form_id"))
+        or _form_str(form.get("masterFormId"))
+        or _form_str(form.get("MasterFormId"))
+    )
     matter_master_id = _form_str(form.get("matter_master_id"))
     parameters = _parse_form_string_list(form, "parameters")
     tableparameters = _parse_form_string_list(form, "tableparameters")
@@ -103,6 +113,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     invoice_json = _parse_optional_json_object(_form_str(form.get("invoice_json")), field="invoice_json")
     insight_json = _parse_optional_json_object(_form_str(form.get("insight_json")), field="insight_json")
     summary_json = _parse_optional_json_object(_form_str(form.get("summary_json")), field="summary_json")
+    dashboard_json = _parse_optional_json_object(
+        _form_str(form.get("dashboard_json")) or _form_str(form.get("dashboardJson")),
+        field="dashboard_json",
+    )
     key_facts_count = _parse_optional_int(_form_str(form.get("key_facts_count")), field="key_facts_count")
     insights_count = _parse_optional_int(_form_str(form.get("insights_count")), field="insights_count")
     insight_area = _form_str(form.get("insight_area"))
@@ -164,6 +178,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or has_ap_fields
         or insight_json
         or summary_json
+        or dashboard_json
         or key_facts_count is not None
         or insights_count is not None
         or insight_area
@@ -182,6 +197,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             insight_json=insight_json,
             insights_count=insights_count,
             insight_area=insight_area,
+            dashboard_json=dashboard_json,
             pdf_json=pdf_json,
             template_name=template_name,
             template_json=template_json,
@@ -207,6 +223,8 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             activity_id=activity_id,
             connector_id=connector_id,
             resource=resource,
+            master_source=master_source,
+            master_form_id=master_form_id,
             matter_master_id=matter_master_id,
             form_id=form_id,
         )

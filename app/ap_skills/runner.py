@@ -212,15 +212,81 @@ class ApSkillRunner:
                     "deduplicated": True,
                 }
 
-        # null skills → DEFAULT_SKILL_ORDER; list → exactly those ids.
-        # EZOFIS tenant: always run HANA PO lookup before po_match.
-        skills = resolve_skills(requested=requested)
-        skills = ensure_ezofis_hana_po_lookup(skills, tenant_id=tenant_id)
+        # null skills → Catalog pipeline (when AP_PIPELINE_FROM_DB) else
+        # DEFAULT_SKILL_ORDER; explicit skills list wins. HANA/SAP inject is
+        # Catalog-gated (flags.force_hana_po_lookup) — no silent force.
+        pipeline = None
+        pipeline_from_db = bool(getattr(self._settings, "ap_pipeline_from_db", False))
+        if pipeline_from_db:
+            from app.ap_pipeline.resolve import (
+                apply_connector_defaults,
+                attach_pipeline_policy,
+                merge_thresholds,
+                resolve_pipeline_config,
+            )
+
+            try:
+                pipeline = await resolve_pipeline_config(tenant_id)
+            except Exception as exc:
+                logger.warning(
+                    "ap_pipeline_resolve_failed",
+                    extra={"error_type": type(exc).__name__, "tenant_id": tenant_id},
+                )
+                pipeline = None
+            if pipeline is not None:
+                apply_connector_defaults(document_job, pipeline)
+                thresholds = merge_thresholds(
+                    plan_thresholds=thresholds,
+                    pipeline=pipeline,
+                )
+
+        # Always flatten Catalog/code policy onto thresholds (step name, labels, floors).
+        from app.ap_pipeline.policy import apply_policy_to_thresholds
+        from app.ap_pipeline.resolve import attach_pipeline_policy
+
+        if pipeline is not None:
+            thresholds = attach_pipeline_policy(
+                thresholds, pipeline, settings=self._settings
+            )
+        else:
+            thresholds = apply_policy_to_thresholds(
+                thresholds, pipeline_policy=None, settings=self._settings
+            )
+
+        default_order = None
+        enabled = None
+        # Catalog path: opt-in only. Legacy rollback (flag off): allow inject
+        # when Workflow asks for SAP/HANA (previous code default).
+        force_hana = False if pipeline_from_db else True
+        use_planner = bool(getattr(self._settings, "ap_llm_planner", False))
+        if pipeline is not None:
+            flags = pipeline.flags or {}
+            force_hana = bool(flags.get("force_hana_po_lookup", False))
+            if requested is None:
+                default_order = list(pipeline.skills_order)
+                enabled = pipeline.skills_enabled
+                if "use_planner" in flags:
+                    use_planner = bool(flags["use_planner"])
+
+        skills = resolve_skills(
+            requested=requested,
+            enabled=enabled,
+            default_order=default_order,
+        )
+        skills = ensure_ezofis_hana_po_lookup(
+            skills,
+            tenant_id=tenant_id,
+            force=force_hana,
+            document_job=document_job,
+            thresholds=thresholds,
+        )
         skills = await maybe_reorder(
             skills,
             llm=self._llm,
-            use_planner=bool(getattr(self._settings, "ap_llm_planner", False)) and requested is None,
+            use_planner=use_planner and requested is None,
             llm_overrides=document_job.get("llm_overrides"),
+            tenant_id=tenant_id,
+            settings=self._settings,
         )
         if not skills:
             raise ApSkillError("No skills to run.")
@@ -283,6 +349,35 @@ class ApSkillRunner:
                     document_job["form_entry_id"] = str(latest)
             merge_ids_into_job(document_job, resolve_metadata_ids(document_job, document_job.get("form_id")))
             ctx.form_id = str(document_job.get("form_id") or "").strip() or ctx.form_id
+            # Permanent PoMaster: if Core Hangfire omitted master_form_id, read it from
+            # workflow designer JSON (AP_AGENT settings.formId / apAgent.formId).
+            try:
+                from app.ap_skills.po_master_resolve import ensure_master_form_id_on_job
+
+                if not str(
+                    document_job.get("master_form_id") or document_job.get("masterFormId") or ""
+                ).strip():
+                    wf_id = str(
+                        document_job.get("workflow_id")
+                        or document_job.get("workflowId")
+                        or ""
+                    ).strip()
+                    if wf_id and hasattr(self._ezofis, "get_workflow"):
+                        wf = await self._ezofis.get_workflow(tenant_id=tenant_id, workflow_id=wf_id)
+                        wj = (wf or {}).get("workflowJson") or (wf or {}).get("workflow_json")
+                        if ensure_master_form_id_on_job(document_job, wj):
+                            logger.info(
+                                "ap_master_form_id_resolved_from_workflow",
+                                extra={
+                                    "workflow_id": wf_id,
+                                    "master_form_id": document_job.get("master_form_id"),
+                                },
+                            )
+            except Exception as resolve_exc:
+                logger.warning(
+                    "ap_master_form_id_resolve_failed",
+                    extra={"error_type": type(resolve_exc).__name__},
+                )
             ctx.document_job = document_job
         except Exception as exc:
             logger.warning("ap_ticket_hydrate_failed", extra={"error_type": type(exc).__name__})
@@ -414,15 +509,24 @@ class ApSkillRunner:
             finalize = ctx.artifacts.get("finalize_decision") or {}
             decision = finalize.get("decision") or (ctx.artifacts.get("po_match") or {}).get("decision")
             status, data_quality = _run_status_and_quality(ctx.artifacts, finalize)
+            move = ctx.artifacts.get("workflow_move_next") or {}
+            move_failed = (
+                isinstance(move, dict)
+                and move.get("ok") is False
+                and not move.get("skipped")
+            )
             await self._store.finish_run(
                 run_id=run_id,
                 tenant_id=tenant_id,
-                status=status,
+                status="failed" if move_failed else status,
                 decision=decision,
                 credits_charged=credits_charged,
                 data_quality=data_quality,
             )
-            await progress.completed()
+            if move_failed:
+                await progress.failed()
+            else:
+                await progress.completed()
             return {
                 "run_id": run_id,
                 "tenant_id": tenant_id,
@@ -430,7 +534,7 @@ class ApSkillRunner:
                 "skills_run": skills_run,
                 "credits_charged": credits_charged,
                 "decision": decision,
-                "status": status,
+                "status": "failed" if move_failed else status,
                 "data_quality": data_quality,
                 "token_usage": token_usage_total,
                 "artifacts": {k: ctx.artifacts[k] for k in skills_run},

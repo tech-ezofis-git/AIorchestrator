@@ -43,7 +43,7 @@ async def run(
 
     result = await llm.chat_completion(
         [
-            {"role": "system", "content": rules.system_prompt(tenant_id=tenant_id)},
+            {"role": "system", "content": await rules.async_system_prompt(tenant_id=tenant_id)},
             {
                 "role": "user",
                 "content": rules.build_user_prompt(

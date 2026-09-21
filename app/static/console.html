@@ -3,50 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EZOFIS — Ask AI</title>
+<title>EZOFIS — AI Orchestrator</title>
 <link rel="icon" href="/static/ezofis-logo-mark.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
+    /* Base44 shell — global (all agents) */
     --cyan: #22d3ee;
-    --periwinkle: #6366f1;
-    --violet: #a855f7;
-    --violet-deep: #7c3aed;
-    --brand: var(--violet);
-    --brand-hover: #9333ea;
-    --brand-deep: var(--violet-deep);
-    --brand-ink: #581c87;
-    --brand-soft: rgba(168, 85, 247, 0.08);
-    --brand-mist: rgba(168, 85, 247, 0.14);
-    --brand-glow: rgba(168, 85, 247, 0.25);
-    --brand-glow-cyan: rgba(34, 211, 238, 0.2);
-    --gradient-brand: linear-gradient(135deg, #22d3ee 0%, #818cf8 48%, #a855f7 100%);
-    --gradient-brand-hover: linear-gradient(135deg, #06b6d4 0%, #6366f1 50%, #9333ea 100%);
-    --gradient-soft: linear-gradient(135deg, rgba(34,211,238,0.12) 0%, rgba(129,140,248,0.1) 50%, rgba(168,85,247,0.1) 100%);
-    --glass: rgba(255, 255, 255, 0.72);
-    --glass-border: rgba(255, 255, 255, 0.88);
-    --ink: #18122b;
-    --ink-2: #3d3550;
-    --ink-3: #6b6280;
-    --ink-4: #9d94ad;
-    --line: rgba(24, 18, 43, 0.08);
-    --line-strong: rgba(24, 18, 43, 0.14);
-    --surface: rgba(255, 255, 255, 0.92);
-    --surface-2: rgba(255, 255, 255, 0.65);
-    --surface-3: rgba(248, 246, 252, 0.9);
+    --periwinkle: #64748b;
+    --violet: #0f172a;
+    --violet-deep: #1e293b;
+    --brand: #0f172a;
+    --brand-hover: #1e293b;
+    --brand-deep: #0f172a;
+    --brand-ink: #0f172a;
+    --brand-soft: #f1f5f9;
+    --brand-mist: #e2e8f0;
+    --brand-glow: rgba(15, 23, 42, 0.12);
+    --brand-glow-cyan: rgba(15, 23, 42, 0.08);
+    --gradient-brand: #0f172a;
+    --gradient-brand-hover: #1e293b;
+    --gradient-soft: #f8fafc;
+    --glass: #ffffff;
+    --glass-border: #e2e8f0;
+    --ink: #0f172a;
+    --ink-2: #334155;
+    --ink-3: #64748b;
+    --ink-4: #94a3b8;
+    --line: #e2e8f0;
+    --line-strong: #cbd5e1;
+    --surface: #ffffff;
+    --surface-2: #ffffff;
+    --surface-3: #f8fafc;
     --danger: #f43f5e;
     --warn: #f97316;
     --ok: #10b981;
-    --info: var(--periwinkle);
-    --radius: 16px;
-    --radius-sm: 12px;
-    --radius-lg: 24px;
+    --info: #64748b;
+    --radius: 14px;
+    --radius-sm: 10px;
+    --radius-lg: 16px;
     --radius-pill: 999px;
-    --shadow-sm: 0 1px 2px rgba(24, 18, 43, 0.04);
-    --shadow: 0 4px 24px rgba(24, 18, 43, 0.06), 0 1px 0 rgba(255,255,255,0.9) inset;
-    --shadow-lg: 0 12px 40px rgba(99, 102, 241, 0.14);
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.08);
     --display: "Sora", "Plus Jakarta Sans", system-ui, sans-serif;
     --font: "Plus Jakarta Sans", system-ui, sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
@@ -76,92 +77,69 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    background:
-      radial-gradient(1200px 700px at 8% -10%, rgba(34, 211, 238, 0.18), transparent 55%),
-      radial-gradient(900px 600px at 92% 0%, rgba(168, 85, 247, 0.2), transparent 50%),
-      radial-gradient(700px 500px at 50% 110%, rgba(99, 102, 241, 0.12), transparent 55%),
-      #efeaf8;
+    background: #f1f5f9;
     overflow: hidden;
   }
-  body::before, body::after {
-    content: "";
-    position: fixed; inset: -20% -10% auto auto;
-    width: 70vw; height: 70vh; pointer-events: none; z-index: 0;
-    border-radius: 50%; filter: blur(90px);
-    animation: auroraDrift 18s ease-in-out infinite alternate;
-  }
-  body::before {
-    background: radial-gradient(circle, rgba(34, 211, 238, 0.32), transparent 62%);
-    top: -18%; left: -12%;
-  }
-  body::after {
-    background: radial-gradient(circle, rgba(168, 85, 247, 0.3), transparent 60%);
-    top: -8%; right: -18%;
-    animation-delay: -7s; animation-duration: 22s;
-  }
-  .mesh-blob {
-    position: fixed; width: 42vw; height: 42vw; pointer-events: none; z-index: 0;
-    border-radius: 50%; filter: blur(90px);
-    background: radial-gradient(circle, rgba(129, 140, 248, 0.22), transparent 68%);
-    bottom: -18%; left: 28%;
-    animation: auroraDrift 26s ease-in-out infinite alternate-reverse;
-  }
-  .grain {
-    position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .045;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    mix-blend-mode: overlay;
-  }
-  @keyframes auroraDrift {
-    from { transform: translate3d(0, 0, 0) scale(1); }
-    to { transform: translate3d(6%, 8%, 0) scale(1.12); }
-  }
+  body::before, body::after, .mesh-blob, .grain { display: none; }
   header, .layout, .catalog-shell { position: relative; z-index: 1; }
   code { font-family: var(--mono); font-size: 0.88em; background: var(--brand-soft); padding: 0.12em 0.4em; border-radius: 6px; }
 
-  /* —— Header —— */
+  /* —— Header (Base44) —— */
   header {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 10px 18px;
-    margin: 8px 10px 0;
+    padding: 12px 18px;
+    margin: 0;
     max-width: none;
-    background: rgba(255,255,255,0.62);
-    backdrop-filter: blur(28px) saturate(180%);
-    -webkit-backdrop-filter: blur(28px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    border-radius: 18px;
-    box-shadow: var(--shadow);
+    background: #fff;
+    border: none;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: none;
     position: relative;
     flex: 0 0 auto;
     z-index: 20;
-    animation: fadeDown .5s ease both;
-  }
-  @keyframes fadeDown {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: none; }
   }
   header::after { display: none; }
-  header .brand-mark {
-    width: 40px; height: 40px; border-radius: 12px;
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.8), 0 8px 20px rgba(168, 85, 247, 0.2);
+  header .brand-lockup {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 0 0 auto;
+    text-decoration: none;
+    color: inherit;
   }
-  header .brand-copy { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header .brand-mark {
+    width: 36px; height: 36px; border-radius: 10px;
+    display: block; flex: 0 0 auto;
+    box-shadow: none;
+  }
+  header .brand-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    line-height: 1.15;
+  }
   header h1 {
     font-family: var(--display);
-    font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.04em;
+    font-size: 15px; font-weight: 800; margin: 0; letter-spacing: -0.03em;
     color: var(--ink);
+  }
+  header .brand-sub {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-3);
+    letter-spacing: 0.01em;
   }
   header .title-badge {
     font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
     padding: 5px 11px; border-radius: var(--radius-pill);
-    background: var(--gradient-brand); color: #fff;
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
-    animation: badgePulse 4.5s ease-in-out infinite;
-  }
-  @keyframes badgePulse {
-    0%, 100% { box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25); transform: scale(1); }
-    50% { box-shadow: 0 6px 18px rgba(168, 85, 247, 0.45); transform: scale(1.03); }
+    background: #0f172a; color: #fff;
+    box-shadow: none;
+    margin-left: 8px;
   }
   header .sub { display: none; }
   .health {
@@ -219,12 +197,11 @@
   }
 
   .panel {
-    background: var(--glass);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: none;
+    backdrop-filter: none;
   }
   .card { /* legacy class kept for JS-era markup */ }
 
@@ -235,6 +212,7 @@
     align-self: stretch;
     display: flex;
     flex-direction: column;
+    background: #fff;
   }
   .sidebar .settings-fold { margin-top: auto; }
   .sidebar-section + .sidebar-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
@@ -268,21 +246,23 @@
   }
   button:active:not(:disabled) { transform: scale(0.98); }
   .btn-primary {
-    background: var(--gradient-brand);
+    background: #0f172a;
     color: #fff; padding: 10px 16px; font-size: 13px;
-    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35), 0 1px 0 rgba(255,255,255,0.2) inset;
+    border-radius: 12px;
+    box-shadow: none;
   }
   .btn-primary:hover:not(:disabled) {
-    background: var(--gradient-brand-hover);
-    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
-    transform: translateY(-1px);
+    background: #1e293b;
+    box-shadow: none;
+    transform: none;
   }
   .btn-primary:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
   .btn-ghost {
-    background: rgba(255,255,255,0.75); color: var(--ink-2); padding: 9px 14px; font-size: 12px;
+    background: #fff; color: var(--ink); padding: 9px 14px; font-size: 12px;
     border: 1px solid var(--line);
+    border-radius: 12px;
   }
-  .btn-ghost:hover { background: #fff; border-color: var(--line-strong); color: var(--ink); }
+  .btn-ghost:hover { background: #f8fafc; border-color: var(--line-strong); color: var(--ink); }
   .btn-secondary { background: var(--brand-soft); color: var(--brand-deep); padding: 7px 12px; font-size: 12px; }
 
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
@@ -292,40 +272,34 @@
     font-weight: 600; transition: all .2s ease;
   }
   .chip:hover, .chip.active {
-    background: var(--gradient-brand); color: #fff; border-color: transparent;
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    background: #0f172a; color: #fff; border-color: transparent;
+    box-shadow: none;
   }
 
   .cap-actions { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 4px; }
   .cap-btn {
     display: flex; align-items: center; gap: 10px;
     width: 100%; text-align: left; font-size: 13px; font-weight: 600;
-    padding: 11px 12px; border-radius: 14px;
-    background: rgba(255, 255, 255, 0.55);
+    padding: 11px 12px; border-radius: 12px;
+    background: transparent;
     color: var(--ink-2); border: 1px solid transparent;
-    animation: fadeUp .45s ease both;
+    letter-spacing: 0.02em;
   }
-  .cap-btn:nth-child(1) { animation-delay: .04s; }
-  .cap-btn:nth-child(2) { animation-delay: .08s; }
-  .cap-btn:nth-child(3) { animation-delay: .12s; }
-  .cap-btn:nth-child(4) { animation-delay: .16s; }
-  .cap-btn:nth-child(5) { animation-delay: .2s; }
-  .cap-btn:nth-child(6) { animation-delay: .24s; }
   .cap-btn .cap-ico {
     width: 28px; height: 28px; border-radius: 9px; flex-shrink: 0;
     display: grid; place-items: center;
-    background: var(--gradient-soft); color: var(--brand-deep);
+    background: #f1f5f9; color: var(--ink-2);
   }
   .cap-btn .cap-ico svg { width: 15px; height: 15px; }
   .cap-btn .dot { display: none; }
   .cap-btn:hover {
-    border-color: rgba(129, 140, 248, 0.35); background: #fff;
-    color: var(--ink); transform: translateX(3px); box-shadow: var(--shadow-sm);
+    border-color: var(--line); background: #f8fafc;
+    color: var(--ink); transform: none; box-shadow: none;
   }
   .cap-btn.active {
-    background: var(--gradient-brand);
-    color: #fff; border-color: transparent;
-    box-shadow: 0 10px 28px rgba(99, 102, 241, 0.32);
+    background: #0f172a;
+    color: #fff; border-color: #0f172a;
+    box-shadow: none;
     transform: none;
   }
   .cap-btn.active .cap-ico { background: rgba(255,255,255,0.22); color: #fff; }
@@ -628,6 +602,7 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
   }
+  .dash-preview { width: 100%; min-height: 520px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
   @media (max-width: 700px) { .ocr-grid { grid-template-columns: 1fr; } }
   .ocr-grid label { display: block; font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: 4px; }
   .ocr-grid textarea { min-height: 54px; resize: vertical; }
@@ -949,6 +924,83 @@
     overflow: hidden;
   }
   .pack-tab-panel.hidden { display: none; }
+  .ap-pipe-skill-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: thin;
+  }
+  .ap-pipe-skill-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    font-size: 12px;
+  }
+  .ap-pipe-skill-row.off { opacity: 0.55; }
+  .ap-pipe-skill-row label {
+    display: flex; align-items: center; gap: 8px; margin: 0; cursor: pointer;
+    font-weight: 600; color: var(--ink);
+  }
+  .ap-pipe-skill-row .ap-pipe-move { display: flex; gap: 4px; }
+  .ap-pipe-skill-row .ap-pipe-move button {
+    padding: 4px 8px; font-size: 11px; line-height: 1;
+  }
+  .ap-pipe-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    padding: 10px 14px 14px;
+    border-top: 1px solid var(--line);
+    flex-shrink: 0;
+  }
+  .ap-pipe-form .span-all { grid-column: 1 / -1; }
+  .ap-pipe-form label { font-size: 11px; font-weight: 600; color: var(--ink-2); display: block; margin-bottom: 4px; }
+  .ap-pipe-form input[type="text"],
+  .ap-pipe-form input[type="number"] {
+    width: 100%;
+  }
+  .ap-pipe-form .check-row {
+    display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600;
+  }
+  .ap-pipe-actions {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    padding: 0 14px 14px;
+  }
+  .ap-pipe-banner {
+    margin: 10px 14px 0;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    line-height: 1.4;
+    background: #fff7ed;
+    color: #9a3412;
+  }
+  .ap-pipe-banner.ok { background: #ecfdf5; color: var(--ok); }
+  .ap-pipe-readonly {
+    padding: 10px 14px 14px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    font-size: 12px;
+  }
+  .ap-pipe-readonly pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--ink-2);
+  }
   .pack-split {
     flex: 1;
     min-height: 0;
@@ -957,13 +1009,20 @@
   }
   .pack-asset-list {
     flex: 0 0 auto;
-    max-height: 42%;
+    max-height: min(38%, 220px);
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 8px;
     border-bottom: 1px solid var(--line);
     display: flex;
     flex-direction: column;
     gap: 4px;
+    scrollbar-width: thin;
+  }
+  .pack-asset-list::-webkit-scrollbar { width: 6px; }
+  .pack-asset-list::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.35);
+    border-radius: 99px;
   }
   .pack-asset-item {
     display: grid;
@@ -1076,7 +1135,9 @@
     padding: 10px 12px;
     font-size: 11px;
     line-height: 1.55;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
     white-space: pre-wrap;
     word-break: break-word;
     font-family: var(--mono);
@@ -1115,19 +1176,27 @@
   .pack-custom-list {
     flex: 1;
     min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 12px 14px;
     display: flex;
     flex-direction: column;
     gap: 10px;
+    scrollbar-width: thin;
+  }
+  .pack-custom-list::-webkit-scrollbar { width: 6px; }
+  .pack-custom-list::-webkit-scrollbar-thumb {
+    background: rgba(100, 116, 139, 0.35);
+    border-radius: 99px;
   }
   .pack-log-details {
     flex-shrink: 0;
-    margin: 0 14px 14px;
+    margin: 0 14px 12px;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     background: rgba(255,255,255,0.5);
     overflow: hidden;
+    max-height: 28%;
   }
   .pack-log-details > summary {
     padding: 8px 12px;
@@ -1183,8 +1252,8 @@
     margin: 0;
     font-size: 11px;
     line-height: 1.5;
-    max-height: 120px;
-    overflow: auto;
+    max-height: 96px;
+    overflow: hidden;
     white-space: pre-wrap;
     font-family: var(--mono);
     color: var(--ink-2);
@@ -1193,10 +1262,11 @@
     padding: 10px;
     border: 1px solid var(--line);
   }
+  .tenant-custom-card.editing .tenant-rule-preview { display: none; }
   .tenant-rule-editor {
     width: 100%;
-    min-height: 140px;
-    max-height: 220px;
+    min-height: 120px;
+    max-height: 180px;
     margin: 0;
     padding: 10px;
     font-size: 11px;
@@ -1208,6 +1278,7 @@
     border-radius: var(--radius-sm);
     resize: vertical;
     box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.08);
+    box-sizing: border-box;
   }
   .tenant-custom-card {
     border: 1px solid var(--line);
@@ -1285,13 +1356,15 @@
   .tenant-upload-row input[type=file] { flex: 1; min-width: 180px; font-size: 12px; }
   .tenant-source-file { font-size: 10px; color: var(--ink-3); margin-top: 4px; }
   .tenant-log {
-    margin-top: 12px;
+    margin: 0;
+    padding: 8px 12px 10px;
     font-size: 10.5px;
     color: var(--ink-3);
-    max-height: 120px;
-    overflow: auto;
+    max-height: 88px;
+    overflow-x: hidden;
+    overflow-y: auto;
     border-top: 1px solid var(--line);
-    padding-top: 8px;
+    scrollbar-width: thin;
   }
   .tenant-log div { margin-bottom: 4px; font-family: var(--mono); }
 
@@ -1609,6 +1682,181 @@
       grid-template-columns: 1fr;
     }
   }
+
+  /* —— Base44 AP document / pipeline panels —— */
+  .ap-panel-b44 {
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: #fff;
+    overflow: hidden;
+  }
+  .ap-panel-b44 > summary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    background: #fff;
+  }
+  .ap-panel-b44 > summary::-webkit-details-marker { display: none; }
+  .ap-panel-b44 > summary .ap-panel-kicker {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-4);
+  }
+  .ap-doc-body {
+    padding: 14px 16px 16px;
+    display: grid;
+    gap: 12px;
+  }
+  .ap-doc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+  }
+  .ap-doc-grid .span-all { grid-column: 1 / -1; }
+  .ap-doc-grid label,
+  .ap-doc-body > label {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 5px;
+  }
+  .ap-doc-grid input,
+  .ap-doc-grid textarea,
+  .ap-doc-body textarea {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+    padding: 9px 11px;
+    font-size: 13px;
+  }
+  .ap-skills-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .ap-skill-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-2);
+    cursor: pointer;
+  }
+  .ap-skill-chip.on {
+    background: #0f172a;
+    border-color: #0f172a;
+    color: #fff;
+  }
+  .ap-skill-chip .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: currentColor; opacity: 0.7;
+  }
+  .ap-skills-meta {
+    font-size: 11px;
+    color: var(--ink-4);
+    margin-top: 6px;
+  }
+  .ap-doc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .ap-run-note {
+    flex: 1;
+    min-width: 160px;
+  }
+  .pack-inspector-title h2 {
+    font-size: 15px;
+    letter-spacing: -0.02em;
+  }
+  .pack-tab {
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 650;
+  }
+  .pack-tab.active {
+    background: #fff;
+    color: var(--ink);
+    box-shadow: 0 1px 2px rgba(15,23,42,.06);
+  }
+  .pack-tabs {
+    background: #f1f5f9;
+    border-radius: 12px;
+    padding: 3px;
+  }
+  .ap-pipe-banner.ok {
+    background: #f0fdf4;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+  }
+  .ap-pipe-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 10px;
+    background: #fff;
+  }
+  .ap-pipe-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    background: #f8fafc;
+    border-bottom: 1px solid var(--line);
+  }
+  .ap-pipe-card pre {
+    margin: 0;
+    padding: 10px 12px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.45;
+    overflow: auto;
+    max-height: 220px;
+  }
+  .ap-pipe-skill-row {
+    border-radius: 10px;
+    background: #fff;
+  }
+  .ap-pipe-form {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .ap-pipe-thresholds {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+  @media (max-width: 1100px) {
+    .ap-doc-grid,
+    .ap-pipe-form,
+    .ap-pipe-thresholds { grid-template-columns: 1fr 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -1616,11 +1864,20 @@
 <div class="grain" aria-hidden="true"></div>
 
 <header>
-  <img class="brand-mark" src="/static/ezofis-logo-mark.png" alt="EZOFIS">
-  <div class="brand-copy">
-    <h1>EZOFIS AI Orchestrator</h1>
-    <span class="title-badge">Ask AI</span>
-  </div>
+  <a class="brand-lockup" href="/console" aria-label="EZOFIS AI Orchestrator">
+    <svg class="brand-mark" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect width="40" height="40" rx="10" fill="#0f172a"/>
+      <path d="M10 26.5L18.5 20L10 13.5" stroke="#94a3b8" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M16.5 26.5L25 20L16.5 13.5" stroke="#cbd5e1" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M23 26.5L31.5 20L23 13.5" stroke="#f8fafc" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="brand-copy">
+      <h1>EZOFIS</h1>
+      <span class="brand-sub">AI Orchestrator</span>
+    </div>
+  </a>
+  <span class="title-badge">Ask AI</span>
+  <div style="flex:1"></div>
   <div class="health">
     <span class="health-dot" id="healthDot"></span>
     <span class="health-label" id="healthLabel">checking…</span>
@@ -1648,7 +1905,7 @@
   </div>
 </div>
 
-<div class="layout" id="chatView">
+<div class="layout ap-workbench" id="chatView">
   <aside class="panel sidebar">
     <div class="sidebar-section">
       <h2>Agents</h2>
@@ -1846,52 +2103,97 @@ Due Date,DATE</textarea>
       </div>
       </div>
     </details>
-    <details class="ocr-panel" id="apPanel">
-      <summary>AP document</summary>
-      <div class="ocr-grid">
-        <div>
-          <label for="apFile">File</label>
-          <input type="file" id="apFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
-        </div>
-        <div>
-          <label for="apFilepath">Blob path</label>
-          <input type="text" id="apFilepath" placeholder="folder/file.pdf" />
-        </div>
-        <details class="more-options">
-          <summary>More options</summary>
-          <div class="more-grid">
-        <div>
-          <label for="apPageno">Page</label>
-          <input type="text" id="apPageno" value="1" placeholder="1 or -1" />
-        </div>
-        <div>
-          <label for="apTenant">Tenant</label>
-          <input type="text" id="apTenant" value="default" />
-        </div>
-        <div>
-          <label for="apFormId">Form</label>
-          <input type="text" id="apFormId" placeholder="formid" />
-        </div>
-        <div>
-          <label for="apItemId">Item</label>
-          <input type="text" id="apItemId" placeholder="item_id" />
-        </div>
-        <div>
-          <label for="apResource">Resource</label>
-          <input type="text" id="apResource" placeholder="SAP, QUICKBOOKS, or SAGE" />
-        </div>
-        <div>
-          <label for="apConnectorId">Connector</label>
-          <input type="text" id="apConnectorId" placeholder="f7636e21-1a0c-457c-a2b4-e28430705477 (HANA PO)" />
-        </div>
-        <div class="span-all">
-          <label for="apSkills">Skills</label>
-          <textarea id="apSkills" placeholder="extract_invoice&#10;po_lookup_sap&#10;po_match&#10;finalize_decision"></textarea>
-          <p class="tenant-skills-hint" style="margin:6px 0 0">EZOFIS HANA PO: Resource=<code>SAP</code> or <code>HANA</code>, Connector=<code>f7636e21-1a0c-457c-a2b4-e28430705477</code> (defaults on EZOFIS tenant), skills <code>po_lookup_sap</code> → <code>po_match</code>, <code>po_number</code>=<code>4500069456</code>. Legacy SAP sample: <code>983bddbe-…</code>, <code>PO-60001</code>.</p>
-        </div>
-        <div class="span-all">
-          <label for="apInvoiceJson">invoice_json</label>
-          <textarea id="apInvoiceJson" placeholder='{"invoice_number":"INV-100",...}'>{
+    <details class="ocr-panel ap-panel-b44" id="apPanel" open>
+      <summary>
+        <span class="ap-panel-kicker">AP</span>
+        <span>AP Document</span>
+      </summary>
+      <div class="ap-doc-body">
+        <p class="field-hint" style="margin:0">Add an invoice file or JSON, then Run AP.</p>
+        <div class="ap-doc-grid">
+          <div>
+            <label for="apFile">File</label>
+            <input type="file" id="apFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
+          </div>
+          <div>
+            <label for="apFilepath">Blob path — folder/file.pdf</label>
+            <input type="text" id="apFilepath" placeholder="folder/file.pdf" />
+          </div>
+          <div>
+            <label for="apPageno">Page — 1 or -1</label>
+            <input type="text" id="apPageno" value="1" placeholder="1 or -1" />
+          </div>
+          <div>
+            <label for="apTenant">Tenant</label>
+            <input type="text" id="apTenant" value="default" placeholder="tenant-id" />
+          </div>
+          <div>
+            <label for="apFormId">Form ID</label>
+            <input type="text" id="apFormId" placeholder="formId" />
+          </div>
+          <div>
+            <label for="apItemId">Item ID</label>
+            <input type="text" id="apItemId" placeholder="itemId" />
+          </div>
+          <div>
+            <label for="apResource">Resource</label>
+            <input type="text" id="apResource" placeholder="SAP / HANA / QUICKBOOKS / SAGE" />
+          </div>
+          <div>
+            <label for="apConnectorId">Connector ID</label>
+            <input type="text" id="apConnectorId" placeholder="connector GUID" />
+          </div>
+          <div class="span-all">
+            <label>Skills list <span class="ap-skills-meta" id="apSkillsMeta"></span></label>
+            <div class="ap-skills-chips" id="apSkillsChips" aria-label="Skills list"></div>
+            <textarea id="apSkills" hidden placeholder="extract_invoice&#10;po_lookup_sap&#10;po_match&#10;finalize_decision">extract_invoice
+po_lookup_sap
+po_match
+duplicate_detect
+vendor_validate</textarea>
+          </div>
+          <div class="span-all">
+            <details class="more-options">
+              <summary>More options</summary>
+              <div class="more-grid ap-doc-grid" style="margin-top:10px">
+                <div>
+                  <label for="apWorkflowId">Workflow ID</label>
+                  <input type="text" id="apWorkflowId" placeholder="workflowId" />
+                </div>
+                <div>
+                  <label for="apInstanceId">Instance ID</label>
+                  <input type="text" id="apInstanceId" placeholder="instanceId" />
+                </div>
+                <div>
+                  <label for="apRepositoryId">Repository ID</label>
+                  <input type="text" id="apRepositoryId" placeholder="repositoryId" />
+                </div>
+                <div>
+                  <label for="apTransactionId">Transaction ID</label>
+                  <input type="text" id="apTransactionId" placeholder="transactionId" />
+                </div>
+                <div>
+                  <label for="apFormEntryId">Form Entry ID</label>
+                  <input type="text" id="apFormEntryId" placeholder="formEntryId" />
+                </div>
+                <div>
+                  <label for="apActivityId">Activity ID</label>
+                  <input type="text" id="apActivityId" placeholder="activityId" />
+                </div>
+                <div>
+                  <label for="apRepositoryItemId">Repo item</label>
+                  <input type="text" id="apRepositoryItemId" placeholder="repositoryItemId" />
+                </div>
+                <div>
+                  <label for="apProcessId">Process</label>
+                  <input type="text" id="apProcessId" placeholder="processId" />
+                </div>
+              </div>
+            </details>
+          </div>
+          <div class="span-all">
+            <label for="apInvoiceJson">Invoice JSON</label>
+            <textarea id="apInvoiceJson" rows="6" placeholder='{"invoice_number":"INV-100",...}'>{
   "invoice_number": "INV-100",
   "vendor": "ACME Supplies",
   "po_number": "PO-1",
@@ -1899,44 +2201,12 @@ Due Date,DATE</textarea>
   "currency": "USD",
   "line_items": [{"description": "Widget", "qty": 10, "amount": 1234.56}]
 }</textarea>
-        </div>
-        <div>
-          <label for="apWorkflowId">Workflow</label>
-          <input type="text" id="apWorkflowId" placeholder="workflow_id" />
-        </div>
-        <div>
-          <label for="apInstanceId">Instance</label>
-          <input type="text" id="apInstanceId" placeholder="instanceId" />
-        </div>
-        <div>
-          <label for="apRepositoryId">Repository</label>
-          <input type="text" id="apRepositoryId" placeholder="repositoryId" />
-        </div>
-        <div>
-          <label for="apTransactionId">Transaction</label>
-          <input type="text" id="apTransactionId" placeholder="transactionId" />
-        </div>
-        <div>
-          <label for="apFormEntryId">Form entry</label>
-          <input type="text" id="apFormEntryId" placeholder="formentryId" />
-        </div>
-        <div>
-          <label for="apRepositoryItemId">Repo item</label>
-          <input type="text" id="apRepositoryItemId" placeholder="repositoryItemId" />
-        </div>
-        <div class="span-all">
-          <label for="apProcessId">Process</label>
-          <input type="text" id="apProcessId" placeholder="processId" />
-        </div>
-        <div>
-          <label for="apActivityId">Activity</label>
-          <input type="text" id="apActivityId" placeholder="optional; else lookup AP AGENT 1" />
-        </div>
           </div>
-        </details>
-        <div class="ocr-actions">
+        </div>
+        <div class="ap-doc-actions">
           <button type="button" class="btn-primary" id="apSendBtn">Run AP</button>
           <button type="button" class="btn-ghost" id="apClearSkillsBtn">Clear skills</button>
+          <input type="text" class="ap-run-note" id="apRunNote" placeholder="Optional note for this run…" />
         </div>
       </div>
     </details>
@@ -1949,6 +2219,40 @@ Due Date,DATE</textarea>
         </div>
         <div class="ocr-actions">
           <button type="button" class="btn-primary" id="gsSendBtn">Run search</button>
+        </div>
+      </div>
+    </details>
+    <details class="ocr-panel" id="dashPanel">
+      <summary>Dashboard options (prompts · schema · data)</summary>
+      <div class="ocr-grid">
+        <div>
+          <label for="dashPhase">Step</label>
+          <select id="dashPhase">
+            <option value="prompts">prompts</option>
+            <option value="schema" selected>schema</option>
+            <option value="data">data</option>
+          </select>
+        </div>
+        <div>
+          <label for="dashTenant">Tenant</label>
+          <input type="text" id="dashTenant" placeholder="tenant UUID" />
+        </div>
+        <div class="span-all">
+          <label for="dashRepositoryId">Repository id</label>
+          <input type="text" id="dashRepositoryId" placeholder="required unless workflow id is set" />
+        </div>
+        <div class="span-all">
+          <label for="dashWorkflowId">Workflow id (optional — used when repository id is empty)</label>
+          <input type="text" id="dashWorkflowId" placeholder="workflow UUID" />
+        </div>
+        <div class="span-all">
+          <label for="dashJson">dashboard_json (data step — filled after schema)</label>
+          <textarea id="dashJson" rows="8" placeholder='{"phase":"schema","kpis":[],"charts":[]}'></textarea>
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-ghost" id="dashPromptBtn">Suggest prompt</button>
+          <button type="button" class="btn-ghost" id="dashSchemaBtn">Propose schema</button>
+          <button type="button" class="btn-primary" id="dashDataBtn">Load data</button>
         </div>
       </div>
     </details>
@@ -2039,8 +2343,12 @@ Due Date,DATE</textarea>
   <aside class="panel pack-inspector" id="summaryPackInspector">
     <div class="pack-inspector-head">
       <div class="pack-inspector-title">
-        <h2>Summary pack</h2>
-        <p class="pack-inspector-sub">Defaults and tenant overlays</p>
+        <h2 id="packInspectorTitle">Agent pack</h2>
+        <p class="pack-inspector-sub" id="packInspectorSub">Defaults and tenant overlays</p>
+      </div>
+      <div class="pack-tabs" id="apInstrMainTabs" hidden style="margin-bottom:8px">
+        <button type="button" class="pack-tab" data-ap-main-tab="pipeline">Pipeline</button>
+        <button type="button" class="pack-tab active" data-ap-main-tab="instructions">Instructions</button>
       </div>
       <div class="pack-tabs">
         <button type="button" class="pack-tab active" data-pack-tab="platform">Platform</button>
@@ -2073,6 +2381,91 @@ Due Date,DATE</textarea>
         <details class="pack-log-details" id="summaryLogsWrap" hidden>
           <summary>Change log</summary>
           <div id="summarySkillLogs" class="tenant-log"></div>
+        </details>
+      </div>
+    </div>
+  </aside>
+
+  <aside class="panel pack-inspector" id="apPipelineInspector">
+    <div class="pack-inspector-head">
+      <div class="pack-inspector-title">
+        <h2 id="apConfigTitle">AP Agent</h2>
+        <p class="pack-inspector-sub" id="apConfigSub">Pipeline (executable) and Instructions (soft LLM guidance)</p>
+      </div>
+      <div class="pack-tabs" style="margin-bottom:8px">
+        <button type="button" class="pack-tab active" data-ap-main-tab="pipeline">Pipeline</button>
+        <button type="button" class="pack-tab" data-ap-main-tab="instructions">Instructions</button>
+      </div>
+      <div class="pack-tabs" id="apPipeSubTabs">
+        <button type="button" class="pack-tab active" data-ap-pipe-tab="platform">Platform read-only</button>
+        <button type="button" class="pack-tab" data-ap-pipe-tab="tenant">Tenant</button>
+      </div>
+    </div>
+    <div class="pack-inspector-body">
+      <div id="apPipeFlagBanner" class="ap-pipe-banner" hidden></div>
+      <div id="apPipeTabPlatform" class="pack-tab-panel">
+        <div class="ap-pipe-readonly">
+          <p class="field-hint" style="margin:0 0 8px">Product default (read-only). Seeded from code on boot.</p>
+          <div class="ap-pipe-card">
+            <div class="ap-pipe-card-head"><span>flags</span></div>
+            <pre id="apPipePlatformFlags">Loading…</pre>
+          </div>
+          <div class="ap-pipe-card">
+            <div class="ap-pipe-card-head"><span>policy</span></div>
+            <pre id="apPipePlatformPolicy">Loading…</pre>
+          </div>
+          <pre id="apPipePlatformJson" hidden>Loading…</pre>
+        </div>
+      </div>
+      <div id="apPipeTabTenant" class="pack-tab-panel hidden">
+        <div class="pack-tenant-banner locked" id="apPipeTenantZone">
+          <span id="apPipeTenantHint">Set tenant id (AP options or console tenant) to edit.</span>
+        </div>
+        <div id="apPipeStatus" class="tenant-skills-status"></div>
+        <div style="padding:8px 14px 0;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)">Skill order <span style="font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink-4)"> · drag / ↑↓</span></div>
+        <div class="ap-pipe-skill-list" id="apPipeSkillList"></div>
+        <div class="ap-pipe-form">
+          <div>
+            <label for="apPipeConnector">Connector</label>
+            <input type="text" id="apPipeConnector" placeholder="optional GUID" />
+          </div>
+          <div>
+            <label for="apPipeResource">Resource</label>
+            <input type="text" id="apPipeResource" placeholder="SAP / HANA / QUICKBOOKS" />
+          </div>
+          <div class="span-all">
+            <div class="ap-pipe-thresholds">
+              <div>
+                <label for="apPipeApproved">approved</label>
+                <input type="number" id="apPipeApproved" placeholder="80" />
+              </div>
+              <div>
+                <label for="apPipePartial">partial</label>
+                <input type="number" id="apPipePartial" placeholder="50" />
+              </div>
+              <div>
+                <label for="apPipeTolerance">amount_tolerance</label>
+                <input type="number" step="0.001" id="apPipeTolerance" placeholder="0.02" />
+              </div>
+            </div>
+          </div>
+          <div class="span-all check-row">
+            <input type="checkbox" id="apPipeUsePlanner" />
+            <label for="apPipeUsePlanner" style="margin:0">Let the planner decide skill order</label>
+          </div>
+          <div class="span-all check-row">
+            <input type="checkbox" id="apPipeForceHana" checked />
+            <label for="apPipeForceHana" style="margin:0">Always look up PO in HANA before matching</label>
+          </div>
+        </div>
+        <div class="ap-pipe-actions">
+          <button type="button" class="btn-primary" id="apPipeSaveBtn">Save</button>
+          <button type="button" class="btn-ghost" id="apPipeReloadBtn">Reload</button>
+          <button type="button" class="btn-ghost" id="apPipeLoadPlatformBtn">Copy platform</button>
+        </div>
+        <details class="pack-log-details" id="apPipeLogsWrap" hidden>
+          <summary>Change log</summary>
+          <div id="apPipeLogs" class="tenant-log"></div>
         </details>
       </div>
     </div>
@@ -2383,6 +2776,7 @@ const ICONS = {
   global_search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>',
   chatbot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16v10H8l-4 4V6Z"/><path d="M8 10h8M8 13h5"/></svg>',
   report: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>',
+  dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="4" rx="1"/><rect x="14" y="10" width="7" height="11" rx="1"/><rect x="3" y="13" width="7" height="8" rx="1"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
@@ -2394,6 +2788,7 @@ const CAP_ACTIONS = [
   { slug: 'global_search', label: 'Global Search', mode: 'global_search' },
   { slug: 'chatbot', label: 'Chatbot', mode: 'chatbot' },
   { slug: 'report', label: 'Report agent', mode: 'report' },
+  { slug: 'dashboard', label: 'Dashboard agent', mode: 'dashboard' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
 const MODE_LABELS = {
@@ -2407,12 +2802,14 @@ const MODE_LABELS = {
   global_search: 'Global Search',
   chatbot: 'Chatbot',
   report: 'Report agent',
+  dashboard: 'Dashboard agent',
 };
 const capActionsEl = document.getElementById('capActions');
 const apPanel = document.getElementById('apPanel');
 const gsPanel = document.getElementById('gsPanel');
 const cbPanel = document.getElementById('cbPanel');
 const reportPanel = document.getElementById('reportPanel');
+const dashPanel = document.getElementById('dashPanel');
 let composerMode = 'chat';
 let consoleAgentsCache = [];
 window.activeCustomIntent = '';
@@ -2430,10 +2827,16 @@ function setConsoleTenantId(tenantId) {
   if (input) input.value = tid;
   if (tid) sessionStorage.setItem(CONSOLE_TENANT_KEY, tid);
   else sessionStorage.removeItem(CONSOLE_TENANT_KEY);
-  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'reportTenant'].forEach(id => {
+  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'reportTenant', 'dashTenant'].forEach(id => {
     const el = document.getElementById(id);
-    if (el && !el.value.trim()) el.value = tid;
+    if (el) el.value = tid;
   });
+  if (typeof loadSummaryTenantCustom === 'function') {
+    try { loadSummaryTenantCustom(); } catch (_) { /* pack UI may load later */ }
+  }
+  if (typeof loadApPipelineConsole === 'function' && composerMode === 'ap') {
+    try { loadApPipelineConsole(); } catch (_) { /* AP pipeline UI may load later */ }
+  }
   return refreshConsoleAgents();
 }
 
@@ -2704,6 +3107,7 @@ const EMPTY_SPECS = {
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
   global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
   chatbot: { title: 'Chatbot', sub: 'Search, then act: start workflow / upload / ticket+attach / create user. Confirm before execute.', chips: '' },
+  dashboard: { title: 'Dashboard', sub: 'Prompts, schema, then load HTML. Need tenant + repository or workflow.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
   report: { title: 'Report Agent', sub: 'Select a template to discover live schema, generate SQL, and preview report data.', chips: REPORT_EMPTY_CHIPS },
 };
@@ -2741,18 +3145,23 @@ function syncMainControls() {
   const mc = document.getElementById('mainControls');
   const panel = document.getElementById('docPanel');
   if (!mc || !panel) return;
-  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open) || (reportPanel && reportPanel.open);
+  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open) || (reportPanel && reportPanel.open) || (dashPanel && dashPanel.open);
   mc.hidden = !active;
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.report_plan_result || body.report_prompt_result)) return;
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || body.report_plan_result || body.report_prompt_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
   if (gsPanel) gsPanel.open = false;
   if (cbPanel) cbPanel.open = false;
   if (reportPanel) reportPanel.open = false;
+  if (dashPanel && composerMode === 'dashboard') {
+    dashPanel.open = true;
+  } else if (dashPanel) {
+    dashPanel.open = false;
+  }
   syncMainControls();
   requestAnimationFrame(() => {
     transcript.scrollTop = transcript.scrollHeight;
@@ -2760,7 +3169,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'report')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'report' || mode === 'dashboard')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -2775,6 +3184,7 @@ function setComposerMode(mode) {
   if (gsPanel) gsPanel.open = mode === 'global_search';
   if (cbPanel) cbPanel.open = mode === 'chatbot';
   if (reportPanel) reportPanel.open = mode === 'report';
+  if (dashPanel) dashPanel.open = mode === 'dashboard';
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
@@ -2793,27 +3203,40 @@ function setComposerMode(mode) {
   }
   const layout = document.querySelector('.layout');
   const packInspector = document.getElementById('summaryPackInspector');
-  if (layout) layout.classList.toggle('pack-inspector-open', mode === 'summary');
-  if (packInspector) packInspector.classList.toggle('visible', mode === 'summary');
+  const apPipeInspector = document.getElementById('apPipelineInspector');
+  const packOpen = isPackAgent(mode);
+  const apPipeOpen = mode === 'ap';
+  if (layout) {
+    layout.classList.toggle('pack-inspector-open', packOpen || apPipeOpen);
+    layout.classList.add('ap-workbench');
+  }
+  if (packInspector) packInspector.classList.toggle('visible', packOpen);
+  if (apPipeInspector) apPipeInspector.classList.toggle('visible', apPipeOpen);
   syncCapButtonActiveState();
   syncSendBtn();
   if (mode === 'summary') {
     banner.textContent = 'Summary';
     messageInput.placeholder = 'Optional note';
-    loadSummarySkillsPack();
+    loadAgentSkillsPack('summary');
   } else if (mode === 'insight') {
     banner.textContent = 'Insights';
     messageInput.placeholder = 'Optional note';
+    loadAgentSkillsPack('insight');
   } else if (mode === 'ocr') {
     banner.textContent = 'OCR';
     messageInput.placeholder = 'Optional note';
+    loadAgentSkillsPack('ocr');
   } else if (mode === 'ap') {
     messageInput.placeholder = 'Optional note';
+    renderApSkillsChips();
+    setApMainView('pipeline');
   } else if (mode === 'prompt') {
     messageInput.placeholder = 'Paste the prompt';
+    loadAgentSkillsPack('prompt');
   } else if (mode === 'pdf') {
     banner.textContent = 'PDF Generator';
     messageInput.placeholder = 'Optional note or styling instructions';
+    loadAgentSkillsPack('pdf');
   } else if (mode === 'global_search') {
     banner.textContent = 'Global Search';
     messageInput.placeholder = 'Query — e.g. QUALITY CERTIFICATE or EMP10245';
@@ -2823,6 +3246,11 @@ function setComposerMode(mode) {
   } else if (mode === 'report') {
     banner.textContent = 'Report Agent';
     messageInput.placeholder = 'Select a template or click Generate Plan & Run';
+  } else if (mode === 'dashboard') {
+    banner.textContent = 'Dashboard';
+    messageInput.placeholder = 'Schema message — e.g. I need an AP dashboard';
+    const dashTenant = document.getElementById('dashTenant');
+    if (dashTenant && !dashTenant.value.trim()) dashTenant.value = consoleTenantId();
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -2939,18 +3367,6 @@ async function readResponseJson(res) {
   }
 }
 
-function summaryTenantId() {
-  return (document.getElementById('summaryTenant').value || '').trim();
-}
-
-function escapeHtml(text) {
-  return String(text || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 function setSummarySkillsStatus(kind, text) {
   const el = document.getElementById('summarySkillsStatus');
   if (!el) return;
@@ -2963,7 +3379,54 @@ function setSummarySkillsStatus(kind, text) {
   el.textContent = text;
 }
 
-const summaryPackState = { defaults: null, selectedAssetId: null, editingItemKey: null };
+const PACK_AGENTS = ['summary', 'ocr', 'insight', 'prompt', 'pdf', 'ap'];
+const PACK_AGENT_LABELS = {
+  summary: 'Summary',
+  ocr: 'OCR',
+  insight: 'Insight',
+  prompt: 'Prompt',
+  pdf: 'PDF',
+  ap: 'AP',
+};
+const PACK_TENANT_FIELDS = {
+  summary: 'summaryTenant',
+  ocr: 'ocrTenant',
+  insight: 'insightTenant',
+  prompt: 'summaryTenant',
+  pdf: 'summaryTenant',
+  ap: 'apTenant',
+};
+
+const summaryPackState = {
+  agent: 'summary',
+  defaults: null,
+  selectedAssetId: null,
+  editingItemKey: null,
+};
+
+function isPackAgent(mode) {
+  // Inline check so setComposerMode('chat') at boot cannot hit TDZ on PACK_AGENTS.
+  return mode === 'summary' || mode === 'ocr' || mode === 'insight'
+    || mode === 'prompt' || mode === 'pdf';
+}
+
+function packApiBase(agent) {
+  return '/console/agent-packs/' + encodeURIComponent(agent || summaryPackState.agent || 'summary');
+}
+
+function setPackInspectorChrome(agent) {
+  const label = PACK_AGENT_LABELS[agent] || agent;
+  const title = document.getElementById('packInspectorTitle');
+  const sub = document.getElementById('packInspectorSub');
+  const apTabs = document.getElementById('apInstrMainTabs');
+  if (title) title.textContent = agent === 'ap' ? 'AP Instructions' : (label + ' pack');
+  if (sub) {
+    sub.textContent = agent === 'ap'
+      ? 'Soft LLM guidance only — does not replace po_match or Pipeline skill order'
+      : ('Platform defaults (read-only) and tenant overlays for ' + label);
+  }
+  if (apTabs) apTabs.hidden = agent !== 'ap';
+}
 
 function customItemKey(kind, id) {
   return kind + ':' + id;
@@ -2977,6 +3440,34 @@ function switchPackTab(tabName) {
   const tenant = document.getElementById('packTabTenant');
   if (platform) platform.classList.toggle('hidden', tabName !== 'platform');
   if (tenant) tenant.classList.toggle('hidden', tabName !== 'tenant');
+}
+
+function summaryTenantId() {
+  const agent = summaryPackState.agent || 'summary';
+  const fieldId = PACK_TENANT_FIELDS[agent] || 'summaryTenant';
+  const dedicated = (document.getElementById(fieldId)?.value || '').trim();
+  if (dedicated) return dedicated;
+  for (const id of Object.values(PACK_TENANT_FIELDS)) {
+    const v = (document.getElementById(id)?.value || '').trim();
+    if (v) return v;
+  }
+  return consoleTenantId();
+}
+
+function itemIdStr(value) {
+  return String(value == null ? '' : value).trim();
+}
+
+function isItemActive(value) {
+  return value === true || value === 1 || value === '1' || String(value).toLowerCase() === 'true';
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function packAssetsFromDefaults(defaults) {
@@ -3112,7 +3603,7 @@ function mergeCustomItems(skills, rules) {
       item_kind: inferItemKindFromSource(item.source_file, 'rule'),
     });
   });
-  return items.sort((a, b) => Number(a.id) - Number(b.id));
+  return items.sort((a, b) => String(a.slug || '').localeCompare(String(b.slug || '')));
 }
 
 function renderSummaryCustomItems(skills, rules) {
@@ -3125,8 +3616,9 @@ function renderSummaryCustomItems(skills, rules) {
   }
   el.innerHTML = items.map(item => {
     const kind = item.item_kind;
-    const active = Number(item.is_active) === 1;
-    const itemKey = customItemKey(kind, item.id);
+    const active = isItemActive(item.is_active);
+    const id = itemIdStr(item.id);
+    const itemKey = customItemKey(kind, id);
     const editing = summaryPackState.editingItemKey === itemKey;
     const typeLabel = kind === 'skill' ? 'SKILL' : 'RULE';
     const accept = kind === 'skill' ? '.md,text/markdown' : '.mdc,text/markdown';
@@ -3150,7 +3642,7 @@ function renderSummaryCustomItems(skills, rules) {
         + `<button type="button" class="tenant-btn-delete tenant-item-delete">Delete</button>`
         + `</div>`;
     return (
-      `<div class="tenant-custom-card${active ? '' : ' disabled'}${editing ? ' editing' : ''}" data-item-kind="${kind}" data-item-id="${item.id}">`
+      `<div class="tenant-custom-card${active ? '' : ' disabled'}${editing ? ' editing' : ''}" data-item-kind="${kind}" data-item-id="${escapeHtml(id)}">`
       + `<div class="tenant-custom-head">`
       + `<span class="pack-asset-type ${kind}">${typeLabel}</span>`
       + `<span class="slug">${escapeHtml(item.slug)}</span>`
@@ -3166,7 +3658,7 @@ function renderSummaryCustomItems(skills, rules) {
   el.querySelectorAll('.tenant-item-edit').forEach(btn => {
     btn.addEventListener('click', () => {
       const card = btn.closest('.tenant-custom-card');
-      summaryPackState.editingItemKey = customItemKey(card.dataset.itemKind, Number(card.dataset.itemId));
+      summaryPackState.editingItemKey = customItemKey(card.dataset.itemKind, itemIdStr(card.dataset.itemId));
       renderSummaryCustomItems(skills, rules);
     });
   });
@@ -3180,7 +3672,7 @@ function renderSummaryCustomItems(skills, rules) {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.tenant-custom-card');
       const kind = card.dataset.itemKind;
-      const id = Number(card.dataset.itemId);
+      const id = itemIdStr(card.dataset.itemId);
       const editor = card.querySelector('.tenant-rule-editor');
       const body = editor ? editor.value.trim() : '';
       if (!body) {
@@ -3203,27 +3695,27 @@ function renderSummaryCustomItems(skills, rules) {
       const file = input.files && input.files[0];
       if (!file) return;
       const card = input.closest('.tenant-custom-card');
-      await replaceSummaryCustomItemFile(card.dataset.itemKind, Number(card.dataset.itemId), file);
+      await replaceSummaryCustomItemFile(card.dataset.itemKind, itemIdStr(card.dataset.itemId), file);
       input.value = '';
     });
   });
   el.querySelectorAll('.tenant-item-set-active').forEach(btn => {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.tenant-custom-card');
-      await patchSummaryCustomItem(card.dataset.itemKind, Number(card.dataset.itemId), { is_active: true }, { quiet: true });
+      await patchSummaryCustomItem(card.dataset.itemKind, itemIdStr(card.dataset.itemId), { is_active: true }, { quiet: true });
     });
   });
   el.querySelectorAll('.tenant-item-set-disabled').forEach(btn => {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.tenant-custom-card');
-      await patchSummaryCustomItem(card.dataset.itemKind, Number(card.dataset.itemId), { is_active: false }, { quiet: true });
+      await patchSummaryCustomItem(card.dataset.itemKind, itemIdStr(card.dataset.itemId), { is_active: false }, { quiet: true });
     });
   });
   el.querySelectorAll('.tenant-item-delete').forEach(btn => {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.tenant-custom-card');
       const kind = card.dataset.itemKind;
-      const id = Number(card.dataset.itemId);
+      const id = itemIdStr(card.dataset.itemId);
       const slug = card.querySelector('.slug') ? card.querySelector('.slug').textContent : id;
       if (!confirm(`Permanently delete "${slug}"? This cannot be undone.`)) return;
       await deleteSummaryCustomItem(kind, id);
@@ -3233,6 +3725,7 @@ function renderSummaryCustomItems(skills, rules) {
 
 async function deleteSummaryCustomItem(kind, itemId) {
   const tenantId = summaryTenantId();
+  const agent = summaryPackState.agent || 'summary';
   if (!tenantId) {
     addSystemMessage('Set tenant_id before deleting custom items.');
     setSummarySkillsStatus('error', 'Set tenant_id first.');
@@ -3245,7 +3738,8 @@ async function deleteSummaryCustomItem(kind, itemId) {
   for (const base of bases) {
     try {
       const res = await fetch(
-        '/console/summary-skills/' + base + '/' + itemId + '?tenant_id=' + encodeURIComponent(tenantId),
+        packApiBase(agent) + '/' + base + '/' + encodeURIComponent(itemId)
+          + '?tenant_id=' + encodeURIComponent(tenantId),
         { method: 'DELETE' }
       );
       const data = await readResponseJson(res);
@@ -3288,16 +3782,17 @@ function renderSummarySkillLogs(logs) {
 
 async function loadSummaryDefaults() {
   try {
-    const res = await fetch('/console/summary-skills/defaults');
+    const agent = summaryPackState.agent || 'summary';
+    const res = await fetch(packApiBase(agent) + '/defaults');
     const data = await readResponseJson(res);
     if (!res.ok) {
       const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
-      addSystemMessage('Summary defaults: ' + msg);
+      addSystemMessage((PACK_AGENT_LABELS[agent] || agent) + ' defaults: ' + msg);
       return;
     }
     renderSummaryDefaults(data.defaults);
   } catch (e) {
-    addSystemMessage('Could not load Summary defaults.');
+    addSystemMessage('Could not load pack defaults.');
   }
 }
 
@@ -3305,8 +3800,9 @@ async function loadSummaryTenantCustom() {
   syncSummaryTenantZone();
   const tenantId = summaryTenantId();
   if (!tenantId) return;
+  const agent = summaryPackState.agent || 'summary';
   try {
-    const res = await fetch('/console/summary-skills?tenant_id=' + encodeURIComponent(tenantId));
+    const res = await fetch(packApiBase(agent) + '?tenant_id=' + encodeURIComponent(tenantId));
     const data = await readResponseJson(res);
     if (!res.ok) {
       const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
@@ -3316,23 +3812,35 @@ async function loadSummaryTenantCustom() {
     renderSummaryCustomItems(data.custom_skills, data.custom_rules);
     renderSummarySkillLogs(data.logs);
     const [skills, rules] = normalizeCustomTenantItems(data.custom_skills, data.custom_rules);
-    const n = skills.length + rules.length;
-    const active = skills.filter(r => Number(r.is_active) === 1).length
-      + rules.filter(r => Number(r.is_active) === 1).length;
+    const active = skills.filter(r => isItemActive(r.is_active)).length
+      + rules.filter(r => isItemActive(r.is_active)).length;
     setSummarySkillsStatus('ok', active + ' active · ' + skills.length + ' skill(s) · ' + rules.length + ' rule(s)');
   } catch (e) {
     setSummarySkillsStatus('error', 'Could not load tenant uploads.');
   }
 }
 
-async function loadSummarySkillsPack() {
+async function loadAgentSkillsPack(agent) {
+  const next = (agent || 'summary').toLowerCase();
+  if (summaryPackState.agent !== next) {
+    summaryPackState.selectedAssetId = null;
+    summaryPackState.editingItemKey = null;
+  }
+  summaryPackState.agent = next;
+  setPackInspectorChrome(next);
+  switchPackTab('platform');
   await loadSummaryDefaults();
   await loadSummaryTenantCustom();
+}
+
+async function loadSummarySkillsPack() {
+  await loadAgentSkillsPack('summary');
 }
 
 async function patchSummaryCustomItem(kind, itemId, patch, opts) {
   const quiet = opts && opts.quiet;
   const tenantId = summaryTenantId();
+  const agent = summaryPackState.agent || 'summary';
   if (!tenantId) {
     if (!quiet) addSystemMessage('Set tenant_id before editing custom items.');
     setSummarySkillsStatus('error', 'Set tenant_id first.');
@@ -3340,7 +3848,7 @@ async function patchSummaryCustomItem(kind, itemId, patch, opts) {
   }
   let base = kind === 'skill' ? 'custom-skills' : 'custom-rules';
   try {
-    let res = await fetch('/console/summary-skills/' + base + '/' + itemId, {
+    let res = await fetch(packApiBase(agent) + '/' + base + '/' + encodeURIComponent(itemId), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tenant_id: tenantId, ...patch }),
@@ -3348,7 +3856,7 @@ async function patchSummaryCustomItem(kind, itemId, patch, opts) {
     let data = await readResponseJson(res);
     if (!res.ok && kind === 'skill' && res.status === 404) {
       base = 'custom-rules';
-      res = await fetch('/console/summary-skills/' + base + '/' + itemId, {
+      res = await fetch(packApiBase(agent) + '/' + base + '/' + encodeURIComponent(itemId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenant_id: tenantId, ...patch }),
@@ -3374,6 +3882,7 @@ async function patchSummaryCustomItem(kind, itemId, patch, opts) {
 
 async function replaceSummaryCustomItemFile(kind, itemId, file) {
   const tenantId = summaryTenantId();
+  const agent = summaryPackState.agent || 'summary';
   if (!tenantId) {
     setSummarySkillsStatus('error', 'Set tenant_id first.');
     return;
@@ -3390,10 +3899,10 @@ async function replaceSummaryCustomItemFile(kind, itemId, file) {
   let lastError = 'Replace failed.';
   for (const base of bases) {
     try {
-      const res = await fetch('/console/summary-skills/' + base + '/' + itemId + '/upload', {
-        method: 'POST',
-        body: form,
-      });
+      const res = await fetch(
+        packApiBase(agent) + '/' + base + '/' + encodeURIComponent(itemId) + '/upload',
+        { method: 'POST', body: form }
+      );
       const data = await readResponseJson(res);
       if (res.ok) {
         summaryPackState.editingItemKey = null;
@@ -3422,6 +3931,7 @@ async function replaceSummaryCustomRuleFile(itemId, file) {
 
 async function saveSummaryCustomRuleFile() {
   const tenantId = summaryTenantId();
+  const agent = summaryPackState.agent || 'summary';
   if (!tenantId) {
     setSummarySkillsStatus('error', 'Set tenant_id in the form first.');
     return;
@@ -3437,7 +3947,7 @@ async function saveSummaryCustomRuleFile() {
   form.append('file', file, file.name);
   setSummarySkillsStatus('', 'Saving…');
   try {
-    const res = await fetch('/console/summary-skills/custom-rules/upload', {
+    const res = await fetch(packApiBase(agent) + '/custom-rules/upload', {
       method: 'POST',
       body: form,
     });
@@ -3461,11 +3971,344 @@ async function saveSummaryCustomRuleFile() {
 }
 
 document.getElementById('summaryRuleSaveBtn').addEventListener('click', saveSummaryCustomRuleFile);
-document.getElementById('summaryTenant').addEventListener('input', loadSummaryTenantCustom);
-document.getElementById('summaryTenant').addEventListener('change', loadSummaryTenantCustom);
-document.querySelectorAll('.pack-tab').forEach(tab => {
+['summaryTenant', 'ocrTenant', 'insightTenant'].forEach(id => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', loadSummaryTenantCustom);
+  el.addEventListener('change', loadSummaryTenantCustom);
+});
+document.querySelectorAll('#summaryPackInspector .pack-tab').forEach(tab => {
   tab.addEventListener('click', () => switchPackTab(tab.dataset.packTab));
 });
+
+/* —— AP Pipeline inspector (Phase 4) —— */
+const apPipeState = {
+  platform: null,
+  tenant: null,
+  known: null,
+  draftOrder: [],
+  draftEnabled: null,
+  fromDb: false,
+};
+
+function apPipeTenantId() {
+  const ap = (document.getElementById('apTenant')?.value || '').trim();
+  if (ap) return ap;
+  return (getConsoleTenantId() || '').trim();
+}
+
+function setApPipeStatus(kind, text) {
+  const el = document.getElementById('apPipeStatus');
+  if (!el) return;
+  if (!text) {
+    el.className = 'tenant-skills-status';
+    el.textContent = '';
+    return;
+  }
+  el.className = 'tenant-skills-status ' + kind;
+  el.textContent = text;
+}
+
+function switchApPipeTab(tabName) {
+  document.querySelectorAll('#apPipelineInspector .pack-tab[data-ap-pipe-tab]').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.apPipeTab === tabName);
+  });
+  const platform = document.getElementById('apPipeTabPlatform');
+  const tenant = document.getElementById('apPipeTabTenant');
+  if (platform) platform.classList.toggle('hidden', tabName !== 'platform');
+  if (tenant) tenant.classList.toggle('hidden', tabName !== 'tenant');
+}
+
+function apPipeConfigFromForm() {
+  const enabled = [];
+  apPipeState.draftOrder.forEach(id => {
+    if (apPipeState.draftEnabled === null || apPipeState.draftEnabled.includes(id)) {
+      enabled.push(id);
+    }
+  });
+  const allOn = apPipeState.draftEnabled === null
+    || (apPipeState.draftEnabled.length === apPipeState.draftOrder.length
+      && apPipeState.draftOrder.every(id => apPipeState.draftEnabled.includes(id)));
+  const numOrNull = (id) => {
+    const el = document.getElementById(id);
+    const v = (el && el.value || '').trim();
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    skills_order: apPipeState.draftOrder.slice(),
+    skills_enabled: allOn ? null : enabled,
+    default_connector_id: (document.getElementById('apPipeConnector')?.value || '').trim() || null,
+    default_resource: (document.getElementById('apPipeResource')?.value || '').trim() || null,
+    thresholds: {
+      approved: numOrNull('apPipeApproved'),
+      partial: numOrNull('apPipePartial'),
+      amount_tolerance: numOrNull('apPipeTolerance'),
+    },
+    flags: {
+      use_planner: !!document.getElementById('apPipeUsePlanner')?.checked,
+      force_hana_po_lookup: !!document.getElementById('apPipeForceHana')?.checked,
+    },
+  };
+}
+
+function applyApPipeConfigToForm(cfg) {
+  const config = cfg || {};
+  const known = (apPipeState.known && apPipeState.known.all_skills) || [];
+  let order = Array.isArray(config.skills_order) ? config.skills_order.slice() : [];
+  if (!order.length) order = (apPipeState.known && apPipeState.known.default_order) || known.slice();
+  known.forEach(id => { if (!order.includes(id)) order.push(id); });
+  apPipeState.draftOrder = order;
+  if (config.skills_enabled == null) {
+    apPipeState.draftEnabled = null;
+  } else {
+    apPipeState.draftEnabled = Array.isArray(config.skills_enabled)
+      ? config.skills_enabled.slice()
+      : [];
+  }
+  const setVal = (id, v) => {
+    const el = document.getElementById(id);
+    if (el) el.value = v == null ? '' : String(v);
+  };
+  setVal('apPipeConnector', config.default_connector_id);
+  setVal('apPipeResource', config.default_resource);
+  const th = config.thresholds || {};
+  setVal('apPipeApproved', th.approved);
+  setVal('apPipePartial', th.partial);
+  setVal('apPipeTolerance', th.amount_tolerance);
+  const flags = config.flags || {};
+  const planner = document.getElementById('apPipeUsePlanner');
+  const hana = document.getElementById('apPipeForceHana');
+  if (planner) planner.checked = !!flags.use_planner;
+  if (hana) hana.checked = flags.force_hana_po_lookup !== false;
+  renderApPipeSkillList();
+}
+
+function renderApPipeSkillList() {
+  const el = document.getElementById('apPipeSkillList');
+  if (!el) return;
+  const order = apPipeState.draftOrder || [];
+  if (!order.length) {
+    el.innerHTML = '<div class="pack-empty">No skills in draft.</div>';
+    return;
+  }
+  el.innerHTML = order.map((id, idx) => {
+    const on = apPipeState.draftEnabled === null || apPipeState.draftEnabled.includes(id);
+    return (
+      '<div class="ap-pipe-skill-row' + (on ? '' : ' off') + '" data-skill="' + escapeHtml(id) + '">'
+      + '<label><input type="checkbox" class="ap-pipe-enable"' + (on ? ' checked' : '') + ' />'
+      + '<span>' + escapeHtml(id) + '</span></label>'
+      + '<span></span>'
+      + '<div class="ap-pipe-move">'
+      + '<button type="button" class="btn-ghost ap-pipe-up" data-idx="' + idx + '"' + (idx === 0 ? ' disabled' : '') + '>↑</button>'
+      + '<button type="button" class="btn-ghost ap-pipe-down" data-idx="' + idx + '"' + (idx === order.length - 1 ? ' disabled' : '') + '>↓</button>'
+      + '</div></div>'
+    );
+  }).join('');
+  el.querySelectorAll('.ap-pipe-enable').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const row = cb.closest('.ap-pipe-skill-row');
+      const skill = row && row.dataset.skill;
+      if (!skill) return;
+      if (apPipeState.draftEnabled === null) {
+        apPipeState.draftEnabled = apPipeState.draftOrder.slice();
+      }
+      if (cb.checked) {
+        if (!apPipeState.draftEnabled.includes(skill)) apPipeState.draftEnabled.push(skill);
+      } else {
+        apPipeState.draftEnabled = apPipeState.draftEnabled.filter(s => s !== skill);
+      }
+      row.classList.toggle('off', !cb.checked);
+    });
+  });
+  el.querySelectorAll('.ap-pipe-up').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.idx);
+      if (i <= 0) return;
+      const arr = apPipeState.draftOrder;
+      [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+      renderApPipeSkillList();
+    });
+  });
+  el.querySelectorAll('.ap-pipe-down').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const i = Number(btn.dataset.idx);
+      const arr = apPipeState.draftOrder;
+      if (i >= arr.length - 1) return;
+      [arr[i], arr[i + 1]] = [arr[i + 1], arr[i]];
+      renderApPipeSkillList();
+    });
+  });
+}
+
+function renderApPipeLogs(logs) {
+  const wrap = document.getElementById('apPipeLogsWrap');
+  const el = document.getElementById('apPipeLogs');
+  if (!wrap || !el) return;
+  const rows = Array.isArray(logs) ? logs : [];
+  wrap.hidden = rows.length === 0;
+  el.innerHTML = rows.map(row => {
+    const when = escapeHtml(String(row.changed_at || '').slice(0, 19));
+    const who = escapeHtml(row.changed_by || '');
+    const action = escapeHtml(row.action || '');
+    return '<div class="tenant-log-row"><strong>' + action + '</strong> · ' + who + ' · ' + when + '</div>';
+  }).join('');
+}
+
+async function loadApPipelineConsole() {
+  const tenantId = apPipeTenantId();
+  const zone = document.getElementById('apPipeTenantZone');
+  const hint = document.getElementById('apPipeTenantHint');
+  const banner = document.getElementById('apPipeFlagBanner');
+  const url = '/console/ap-pipeline' + (tenantId ? ('?tenant_id=' + encodeURIComponent(tenantId)) : '');
+  setApPipeStatus('', 'Loading…');
+  try {
+    const res = await fetch(url);
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      setApPipeStatus('error', msg);
+      return;
+    }
+    apPipeState.fromDb = !!data.ap_pipeline_from_db;
+    apPipeState.known = data.known_skills || null;
+    apPipeState.platform = (data.platform && data.platform.config) || null;
+    apPipeState.tenant = data.tenant || null;
+    const platformPre = document.getElementById('apPipePlatformJson');
+    const flagsPre = document.getElementById('apPipePlatformFlags');
+    const policyPre = document.getElementById('apPipePlatformPolicy');
+    const platformCfg = apPipeState.platform || {};
+    if (platformPre) {
+      platformPre.textContent = JSON.stringify(platformCfg, null, 2);
+    }
+    if (flagsPre) {
+      flagsPre.textContent = JSON.stringify(platformCfg.flags || {}, null, 2);
+    }
+    if (policyPre) {
+      const policy = platformCfg.policy || {
+        review_labels: platformCfg.review_labels || null,
+        workflow_step_name: platformCfg.workflow_step_name || null,
+        thresholds: platformCfg.thresholds || null,
+      };
+      policyPre.textContent = JSON.stringify(policy, null, 2);
+    }
+    if (banner) {
+      if (data.ap_pipeline_from_db) {
+        banner.hidden = false;
+        banner.className = 'ap-pipe-banner ok';
+        banner.textContent = 'AP_PIPELINE_FROM_DB is on — omitted payload.skills uses this Catalog config.';
+      } else {
+        banner.hidden = false;
+        banner.className = 'ap-pipe-banner';
+        banner.textContent = 'AP_PIPELINE_FROM_DB is off — runner still uses code defaults. Saves are stored for when the flag is enabled.';
+      }
+    }
+    if (zone && hint) {
+      if (tenantId) {
+        zone.classList.remove('locked');
+        hint.innerHTML = 'Tenant <strong>' + escapeHtml(tenantId) + '</strong> — edit and Save to Catalog.';
+      } else {
+        zone.classList.add('locked');
+        hint.textContent = 'Set tenant id (AP options or console tenant) to edit.';
+      }
+    }
+    const baseCfg = (data.tenant && data.tenant.config)
+      || (data.platform && data.platform.config)
+      || {};
+    applyApPipeConfigToForm(baseCfg);
+    renderApPipeLogs(data.logs || []);
+    setApPipeStatus('ok', tenantId
+      ? ((data.tenant ? 'Tenant override loaded' : 'No tenant row yet — editing from platform default') + '.')
+      : 'Platform defaults loaded (select a tenant to save overrides).');
+  } catch (e) {
+    setApPipeStatus('error', 'Failed to load AP pipeline.');
+  }
+}
+
+async function saveApPipelineTenant() {
+  const tenantId = apPipeTenantId();
+  if (!tenantId) {
+    setApPipeStatus('error', 'Set tenant_id first.');
+    return;
+  }
+  const config = apPipeConfigFromForm();
+  if (!config.skills_order.length) {
+    setApPipeStatus('error', 'skills_order cannot be empty.');
+    return;
+  }
+  setApPipeStatus('', 'Saving…');
+  try {
+    const res = await fetch('/console/ap-pipeline/tenant', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant_id: tenantId, config, changed_by: 'console' }),
+    });
+    const data = await readResponseJson(res);
+    if (!res.ok) {
+      const msg = typeof data.detail === 'string' ? data.detail : ('HTTP ' + res.status);
+      setApPipeStatus('error', msg);
+      return;
+    }
+    setApPipeStatus('ok', 'Saved tenant pipeline.');
+    addSystemMessage('Saved AP pipeline for tenant ' + tenantId + '.');
+    await loadApPipelineConsole();
+  } catch (e) {
+    setApPipeStatus('error', 'Save failed.');
+  }
+}
+
+document.querySelectorAll('#apPipelineInspector .pack-tab[data-ap-pipe-tab]').forEach(tab => {
+  tab.addEventListener('click', () => switchApPipeTab(tab.dataset.apPipeTab));
+});
+document.querySelectorAll('[data-ap-main-tab]').forEach(tab => {
+  tab.addEventListener('click', () => setApMainView(tab.dataset.apMainTab));
+});
+
+function setApMainView(view) {
+  const name = view === 'instructions' ? 'instructions' : 'pipeline';
+  document.querySelectorAll('[data-ap-main-tab]').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.apMainTab === name);
+  });
+  const pipe = document.getElementById('apPipelineInspector');
+  const pack = document.getElementById('summaryPackInspector');
+  const layout = document.querySelector('.layout');
+  const title = document.getElementById('apConfigTitle');
+  const sub = document.getElementById('apConfigSub');
+  if (composerMode !== 'ap') return;
+  if (layout) layout.classList.add('pack-inspector-open', 'ap-workbench');
+  if (name === 'instructions') {
+    if (pipe) pipe.classList.remove('visible');
+    if (pack) pack.classList.add('visible');
+    if (title) title.textContent = 'AP Instructions';
+    if (sub) sub.textContent = 'Soft LLM guidance — does not replace po_match or skill order.';
+    loadAgentSkillsPack('ap');
+  } else {
+    if (pack) pack.classList.remove('visible');
+    if (pipe) pipe.classList.add('visible');
+    if (title) title.textContent = 'AP Agent';
+    if (sub) sub.textContent = 'Pipeline (executable) — Catalog skill order, thresholds, and flags.';
+    loadApPipelineConsole();
+  }
+}
+
+const apPipeSaveBtn = document.getElementById('apPipeSaveBtn');
+if (apPipeSaveBtn) apPipeSaveBtn.addEventListener('click', saveApPipelineTenant);
+const apPipeReloadBtn = document.getElementById('apPipeReloadBtn');
+if (apPipeReloadBtn) apPipeReloadBtn.addEventListener('click', loadApPipelineConsole);
+const apPipeLoadPlatformBtn = document.getElementById('apPipeLoadPlatformBtn');
+if (apPipeLoadPlatformBtn) {
+  apPipeLoadPlatformBtn.addEventListener('click', () => {
+    applyApPipeConfigToForm(apPipeState.platform || {});
+    setApPipeStatus('ok', 'Copied platform defaults into the form (not saved yet).');
+  });
+}
+const apTenantEl = document.getElementById('apTenant');
+if (apTenantEl) {
+  apTenantEl.addEventListener('change', () => {
+    if (composerMode === 'ap') loadApPipelineConsole();
+  });
+}
 
 function fieldRow(label, value) {
   if (value === null || value === undefined) return '';
@@ -4314,10 +5157,69 @@ function renderReportPlanResult(result, request) {
   return { html, resultJson, curlText };
 }
 
+function renderDashboardResult(dashboard, request) {
+  const phase = dashboard && dashboard.phase ? String(dashboard.phase) : 'schema';
+  const prompt = dashboard && dashboard.prompt ? String(dashboard.prompt) : '';
+  const kpiN = Array.isArray(dashboard && dashboard.kpis) ? dashboard.kpis.length : 0;
+  const chartN = Array.isArray(dashboard && dashboard.charts) ? dashboard.charts.length : 0;
+  const resultJson = JSON.stringify(dashboard || {}, null, 2);
+  const curlText = buildChatCurl(request && { ...request, intent: request.intent || 'dashboard' }, 'dashboard');
+  let html = `<div class="detail-block"><div class="dt-title">Dashboard ${escapeHtml(phase)}</div><table>`;
+  html += fieldRow('Phase', phase);
+  html += fieldRow('Tenant', dashboard && dashboard.tenant_id);
+  html += fieldRow('Repository', dashboard && (dashboard.repository_name || dashboard.repository_id));
+  html += fieldRow('Workflow', dashboard && dashboard.workflow_id);
+  html += fieldRow('Table', dashboard && dashboard.table);
+  if (prompt) html += fieldRow('Prompt', prompt);
+  html += fieldRow('KPIs', String(kpiN));
+  html += fieldRow('Charts', String(chartN));
+  html += `</table>`;
+  html += `<div class="ocr-actions" style="margin-top:12px">`;
+  if (phase === 'prompts') {
+    html += `<button type="button" class="btn-primary dash-next-btn" data-dash-phase="schema">Next: Propose schema</button>`;
+    html += `<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="data">Load data</button>`;
+  } else if (phase === 'schema') {
+    html += `<button type="button" class="btn-primary dash-next-btn" data-dash-phase="data">Next: Load data</button>`;
+    html += `<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="prompts">Suggest prompt</button>`;
+  } else {
+    html += `<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="schema">Propose schema</button>`;
+    html += `<button type="button" class="btn-primary dash-next-btn" data-dash-phase="data">Reload data</button>`;
+  }
+  html += `</div></div>`;
+  return { html, resultJson, curlText };
+}
+
+function renderDashboardHtmlPreview(html) {
+  clearEmptyState();
+  const div = document.createElement('div');
+  div.className = 'msg assistant has-summary';
+  const frame = document.createElement('iframe');
+  frame.className = 'dash-preview';
+  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+  frame.srcdoc = html || '';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = 'Dashboard HTML loaded.';
+  div.appendChild(bubble);
+  const block = document.createElement('div');
+  block.className = 'detail-block';
+  block.appendChild(frame);
+  const actions = document.createElement('div');
+  actions.className = 'ocr-actions';
+  actions.style.marginTop = '12px';
+  actions.innerHTML = '<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="schema">Propose schema</button>'
+    + '<button type="button" class="btn-primary dash-next-btn" data-dash-phase="data">Reload data</button>';
+  block.appendChild(actions);
+  div.appendChild(block);
+  transcript.appendChild(div);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.report_plan_result || body.report_prompt_result)
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || body.report_plan_result || body.report_prompt_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -4376,6 +5278,12 @@ function renderAssistantMessage(body, sessionId, request) {
     details += cbCode.html;
     codeBlocks.push(cbCode);
   }
+  if (body.dashboard_result) {
+    const dashCode = renderDashboardResult(body.dashboard_result, request);
+    details += dashCode.html;
+    codeBlocks.push(dashCode);
+  }
+  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
   if (body.report_prompt_result) {
     const reportPromptCode = renderReportPromptResult(body.report_prompt_result, request);
     details += reportPromptCode.html;
@@ -4387,7 +5295,8 @@ function renderAssistantMessage(body, sessionId, request) {
     codeBlocks.push(reportPlanCode);
   }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !body.report_plan_result && !body.report_prompt_result;
+  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !body.dashboard_result && !body.report_plan_result && !body.report_prompt_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -4438,6 +5347,8 @@ function renderAssistantMessage(body, sessionId, request) {
   }
   if (body.report_plan_result) {
     bubbleText = body.reply || 'Report plan and live data ready.';
+  if (body.dashboard_result) {
+    bubbleText = body.reply || 'Dashboard ready.';
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -4996,7 +5907,59 @@ async function sendApJob() {
 document.getElementById('apSendBtn').addEventListener('click', sendApJob);
 document.getElementById('apClearSkillsBtn').addEventListener('click', () => {
   document.getElementById('apSkills').value = '';
+  renderApSkillsChips();
 });
+
+const AP_SKILL_CHIP_DEFAULTS = [
+  'extract_invoice',
+  'po_lookup_sap',
+  'po_match',
+  'duplicate_detect',
+  'vendor_validate',
+  'finalize_decision',
+  'workflow_move_next',
+];
+
+function parseApSkillsText() {
+  return String(document.getElementById('apSkills')?.value || '')
+    .split(/[\n,]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function writeApSkillsText(skills) {
+  const el = document.getElementById('apSkills');
+  if (el) el.value = (skills || []).join('\n');
+}
+
+function renderApSkillsChips() {
+  const host = document.getElementById('apSkillsChips');
+  const meta = document.getElementById('apSkillsMeta');
+  if (!host) return;
+  const active = parseApSkillsText();
+  const activeSet = new Set(active);
+  const pool = [];
+  AP_SKILL_CHIP_DEFAULTS.forEach(id => { if (!pool.includes(id)) pool.push(id); });
+  active.forEach(id => { if (!pool.includes(id)) pool.push(id); });
+  host.innerHTML = pool.map(id => {
+    const on = activeSet.has(id);
+    return '<button type="button" class="ap-skill-chip' + (on ? ' on' : '') + '" data-skill="'
+      + escapeHtml(id) + '"><span class="dot"></span>' + escapeHtml(id) + '</button>';
+  }).join('');
+  if (meta) meta.textContent = active.length + ' / ' + pool.length + ' active';
+  host.querySelectorAll('.ap-skill-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const skill = btn.dataset.skill;
+      let next = parseApSkillsText();
+      if (next.includes(skill)) next = next.filter(s => s !== skill);
+      else next.push(skill);
+      writeApSkillsText(next);
+      renderApSkillsChips();
+    });
+  });
+}
+
+renderApSkillsChips();
 
 const FOLDER_CONFIG_SAMPLE = `You help design document management folder configurations.
 User request: "Create a repository folder named "Accounts Payable". Business description: Manage supplier invoices, purchase orders, and AP supporting documents.. Storage provider: . Field / structure preference: Suggest the best metadata fields and folder structure for this folder. Propose practical metadata fields for this folder. Set includeInFolderStructure true only for hierarchy fields. Return a short reply confirming the field recommendations."
@@ -5705,6 +6668,110 @@ async function sendReportPlanJob() {
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = origText; }
     sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
+async function sendDashboardJob(forcedPhase) {
+  const phaseEl = document.getElementById('dashPhase');
+  const phase = (forcedPhase || (phaseEl && phaseEl.value) || 'schema').trim().toLowerCase();
+  if (phaseEl && forcedPhase) phaseEl.value = phase;
+  const tenantId = ((document.getElementById('dashTenant') || {}).value || '').trim() || consoleTenantId();
+  const repositoryId = ((document.getElementById('dashRepositoryId') || {}).value || '').trim();
+  const workflowId = ((document.getElementById('dashWorkflowId') || {}).value || '').trim();
+  if (!tenantId) {
+    addSystemMessage('Select a tenant first — Dashboard is tenant-scoped.');
+    return;
+  }
+  if (!repositoryId && !workflowId) {
+    addSystemMessage('Enter a repository id or a workflow id.');
+    return;
+  }
+  let message = messageInput.value.trim();
+  if (phase === 'prompts') message = message || 'I need a dashboard';
+  if (phase === 'schema') message = message || 'I need an AP dashboard';
+  if (phase === 'data') message = message || 'apply';
+  let dashboardJson = null;
+  if (phase === 'data') {
+    const raw = ((document.getElementById('dashJson') || {}).value || '').trim();
+    if (!raw) {
+      addSystemMessage('Run Propose schema first, or paste dashboard_json (kpis + charts).');
+      return;
+    }
+    try { dashboardJson = JSON.parse(raw); }
+    catch (_) {
+      addSystemMessage('dashboard_json is not valid JSON.');
+      return;
+    }
+  }
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  addUserMessage(phase === 'data' ? 'Load dashboard data' : message);
+  const processing = addProcessingMessage(phase === 'prompts' ? 'Suggesting prompt…' : (phase === 'data' ? 'Loading dashboard…' : 'Proposing schema…'));
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+  try {
+    const payload = { phase, tenant_id: tenantId };
+    if (repositoryId) payload.repository_id = repositoryId;
+    if (workflowId) payload.workflow_id = workflowId;
+    if (dashboardJson) payload.dashboard_json = dashboardJson;
+    const body = {
+      session_id: sessionId,
+      intent: 'dashboard',
+      message: message,
+      payload: payload,
+    };
+    const request = { intent: 'dashboard', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const ctype = (res.headers.get('content-type') || '').toLowerCase();
+    removeProcessingMessage(processing);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const err = JSON.parse(await res.text());
+        detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail || err);
+      } catch (_) {
+        detail = 'Dashboard request failed';
+      }
+      addSystemMessage(`${res.status}: ${detail}`);
+      return;
+    }
+    if (ctype.includes('text/html')) {
+      const html = await res.text();
+      renderDashboardHtmlPreview(html);
+      return;
+    }
+    const data = await readResponseJson(res);
+    const dash = data.dashboard_result || {};
+    if (dash.phase === 'schema' && Array.isArray(dash.kpis)) {
+      const slim = { phase: 'schema', kpis: dash.kpis, charts: dash.charts || [] };
+      const box = document.getElementById('dashJson');
+      if (box) box.value = JSON.stringify(slim, null, 2);
+      if (dash.repository_id) {
+        const repoEl = document.getElementById('dashRepositoryId');
+        if (repoEl && !repoEl.value.trim()) repoEl.value = dash.repository_id;
+      }
+    }
+    if (dash.phase === 'prompts' && dash.prompt) {
+      messageInput.value = dash.prompt;
+      autosizeComposer();
+      if (phaseEl) phaseEl.value = 'schema';
+    }
+    if (dash.phase === 'schema' && phaseEl) phaseEl.value = 'data';
+    if (dashPanel) dashPanel.open = true;
+    syncMainControls();
+    collapseFormsAfterResult(data);
+    renderAssistantMessage(data, sessionId, request);
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
   }
 }
 
@@ -5718,6 +6785,7 @@ async function sendMessage() {
   if (composerMode === 'global_search') return sendGlobalSearchJob();
   if (composerMode === 'chatbot') return sendChatbotJob();
   if (composerMode === 'report') return sendReportPlanJob();
+  if (composerMode === 'dashboard') return sendDashboardJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');
@@ -5767,7 +6835,19 @@ const reportPlanBtn = document.getElementById('reportPlanBtn');
 if (reportPlanBtn) reportPlanBtn.addEventListener('click', () => sendReportPlanJob());
 const reportPromptBtn = document.getElementById('reportPromptBtn');
 if (reportPromptBtn) reportPromptBtn.addEventListener('click', () => sendReportPromptJob());
+const dashPromptBtn = document.getElementById('dashPromptBtn');
+const dashSchemaBtn = document.getElementById('dashSchemaBtn');
+const dashDataBtn = document.getElementById('dashDataBtn');
+if (dashPromptBtn) dashPromptBtn.addEventListener('click', () => sendDashboardJob('prompts'));
+if (dashSchemaBtn) dashSchemaBtn.addEventListener('click', () => sendDashboardJob('schema'));
+if (dashDataBtn) dashDataBtn.addEventListener('click', () => sendDashboardJob('data'));
 document.addEventListener('click', (ev) => {
+  const dashBtn = ev.target && ev.target.closest ? ev.target.closest('.dash-next-btn') : null;
+  if (dashBtn) {
+    const nextPhase = dashBtn.getAttribute('data-dash-phase') || '';
+    if (nextPhase) sendDashboardJob(nextPhase);
+    return;
+  }
   const btn = ev.target && ev.target.closest ? ev.target.closest('.cb-confirm-btn') : null;
   if (!btn) return;
   const actionId = btn.getAttribute('data-action-id') || '';

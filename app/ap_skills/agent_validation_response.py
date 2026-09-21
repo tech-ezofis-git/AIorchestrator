@@ -4,17 +4,10 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from app.ap_pipeline.policy import review_label
 from app.ap_skills.agent_validation_text import enrichment_for_finalize, resolve_source_type
 from app.ap_skills.payment_terms import due_date_from_terms, normalize_payment_terms
 from app.ap_skills.types import field_number, field_text, match_lines_by_description, name_similarity
-
-_REVIEW_LABELS = {
-    "MATCHED": "Matched",
-    "PARTIALLY_MATCHED": "Partially Matched",
-    "NOT_MATCHED": "Not Matched",
-    "NON_INVOICE": "Non-Invoice",
-    "DUPLICATE": "Not Matched",
-}
 
 
 def build_aiagent_response(
@@ -26,6 +19,7 @@ def build_aiagent_response(
     document_job: Optional[dict[str, Any]] = None,
     ai_insight: str = "",
     source_type: str = "",
+    thresholds: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Full Agent validation JSON persisted on ``AIAGENTResponse``."""
     artifacts = artifacts if isinstance(artifacts, dict) else {}
@@ -40,9 +34,7 @@ def build_aiagent_response(
     matter = artifacts.get("matter_validate") if isinstance(artifacts.get("matter_validate"), dict) else {}
 
     decision_u = str(decision or finalize.get("decision") or "").strip().upper()
-    review = _REVIEW_LABELS.get(decision_u, str(decision or "Not Matched").strip() or "Not Matched")
-    if review not in ("Matched", "Partially Matched", "Not Matched", "Non-Invoice"):
-        review = "Not Matched"
+    review = review_label(decision_u or decision, thresholds=thresholds)
 
     base_reason = str(reason or finalize.get("reason") or "").strip()
     if not ai_insight or not source_type or not base_reason:
@@ -245,7 +237,7 @@ def _invoice_lines(invoice: dict[str, Any]) -> list[dict[str, Any]]:
 def _po_lines(po: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(po, dict) or not po:
         return []
-    for key in ("PO Line Item Mapped", "lines", "PO Line Item", "PO_Line_Item"):
+    for key in ("PO Line Item Mapped", "match_items", "lines", "PO Line Item", "PO_Line_Item", "items"):
         raw = po.get(key)
         if isinstance(raw, str) and raw.strip().startswith("["):
             try:
@@ -255,6 +247,156 @@ def _po_lines(po: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(raw, list) and raw:
             return [r for r in raw if isinstance(r, dict)]
     return []
+
+
+def _first_present(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key not in row:
+            continue
+        value = row.get(key)
+        if value is None or value == "":
+            continue
+        return value
+    return None
+
+
+def _display_line_value(value: Any) -> Any:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return _display(value)
+    text = str(value).strip()
+    return text or None
+
+
+def _map_po_line_for_display(line: dict[str, Any], *, index: int) -> dict[str, Any]:
+    """Map one PO master line to display columns (SAP/HANA + InternalForm)."""
+    item: dict[str, Any] = {}
+
+    # Preferred SAP / HANA Cloud PURCHASE_ORDERS item columns.
+    sap_fields: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("Item Number", ("itemNumber", "item_number", "Line", "line_no", "line", "id")),
+        ("Item Category", ("itemCategory", "item_category", "Item Category")),
+        ("Material Id", ("materialId", "material_id", "Material Id", "Part Number", "part_number", "item_no", "sku")),
+        (
+            "Material Description",
+            ("materialDescription", "material_description", "Material Description", "description", "Description"),
+        ),
+        ("Material Group", ("materialGroup", "material_group", "Material Group")),
+        ("Plant", ("plant", "Plant")),
+        ("Order Quantity", ("orderQuantity", "order_quantity", "quantity", "qty", "Quantity")),
+        ("Unit of Measure", ("unitOfMeasure", "unit_of_measure", "UOM", "uom")),
+        ("Net Price", ("netPrice", "net_price", "rate", "price", "Unit Cost", "unit_price")),
+        ("Price Unit", ("priceUnit", "price_unit", "Price Unit")),
+        ("Net Value", ("netValue", "net_value", "line_amount", "amount", "Extended")),
+    )
+    for label, keys in sap_fields:
+        raw = _first_present(line, *keys)
+        if raw is None:
+            continue
+        if label == "Item Number":
+            item[label] = str(raw).strip()
+        elif label in {"Order Quantity", "Net Price", "Price Unit", "Net Value"}:
+            num = field_number(line, *keys)
+            if num is not None:
+                item[label] = int(num) if float(num).is_integer() else num
+            else:
+                item[label] = _display_line_value(raw)
+        else:
+            item[label] = _display_line_value(raw)
+
+    if "Item Number" not in item:
+        item["Item Number"] = str(index)
+
+    # Backward-compatible aliases used by existing UI / tests.
+    aliases = (
+        ("Line", "Item Number"),
+        ("Part Number", "Material Id"),
+        ("description", "Material Description"),
+        ("UOM", "Unit of Measure"),
+        ("quantity", "Order Quantity"),
+        ("rate", "Net Price"),
+        ("line_amount", "Net Value"),
+    )
+    for alias, src in aliases:
+        if alias not in item and src in item:
+            item[alias] = item[src]
+
+    # Extra InternalForm / SAP columns not covered above.
+    for label, keys in (
+        ("Tax", ("Tax", "tax")),
+        ("Req Date", ("Req Date", "req_date", "delivery_date")),
+        ("Weight", ("Weight", "weight")),
+        ("G/L Account", ("G/L Account", "gl_account", "gl")),
+    ):
+        if label in item:
+            continue
+        raw = _first_present(line, *keys)
+        if raw is not None:
+            item[label] = _display_line_value(raw)
+
+    # Pass through any remaining SAP master keys (camelCase) not already mapped.
+    known = {
+        "itemNumber",
+        "item_number",
+        "itemCategory",
+        "item_category",
+        "materialId",
+        "material_id",
+        "materialDescription",
+        "material_description",
+        "materialGroup",
+        "material_group",
+        "plant",
+        "orderQuantity",
+        "order_quantity",
+        "unitOfMeasure",
+        "unit_of_measure",
+        "netPrice",
+        "net_price",
+        "priceUnit",
+        "price_unit",
+        "netValue",
+        "net_value",
+        "line_no",
+        "line",
+        "id",
+        "description",
+        "Description",
+        "qty",
+        "quantity",
+        "Quantity",
+        "unit_price",
+        "price",
+        "rate",
+        "amount",
+        "line_amount",
+        "uom",
+        "UOM",
+        "part_number",
+        "Part Number",
+        "item_no",
+        "sku",
+        "Tax",
+        "tax",
+        "Req Date",
+        "req_date",
+        "delivery_date",
+        "Weight",
+        "weight",
+        "G/L Account",
+        "gl_account",
+        "gl",
+        "Line",
+    }
+    for key, value in line.items():
+        if key in known or key in item or value is None or value == "":
+            continue
+        if str(key).startswith("_"):
+            continue
+        item[key] = value
+
+    return {k: v for k, v in item.items() if v is not None and v != ""}
 
 
 def _build_display_po_row(po: dict[str, Any], fill_row: dict[str, Any]) -> dict[str, Any]:
@@ -267,19 +409,25 @@ def _build_display_po_row(po: dict[str, Any], fill_row: dict[str, Any]) -> dict[
         return row
 
     mapping = (
-        ("PO Number", ("po_number", "PO Number", "poNumber")),
-        ("Supplier", ("vendor", "supplier", "Supplier", "Vendor Name", "Vendor")),
-        ("Supplier Address", ("supplier_address", "Supplier Address", "vendor_address", "Vendor Address")),
-        ("Ship To Address", ("ship_to_address", "Ship To Address", "ship_to")),
-        ("PO Date", ("po_date", "PO Date", "PO DATE")),
-        ("Terms", ("terms", "Terms", "TERMS")),
-        ("Due Date", ("due_date", "Due Date")),
-        ("Buyer", ("buyer", "Buyer")),
-        ("PO Amount", ("total", "amount", "PO Amount")),
-        ("Currency", ("currency", "Currency")),
+        ("PO Number", ("po_number", "PO Number", "poNumber"), "text"),
+        ("Supplier", ("vendor", "supplier", "Supplier", "Vendor Name", "Vendor", "supplierName"), "text"),
+        ("Supplier Id", ("supplier_id", "supplierId", "Supplier Id", "Supplier ID"), "text"),
+        ("Supplier Address", ("supplier_address", "Supplier Address", "vendor_address", "Vendor Address"), "text"),
+        ("Ship To Address", ("ship_to_address", "Ship To Address", "ship_to"), "text"),
+        ("PO Date", ("po_date", "PO Date", "PO DATE", "poDate"), "text"),
+        ("Terms", ("terms", "Terms", "TERMS"), "text"),
+        ("Due Date", ("due_date", "Due Date"), "text"),
+        ("Buyer", ("buyer", "Buyer"), "text"),
+        ("PO Amount", ("total", "amount", "PO Amount"), "number"),
+        ("Currency", ("currency", "Currency"), "text"),
     )
-    for label, keys in mapping:
+    for label, keys, kind in mapping:
         if row.get(label) not in (None, ""):
+            continue
+        if kind == "number":
+            num = field_number(po, *keys)
+            if num is not None:
+                row[label] = int(num) if float(num).is_integer() else num
             continue
         text = field_text(po, *keys)
         if text:
@@ -292,28 +440,8 @@ def _build_display_po_row(po: dict[str, Any], fill_row: dict[str, Any]) -> dict[
     if "PO Line Item Mapped" not in row:
         lines = _po_lines(po)
         if lines:
-            cleaned: list[dict[str, Any]] = []
-            for idx, line in enumerate(lines, start=1):
-                item = {
-                    "Line": str(field_text(line, "Line", "line", "id") or idx),
-                    "Part Number": field_text(line, "Part Number", "part_number", "item_no", "sku") or None,
-                    "description": field_text(line, "description", "Description") or None,
-                    "UOM": field_text(line, "UOM", "uom") or None,
-                    "Tax": field_text(line, "Tax", "tax") or None,
-                    "quantity": _display(field_number(line, "quantity", "qty", "Quantity"))
-                    if field_number(line, "quantity", "qty", "Quantity") is not None
-                    else field_text(line, "quantity", "qty", "Quantity") or None,
-                    "rate": _display(field_number(line, "rate", "price", "Unit Cost"))
-                    if field_number(line, "rate", "price", "Unit Cost") is not None
-                    else None,
-                    "line_amount": _display(field_number(line, "line_amount", "amount", "Extended"))
-                    if field_number(line, "line_amount", "amount", "Extended") is not None
-                    else None,
-                    "Req Date": field_text(line, "Req Date", "req_date", "delivery_date") or None,
-                    "Weight": field_text(line, "weight", "Weight") or None,
-                    "G/L Account": field_text(line, "G/L Account", "gl_account", "gl") or None,
-                }
-                cleaned.append({k: v for k, v in item.items() if v is not None})
+            cleaned = [_map_po_line_for_display(line, index=idx) for idx, line in enumerate(lines, start=1)]
+            cleaned = [item for item in cleaned if item]
             if cleaned:
                 row["PO Line Item Mapped"] = cleaned
 
@@ -328,9 +456,42 @@ def _build_display_po_row(po: dict[str, Any], fill_row: dict[str, Any]) -> dict[
         "isMarked",
         "PO Line Item",
         "source",
+        "matches",
     ):
         if meta in po and meta not in row:
             row[meta] = po[meta]
+
+    # Pass through remaining SAP/HANA header columns not already mapped.
+    header_skip = {
+        "po_number",
+        "PO Number",
+        "poNumber",
+        "vendor",
+        "supplier",
+        "Supplier",
+        "Vendor Name",
+        "Vendor",
+        "supplierName",
+        "supplier_id",
+        "supplierId",
+        "lines",
+        "items",
+        "match_items",
+        "PO Line Item Mapped",
+        "PO Line Item",
+        "PO_Line_Item",
+        "lookup_error",
+        "reason",
+        "mock",
+        "form_id",
+        "ezfb_table",
+    }
+    for key, value in po.items():
+        if key in header_skip or key in row or value is None or value == "":
+            continue
+        if isinstance(value, (list, dict)) and key not in ("matches",):
+            continue
+        row[key] = value
     return row
 
 

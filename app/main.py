@@ -125,6 +125,7 @@ from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
 from app.agents.global_search_agent import GlobalSearchAgent
 from app.agents.chatbot_agent import ChatbotAgent
+from app.agents.dashboard_agent import DashboardAgent
 from app.report_agent import ReportAgentService
 from app.models.report_agent import (
     GeneratePromptRequest,
@@ -134,6 +135,8 @@ from app.models.report_agent import (
     ReportAgentTemplate,
 )
 from app.config import get_settings
+from app.dashboard.llm import configure_dashboard_llm
+from app.dashboard.store import DashboardStore, DashboardStoreUnavailableError
 from app.control.audit import AuditMiddleware, configure_app_logging
 from app.control.audit_store import AuditStore
 from app.control.content_filter import ContentFilterRejectedError, check_content
@@ -350,12 +353,44 @@ async def lifespan(app: FastAPI):
         db_presets = await catalog_store.list_model_presets_internal()
         if db_presets:
             set_runtime_presets(db_presets)
+        from app.agent_packs import seed_platform_packs_from_disk, set_catalog_store
+        from app.ap_pipeline import seed_platform_ap_pipeline, set_catalog_store as set_ap_pipeline_catalog
+
+        set_catalog_store(catalog_store)
+        set_ap_pipeline_catalog(catalog_store)
+        if getattr(settings, "agent_packs_from_db", True):
+            try:
+                seeded = await seed_platform_packs_from_disk(catalog_store, settings=settings)
+                logger.info("agent_packs_seed_complete", extra={"counts": seeded})
+            except Exception as pack_exc:
+                logger.warning(
+                    "agent_packs_seed_failed",
+                    extra={"error_type": type(pack_exc).__name__},
+                )
+        # Always seed platform pipeline when Catalog is up — flag only gates
+        # runner reads (Phase 3). Idempotent upsert from DEFAULT_SKILL_ORDER.
+        try:
+            pipeline_seeded = await seed_platform_ap_pipeline(catalog_store)
+            logger.info("ap_pipeline_seed_complete", extra=pipeline_seeded)
+        except Exception as pipeline_exc:
+            logger.warning(
+                "ap_pipeline_seed_failed",
+                extra={"error_type": type(pipeline_exc).__name__},
+            )
     except Exception as exc:
         logger.warning(
             "catalog_bootstrap_failed",
             extra={"error_type": type(exc).__name__},
         )
         set_runtime_presets(None)
+        try:
+            from app.agent_packs import set_catalog_store
+            from app.ap_pipeline import set_catalog_store as set_ap_pipeline_catalog
+
+            set_catalog_store(None)
+            set_ap_pipeline_catalog(None)
+        except Exception:
+            pass
 
     llm_adapter = LLMAdapter(settings)
     # Console can switch default/fallback at runtime; selection is persisted
@@ -510,6 +545,9 @@ async def lifespan(app: FastAPI):
         limit=20,
         rag_limit=max(settings.search_top_n, 5),
     )
+    configure_dashboard_llm(llm_adapter)
+    dashboard_store = DashboardStore(tenant_pools=tenant_pools, catalog_store=catalog_store)
+    dashboard_agent = DashboardAgent(dashboard_store)
 
     rate_limiter = RateLimiter(
         redis_client,
@@ -530,6 +568,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.PDF, pdf_agent.handle)
     agent_router.register(Intent.GLOBAL_SEARCH, global_search_agent.handle)
     agent_router.register(Intent.CHATBOT, chatbot_agent.handle)
+    agent_router.register(Intent.DASHBOARD, dashboard_agent.handle)
 
     report_agent_service = ReportAgentService(
         tenant_pools=tenant_pools,
@@ -560,11 +599,19 @@ async def lifespan(app: FastAPI):
     app.state.llm_adapter = llm_adapter
     app.state.runtime_models = runtime_models
     app.state.catalog_store = catalog_store
+    app.state.dashboard_store = dashboard_store
+    app.state.dashboard_agent = dashboard_agent
     app.state.catalog_agent = catalog_agent
     app.state.ezofis_client = ezofis_client
 
     yield
 
+    try:
+        from app.agent_packs import set_catalog_store
+
+        set_catalog_store(None)
+    except Exception:
+        pass
     await redis_client.aclose()
     await tenant_pools.close()
     if catalog_pool is not None:
@@ -591,6 +638,20 @@ async def health() -> dict:
         "ezofis_env": settings.ezofis_env,
         "ezofis_login_configured": bool(email and password),
     }
+
+
+@app.get("/dashboard/targets")
+async def dashboard_targets(request: Request, tenant_id: str) -> dict:
+    store: DashboardStore = request.app.state.dashboard_store
+    try:
+        return await store.list_targets(tenant_id=tenant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DashboardStoreUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Dashboard store is currently unavailable, please try again.",
+        ) from exc
 
 
 @app.get("/api/pdf/download/{filename}")
@@ -1040,15 +1101,38 @@ class SummaryCustomRuleUpdate(BaseModel):
 
 SummaryCustomSkillUpdate = SummaryCustomRuleUpdate
 
+_PACK_CONSOLE_AGENTS = frozenset(
+    {
+        "summary",
+        "ocr",
+        "insight",
+        "prompt",
+        "pdf",
+        "ap",
+        "dashboard-prompts",
+        "dashboard-schema",
+        "dashboard-data",
+    }
+)
+
+
+def _pack_console_agent(agent: str) -> str:
+    slug = (agent or "").strip().lower()
+    if slug not in _PACK_CONSOLE_AGENTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported pack agent '{agent}'. Use: {', '.join(sorted(_PACK_CONSOLE_AGENTS))}",
+        )
+    return slug
+
 
 @app.get("/console/summary-skills/defaults")
-async def get_summary_skills_defaults() -> dict:
-    """Platform Summary SKILL.md + rules from disk (no tenant required)."""
+async def get_summary_skills_defaults(request: Request) -> dict:
+    """Platform Summary pack (Catalog when seeded, else disk)."""
     try:
-        settings = get_settings()
-        store = store_from_settings(settings)
-        pack_dir = resolve_pack_dir_from_settings("summary", settings)
-        return {"defaults": store.list_defaults(pack_dir=pack_dir)}
+        from app.agent_packs import console as packs_console
+
+        return await packs_console.console_defaults(request, "summary")
     except Exception as exc:
         logger.warning(
             "summary_skills_defaults_failed",
@@ -1057,29 +1141,28 @@ async def get_summary_skills_defaults() -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+@app.get("/console/agent-packs/{agent}/defaults")
+async def get_agent_pack_defaults(agent: str, request: Request) -> dict:
+    try:
+        from app.agent_packs import console as packs_console
+
+        return await packs_console.console_defaults(request, _pack_console_agent(agent))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/console/summary-skills")
 async def get_summary_skills_console(
+    request: Request,
     tenant_id: Optional[str] = Query(None),
 ) -> dict:
-    """Defaults from disk; custom skills/rules + logs when tenant_id is set."""
+    """Defaults + tenant customs (Catalog tenant_agent_* or SQLite fallback)."""
     try:
-        settings = get_settings()
-        store = store_from_settings(settings)
-        pack_dir = resolve_pack_dir_from_settings("summary", settings)
-        tid = (tenant_id or "").strip()
-        payload: dict = {
-            "tenant_id": tid or None,
-            "defaults": store.list_defaults(pack_dir=pack_dir),
-            "custom_skills": [],
-            "custom_rules": [],
-            "logs": [],
-        }
-        if tid:
-            store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
-            payload["custom_skills"] = store.list_custom_skills(tenant_id=tid, agent="summary")
-            payload["custom_rules"] = store.list_custom_rules(tenant_id=tid, agent="summary")
-            payload["logs"] = store.list_logs(tenant_id=tid, agent="summary", limit=20)
-        return payload
+        from app.agent_packs import console as packs_console
+
+        return await packs_console.console_list(request, agent="summary", tenant_id=tenant_id)
     except Exception as exc:
         logger.warning(
             "summary_skills_console_load_failed",
@@ -1088,220 +1171,398 @@ async def get_summary_skills_console(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@app.post("/console/summary-skills/custom-rules")
-async def create_summary_custom_rule(payload: SummaryCustomRuleCreate) -> dict:
-    store = store_from_settings(get_settings())
+@app.get("/console/agent-packs/{agent}")
+async def get_agent_packs_console(
+    agent: str,
+    request: Request,
+    tenant_id: Optional[str] = Query(None),
+) -> dict:
     try:
-        rule = store.add_custom_rule(
+        from app.agent_packs import console as packs_console
+
+        return await packs_console.console_list(
+            request, agent=_pack_console_agent(agent), tenant_id=tenant_id
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/console/agent-packs/{agent}/custom-rules")
+async def create_agent_pack_custom_rule(
+    agent: str, payload: SummaryCustomRuleCreate, request: Request
+) -> dict:
+    from app.agent_packs import console as packs_console
+
+    try:
+        return await packs_console.console_add_rule(
+            request,
+            agent=_pack_console_agent(agent),
             tenant_id=payload.tenant_id,
             body=payload.body,
             changed_by=payload.changed_by or "console",
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"rule": rule}
 
 
-@app.post("/console/summary-skills/custom-rules/upload")
-async def upload_summary_custom_extra(
+@app.post("/console/agent-packs/{agent}/custom-rules/upload")
+async def upload_agent_pack_custom_extra(
+    agent: str,
+    request: Request,
     tenant_id: str = Form(...),
     file: UploadFile = File(...),
     changed_by: str = Form("console"),
 ) -> dict:
-    """Upload .md → tenant_skills (skill) or .mdc → tenant_rules (rule)."""
     raw = (await file.read()).decode("utf-8", errors="replace")
     filename = file.filename or "upload.mdc"
+    from app.agent_packs import console as packs_console
+
     try:
-        kind = upload_kind(filename)
-        source_file, body = parse_tenant_upload(filename=filename, raw=raw)
-        store = store_from_settings(get_settings())
-        tid = tenant_id.strip()
-        store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
-        if kind == "skill":
-            skill = store.add_custom_skill(
-                tenant_id=tid,
-                body=body,
-                source_file=source_file,
-                changed_by=changed_by or "console",
-            )
-            return {"kind": "skill", "skill": skill, "source_file": source_file}
-        rule = store.add_custom_rule(
-            tenant_id=tid,
-            body=body,
-            source_file=source_file,
+        return await packs_console.console_upload(
+            request,
+            agent=_pack_console_agent(agent),
+            tenant_id=tenant_id,
+            filename=filename,
+            raw=raw,
             changed_by=changed_by or "console",
         )
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.warning(
-            "summary_skills_upload_failed",
-            extra={"error_type": type(exc).__name__},
+            "agent_pack_upload_failed",
+            extra={"agent": agent, "error_type": type(exc).__name__},
         )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"kind": "rule", "rule": rule, "source_file": source_file}
 
 
-@app.post("/console/summary-skills/custom-skills/{item_id:int}/upload")
-async def replace_summary_custom_skill(
-    item_id: int,
+@app.post("/console/agent-packs/{agent}/custom-skills/{item_id}/upload")
+async def replace_agent_pack_custom_skill(
+    agent: str,
+    item_id: str,
+    request: Request,
     tenant_id: str = Form(...),
     file: UploadFile = File(...),
     changed_by: str = Form("console"),
 ) -> dict:
-    """Replace an existing tenant custom skill from a .md file."""
     raw = (await file.read()).decode("utf-8", errors="replace")
     filename = file.filename or "upload.md"
+    from app.agent_packs import console as packs_console
+
     try:
         if upload_kind(filename) != "skill":
             raise ValueError("replace skill requires a .md file")
         source_file, body = parse_tenant_upload(filename=filename, raw=raw)
-        store = store_from_settings(get_settings())
-        tid = tenant_id.strip()
-        store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
-        skill = store.update_custom_skill(
+        out = await packs_console.console_update_skill(
+            request,
+            agent=_pack_console_agent(agent),
             item_id=item_id,
             tenant_id=tenant_id.strip(),
             body=body,
-            source_file=source_file,
+            is_active=None,
             changed_by=changed_by or "console",
+            source_file=source_file,
         )
+        out["source_file"] = source_file
+        return out
+    except HTTPException:
+        raise
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.warning(
-            "summary_skills_replace_failed",
-            extra={"error_type": type(exc).__name__},
+            "agent_pack_replace_failed",
+            extra={"agent": agent, "error_type": type(exc).__name__},
         )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"kind": "skill", "skill": skill, "source_file": source_file}
 
 
-@app.post("/console/summary-skills/custom-rules/{item_id:int}/upload")
-async def replace_summary_custom_rule(
-    item_id: int,
+@app.post("/console/agent-packs/{agent}/custom-rules/{item_id}/upload")
+async def replace_agent_pack_custom_rule(
+    agent: str,
+    item_id: str,
+    request: Request,
     tenant_id: str = Form(...),
     file: UploadFile = File(...),
     changed_by: str = Form("console"),
 ) -> dict:
-    """Replace an existing tenant custom rule from a .mdc file."""
     raw = (await file.read()).decode("utf-8", errors="replace")
     filename = file.filename or "upload.mdc"
+    from app.agent_packs import console as packs_console
+
     try:
         file_kind = upload_kind(filename)
         source_file, body = parse_tenant_upload(filename=filename, raw=raw)
-        store = store_from_settings(get_settings())
-        tid = tenant_id.strip()
-        store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
+        agent_slug = _pack_console_agent(agent)
         if file_kind == "skill":
-            skill = store.update_custom_skill(
+            out = await packs_console.console_update_skill(
+                request,
+                agent=agent_slug,
                 item_id=item_id,
-                tenant_id=tid,
+                tenant_id=tenant_id.strip(),
                 body=body,
-                source_file=source_file,
+                is_active=None,
                 changed_by=changed_by or "console",
+                source_file=source_file,
             )
-            return {"kind": "skill", "skill": skill, "source_file": source_file}
-        rule = store.update_custom_rule(
+            out["source_file"] = source_file
+            return out
+        out = await packs_console.console_update_rule(
+            request,
+            agent=agent_slug,
             item_id=item_id,
-            tenant_id=tid,
+            tenant_id=tenant_id.strip(),
             body=body,
-            source_file=source_file,
+            is_active=None,
             changed_by=changed_by or "console",
+            source_file=source_file,
         )
+        out["source_file"] = source_file
+        return out
+    except HTTPException:
+        raise
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.warning(
-            "summary_skills_replace_failed",
+            "agent_pack_replace_failed",
+            extra={"agent": agent, "error_type": type(exc).__name__},
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.patch("/console/agent-packs/{agent}/custom-skills/{item_id}")
+async def update_agent_pack_custom_skill(
+    agent: str, item_id: str, payload: SummaryCustomSkillUpdate, request: Request
+) -> dict:
+    from app.agent_packs import console as packs_console
+
+    try:
+        return await packs_console.console_update_skill(
+            request,
+            agent=_pack_console_agent(agent),
+            item_id=item_id,
+            tenant_id=payload.tenant_id,
+            body=payload.body,
+            is_active=payload.is_active,
+            changed_by=payload.changed_by or "console",
+        )
+    except HTTPException:
+        raise
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/console/agent-packs/{agent}/custom-rules/{item_id}")
+async def update_agent_pack_custom_rule(
+    agent: str, item_id: str, payload: SummaryCustomRuleUpdate, request: Request
+) -> dict:
+    from app.agent_packs import console as packs_console
+
+    try:
+        return await packs_console.console_update_rule(
+            request,
+            agent=_pack_console_agent(agent),
+            item_id=item_id,
+            tenant_id=payload.tenant_id,
+            body=payload.body,
+            is_active=payload.is_active,
+            changed_by=payload.changed_by or "console",
+        )
+    except HTTPException:
+        raise
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/console/agent-packs/{agent}/custom-skills/{item_id}")
+async def delete_agent_pack_custom_skill(
+    agent: str, item_id: str, request: Request, tenant_id: str, changed_by: str = "console"
+) -> dict:
+    from app.agent_packs import console as packs_console
+
+    try:
+        return await packs_console.console_delete_skill(
+            request,
+            agent=_pack_console_agent(agent),
+            item_id=item_id,
+            tenant_id=tenant_id,
+            changed_by=changed_by,
+        )
+    except HTTPException:
+        raise
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/console/agent-packs/{agent}/custom-rules/{item_id}")
+async def delete_agent_pack_custom_rule(
+    agent: str, item_id: str, request: Request, tenant_id: str, changed_by: str = "console"
+) -> dict:
+    from app.agent_packs import console as packs_console
+
+    try:
+        return await packs_console.console_delete_rule(
+            request,
+            agent=_pack_console_agent(agent),
+            item_id=item_id,
+            tenant_id=tenant_id,
+            changed_by=changed_by,
+        )
+    except HTTPException:
+        raise
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/console/summary-skills/custom-rules")
+async def create_summary_custom_rule(
+    payload: SummaryCustomRuleCreate, request: Request
+) -> dict:
+    return await create_agent_pack_custom_rule("summary", payload, request)
+
+
+@app.post("/console/summary-skills/custom-rules/upload")
+async def upload_summary_custom_extra(
+    request: Request,
+    tenant_id: str = Form(...),
+    file: UploadFile = File(...),
+    changed_by: str = Form("console"),
+) -> dict:
+    """Upload .md → skill or .mdc → rule (Catalog or SQLite)."""
+    return await upload_agent_pack_custom_extra(
+        "summary", request, tenant_id=tenant_id, file=file, changed_by=changed_by
+    )
+
+
+@app.post("/console/summary-skills/custom-skills/{item_id}/upload")
+async def replace_summary_custom_skill(
+    item_id: str,
+    request: Request,
+    tenant_id: str = Form(...),
+    file: UploadFile = File(...),
+    changed_by: str = Form("console"),
+) -> dict:
+    return await replace_agent_pack_custom_skill(
+        "summary", item_id, request, tenant_id=tenant_id, file=file, changed_by=changed_by
+    )
+
+
+@app.post("/console/summary-skills/custom-rules/{item_id}/upload")
+async def replace_summary_custom_rule(
+    item_id: str,
+    request: Request,
+    tenant_id: str = Form(...),
+    file: UploadFile = File(...),
+    changed_by: str = Form("console"),
+) -> dict:
+    return await replace_agent_pack_custom_rule(
+        "summary", item_id, request, tenant_id=tenant_id, file=file, changed_by=changed_by
+    )
+
+
+@app.patch("/console/summary-skills/custom-skills/{item_id}")
+async def update_summary_custom_skill(
+    item_id: str, payload: SummaryCustomSkillUpdate, request: Request
+) -> dict:
+    return await update_agent_pack_custom_skill("summary", item_id, payload, request)
+
+
+@app.patch("/console/summary-skills/custom-rules/{item_id}")
+async def update_summary_custom_rule(
+    item_id: str, payload: SummaryCustomRuleUpdate, request: Request
+) -> dict:
+    return await update_agent_pack_custom_rule("summary", item_id, payload, request)
+
+
+@app.delete("/console/summary-skills/custom-skills/{item_id}")
+async def delete_summary_custom_skill(
+    item_id: str, request: Request, tenant_id: str, changed_by: str = "console"
+) -> dict:
+    return await delete_agent_pack_custom_skill(
+        "summary", item_id, request, tenant_id=tenant_id, changed_by=changed_by
+    )
+
+
+@app.delete("/console/summary-skills/custom-rules/{item_id}")
+async def delete_summary_custom_rule(
+    item_id: str, request: Request, tenant_id: str, changed_by: str = "console"
+) -> dict:
+    return await delete_agent_pack_custom_rule(
+        "summary", item_id, request, tenant_id=tenant_id, changed_by=changed_by
+    )
+
+
+class ApPipelineTenantUpsert(BaseModel):
+    tenant_id: str
+    config: dict
+    changed_by: Optional[str] = "console"
+
+
+@app.get("/console/ap-pipeline")
+async def get_ap_pipeline_console(
+    request: Request,
+    tenant_id: Optional[str] = Query(None),
+) -> dict:
+    """Platform + optional tenant AP pipeline config for the console Pipeline tab."""
+    from app.ap_pipeline import console as ap_pipeline_console
+    from app.ap_pipeline.store import ApPipelineStoreError
+
+    try:
+        from app.config import get_settings
+
+        return await ap_pipeline_console.console_get(
+            tenant_id=tenant_id,
+            settings=get_settings(),
+        )
+    except ApPipelineStoreError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.warning(
+            "ap_pipeline_console_get_failed",
             extra={"error_type": type(exc).__name__},
         )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"kind": "rule", "rule": rule, "source_file": source_file}
 
 
-@app.patch("/console/summary-skills/custom-skills/{item_id:int}")
-async def update_summary_custom_skill(
-    item_id: int, payload: SummaryCustomSkillUpdate
-) -> dict:
-    store = store_from_settings(get_settings())
-    tid = (payload.tenant_id or "").strip()
-    store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
+@app.put("/console/ap-pipeline/tenant")
+async def put_ap_pipeline_tenant(payload: ApPipelineTenantUpsert, request: Request) -> dict:
+    """Upsert tenant_ap_pipeline and write an audit log row."""
+    from app.ap_pipeline import console as ap_pipeline_console
+    from app.ap_pipeline.store import ApPipelineStoreError
+
     try:
-        skill = store.update_custom_skill(
-            item_id=item_id,
+        return await ap_pipeline_console.console_put_tenant(
             tenant_id=payload.tenant_id,
-            body=payload.body,
-            is_active=payload.is_active,
+            config=payload.config if isinstance(payload.config, dict) else {},
             changed_by=payload.changed_by or "console",
         )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
+    except ApPipelineStoreError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"kind": "skill", "skill": skill}
-
-
-@app.patch("/console/summary-skills/custom-rules/{item_id:int}")
-async def update_summary_custom_rule(item_id: int, payload: SummaryCustomRuleUpdate) -> dict:
-    store = store_from_settings(get_settings())
-    tid = (payload.tenant_id or "").strip()
-    store.migrate_legacy_md_rules_to_skills(tenant_id=tid, agent="summary")
-    try:
-        rule = store.update_custom_rule(
-            item_id=item_id,
-            tenant_id=payload.tenant_id,
-            body=payload.body,
-            is_active=payload.is_active,
-            changed_by=payload.changed_by or "console",
+    except Exception as exc:
+        logger.warning(
+            "ap_pipeline_console_put_failed",
+            extra={"error_type": type(exc).__name__},
         )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"kind": "rule", "rule": rule}
-
-
-@app.delete("/console/summary-skills/custom-skills/{item_id:int}")
-async def delete_summary_custom_skill(
-    item_id: int, tenant_id: str, changed_by: str = "console"
-) -> dict:
-    store = store_from_settings(get_settings())
-    store.migrate_legacy_md_rules_to_skills(tenant_id=tenant_id, agent="summary")
-    try:
-        deleted = store.delete_custom_skill(
-            item_id=item_id,
-            tenant_id=tenant_id,
-            changed_by=changed_by,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"kind": "skill", "deleted": deleted}
-
-
-@app.delete("/console/summary-skills/custom-rules/{item_id:int}")
-async def delete_summary_custom_rule(
-    item_id: int, tenant_id: str, changed_by: str = "console"
-) -> dict:
-    store = store_from_settings(get_settings())
-    store.migrate_legacy_md_rules_to_skills(tenant_id=tenant_id, agent="summary")
-    try:
-        deleted = store.delete_custom_rule(
-            item_id=item_id,
-            tenant_id=tenant_id,
-            changed_by=changed_by,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"kind": "rule", "deleted": deleted}
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 class CatalogAgentCreate(BaseModel):
@@ -1705,7 +1966,15 @@ _CHAT_MULTIPART_SCHEMA = {
         "processId": {"type": "string", "description": "Workflow process id for move-next."},
         "activityid": {"type": "string", "description": "Workflow step ActivityId for move-next. Omitted => lookup workflow.WorkflowSteps (AP AGENT 1)."},
         "connector_id": {"type": "string", "description": "QB/Sage/SAP connector id for PO lookup skills."},
-        "resource": {"type": "string", "description": "PO resource: QUICKBOOKS, SAP, or SAGE."},
+        "resource": {"type": "string", "description": "PO resource: QUICKBOOKS, SAP, HANA, or SAGE."},
+        "master_source": {
+            "type": "string",
+            "description": "Workflow PO master: InternalForm, SAP, HANA, QuickBooks, or Sage.",
+        },
+        "master_form_id": {
+            "type": "string",
+            "description": "InternalForm PO master form id (ezfb table). Separate from invoice formid.",
+        },
         "matter_master_id": {"type": "string", "description": "Matter master id."},
         "formid": {
             "type": "string",
@@ -1814,6 +2083,62 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "dashboard_prompts": {
+                            "summary": "Dashboard prompts: intent=dashboard, payload.phase=prompts",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "payload": {
+                                    "phase": "prompts",
+                                    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                                    "repository_id": "a6169a5c-1468-4fb5-90a9-220082a89f2a",
+                                },
+                            },
+                        },
+                        "dashboard_schema": {
+                            "summary": "Dashboard schema: intent=dashboard, payload.phase=schema",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "message": "I need an AP dashboard",
+                                "payload": {
+                                    "phase": "schema",
+                                    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                                    "repository_id": "a6169a5c-1468-4fb5-90a9-220082a89f2a",
+                                },
+                            },
+                        },
+                        "dashboard_schema_workflow": {
+                            "summary": "Dashboard schema from payload.workflow_id (resolves repository)",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "message": "I need an AP dashboard",
+                                "payload": {
+                                    "phase": "schema",
+                                    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                                    "workflow_id": "452859c2-9bbe-4e17-acd2-f11524a0650e",
+                                },
+                            },
+                        },
+                        "dashboard_data": {
+                            "summary": "Dashboard data: intent=dashboard, payload.dashboard_json (returns text/html)",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "dashboard",
+                                "message": "apply",
+                                "payload": {
+                                    "phase": "data",
+                                    "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+                                    "repository_id": "a6169a5c-1468-4fb5-90a9-220082a89f2a",
+                                    "dashboard_json": {
+                                        "phase": "schema",
+                                        "kpis": [],
+                                        "charts": [],
+                                    },
+                                },
+                            },
+                        },
                         "ap_invoice_json": {
                             "summary": "AP skills from invoice JSON",
                             "value": {
@@ -1912,7 +2237,7 @@ _CHAT_MULTIPART_SCHEMA = {
         }
     },
 )
-async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatResponse:
+async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatResponse | HTMLResponse:
     started_at = time.perf_counter()
     parsed = await parse_chat_request(request)
     payload = parsed.chat
@@ -1949,6 +2274,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 message = query_alias
             else:
                 message = "help"
+        elif explicit == "dashboard":
+            message = "I need a dashboard."
         elif (
             has_filepath
             or has_upload
@@ -2093,6 +2420,17 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "upload_file": getattr(p, "upload_file", None) if p else None,
             "pending_action_id": getattr(p, "pending_action_id", None) if p else None,
         }
+    elif intent == Intent.DASHBOARD:
+        p = payload.payload
+        document_job = {
+            "tenant_id": p.tenant_id if p else None,
+            "repository_id": p.repository_id if p else None,
+            "workflow_id": p.workflow_id if p else None,
+            "dashboard_json": getattr(p, "dashboard_json", None) if p else None,
+            "repository_name": getattr(p, "repository_name", None) if p else None,
+            "workflow_name": getattr(p, "workflow_name", None) if p else None,
+            "phase": getattr(p, "phase", None) if p else None,
+        }
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
     if intent == Intent.INSIGHT and has_insight_json:
@@ -2219,6 +2557,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "activity_id": payload.payload.activity_id if payload.payload else None,
             "connector_id": payload.payload.connector_id if payload.payload else None,
             "resource": payload.payload.resource if payload.payload else None,
+            "master_source": payload.payload.master_source if payload.payload else None,
+            "master_form_id": payload.payload.master_form_id if payload.payload else None,
             "matter_master_id": payload.payload.matter_master_id if payload.payload else None,
             "form_id": payload.payload.form_id if payload.payload else None,
             "model": payload.payload.model if payload.payload else None,
@@ -2320,6 +2660,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DashboardStoreUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Dashboard store is currently unavailable, please try again.",
+        ) from exc
     except LLMAdapterError as exc:
         raise HTTPException(
             status_code=502, detail="Upstream LLM provider error, please try again."
@@ -2372,6 +2717,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         redacted_response_snippet=_snippet_for_audit(intent.value, result["reply"]),
     )
 
+    dashboard = result.get("dashboard_result") if isinstance(result.get("dashboard_result"), dict) else None
+    html = result.get("html")
+    if dashboard and dashboard.get("phase") == "data" and isinstance(html, str) and html.strip():
+        return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
+
     return response_composer.compose_chat_response(
         session_id=payload.session_id,
         reply=result["reply"],
@@ -2392,6 +2742,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         pdf_result=result.get("pdf_result"),
         global_search_result=result.get("global_search_result"),
         chatbot_result=result.get("chatbot_result"),
+        dashboard_result=result.get("dashboard_result"),
+        html=result.get("html"),
     )
 
 

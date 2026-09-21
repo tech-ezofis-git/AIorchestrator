@@ -57,7 +57,7 @@ class PromptAgent:
         try:
             result = await self._llm.chat_completion(
                 [
-                    {"role": "system", "content": prompt_rules.system_prompt()},
+                    {"role": "system", "content": await prompt_rules.async_system_prompt()},
                     {"role": "user", "content": prompt},
                 ]
             )

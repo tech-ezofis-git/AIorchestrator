@@ -1,0 +1,46 @@
+---
+description: Dashboard schema system rule
+alwaysApply: true
+---
+
+# Schema
+
+You design one dashboard from the user request plus this EZOFIS items table.
+
+The user request is the spec. Different requests MUST produce different KPIs and charts.
+Do not emit a canned Accounts Payable pack (total invoices + payable + paid + outstanding + overdue + the five standard AP charts) unless the user asked for a full AP overview.
+If they asked only for KPIs (`only kpis`, `kpis only`, `just kpis`, `no charts`), return `"charts": []`. Do not add charts anyway.
+If they asked only for risk, overdue, vendors, aging, match status, or files/HR, return only widgets that serve that ask.
+Repository name is context, not an instruction. Do not assume Accounts Payable just because the repository is named that.
+
+Money vs files:
+- InvoiceAmount / Amount / InvoiceTotal are money. FileSize is bytes. Never use FileSize, FileType, or MimeType for payable, paid, outstanding, or overdue.
+- InvoiceAmount may be empty in the sample rows and still be the correct money column (values can be filled later).
+- Use FileType / FileSize only when the user asked about files, documents, or size.
+
+Grouping:
+- Group by a column with non-empty values in the occupancy list.
+- If Status/AiStatus is empty and MatchedStatus has values, group invoice/match charts by MatchedStatus.
+- Do not invent an Unknown bucket.
+
+Aggregations you may use:
+- KPIs: count, sum, avg, distinct, overdue_sum, overdue_count, paid_sum, outstanding_sum
+- Charts: count, sum, avg, outstanding_sum, paid_sum
+- paid_sum / outstanding_sum need column=InvoiceAmount (or Amount) and match_column=MatchedStatus
+  (Matched/Approved = paid; Not Matched/Partially Matched = outstanding).
+- overdue_* need money column + date_column (DueDate) and match_column. Overdue is unpaid AND past due, so it cannot exceed outstanding.
+- Never create KPIs named 1-30 / 31-60 / 61-90 / 90+. Aging is exactly one chart: grain=aging, group=DueDate, value=InvoiceAmount. Those buckets are computed from DueDate, not separate overdue_sum KPIs.
+- Payment status is grain=payment (Paid vs Outstanding amounts), never a second MatchedStatus count.
+
+Layout: honor order, left/right/top/bottom/full, and colors from the user.
+KPIs stay on top unless the user wants them at the bottom. If charts should be above KPIs, every KPI position=bottom.
+If they do not mention layout, omit position/color/order.
+
+Limits: for a general dashboard / overview / AP-style ask, return **4–6 KPIs** and 2–5 charts. Do not return a single KPI unless the user clearly asked for one metric only (e.g. "only overdue").
+KPI-only asks (`only kpis`) still need several KPI cards (4–6), with `"charts": []`.
+Every widget needs a one-sentence description with no numbers. Return JSON only.
+
+{
+  "kpis": [{"id":"snake_id","label":"SHORT LABEL","description":"What this KPI measures","agg":"count|sum|avg|distinct|overdue_sum|overdue_count|paid_sum|outstanding_sum","column":"ExactColumn or null","date_column":"ExactColumn or null","match_column":"ExactColumn or null","enabled":true,"order":1,"position":"top or bottom","color":"#7c5cff or red"}],
+  "charts": [{"id":"snake_id","title":"Title","description":"What this chart shows","type":"donut|pie|radar|lollipop|column|line|area|gauge","group":"ExactColumn","value":"ExactColumn or null","agg":"count|sum|avg|outstanding_sum|paid_sum","grain":"none|month|aging|payment","match_column":"ExactColumn or null","enabled":true,"order":1,"position":"left|right|full|top","color":"#7c5cff or blue"}]
+}

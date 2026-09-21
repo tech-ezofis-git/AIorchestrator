@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.ap_skills.hana_po import is_hana_po_connector, resolve_hana_connector_id
+from app.ap_skills.hana_po import is_hana_po_connector, resolve_connector_id
 from app.ap_skills.types import ApContext, ApSkillError, ApSkillResult, field_text, invoice_from
 
 SKILL_ID = "po_lookup_sap"
@@ -83,8 +83,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
         )
 
     job = ctx.document_job or {}
-    connector_id = resolve_hana_connector_id(
-        tenant_id=ctx.tenant_id,
+    connector_id = resolve_connector_id(
         connector_id=str(
             job.get("connector_id")
             or ctx.thresholds.get("sap_connector_id")

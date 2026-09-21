@@ -536,12 +536,34 @@ def _row_as_dict(row: Any) -> dict[str, Any]:
 def _ci_get(data: dict[str, Any], *names: str) -> Any:
     if not data:
         return None
-    lower = {str(k).lower().replace("_", ""): v for k, v in data.items()}
+    by_norm = {_norm_col(str(k)): v for k, v in data.items()}
     for name in names:
-        key = str(name).lower().replace("_", "")
-        if key in lower and lower[key] not in (None, ""):
-            return lower[key]
+        if _norm_col(name) in by_norm:
+            return by_norm[_norm_col(name)]
+    lower = {str(k).lower(): v for k, v in data.items()}
+    for name in names:
+        if name.lower() in lower:
+            return lower[name.lower()]
     return None
+
+
+def _coerce_po_amount(raw: Any) -> Optional[float]:
+    if raw in (None, ""):
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    text = str(raw).strip().replace(",", "")
+    for symbol in ("$", "€", "£", "₹", "USD", "EUR", "GBP", "INR", "CAD"):
+        text = text.replace(symbol, "")
+    text = text.strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def _execute_rowcount(status: Any) -> Optional[int]:
@@ -1316,6 +1338,146 @@ class ApStore:
             logger.warning(
                 "ap_ezfb_latest_empty_failed",
                 extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
+            )
+            return None
+
+    async def lookup_ezfb_po(
+        self,
+        *,
+        tenant_id: str,
+        form_id: str,
+        po_number: str,
+    ) -> Optional[dict[str, Any]]:
+        """Find a PO row in the InternalForm / Ezofis master ``ezfb_*_items`` table.
+
+        Core ``GET /masters/po`` is not deployed; Agents read the tenant form
+        table directly (same DB path as ezfb write-back).
+        """
+        needle = str(po_number or "").strip()
+        fid = str(form_id or "").strip()
+        if not needle or not fid:
+            return None
+        try:
+            db = await self._db(tenant_id)
+            loc = await self._locate_ezfb_table(db, form_id=fid, form_entry_id=None)
+            if loc is None:
+                guessed = ezfb_items_table(fid)
+                if guessed:
+                    loc = await self._locate_table_by_name(db, guessed)
+            if loc is None:
+                logger.info(
+                    "ap_ezfb_po_table_missing",
+                    extra={"form_id": fid, "po_number": needle},
+                )
+                return None
+            schema, real_table = loc["schema"], loc["table"]
+            col_rows = await db.fetch(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = $1 AND table_name = $2
+                ORDER BY ordinal_position
+                """,
+                schema,
+                real_table,
+            )
+            columns = [str(_row_get(row, "column_name")) for row in col_rows or []]
+            po_cols = [
+                c
+                for c in columns
+                if _norm_col(c)
+                in {
+                    "ponumber",
+                    "pono",
+                    "po",
+                    "purchaseordernumber",
+                    "purchaseorder",
+                }
+            ]
+            if not po_cols:
+                logger.info(
+                    "ap_ezfb_po_column_missing",
+                    extra={"table": real_table, "columns": columns[:40]},
+                )
+                return None
+            where = " OR ".join(
+                f"lower(btrim(CAST({quote_ident(c)} AS text))) = lower($1)" for c in po_cols
+            )
+            row = await db.fetchrow(
+                f"SELECT * FROM {quote_ident(schema)}.{quote_ident(real_table)} "
+                f"WHERE {where} LIMIT 1",
+                needle,
+            )
+            if row is None:
+                return None
+            data = _row_as_dict(row)
+            vendor = _ci_get(
+                data,
+                "Supplier",
+                "Vendor",
+                "VendorName",
+                "Vendor_Name",
+                "SupplierName",
+                "supplier",
+                "vendor",
+            )
+            total = None
+            # Only PO-master amount columns — never InvoiceAmount (invoice write-back
+            # forms would echo the extracted invoice total and false-MATCH).
+            for amount_key in (
+                "PO Amount",
+                "POAmount",
+                "PoAmount",
+                "Po Amount",
+            ):
+                candidate = _ci_get(data, amount_key)
+                coerced = _coerce_po_amount(candidate)
+                if coerced is not None:
+                    total = coerced
+                    break
+            if total is None:
+                # Generic Total/Amount only when the row looks like a PO master
+                # (has a PO number column value), still never Invoice*.
+                for amount_key in ("Total", "Amount", "total"):
+                    candidate = _ci_get(data, amount_key)
+                    coerced = _coerce_po_amount(candidate)
+                    if coerced is not None:
+                        total = coerced
+                        break
+            currency = _ci_get(data, "Currency", "currency")
+            po_val = _ci_get(
+                data,
+                "PoNumber",
+                "PONumber",
+                "PO Number",
+                "PO_Number",
+                "PO No",
+                "po_number",
+            )
+            out: dict[str, Any] = {
+                "po_number": str(po_val or needle).strip(),
+                "vendor": str(vendor).strip() if vendor not in (None, "") else None,
+                "total": total,
+                "currency": str(currency).strip() if currency not in (None, "") else None,
+                "lines": [],
+                "source": "form",
+                "form_id": fid,
+                "ezfb_table": real_table,
+            }
+            # Keep raw master columns for agent_data_validation po_row.
+            for key, value in data.items():
+                if value in (None, "") or key in out:
+                    continue
+                # asyncpg may return UUID — keep JSON-serializable for move-next.
+                if isinstance(value, uuid.UUID):
+                    out[key] = str(value)
+                else:
+                    out[key] = value
+            return out
+        except Exception as exc:
+            logger.warning(
+                "ap_ezfb_po_lookup_failed",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200], "form_id": fid},
             )
             return None
 

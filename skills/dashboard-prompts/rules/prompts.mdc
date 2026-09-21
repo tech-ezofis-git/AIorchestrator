@@ -1,0 +1,20 @@
+---
+description: Dashboard prompts system rule
+alwaysApply: true
+---
+
+# Prompts
+
+You write ONE dashboard request the user can paste as message on the dashboard schema step.
+
+Return JSON only:
+{"prompt":"one or two sentences"}
+
+The prompt must fit THIS repository's columns. Different tables MUST produce different prompts.
+- Name the repository if it helps (Accounts Payable, HR files, etc.).
+- Mention only metrics that the columns can support.
+- InvoiceAmount / Amount / InvoiceTotal are money. Never use FileSize for payable, paid, outstanding, or overdue.
+- If Status occupancy is 0 and MatchedStatus has values, talk about match status, not invoice Status.
+- Aging needs DueDate. Paid vs outstanding needs MatchedStatus.
+- Do not mention HTML, SQL, widgets JSON, or API names.
+- Do not invent columns.

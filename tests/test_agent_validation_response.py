@@ -118,6 +118,8 @@ def test_aiagent_response_matches_apagent_shape():
     assert out["po_row"]["PO Number"] == "PO-31001"
     assert out["po_row"]["Supplier"].startswith("Nexus")
     assert out["po_row"]["PO Line Item Mapped"]
+    assert out["po_row"]["PO Line Item Mapped"][0]["Material Description"] == "Network Edge Router"
+    assert out["po_row"]["PO Line Item Mapped"][0]["description"] == "Network Edge Router"
 
     assert out["payment_terms"]["raw"] == "Net One Month"
     assert out["payment_terms"]["normalized"]["net_days"] == 30
@@ -129,6 +131,69 @@ def test_aiagent_response_matches_apagent_shape():
     assert out["Extracted Invoice JSON"]["invoice_header"]["Invoice No"] == "INV-2026-3101"
     assert len(out["Extracted Invoice JSON"]["Line Item"]) == 2
     assert out["matter_validation"]["status"] == "NOT_PRESENT"
+
+
+def test_aiagent_po_row_includes_hana_sap_master_columns():
+    po = {
+        "po_number": "4500069456",
+        "vendor": "EV Parts Inc.",
+        "supplier_id": "USSU-VSF01",
+        "currency": "USD",
+        "po_date": "2026-09-11",
+        "total": 368.94,
+        "source": "hana_cloud",
+        "match_items": [
+            {
+                "itemNumber": 10,
+                "itemCategory": "Standard",
+                "materialId": "MZ-RM-R100-02",
+                "materialDescription": "BKR-100 Handle Bars",
+                "materialGroup": "ZHANDLE",
+                "plant": "1710",
+                "orderQuantity": 129,
+                "unitOfMeasure": "PC",
+                "netPrice": 2.86,
+                "priceUnit": 1,
+                "netValue": 368.94,
+            }
+        ],
+    }
+    out = build_aiagent_response(
+        decision="MATCHED",
+        reason="PO found.",
+        artifacts={
+            "po_match": {"decision": "MATCHED", "score": 100, "po": po},
+            "po_lookup_sap": {"source": "hana", "po": po},
+        },
+        invoice={
+            "invoice_number": "56700989",
+            "po_number": "4500069456",
+            "vendor": "EV Parts Inc.",
+            "total": 368.94,
+            "currency": "USD",
+        },
+        document_job={"resource": "HANA"},
+    )
+    row = out["po_row"]
+    assert row["PO Number"] == "4500069456"
+    assert row["Supplier"] == "EV Parts Inc."
+    assert row["Supplier Id"] == "USSU-VSF01"
+    assert row["PO Date"] == "2026-09-11"
+    assert row["Currency"] == "USD"
+    assert row["PO Amount"] == 368.94
+    line = row["PO Line Item Mapped"][0]
+    assert line["Item Number"] == "10"
+    assert line["Item Category"] == "Standard"
+    assert line["Material Id"] == "MZ-RM-R100-02"
+    assert line["Material Description"] == "BKR-100 Handle Bars"
+    assert line["Material Group"] == "ZHANDLE"
+    assert line["Plant"] == "1710"
+    assert line["Order Quantity"] == 129
+    assert line["Unit of Measure"] == "PC"
+    assert line["Net Price"] == 2.86
+    assert line["Price Unit"] == 1
+    assert line["Net Value"] == 368.94
+    assert line["Part Number"] == "MZ-RM-R100-02"
 
 
 def test_aiagent_response_vendor_mismatch_debug():
