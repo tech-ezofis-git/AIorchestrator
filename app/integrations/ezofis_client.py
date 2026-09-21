@@ -82,6 +82,33 @@ class EzofisClient:
             "mock": True,
         }
 
+    async def get_workflow(self, *, tenant_id: str, workflow_id: str) -> dict[str, Any]:
+        """GET /workflows/{id} — includes designer workflowJson (AP_AGENT PoMaster)."""
+        wf_id = str(workflow_id or "").strip()
+        if not wf_id:
+            return {"ok": False, "error": "workflow_id is required"}
+        if not self._live_enabled():
+            return {"ok": True, "mock": True, "id": wf_id, "workflowJson": None}
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/workflows/{wf_id}"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.get(url, headers=headers)
+                if response.status_code != 200:
+                    return {
+                        "ok": False,
+                        "status_code": response.status_code,
+                        "detail": (response.text or "")[:300],
+                    }
+                data = response.json() if response.content else {}
+                if isinstance(data, dict):
+                    data["ok"] = True
+                    return data
+                return {"ok": True, "data": data}
+        except Exception as exc:
+            logger.warning("ezofis_get_workflow_error", extra={"error_type": type(exc).__name__})
+            return {"ok": False, "error_type": type(exc).__name__, "detail": str(exc)[:300]}
+
     async def fetch_document(self, document_id: str) -> dict[str, Any]:
         return {
             "document_id": document_id,
