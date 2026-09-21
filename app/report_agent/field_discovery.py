@@ -23,6 +23,23 @@ _SYSTEM_ORCHESTRATOR_TABLES = frozenset(
     }
 )
 
+_INTERNAL_WORKFLOW_PLUMBING_PREFIXES = (
+    "workflow_tasks_",
+    "workflow_step_instances_",
+    "workflow_comments_",
+    "workflow_attachments_",
+    "workflow_signatures_",
+    "workflow_notifications_",
+    "workflow_activity_",
+    "workflow_audit_",
+    "workflow_history_",
+    "workflow_instance_slas_",
+    "workflow_instance_user_state_",
+    "workflow_ai_validations_",
+    "agent_data_validation_",
+    "workflow_pdf_annotations_",
+)
+
 _SKIP_COLUMNS = frozenset(
     {
         "password",
@@ -65,38 +82,117 @@ _STOP_WORDS = frozenset(
     }
 )
 
-_DOMAIN_SEMANTIC_TOKENS: dict[str, tuple[str, ...]] = {
-    "Accounts Payable": ("account", "accounts", "payable", "invoice", "invoices", "bill", "bills", "vendor", "due", "payment", "amount", "balance", "po", "voucher", "item", "items"),
-    "Workflow Automation": ("workflow", "process", "instance", "instances", "request", "requests", "stage", "step", "status", "task", "sla", "duration", "history"),
-    "Document Management": ("document", "documents", "file", "files", "repository", "item", "items", "version", "retention", "access", "view", "archive", "library"),
-    "External Portal": ("portal", "submission", "submissions", "form", "forms", "submit", "request", "entry", "item", "items"),
-    "User Sessions & Security": ("user", "users", "login", "session", "sessions", "auth", "security", "audit", "log", "ip", "device"),
-    "Report Agent Impact & ROI": ("credit", "credits", "consumption", "roi", "savings", "cost", "value", "run", "runs", "usage", "ledger", "plans"),
-}
-
-
 def _clean_str(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "", text.lower())
 
 
+_DOMAIN_SEMANTIC_TOKENS: dict[str, list[str]] = {
+    "accounts payable": [
+        "invoice",
+        "invoices",
+        "bill",
+        "bills",
+        "po",
+        "ponumber",
+        "vendor",
+        "supplier",
+        "due",
+        "duedate",
+        "payment",
+        "amount",
+        "matched",
+        "match",
+    ],
+    "workflow automation": [
+        "instance",
+        "instances",
+        "step",
+        "sla",
+        "stage",
+        "task",
+        "request",
+        "transition",
+        "status",
+        "pending",
+    ],
+    "document management": [
+        "repository",
+        "item",
+        "filename",
+        "document",
+        "retention",
+        "version",
+        "access",
+        "deletion",
+        "archive",
+    ],
+    "external portal": [
+        "portal",
+        "submission",
+        "submissions",
+        "form",
+        "ezfb",
+        "response",
+        "feedback",
+    ],
+    "user sessions & security": [
+        "user",
+        "session",
+        "login",
+        "auth",
+        "security",
+        "audit",
+        "client_ip",
+        "event",
+    ],
+    "report agent impact & roi": [
+        "credit",
+        "ledger",
+        "run",
+        "usage",
+        "cost",
+        "tokens",
+        "savings",
+        "value",
+    ],
+}
+
+
 def _extract_intent_tokens(template: TemplateDefinition) -> list[str]:
-    """Extract meaningful search tokens from the template's business metadata and domain vocabulary."""
+    """Extract meaningful search tokens from template intent and domain semantics."""
     combined = f"{template.title} {template.domain} {template.description}"
     words = re.findall(r"[a-zA-Z0-9]+", combined.lower())
     tokens: list[str] = []
     seen = set()
+
     for w in words:
         if len(w) >= 2 and w not in _STOP_WORDS and w not in seen:
             tokens.append(w)
             seen.add(w)
 
-    # Supplement with domain vocabulary
-    for d_name, d_tokens in _DOMAIN_SEMANTIC_TOKENS.items():
-        if d_name.lower() in template.domain.lower() or template.domain.lower() in d_name.lower():
-            for dt in d_tokens:
-                if dt not in seen:
-                    tokens.append(dt)
-                    seen.add(dt)
+            # Dynamically derive root / singular forms (e.g., 'invoices' -> 'invoice', 'requests' -> 'request')
+            if len(w) > 4:
+                if w.endswith("ies") and len(w) > 4:
+                    base = w[:-3] + "y"
+                    if base not in seen:
+                        tokens.append(base)
+                        seen.add(base)
+                elif w.endswith("es") and len(w) > 4:
+                    base = w[:-2]
+                    if base not in seen:
+                        tokens.append(base)
+                        seen.add(base)
+                elif w.endswith("s") and not w.endswith("ss"):
+                    base = w[:-1]
+                    if base not in seen:
+                        tokens.append(base)
+                        seen.add(base)
+
+    # Enrich with domain semantic tokens
+    for token in _DOMAIN_SEMANTIC_TOKENS.get(template.domain.lower(), []):
+        if token not in seen:
+            tokens.append(token)
+            seen.add(token)
 
     return tokens
 
@@ -107,10 +203,12 @@ def _score_table(
     columns: list[ColumnMeta],
     template: TemplateDefinition,
     intent_tokens: list[str],
+    db_schema: Optional[DatabaseSchema] = None,
 ) -> float:
     table_lower = table.lower()
     schema_lower = schema.lower()
     is_roi_domain = template.domain == "Report Agent Impact & ROI"
+    is_ap_domain = "accounts payable" in template.domain.lower() or "accounts payable" in template.title.lower()
 
     # 1. System orchestrator table isolation
     is_system_table = table_lower in _SYSTEM_ORCHESTRATOR_TABLES or table_lower.startswith("ap_") or table_lower.startswith("catalog_")
@@ -122,6 +220,24 @@ def _score_table(
 
     score = 0.0
 
+    # 1a. Internal workflow engine plumbing tables (tasks, steps, comments, audits)
+    is_internal_plumbing = any(table_lower.startswith(p) for p in _INTERNAL_WORKFLOW_PLUMBING_PREFIXES)
+    if is_internal_plumbing:
+        score -= 200.0
+
+    # 1b. Workflow metadata check (from wworkflow definitions)
+    if db_schema and db_schema.table_to_workflow:
+        wf_name = db_schema.get_workflow_for_table(table)
+        if wf_name:
+            wf_clean = _clean_str(wf_name)
+            domain_clean = _clean_str(template.domain)
+            title_clean = _clean_str(template.title)
+            if domain_clean in wf_clean or wf_clean in domain_clean or title_clean in wf_clean or wf_clean in title_clean:
+                score += 80.0
+            else:
+                # Table belongs to an explicitly different workflow (e.g. Vessel, HR, Logistics)
+                score -= 300.0
+
     # 2. Match intent tokens against table name
     table_clean = _clean_str(table_lower)
     for token in intent_tokens:
@@ -129,15 +245,40 @@ def _score_table(
         if len(token_clean) >= 3 and token_clean in table_clean:
             score += 15.0
 
+    # Domain-specific table structure priority
+    if is_ap_domain or "external portal" in template.domain.lower() or "form" in template.title.lower():
+        if table_lower.startswith("ezfb_") or table_lower.startswith("process_form_"):
+            score += 60.0
+        elif table_lower.startswith("items_"):
+            score += 15.0
+    elif "workflow" in template.domain.lower():
+        if table_lower.startswith("workflow_instances") or table_lower in ("workflow_instances", "workflowinstances"):
+            score += 60.0
+    elif "document" in template.domain.lower():
+        if table_lower.startswith("items_") or table_lower in ("repositoryitem", "repository_item"):
+            score += 60.0
+
     # 3. Match columns against intent tokens
     matching_cols = 0
     has_date_col = False
     has_numeric_col = False
+    has_vessel_col = False
+    has_ap_invoice_col = False
+    has_po_col = False
 
     for col in columns:
         col_clean = _clean_str(col.column)
         if col_clean in _SKIP_COLUMNS:
             continue
+
+        if any(k in col_clean for k in ("vessel", "imo", "voyage", "portofentry", "berth", "cargo", "etd", "eta")):
+            has_vessel_col = True
+
+        if any(k in col_clean for k in ("invoice", "invoiceno", "invoicenum", "invoicenumber", "invoiceamount", "invoicedate", "bill", "billno", "billamount", "billnumber", "matchedstatus")):
+            has_ap_invoice_col = True
+
+        if any(k in col_clean for k in ("ponumber", "poamount", "podate", "supplier")):
+            has_po_col = True
 
         for token in intent_tokens:
             token_clean = _clean_str(token)
@@ -152,6 +293,20 @@ def _score_table(
             has_date_col = True
         if "int" in col_type_lower or "float" in col_type_lower or "numeric" in col_type_lower or "double" in col_type_lower or any(k in col_clean for k in ("amount", "total", "price", "cost", "balance", "count", "value", "credit")):
             has_numeric_col = True
+
+    # Penalize non-AP tables that have distinct non-AP columns (e.g. Vessel tables) when requesting AP reports
+    if is_ap_domain:
+        if has_vessel_col:
+            score -= 200.0
+        if has_ap_invoice_col:
+            # Major boost for actual Accounts Payable invoice tables
+            score += 80.0
+        elif has_po_col and not has_ap_invoice_col:
+            # Pure purchase order / supplier master tables are not Accounts Payable invoice aging tables
+            score -= 60.0
+        if not has_numeric_col:
+            # Aging reports strictly require financial amount metrics
+            score -= 100.0
 
     # 4. Reward tables that provide both dates and metrics for analytical reports
     if has_date_col:
@@ -174,11 +329,11 @@ def _score_table(
         elif schema_lower in ("dbo", "repository", "public"):
             score += 10.0
 
-    # 6. Prefer primary data tables over history / staging tables
-    if table_lower.endswith("_history"):
-        score -= 5.0
-    elif table_lower.endswith("_stage"):
-        score -= 3.0
+    # 6. Penalize staging, temporary, history, and backup tables heavily
+    if any(table_lower.endswith(sfx) for sfx in ("_stage", "_staging", "_history", "_backup", "_bak", "_temp", "_tmp", "_draft", "_audit")):
+        score -= 250.0
+    elif any(tag in table_lower for tag in ("_stage_", "_staging_", "_history_", "_temp_")):
+        score -= 250.0
 
     return score
 
@@ -213,7 +368,7 @@ def _score_column(col_name: str, col_type: str, intent_tokens: list[str]) -> flo
 def find_relevant_fields(
     template: TemplateDefinition,
     schema: DatabaseSchema,
-    max_tables: int = 5,
+    max_tables: int = 1,
     max_fields_per_table: int = 15,
 ) -> tuple[list[str], list[DiscoveredField], list[MissingField]]:
     """Discover relevant tables and fields directly from the database schema based on template intent."""
@@ -221,7 +376,7 @@ def find_relevant_fields(
     scored_tables: list[tuple[float, str, str, list[ColumnMeta]]] = []
 
     for (s, t), cols in schema.columns_by_table.items():
-        score = _score_table(s, t, cols, template, intent_tokens)
+        score = _score_table(s, t, cols, template, intent_tokens, db_schema=schema)
         if score > 0:
             scored_tables.append((score, s, t, cols))
 

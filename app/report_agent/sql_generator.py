@@ -40,6 +40,27 @@ def _format_filter(filt: ReportFilter) -> str:
         return f"{col} {op}"
 
     val = filt.value
+
+    # Date range relative operators
+    if op == "DUE_NEXT_DAYS":
+        days = int(val) if isinstance(val, (int, str)) and str(val).isdigit() else 30
+        return f"(CAST({col} AS DATE) >= CURRENT_DATE AND CAST({col} AS DATE) <= CURRENT_DATE + INTERVAL '{days} days')"
+
+    if op == "LAST_DAYS":
+        days = int(val) if isinstance(val, (int, str)) and str(val).isdigit() else 30
+        return f"(CAST({col} AS DATE) >= CURRENT_DATE - INTERVAL '{days} days')"
+
+    if op == "NEXT_DAYS":
+        days = int(val) if isinstance(val, (int, str)) and str(val).isdigit() else 30
+        return f"(CAST({col} AS DATE) >= CURRENT_DATE AND CAST({col} AS DATE) <= CURRENT_DATE + INTERVAL '{days} days')"
+
+    if op == "OLDER_THAN_DAYS":
+        days = int(val) if isinstance(val, (int, str)) and str(val).isdigit() else 30
+        return f"(CAST({col} AS DATE) <= CURRENT_DATE - INTERVAL '{days} days')"
+
+    if op == "BETWEEN" and isinstance(val, (list, tuple)) and len(val) == 2:
+        return f"({col} BETWEEN {_format_literal(val[0])} AND {_format_literal(val[1])})"
+
     if op in ("IN", "NOT IN"):
         if isinstance(val, (list, tuple, set)):
             items = [_format_literal(v) for v in val if v is not None]

@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from app.models.report_agent import (
     DataQuery,
+    DiscoveredField,
     DiscoveredSchemaSummary,
     GeneratePromptRequest,
     GeneratePromptResponse,
@@ -21,7 +22,7 @@ from app.report_agent.field_discovery import find_relevant_fields
 from app.report_agent.metadata_service import get_database_schema
 from app.report_agent.planner import create_report_plan
 from app.report_agent.prompt_generator import generate_dynamic_prompt
-from app.report_agent.prompt_parser import parse_prompt_metadata
+from app.report_agent.prompt_parser import compile_prompt_intent, parse_prompt_metadata
 from app.report_agent.report_validator import validate_report_data
 from app.report_agent.sql_generator import generate_sql
 from app.report_agent.sql_validator import validate_read_only_sql
@@ -134,20 +135,23 @@ class ReportAgentService:
         t0 = time.perf_counter()
         # Extract template ID or title from request or prompt
         t_ident = (request.template_id or "").strip()
-        # A prompt is untrusted input.  It may identify the selected template, but it
-        # must never supply a table or column for the executable report plan.
-        prompt_title, _prompt_tables, _prompt_fields = parse_prompt_metadata(request.prompt or "")
+        prompt_title, prompt_tables, prompt_fields = parse_prompt_metadata(request.prompt or "")
 
-        if not t_ident and prompt_title:
-            t_ident = prompt_title
+        template = None
+        if prompt_title:
+            template = get_template(prompt_title)
+        if template is None and t_ident:
+            template = get_template(t_ident)
 
-        template = get_template(t_ident)
         if template is None:
             logger.warning(
                 "report_agent_unsupported_template",
                 extra={"template_id": request.template_id, "prompt_title": prompt_title},
             )
             raise ValueError(f"Unsupported report template '{request.template_id or prompt_title}'.")
+
+        # Compile structured prompt intent from user prompt (business concepts, not SQL/identifiers)
+        prompt_intent = compile_prompt_intent(request.prompt or "", template_title=template.title)
 
         # Resolve DB connection / pool
         db = await self._resolve_db(request.tenant_id)
@@ -170,17 +174,25 @@ class ReportAgentService:
         schema_duration_ms = round((time.perf_counter() - schema_t0) * 1000, 2)
 
         # 2. Re-discover or validate fields against live schema
-        disc_tables, disc_fields, _ = find_relevant_fields(template, schema)
+        disc_tables, disc_fields, _ = find_relevant_fields(template, schema, max_tables=3)
 
-        # The field discovery result is the sole source for report fields and types.
-        # Request.discovered_schema is intentionally not used for planning: accepting
-        # its type/table metadata would let stale or forged client values influence SQL.
-        validated_fields = disc_fields
+        # Prioritize prompt-specified tables if valid in live schema
+        candidate_tables: list[str] = []
+        for pt in prompt_intent.requested_tables:
+            pt_clean = pt.strip().replace('"', '')
+            for st in schema.tables:
+                st_ident = f"{st[0]}.{st[1]}" if st[0] != "public" else st[1]
+                if pt_clean.lower() in (st[1].lower(), f"{st[0]}.{st[1]}".lower()):
+                    if st_ident not in candidate_tables:
+                        candidate_tables.append(st_ident)
+        for dt in disc_tables:
+            if dt not in candidate_tables:
+                candidate_tables.append(dt)
 
         # 3. Verify table accessibility and inspect actual data on live DB connection
         accessible_tables: list[str] = []
         if db is not None:
-            for t_cand in disc_tables:
+            for t_cand in candidate_tables:
                 if await verify_table_accessible(db, t_cand):
                     accessible_tables.append(t_cand)
             if not accessible_tables:
@@ -188,6 +200,53 @@ class ReportAgentService:
             disc_tables = accessible_tables
 
         primary_table = disc_tables[0] if disc_tables else (schema.tables[0][1] if schema.tables else "")
+
+        # Get all live columns for the primary table from schema
+        p_parts = primary_table.split(".")
+        p_schema = p_parts[0] if len(p_parts) > 1 else None
+        p_tbl = p_parts[-1]
+
+        live_cols = schema.get_columns_for_table(p_schema or "public", p_tbl)
+        if not live_cols and p_schema:
+            live_cols = schema.get_columns_for_table(None, p_tbl)
+        if not live_cols:
+            live_cols = [c for c in schema.all_columns if c.table.lower() == p_tbl.lower()]
+
+        live_col_map = {c.column.lower(): c for c in live_cols}
+
+        # Validate requested fields from prompt against live schema
+        req_fields = prompt_intent.requested_fields or [f.column for f in prompt_fields]
+        validated_fields: list[DiscoveredField] = []
+
+        if req_fields:
+            for rf in req_fields:
+                rf_clean = rf.strip().split(".")[-1].lower()
+                if rf_clean in live_col_map:
+                    c_meta = live_col_map[rf_clean]
+                    # Avoid duplicates
+                    if not any(vf.column.lower() == c_meta.column.lower() for vf in validated_fields):
+                        validated_fields.append(
+                            DiscoveredField(
+                                table=primary_table,
+                                column=c_meta.column,
+                                type=c_meta.data_type,
+                            )
+                        )
+                else:
+                    prompt_intent.warnings.append(
+                        f"Field '{rf}' specified in prompt was not found in table '{primary_table}'."
+                    )
+
+        if not validated_fields:
+            # Filter default discovered fields to accessible tables
+            acc_names = {t.lower() for t in accessible_tables} | {t.split(".")[-1].lower() for t in accessible_tables}
+            validated_fields = [
+                f for f in disc_fields
+                if f.table.lower() in acc_names or f.table.split(".")[-1].lower() in acc_names
+            ]
+            if not validated_fields:
+                validated_fields = disc_fields
+
         col_names = [
             f.column for f in validated_fields
             if f.table.lower() == primary_table.lower() or f.table.split(".")[-1].lower() == primary_table.split(".")[-1].lower()
@@ -207,6 +266,7 @@ class ReportAgentService:
             discovered_tables=disc_tables,
             discovered_fields=validated_fields,
             sampled_values=sampled_data,
+            prompt_intent=prompt_intent,
         )
         plan_duration_ms = round((time.perf_counter() - plan_t0) * 1000, 2)
 
@@ -270,6 +330,11 @@ class ReportAgentService:
                 sql_is_valid=is_sql_valid,
                 sql_errors=sql_errors if not is_sql_valid else None,
             )
+
+        if report_plan.warnings:
+            for w in report_plan.warnings:
+                if w not in validation.warnings:
+                    validation.warnings.append(w)
 
         total_duration_ms = round((time.perf_counter() - t0) * 1000, 2)
 

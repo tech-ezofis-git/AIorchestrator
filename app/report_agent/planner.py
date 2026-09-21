@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from app.models.report_agent import (
     DiscoveredField,
+    PromptIntent,
     ReportCalculation,
     ReportColumn,
     ReportFilter,
@@ -54,6 +55,7 @@ def create_report_plan(
     discovered_tables: list[str],
     discovered_fields: list[DiscoveredField],
     sampled_values: Optional[dict[str, Any]] = None,
+    prompt_intent: Optional[PromptIntent] = None,
 ) -> ReportPlan:
     """Construct a structured, realistic ReportPlan based on template intent and real DB fields."""
     sampled_values = sampled_values or {}
@@ -121,6 +123,15 @@ def create_report_plan(
         if any(k in c.field.lower() for k in ("status", "state", "stage", "is_completed", "is_deleted"))
     ]
     numeric_cols = [c.field for c in columns if c.type == "number" or any(k in c.field.lower() for k in ("amount", "total", "price", "cost", "balance", "credit", "count"))]
+
+    vendor_cols = [
+        c.field for c in columns
+        if any(k in c.field.lower() for k in ("vendor", "supplier", "payee", "merchant", "company", "provider"))
+    ]
+    user_cols = [
+        c.field for c in columns
+        if any(k in c.field.lower() for k in ("user", "created_by", "modified_by", "owner", "author", "assignee"))
+    ]
 
     # 3. Template-specific business rules & calculations
     t_id = template.id
@@ -276,6 +287,122 @@ def create_report_plan(
         elif date_cols:
             order_by.append(ReportSort(field=date_cols[0], direction="DESC"))
 
+    # 4. Resolve PromptIntent (if provided by user edit)
+    plan_title = template.title
+    plan_description = template.description
+    plan_warnings: list[str] = []
+
+    if prompt_intent:
+        if prompt_intent.title and prompt_intent.title.strip():
+            plan_title = prompt_intent.title.strip()
+        if prompt_intent.description and prompt_intent.description.strip():
+            plan_description = prompt_intent.description.strip()
+        if prompt_intent.warnings:
+            plan_warnings.extend(prompt_intent.warnings)
+
+        # 4a. Apply Prompt-Requested Filters
+        if prompt_intent.requested_filters:
+            for bf in prompt_intent.requested_filters:
+                if bf.concept == "status":
+                    if status_cols:
+                        target_col = status_cols[0]
+                        actual_statuses = distinct_vals.get(target_col, [])
+                        req_vals = bf.value if isinstance(bf.value, list) else [bf.value]
+                        matched_vals = [s for s in actual_statuses if any(rv.lower() in str(s).lower() for rv in req_vals)]
+                        filters = [f for f in filters if f.field != target_col]
+                        if matched_vals:
+                            filters.append(ReportFilter(field=target_col, operator="IN", value=matched_vals))
+                        elif req_vals:
+                            filters.append(ReportFilter(field=target_col, operator="IN", value=req_vals))
+                        else:
+                            filters.append(ReportFilter(field=target_col, operator="IS NOT NULL", value=None))
+                    else:
+                        plan_warnings.append(f"Could not apply status filter '{bf.raw_text}': no status field exists in the live schema.")
+
+                elif bf.concept in ("due_date", "date_range"):
+                    target_col = None
+                    if bf.concept == "due_date" or "due" in (bf.raw_text or "").lower():
+                        target_col = next((c for c in date_cols if "due" in c.lower()), None)
+                    if not target_col:
+                        target_col = date_cols[0] if date_cols else None
+                    if target_col:
+                        filters = [f for f in filters if f.field != target_col]
+                        filters.append(ReportFilter(field=target_col, operator=bf.operator, value=bf.value))
+                    else:
+                        plan_warnings.append(f"Could not apply date filter '{bf.raw_text}': no date field exists in the live schema.")
+
+                else:
+                    # General / Numeric filter (e.g. amount > 1000, total_amount >= 500, sla_hours < 24)
+                    c_lower = bf.concept.lower().strip()
+                    matched_col = next(
+                        (c.field for c in columns if c.field.lower() == c_lower or c_lower in c.field.lower()),
+                        None,
+                    )
+                    if not matched_col and any(k in c_lower for k in ("amount", "total", "price", "cost", "balance", "credit")):
+                        matched_col = numeric_cols[0] if numeric_cols else None
+
+                    if matched_col:
+                        # Remove prior filter on the same column if any
+                        filters = [f for f in filters if f.field != matched_col]
+                        filters.append(ReportFilter(field=matched_col, operator=bf.operator, value=bf.value))
+                    else:
+                        plan_warnings.append(f"Could not apply filter '{bf.raw_text}': no '{bf.concept}' field exists in the live schema.")
+
+        # 4b. Apply Prompt-Requested Group By
+        if prompt_intent.group_by_concepts:
+            for raw_c in prompt_intent.group_by_concepts:
+                c = raw_c.lower().strip()
+                matched_field = None
+                if any(k in c for k in ("vendor", "supplier", "payee", "merchant", "provider")):
+                    matched_field = vendor_cols[0] if vendor_cols else None
+                elif any(k in c for k in ("user", "author", "owner", "assignee", "creator")):
+                    matched_field = user_cols[0] if user_cols else None
+                elif any(k in c for k in ("status", "state", "stage")):
+                    matched_field = status_cols[0] if status_cols else None
+                elif any(k in c for k in ("date", "day", "month", "year", "time")):
+                    matched_field = date_cols[0] if date_cols else None
+                else:
+                    matched_field = next((col.field for col in columns if col.field.lower() == c or c in col.field.lower()), None)
+
+                if matched_field:
+                    if matched_field not in group_by:
+                        group_by.append(matched_field)
+                else:
+                    plan_warnings.append(f"Could not apply 'group by {raw_c}': no {raw_c} field exists in the live schema.")
+
+        # 4c. Apply Prompt-Requested Sorting
+        if prompt_intent.sort_concepts:
+            custom_sorts: list[ReportSort] = []
+            for bs in prompt_intent.sort_concepts:
+                c = bs.concept.lower().strip()
+                matched_field = None
+                if any(k in c for k in ("amount", "total", "cost", "price", "balance", "credit", "money", "sum", "value", "highest", "lowest")):
+                    matched_field = numeric_cols[0] if numeric_cols else None
+                elif any(k in c for k in ("date", "time", "created", "recent", "due")):
+                    if "due" in c:
+                        matched_field = next((d for d in date_cols if "due" in d.lower()), date_cols[0] if date_cols else None)
+                    else:
+                        matched_field = date_cols[0] if date_cols else None
+                else:
+                    matched_field = next((col.field for col in columns if col.field.lower() == c or c in col.field.lower()), None)
+
+                if matched_field:
+                    custom_sorts.append(ReportSort(field=matched_field, direction=bs.direction))
+                else:
+                    plan_warnings.append(f"Could not sort by '{bs.concept}': no matching field exists in the live schema.")
+
+            if custom_sorts:
+                order_by = custom_sorts
+
+        # 4d. Apply Prompt-Requested Calculations
+        if prompt_intent.requested_calculations:
+            if "count" in prompt_intent.requested_calculations:
+                if not any("count" in c.label.lower() for c in calculations):
+                    calculations.append(ReportCalculation(label="Count", expression="COUNT(*)", type="number"))
+            if "sum" in prompt_intent.requested_calculations and numeric_cols:
+                if not any("total" in c.label.lower() or "sum" in c.label.lower() for c in calculations):
+                    calculations.append(ReportCalculation(label=f"Total {_format_label(numeric_cols[0])}", expression=f"SUM(CAST(\"{numeric_cols[0]}\" AS NUMERIC))", type="number"))
+
     # Fallback default sort if none defined
     if not order_by and date_cols:
         order_by.append(ReportSort(field=date_cols[0], direction="DESC"))
@@ -283,8 +410,8 @@ def create_report_plan(
         order_by.append(ReportSort(field=columns[0].field, direction="ASC"))
 
     return ReportPlan(
-        title=template.title,
-        description=template.description,
+        title=plan_title,
+        description=plan_description,
         template_id=template.id,
         source=source,
         columns=columns,
@@ -293,4 +420,5 @@ def create_report_plan(
         group_by=group_by,
         order_by=order_by,
         status_rules=status_rules,
+        warnings=plan_warnings,
     )

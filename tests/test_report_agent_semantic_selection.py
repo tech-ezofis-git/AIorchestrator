@@ -262,3 +262,282 @@ async def test_live_connection_probe_filters_inaccessible_tables():
     assert len(res.report_plan.calculations) > 0
 
 
+def test_accounts_payable_workflow_table_selection_for_aging():
+    """Verify that when the database contains Accounts Payable workflow tables (Form Builder, Repo, and Workflow Instances), the AP Aging template accurately selects the AP business table and due dates."""
+    schema = DatabaseSchema()
+    
+    # Workflow instances for AP workflow 452859c2-9bbe-4e17-acd2-f11524a0650e
+    wf_inst_cols = [
+        ColumnMeta("workflow", "workflow_instances_452859c2", "id", "uuid"),
+        ColumnMeta("workflow", "workflow_instances_452859c2", "reference_number", "character varying"),
+        ColumnMeta("workflow", "workflow_instances_452859c2", "request_no", "character varying"),
+        ColumnMeta("workflow", "workflow_instances_452859c2", "status", "character varying"),
+        ColumnMeta("workflow", "workflow_instances_452859c2", "created_at", "timestamp with time zone"),
+    ]
+    # Form Builder items for Form 6e45749f-c65d-4f28-9e0f-f22fdde4cb03
+    ezfb_cols = [
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "item_id", "uuid"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Number", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_No", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Due_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Matched_Status", "text"),
+    ]
+    # Repository items for Repository a6169a5c-1468-4fb5-90a9-220082a89f2a
+    repo_cols = [
+        ColumnMeta("dbo", "items_a6169a5c", "ItemId", "uuid"),
+        ColumnMeta("dbo", "items_a6169a5c", "PONumber", "character varying"),
+        ColumnMeta("dbo", "items_a6169a5c", "InvoiceNumber", "character varying"),
+        ColumnMeta("dbo", "items_a6169a5c", "TotalAmount", "numeric"),
+        ColumnMeta("dbo", "items_a6169a5c", "DueDate", "date"),
+    ]
+
+    for c in wf_inst_cols:
+        schema.columns_by_table.setdefault(("workflow", "workflow_instances_452859c2"), []).append(c)
+        schema.all_columns.append(c)
+    for c in ezfb_cols:
+        schema.columns_by_table.setdefault(("dbo", "ezfb_6e45749f_items"), []).append(c)
+        schema.all_columns.append(c)
+    for c in repo_cols:
+        schema.columns_by_table.setdefault(("dbo", "items_a6169a5c"), []).append(c)
+        schema.all_columns.append(c)
+
+    schema.tables = [
+        ("workflow", "workflow_instances_452859c2"),
+        ("dbo", "ezfb_6e45749f_items"),
+        ("dbo", "items_a6169a5c"),
+    ]
+
+    template = get_template("tpl-accounts-payable-aging")
+    assert template is not None
+
+    disc_tables, disc_fields, missing_fields = find_relevant_fields(template, schema)
+    # The AP form table containing Invoice and Due Date metrics is top-ranked
+    assert disc_tables[0] in ("dbo.ezfb_6e45749f_items", "ezfb_6e45749f_items")
+    assert len(missing_fields) == 0
+
+    plan = create_report_plan(template, schema, disc_tables, disc_fields)
+    assert plan.source.table == "ezfb_6e45749f_items"
+    assert any("Due_Date" in c.expression for c in plan.calculations)
+
+
+def test_vessel_workflow_table_rejected_for_accounts_payable():
+    """Verify that when the database contains both Vessel workflow tables (dbo.ezfb_d7ad8ffb_items) and AP tables (dbo.ezfb_6e45749f_items), the AP Aging template strictly selects the AP table and rejects the Vessel table."""
+    schema = DatabaseSchema()
+    
+    # 1. Accounts Payable form table (Form ID 6e45749f-c65d-4f28-9e0f-f22fdde4cb03)
+    ap_form_cols = [
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "item_id", "uuid"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Number", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_No", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Due_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Matched_Status", "text"),
+    ]
+    # 2. Vessel workflow form table (Form ID d7ad8ffb-...)
+    vessel_form_cols = [
+        ColumnMeta("dbo", "ezfb_d7ad8ffb_items", "item_id", "uuid"),
+        ColumnMeta("dbo", "ezfb_d7ad8ffb_items", "vessel_name", "text"),
+        ColumnMeta("dbo", "ezfb_d7ad8ffb_items", "imo_number", "text"),
+        ColumnMeta("dbo", "ezfb_d7ad8ffb_items", "port_of_entry", "text"),
+        ColumnMeta("dbo", "ezfb_d7ad8ffb_items", "eta", "timestamp with time zone"),
+        ColumnMeta("dbo", "ezfb_d7ad8ffb_items", "berth_number", "text"),
+        ColumnMeta("dbo", "ezfb_d7ad8ffb_items", "cargo_weight", "numeric"),
+        ColumnMeta("dbo", "ezfb_d7ad8ffb_items", "status", "text"),
+    ]
+
+    for c in ap_form_cols:
+        schema.columns_by_table.setdefault(("dbo", "ezfb_6e45749f_items"), []).append(c)
+        schema.all_columns.append(c)
+    for c in vessel_form_cols:
+        schema.columns_by_table.setdefault(("dbo", "ezfb_d7ad8ffb_items"), []).append(c)
+        schema.all_columns.append(c)
+
+    schema.tables = [
+        ("dbo", "ezfb_d7ad8ffb_items"),
+        ("dbo", "ezfb_6e45749f_items"),
+    ]
+
+    # Workflow map associations
+    schema.table_to_workflow["6e45749f"] = "Accounts Payable"
+    schema.table_to_workflow["d7ad8ffb"] = "Vessel Workflow"
+
+    template = get_template("tpl-accounts-payable-aging")
+    assert template is not None
+
+    disc_tables, disc_fields, missing_fields = find_relevant_fields(template, schema)
+    # Must select AP table and NOT the Vessel table
+    assert disc_tables[0] in ("dbo.ezfb_6e45749f_items", "ezfb_6e45749f_items")
+    assert not any("d7ad8ffb" in t for t in disc_tables)
+
+
+def test_workflow_tasks_not_selected_for_ap_aging():
+    """Verify that internal workflow engine task tables (workflow.workflow_tasks_452859c2) are not selected over the business form table (dbo.ezfb_6e45749f_items) for AP Aging."""
+    schema = DatabaseSchema()
+
+    # 1. Internal workflow task table for workflow 452859c2
+    wf_task_cols = [
+        ColumnMeta("workflow", "workflow_tasks_452859c2", "id", "uuid"),
+        ColumnMeta("workflow", "workflow_tasks_452859c2", "tenant_id", "uuid"),
+        ColumnMeta("workflow", "workflow_tasks_452859c2", "workflow_instance_id", "uuid"),
+        ColumnMeta("workflow", "workflow_tasks_452859c2", "step_instance_id", "uuid"),
+        ColumnMeta("workflow", "workflow_tasks_452859c2", "task_name", "character varying"),
+        ColumnMeta("workflow", "workflow_tasks_452859c2", "assigned_to_user_id", "uuid"),
+        ColumnMeta("workflow", "workflow_tasks_452859c2", "due_date", "timestamp with time zone"),
+        ColumnMeta("workflow", "workflow_tasks_452859c2", "completed_at", "timestamp with time zone"),
+    ]
+
+    # 2. Form Builder table for AP Form 6e45749f
+    ezfb_cols = [
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "item_id", "uuid"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Number", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_No", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Due_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Matched_Status", "text"),
+    ]
+
+    for c in wf_task_cols:
+        schema.columns_by_table.setdefault(("workflow", "workflow_tasks_452859c2"), []).append(c)
+        schema.all_columns.append(c)
+    for c in ezfb_cols:
+        schema.columns_by_table.setdefault(("dbo", "ezfb_6e45749f_items"), []).append(c)
+        schema.all_columns.append(c)
+
+    schema.tables = [
+        ("workflow", "workflow_tasks_452859c2"),
+        ("dbo", "ezfb_6e45749f_items"),
+    ]
+
+    schema.table_to_workflow["452859c2"] = "Accounts Payable"
+    schema.table_to_workflow["6e45749f"] = "Accounts Payable"
+
+    template = get_template("tpl-accounts-payable-aging")
+    assert template is not None
+
+    disc_tables, disc_fields, missing_fields = find_relevant_fields(template, schema)
+    # Must choose ezfb_6e45749f_items and NOT workflow_tasks_452859c2
+    assert disc_tables[0] in ("dbo.ezfb_6e45749f_items", "ezfb_6e45749f_items")
+    assert not any("workflow_tasks" in t for t in disc_tables)
+
+
+def test_po_form_not_selected_over_ap_invoice_form():
+    """Verify that pure Purchase Order form tables (dbo.ezfb_1e16dd88_items) are not selected over the true Accounts Payable invoice form table (dbo.ezfb_6e45749f_items) for AP Aging."""
+    schema = DatabaseSchema()
+
+    # 1. Pure PO Form table (ezfb_1e16dd88_items)
+    po_form_cols = [
+        ColumnMeta("dbo", "ezfb_1e16dd88_items", "Due_Date", "text"),
+        ColumnMeta("dbo", "ezfb_1e16dd88_items", "PO_Number", "text"),
+        ColumnMeta("dbo", "ezfb_1e16dd88_items", "PO_Amount", "text"),
+        ColumnMeta("dbo", "ezfb_1e16dd88_items", "Supplier", "text"),
+        ColumnMeta("dbo", "ezfb_1e16dd88_items", "Supplier_Address", "text"),
+        ColumnMeta("dbo", "ezfb_1e16dd88_items", "PO_Date", "text"),
+        ColumnMeta("dbo", "ezfb_1e16dd88_items", "item_id", "uuid"),
+    ]
+
+    # 2. True AP Invoice Form table (ezfb_6e45749f_items)
+    ap_form_cols = [
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "item_id", "uuid"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Number", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_No", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Due_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Matched_Status", "text"),
+    ]
+
+    for c in po_form_cols:
+        schema.columns_by_table.setdefault(("dbo", "ezfb_1e16dd88_items"), []).append(c)
+        schema.all_columns.append(c)
+    for c in ap_form_cols:
+        schema.columns_by_table.setdefault(("dbo", "ezfb_6e45749f_items"), []).append(c)
+        schema.all_columns.append(c)
+
+    schema.tables = [
+        ("dbo", "ezfb_1e16dd88_items"),
+        ("dbo", "ezfb_6e45749f_items"),
+    ]
+
+    schema.table_to_workflow["6e45749f"] = "Accounts Payable"
+    schema.table_to_workflow["1e16dd88"] = "Purchase Order"
+
+    template = get_template("tpl-accounts-payable-aging")
+    assert template is not None
+
+    disc_tables, disc_fields, missing_fields = find_relevant_fields(template, schema)
+    # Must choose ezfb_6e45749f_items and NOT ezfb_1e16dd88_items
+    assert disc_tables[0] in ("dbo.ezfb_6e45749f_items", "ezfb_6e45749f_items")
+    assert not any("1e16dd88" in t for t in disc_tables)
+
+
+def test_stage_table_rejected_in_favor_of_form_table():
+    """Verify that staging tables (repository.items_a6169a5c_stage) are strictly rejected and the live Form Builder table (dbo.ezfb_6e45749f_items) is selected."""
+    schema = DatabaseSchema()
+
+    # 1. OCR Ingestion Staging Table
+    stage_cols = [
+        ColumnMeta("repository", "items_a6169a5c_stage", "DueDate", "date"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "InvoiceAmount", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "InvoiceTaxAmount", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "MatchedStatus", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "PONumber", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "total_pages", "integer"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "InvoiceDate", "date"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "POAmount", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "Supplier", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "storage_provider_id", "uuid"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "stage_status", "character varying"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "InvoiceNo", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "SupplierAddress", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "InvoiceExtractedLineItem", "text"),
+        ColumnMeta("repository", "items_a6169a5c_stage", "file_size", "integer"),
+    ]
+
+    # 2. Live AP Form Table
+    form_cols = [
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "item_id", "uuid"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Number", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_No", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Due_Date", "date"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Matched_Status", "text"),
+    ]
+
+    for c in stage_cols:
+        schema.columns_by_table.setdefault(("repository", "items_a6169a5c_stage"), []).append(c)
+        schema.all_columns.append(c)
+    for c in form_cols:
+        schema.columns_by_table.setdefault(("dbo", "ezfb_6e45749f_items"), []).append(c)
+        schema.all_columns.append(c)
+
+    schema.tables = [
+        ("repository", "items_a6169a5c_stage"),
+        ("dbo", "ezfb_6e45749f_items"),
+    ]
+
+    schema.table_to_workflow["6e45749f"] = "Accounts Payable"
+    schema.table_to_workflow["a6169a5c"] = "Accounts Payable"
+
+    template = get_template("tpl-accounts-payable-aging")
+    assert template is not None
+
+    disc_tables, disc_fields, missing_fields = find_relevant_fields(template, schema)
+    # Must choose ezfb_6e45749f_items and NOT items_a6169a5c_stage
+    assert disc_tables[0] in ("dbo.ezfb_6e45749f_items", "ezfb_6e45749f_items")
+    assert not any("stage" in t for t in disc_tables)
+
+
+
+
+
+
+

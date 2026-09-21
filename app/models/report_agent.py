@@ -76,6 +76,36 @@ class GeneratePromptResponse(BaseModel):
 # --- Phase 2: Report Plan Models ---
 
 
+class BusinessFilter(BaseModel):
+    """A business-level filter extracted from prompt text."""
+
+    concept: str
+    operator: str = "="
+    value: Any = None
+    raw_text: Optional[str] = None
+
+
+class BusinessSort(BaseModel):
+    """A business-level sort criteria extracted from prompt text."""
+
+    concept: str
+    direction: str = "ASC"
+
+
+class PromptIntent(BaseModel):
+    """Structured business intent extracted from user prompt text."""
+
+    title: Optional[str] = None
+    description: Optional[str] = None
+    requested_tables: list[str] = Field(default_factory=list)
+    requested_fields: list[str] = Field(default_factory=list)
+    requested_filters: list[BusinessFilter] = Field(default_factory=list)
+    group_by_concepts: list[str] = Field(default_factory=list)
+    sort_concepts: list[BusinessSort] = Field(default_factory=list)
+    requested_calculations: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ReportColumn(BaseModel):
     """A column included in the report plan."""
 
@@ -129,6 +159,7 @@ class ReportPlan(BaseModel):
     group_by: list[str] = Field(default_factory=list, serialization_alias="groupBy")
     order_by: list[ReportSort] = Field(default_factory=list, serialization_alias="orderBy")
     status_rules: list[dict[str, Any]] = Field(default_factory=list, serialization_alias="statusRules")
+    warnings: list[str] = Field(default_factory=list)
 
 
 class DataQuery(BaseModel):

@@ -20,6 +20,11 @@ BUILTIN_AGENTS: list[dict[str, str]] = [
         "name": "Chatbot",
         "description": "Tenant chat search and actions (workflow, upload, tickets, users).",
     },
+    {
+        "slug": "report",
+        "name": "Report Agent",
+        "description": "Discover live schema, plan SQL, and generate executive business reports.",
+    },
 ]
 
 RESERVED_SLUGS: frozenset[str] = frozenset(row["slug"] for row in BUILTIN_AGENTS)
