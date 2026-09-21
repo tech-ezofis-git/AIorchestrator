@@ -211,5 +211,3 @@ For Ezofis names locally, set `EZOFIS_LOGIN_EMAIL` and `EZOFIS_LOGIN_PASSWORD` (
 | `/chat` HTML for data | `app/main.py` |
 | Intent | `Intent.DASHBOARD` |
 | Tests | `tests/test_dashboard_endpoint.py` |
-
-Standalone prototype (separate FastAPI app): `v6_dashboard_new/`.
