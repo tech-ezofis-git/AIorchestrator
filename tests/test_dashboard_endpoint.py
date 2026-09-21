@@ -125,10 +125,17 @@ def test_dashboard_prompts_via_chat(client, monkeypatch):
         },
     )
     assert response.status_code == 200
-    result = response.json()["dashboard_result"]
-    assert result["phase"] == "prompts"
-    assert "payable" in result["prompt"].lower()
-    assert response.json()["html"] is None
+    body = response.json()
+    assert "dashboard_result" not in body
+    assert "reply" not in body
+    assert "html" not in body
+    assert "payable" in str(body.get("prompt") or "").lower()
+    assert body["session_id"] == "s-dash-prompts"
+    assert body["tenant_id"] == TENANT
+    assert body["repository_id"] == REPO
+    assert body.get("workflow_id") is None
+    assert body.get("workflow_name") is None
+    assert "table" in body
 
 
 def test_dashboard_schema_from_repository(client, monkeypatch):
@@ -159,6 +166,8 @@ def test_dashboard_schema_from_repository(client, monkeypatch):
     result = body["dashboard_result"]
     assert result["phase"] == "schema"
     assert result["repository_id"]
+    assert result["workflow_id"] is None
+    assert result.get("workflow_name") is None
     assert result["kpis"]
     assert result["data"] is None
     assert body["html"] is None
@@ -268,3 +277,66 @@ def test_dashboard_requires_tenant_and_target(client, monkeypatch):
         json={"session_id": "s-dash-bad", "intent": "dashboard", "message": "dashboard"},
     )
     assert response.status_code == 400
+
+
+def test_dashboard_prompts_connect_fail_does_not_swap_sample_repo(client):
+    from app.dashboard.store import DashboardStore
+
+    class _FailPools:
+        async def acquire_for_global_search(self, tenant_id, catalog_store=None):
+            raise RuntimeError("database does not exist")
+
+    store = DashboardStore(tenant_pools=_FailPools(), catalog_store=None)
+    client.app.state.dashboard_store = store
+    client.app.state.dashboard_agent._store = store
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-dash-nosample",
+            "intent": "dashboard",
+            "message": "suggest a dashboard",
+            "payload": {
+                "phase": "prompts",
+                "tenant_id": TENANT,
+                "repository_id": "e7596082-d04a-4233-a842-c4c6c3138b79",
+            },
+        },
+    )
+    assert response.status_code == 400
+    detail = str(response.json().get("detail") or "")
+    assert "tenant database" in detail.lower()
+    assert "DF175C77" not in response.text
+
+
+def test_dashboard_schema_unknown_repo_does_not_swap_sample(client):
+    from app.dashboard.store import DashboardStore
+
+    class _EmptyPool:
+        async def fetchrow(self, *args, **kwargs):
+            return None
+
+    class _OkPools:
+        async def acquire_for_global_search(self, tenant_id, catalog_store=None):
+            return _EmptyPool()
+
+    store = DashboardStore(tenant_pools=_OkPools(), catalog_store=None)
+    client.app.state.dashboard_store = store
+    client.app.state.dashboard_agent._store = store
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-dash-norepo",
+            "intent": "dashboard",
+            "message": "I need an AP dashboard",
+            "payload": {
+                "phase": "schema",
+                "tenant_id": TENANT,
+                "repository_id": "e7596082-d04a-4233-a842-c4c6c3138b79",
+            },
+        },
+    )
+    assert response.status_code == 400
+    detail = str(response.json().get("detail") or "")
+    assert "repository_id" in detail.lower()
+    assert "DF175C77" not in response.text
+
