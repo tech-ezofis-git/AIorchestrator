@@ -26,7 +26,17 @@ async def _pack_store(request: Request) -> Optional[AgentPackStore]:
     try:
         store = AgentPackStore(catalog)
         n = 0
-        for agent in ("summary", "ocr", "insight", "prompt", "pdf", "ap"):
+        for agent in (
+            "summary",
+            "ocr",
+            "insight",
+            "prompt",
+            "pdf",
+            "ap",
+            "dashboard-prompts",
+            "dashboard-schema",
+            "dashboard-data",
+        ):
             n += await store.platform_pack_count(agent)
             if n > 0:
                 return store

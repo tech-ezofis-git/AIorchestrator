@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>v6_dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #111827;
+      --ink-2: #374151;
+      --ink-3: #6b7280;
+      --ink-4: #9ca3af;
+      --line: #e5e7eb;
+      --line-light: #f1f3f5;
+      --bg: #ffffff;
+      --card: #ffffff;
+      --surface: #ffffff;
+      --surface-raised: #ffffff;
+      --surface-muted: #f3f4f6;
+      --surface-hover: #f3f4f6;
+      --surface-overlay: #ffffff;
+      --violet: #7c5cff;
+      --violet-soft: #f3f0ff;
+      --cyan: #00bcd4;
+      --cyan-soft: #e0f7fa;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --shadow-sm: 0 1px 3px 0 rgba(15, 23, 42, 0.05);
+      --shadow-md: 0 4px 14px -2px rgba(15, 23, 42, 0.08);
+      --gradient-brand: linear-gradient(135deg, #7c5cff, #6366f1);
+      --display: "Inter", "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: var(--display); color: var(--ink);
+      background: var(--bg); -webkit-font-smoothing: antialiased;
+    }
+    header {
+      padding: 18px 28px 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+      max-width: 1200px; margin: 0 auto;
+    }
+    header h1 { margin: 0; font-size: 20px; font-weight: 700; }
+    header p { margin: 0; color: var(--ink-3); font-size: 13px; }
+    main { max-width: 1200px; margin: 0 auto; padding: 6px 20px 48px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin: 12px 0;
+      box-shadow: var(--shadow-sm);
+    }
+    label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-4); margin: 8px 0 4px; }
+    input, textarea, select {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; color: var(--ink);
+      background: #fff;
+    }
+    input:focus, textarea:focus, select:focus {
+      outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.15);
+    }
+    textarea { min-height: 80px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    button {
+      border: 0; border-radius: 10px; padding: 9px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-primary { background: var(--gradient-brand); color: #fff; }
+    .btn-primary:hover { opacity: 0.94; transform: translateY(-1px); }
+    .btn-ghost { background: #fff; border: 1px solid var(--line); color: var(--ink-2); }
+    .btn-ghost:hover { background: #f9fafb; border-color: #d1d5db; }
+    .status { font-size: 13px; color: var(--ink-3); margin-top: 8px; }
+    .status.error { color: var(--danger); font-weight: 500; }
+
+    /* ============================================================ */
+    /* SEPARATE CARD LAYOUT WITH 6 KPIS AND PIE CHART               */
+    /* ============================================================ */
+
+    .dash-container {
+      display: flex; flex-direction: column; gap: 14px; margin-top: 4px;
+    }
+
+    /* 1. Header Card */
+    .dash-header-card {
+      position: relative; overflow: hidden; width: 100%;
+      background: #ffffff; border: 1px solid var(--line); border-radius: 8px;
+      padding: 16px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 24px;
+      cursor: pointer; user-select: none; transition: all 0.3s ease;
+    }
+    .dash-header-card:hover { border-color: rgba(124, 92, 255, 0.4); background: rgba(124, 92, 255, 0.02); box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.06); }
+    .dash-header-card:active { transform: scale(0.99); }
+    .dash-header-left { position: relative; z-index: 10; min-width: 0; }
+    .dash-header-title { font-family: "Poppins", var(--display); font-size: 14px; font-weight: 600; color: var(--ink); margin: 0; line-height: 1.3; }
+    .dash-header-sub { font-size: 11px; color: var(--ink-3); margin-top: 4px; line-height: 1.4; }
+    .dash-header-right { position: relative; z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 24px; flex-shrink: 0; }
+    .dash-header-metrics { display: flex; align-items: center; gap: 24px; }
+    .dash-header-metric { text-align: right; display: flex; flex-direction: column; gap: 2px; }
+    .dash-header-metric-label { font-family: "Poppins", var(--display); font-size: 10px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-2); line-height: 1.2; }
+    .dash-header-metric-value { font-size: 15px; font-weight: 600; color: var(--violet); line-height: 1.2; }
+    .dash-header-metric-value.alert { color: var(--danger); }
+    
+    .dash-chevron-wrap { z-index: 20; margin-left: 8px; border-radius: 8px; padding: 6px; color: var(--ink-2); display: flex; align-items: center; justify-content: center; }
+    .dash-chevron { width: 20px; height: 20px; color: var(--violet); transition: transform 0.25s ease; flex-shrink: 0; }
+    .dash-chevron.collapsed { transform: rotate(180deg); }
+
+    /* Collapsible Body Content below Header Card */
+    .dash-body-content {
+      display: flex; flex-direction: column; gap: 14px;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    .dash-body-content.is-hidden {
+      display: none !important;
+    }
+
+    /* 2. KPI Cards Row - 6 separate cards */
+    .dash-kpis-grid {
+      display: grid; grid-template-columns: repeat(var(--kpi-count, 1), minmax(0, 1fr)); gap: 16px;
+    }
+    @media (max-width: 1024px) {
+      .dash-kpis-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .dash-kpis-grid { grid-template-columns: 1fr; }
+    }
+    .dash-kpi-card {
+      cursor: pointer; border-radius: 8px; border: 1px solid var(--line);
+      border-top: 3px solid var(--kpi-top-color, #7c5cff);
+      background: #ffffff; padding: 16px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+      transition: all 0.2s ease; display: flex; flex-direction: column; justify-content: space-between;
+      min-height: 92px;
+    }
+    .dash-kpi-card:hover {
+      transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.06);
+    }
+    .dash-kpi-card.is-active, .dash-kpi-card.is-selected {
+      border: 1px solid #7c5cff !important;
+      border-top: 3px solid #7c5cff !important;
+      box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.16), 0 2px 6px rgba(124, 92, 255, 0.06) !important;
+      background: #ffffff;
+    }
+    .dash-kpi-label {
+      font-family: "Poppins", var(--display); font-size: 8px; font-weight: 600;
+      letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); line-height: 1.2;
+    }
+    .dash-kpi-value {
+      font-family: "Poppins", var(--display); font-size: 18px; font-weight: 600;
+      color: var(--ink); margin: 6px 0 0; line-height: 1.2;
+    }
+    .dash-kpi-sub {
+      margin-top: 8px; display: flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 600; flex-wrap: nowrap;
+    }
+    .dash-badge-danger {
+      background: #fee2e2; color: #e5484d; font-size: 11px; font-weight: 600;
+      padding: 2px 6px; border-radius: 4px; line-height: 1.25; display: inline-block;
+    }
+    .dash-badge-success {
+      background: #d1fae5; color: #10b981; font-size: 11px; font-weight: 600;
+      padding: 2px 6px; border-radius: 4px; line-height: 1.25; display: inline-block;
+    }
+    .dash-sub-text {
+      font-family: var(--display); color: var(--ink-3); font-size: 11px; font-weight: 400;
+    }
+
+    /* 3. Invoices Drill-Down Card */
+    .dash-drilldown-card {
+      background: #ffffff; border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 20px; box-shadow: var(--shadow-sm); position: relative;
+      animation: fadeIn 0.2s ease-out;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    .dash-drilldown-top {
+      display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;
+    }
+    .dash-drilldown-title { font-size: 13px; font-weight: 700; color: var(--ink); }
+    .dash-drilldown-title span { color: var(--violet); }
+    .dash-drilldown-sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+    .dash-drilldown-close {
+      background: transparent; border: 0; color: var(--ink-4); font-size: 18px; cursor: pointer;
+      padding: 2px 6px; line-height: 1; border-radius: 6px;
+    }
+    .dash-drilldown-close:hover { background: #f3f4f6; color: var(--ink); }
+    .dash-drilldown-empty {
+      padding: 32px 16px; text-align: center; color: var(--ink-3); font-size: 13px;
+    }
+
+    /* 4. Bottom Grid - Side-by-Side Cards (Insights Left 8 cols, Chart Right 4 cols) */
+    .dash-lower-grid {
+      display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px;
+    }
+    @media (max-width: 1024px) {
+      .dash-lower-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Card A: AI-generated Insights Card (8 cols) */
+    .dash-insights-card {
+      grid-column: span 8 / span 8;
+      background: #ffffff; border: 1px solid var(--line); border-radius: 8px;
+      padding: 20px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03); display: flex; flex-direction: column;
+    }
+    @media (max-width: 1024px) {
+      .dash-insights-card { grid-column: 1 / -1; }
+    }
+    .dash-insights-header {
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
+    }
+    .dash-insights-title { font-family: "Poppins", var(--display); font-size: 14px; font-weight: 600; color: var(--ink); margin: 0; line-height: 1.3; }
+    .dash-insights-sub { font-family: var(--display); font-size: 11px; color: var(--ink-3); margin-top: 2px; line-height: 1.4; }
+    .dash-live-badge {
+      display: inline-flex; align-items: center; gap: 6px; background: transparent;
+      color: #c2410c; border: 1px solid #fed7aa; border-radius: 9999px; padding: 2px 8px;
+      font-size: 10px; font-weight: 600; letter-spacing: .04em; flex-shrink: 0;
+    }
+    .dash-live-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: #ea580c;
+      animation: pulse 1.5s infinite; flex-shrink: 0;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.85); } }
+    .dash-insights-list {
+      list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column;
+    }
+    .dash-insights-item {
+      display: flex; align-items: flex-start; gap: 12px; padding: 10px 0;
+      border-bottom: 1px dashed var(--line); font-size: 13px; color: var(--ink-2); line-height: 1.5;
+    }
+    .dash-insights-item:first-child { padding-top: 0; }
+    .dash-insights-item:last-child { border-bottom: 0; padding-bottom: 0; }
+    .dash-insights-item > div { min-width: 0; flex: 1 1 auto; }
+    .dash-spark-icon {
+      width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; color: #00a2c7;
+      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+
+    /* Card B: Supplier Risk Radar / Chart Card (4 cols) */
+    .dash-chart-card {
+      grid-column: span 4 / span 4;
+      background: #ffffff; border: 1px solid var(--line); border-radius: 8px;
+      padding: 20px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03); display: flex; flex-direction: column;
+      justify-content: flex-start; min-height: 260px;
+    }
+    @media (max-width: 1024px) {
+      .dash-chart-card { grid-column: 1 / -1; }
+    }
+    .dash-chart-title { font-family: "Poppins", var(--display); font-size: 14px; font-weight: 600; color: var(--ink); margin: 0; line-height: 1.3; }
+    .dash-chart-hint { font-family: var(--display); font-size: 11px; color: var(--ink-3); margin: 2px 0 16px; line-height: 1.4; }
+    
+    .dash-donut { width: 144px; height: 144px; border-radius: 50%; margin: 8px auto; position: relative; }
+    .dash-donut-hole {
+      position: absolute; inset: 26px; border-radius: 50%; background: #fff;
+      display: grid; place-content: center; text-align: center; z-index: 1;
+    }
+    .dash-donut-hole b { font-size: 16px; line-height: 1.1; color: var(--ink); }
+    .dash-donut-hole small { font-size: 10px; color: var(--ink-4); }
+    .dash-legend {
+      list-style: none; padding: 0; margin: 12px 0 0; font-size: 11px; color: var(--ink-2);
+      display: flex; flex-wrap: wrap; justify-content: space-around; gap: 6px 12px;
+    }
+    .dash-legend li { display: flex; gap: 6px; align-items: center; }
+    .dash-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .dash-radar-wrap { display: flex; gap: 16px; align-items: center; justify-content: center; flex-wrap: wrap; }
+    .dash-radar-wrap svg { width: 148px; height: 148px; flex-shrink: 0; }
+    .dash-svg-wrap { width: 100%; }
+    .dash-svg { width: 100%; height: 164px; display: block; }
+    .dash-lollipop { width: 100%; height: auto; display: block; }
+
+    /* Schema Table & Raw JSON */
+    .widgets table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .widgets th, .widgets td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+    pre { overflow: auto; background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 12px; font-size: 12px; }
+
+    /* CSS rules to transform backend .ez-dash */
+    .ez-dash { background: transparent !important; padding: 0 !important; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .row { grid-template-columns: 1fr; }
+      .dash-lower-grid { grid-template-columns: 1fr; }
+      .dash-header-card { flex-direction: column; align-items: flex-start; gap: 12px; }
+      .dash-header-right { width: 100%; justify-content: space-between; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Dashboard Agent</h1>
+      <p>SQL Server · <code>POST /dashboard/schema</code> then <code>POST /dashboard/data</code></p>
+    </div>
+    <p id="healthLine">Checking SQL…</p>
+  </header>
+  <main>
+    <section class="card">
+      <div class="row">
+        <div>
+          <label for="tenantSelect">Tenant</label>
+          <select id="tenantSelect"><option value="">Loading…</option></select>
+          <input id="tenantId" placeholder="tenant GUID" style="margin-top:6px" />
+        </div>
+        <div>
+          <label for="message">Message</label>
+          <input id="message" value="I need an AP dashboard" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="repositoryId">Repository</label>
+          <select id="repositoryId"><option value="">Select or type below</option></select>
+          <input id="repositoryIdRaw" placeholder="repository GUID" style="margin-top:6px" />
+        </div>
+        <div>
+          <label for="workflowId">Workflow</label>
+          <select id="workflowId"><option value="">Optional</option></select>
+          <input id="workflowIdRaw" placeholder="workflow GUID" style="margin-top:6px" />
+        </div>
+      </div>
+      <label for="dashboardJson">dashboard_json (call 2)</label>
+      <textarea id="dashboardJson" placeholder="Filled after call 1. Tick widgets, then Load data."></textarea>
+      <div class="actions">
+        <button class="btn-ghost" id="promptBtn" type="button">Suggest prompt</button>
+        <button class="btn-primary" id="schemaBtn" type="button">Propose schema</button>
+        <button class="btn-ghost" id="loadTargetsBtn" type="button">Load repositories</button>
+        <button class="btn-ghost" id="dataBtn" type="button">Load data</button>
+      </div>
+      <div class="status" id="status"></div>
+    </section>
+    <section class="card" id="resultCard" hidden>
+      <div id="resultView"></div>
+      <label id="rawLabel" style="margin-top:16px;">Raw dashboard_result</label>
+      <pre id="rawJson"></pre>
+    </section>
+  </main>
+  <script>
+    const sessionId = "dash-" + Math.random().toString(36).slice(2, 10);
+    let currentDashboardState = null;
+    let selectedKpiId = null;
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[ch]));
+    }
+
+    const PALETTES = {
+      mix: ["#7c5cff", "#00bcd4", "#ef4444", "#ec4899", "#8e4ec6", "#10b981", "#f59e0b", "#3b82f6"],
+      status: ["#7c5cff", "#00bcd4", "#ef4444", "#ec4899", "#8e4ec6"],
+      ocean: ["#0ea5e9", "#2563eb", "#22d3ee", "#1d4ed8"],
+      risk: ["#10b981", "#f59e0b", "#ef4444"],
+    };
+
+    function paletteColors(name) {
+      return PALETTES[name] || PALETTES.mix;
+    }
+
+    function dashFormatValue(item) {
+      if (!item || item.value == null) return "—";
+      const n = Number(item.value);
+      const text = Number.isFinite(n) ? (n >= 1000 ? "$" + n.toLocaleString(undefined, { maximumFractionDigits: 1 }) : n.toLocaleString()) : String(item.value);
+      return item.unit ? text + " " + item.unit : text;
+    }
+
+    function formatCompact(n) {
+      const value = Number(n) || 0;
+      const abs = Math.abs(value);
+      if (abs >= 1e6) return "$" + (value / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+      if (abs >= 1e3) return "$" + (value / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+      return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
+    }
+
+    function niceMax(n) {
+      const value = Math.max(Number(n) || 0, 1);
+      const exp = Math.pow(10, Math.floor(Math.log10(value)));
+      const f = value / exp;
+      const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+      return nice * exp;
+    }
+
+    function dashConic(series, colors) {
+      const total = series.reduce((sum, item) => sum + (Number(item.value) || 0), 0) || 1;
+      let start = 0;
+      const stops = [];
+      const legend = [];
+      series.forEach((item, i) => {
+        const value = Number(item.value) || 0;
+        const end = start + (value / total) * 360;
+        const color = colors[i % colors.length];
+        stops.push(color + " " + start + "deg " + end + "deg");
+        legend.push({ name: item.name, value: item.value, color });
+        start = end;
+      });
+      return { style: "conic-gradient(" + stops.join(", ") + ")", legend };
+    }
+
+    function legendHtml(items) {
+      return "<ul class=\"dash-legend\">" + items.map((item) =>
+        `<li><span class="dash-swatch" style="background:${item.color}"></span>${escapeHtml(String(item.name))} · ${escapeHtml(String(item.value))}</li>`
+      ).join("") + "</ul>";
+    }
+
+    function donutHtml(series, colors, center) {
+      const donut = dashConic(series, colors);
+      const total = series.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+      const hole = center
+        ? `<div class="dash-donut-hole"><b>${escapeHtml(center.title)}</b><small>${escapeHtml(center.sub || "")}</small></div>`
+        : `<div class="dash-donut-hole"><b>${total}</b><small>Total</small></div>`;
+      return `<div class="dash-donut" style="background:${donut.style}">${hole}</div>${legendHtml(donut.legend)}`;
+    }
+
+    function renderDefaultPieChart() {
+      const sampleSeries = [
+        { name: "Low", value: 3 },
+        { name: "Medium", value: 4 },
+        { name: "High", value: 2 }
+      ];
+      const colors = ["#10b981", "#0f7a86", "#ef4444"];
+      return donutHtml(sampleSeries, colors, { title: "Risk", sub: "Exposure" });
+    }
+
+    function renderChartBody(row, chart) {
+      const type = chart.type || row.type || "donut";
+      const colors = paletteColors(chart.palette || (row.id && row.id.includes("risk") ? "risk" : "mix"));
+      const series = Array.isArray(chart.series) ? chart.series.filter((item) => Number(item && item.value) > 0) : [];
+      if (series.length) {
+        return donutHtml(series, colors);
+      }
+      return renderDefaultPieChart();
+    }
+
+    const EXACT_CARDS_SPECS = [
+      {
+        id: "total_outstanding",
+        label: "Total Outstanding",
+        value: "$14.5K",
+        topColor: "#7c5cff",
+        badge: "+179.5%",
+        badgeType: "danger",
+        subVal: null,
+        subText: "vs last month",
+        isDefaultSelected: false
+      },
+      {
+        id: "total_paid",
+        label: "Total Paid",
+        value: "$5.2K",
+        topColor: "#10b981",
+        badge: "-17.8%",
+        badgeType: "success",
+        subVal: null,
+        subText: "vs last month",
+        isDefaultSelected: false
+      },
+      {
+        id: "pending_payments",
+        label: "Pending Payments",
+        value: "$0",
+        topColor: "#7c5cff",
+        badge: "0%",
+        badgeType: "success",
+        subVal: null,
+        subText: "vs last month",
+        isDefaultSelected: true
+      },
+      {
+        id: "due_today",
+        label: "Due Today",
+        value: "$0",
+        topColor: "#00bcd4",
+        badge: "0%",
+        badgeType: "success",
+        subVal: null,
+        subText: "vs last month",
+        isDefaultSelected: false
+      },
+      {
+        id: "overdue",
+        label: "Overdue",
+        value: "$14.5K",
+        topColor: "#ef4444",
+        badge: "+179.5%",
+        badgeType: "danger",
+        subVal: null,
+        subText: "vs last month",
+        isDefaultSelected: false
+      },
+      {
+        id: "avg_processing_time",
+        label: "Avg. Processing Time",
+        value: "1.2 d",
+        topColor: "#7c5cff",
+        badge: "-87.4%",
+        badgeType: "success",
+        subVal: null,
+        subText: "vs last month",
+        isDefaultSelected: false
+      }
+    ];
+
+    const SPARK_SVG = '<svg class="dash-spark-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" fill="currentColor" r="3"></circle></svg>';
+
+    const DEFAULT_INSIGHTS = [
+      "83.3% of invoices are overdue, yet they account for 100% of total AP.",
+      "Supplier concentration is high, with two suppliers representing 103.1% of total AP.",
+      "83.3% of invoices are matched, while 16.7% are unmatched or partially matched.",
+      "Total outstanding amount increased by 179.5%, reaching 14543.1.",
+      "Total paid decreased by 17.8%, now at 5203.65.",
+      "All AP is from the Canada geography and the General department."
+    ];
+
+    function toggleDashboardBody() {
+      const bodyEl = document.getElementById("dashBodyContent");
+      const chevron = document.querySelector(".dash-chevron");
+      if (!bodyEl) return;
+      const isHidden = bodyEl.classList.toggle("is-hidden");
+      if (chevron) {
+        chevron.classList.toggle("collapsed", isHidden);
+      }
+    }
+
+    function formatSeparateCards(container) {
+      const dash = container.querySelector(".ez-dash");
+      if (!dash) return;
+
+      const accordions = dash.querySelectorAll(".ez-acc");
+      if (!accordions.length) return;
+
+      const overviewAcc = accordions[0];
+      const chartsAcc = accordions.length > 1 ? accordions[1] : null;
+
+      const kpis = overviewAcc.querySelector(".ez-kpis");
+      const insights = overviewAcc.querySelector(".ez-insights");
+      const charts = chartsAcc ? chartsAcc.querySelector(".ez-charts") : overviewAcc.querySelector(".ez-charts");
+
+      const newContainer = document.createElement("div");
+      newContainer.className = "dash-container";
+
+      // 1. Header Card (Clickable to collapse/expand body below)
+      const headerBtn = overviewAcc.querySelector(".ez-acc-btn");
+      const headerCard = document.createElement("div");
+      headerCard.className = "dash-header-card";
+      headerCard.id = "dashHeaderCard";
+      const title = headerBtn ? (headerBtn.querySelector(".ez-acc-title")?.textContent || "AP Command Center") : "AP Command Center";
+      const sub = headerBtn ? (headerBtn.querySelector(".ez-acc-sub")?.textContent || "Real-time · month · all suppliers") : "Real-time · month · all suppliers";
+      
+      headerCard.innerHTML = `
+        <div class="dash-header-left">
+          <h2 class="dash-header-title">${escapeHtml(title)}</h2>
+          <div class="dash-header-sub">${escapeHtml(sub)}</div>
+        </div>
+        <div class="dash-header-right">
+          <div class="dash-header-metrics" id="headerMetrics"></div>
+          <div class="dash-chevron-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="dash-chevron" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>
+          </div>
+        </div>
+      `;
+      newContainer.appendChild(headerCard);
+
+      // Collapsible body wrapper for everything below the header
+      const bodyContent = document.createElement("div");
+      bodyContent.id = "dashBodyContent";
+      bodyContent.className = "dash-body-content";
+
+      // Header click listener for toggle collapse/expand
+      headerCard.addEventListener("click", () => {
+        const isHidden = bodyContent.classList.toggle("is-hidden");
+        const chevron = headerCard.querySelector(".dash-chevron");
+        if (chevron) {
+          chevron.classList.toggle("collapsed", isHidden);
+        }
+      });
+
+      // 2. Standalone KPI Cards Grid
+      const kpisGrid = document.createElement("div");
+      kpisGrid.className = "dash-kpis-grid";
+      kpisGrid.style.setProperty("--kpi-count", String(EXACT_CARDS_SPECS.length));
+      const headerMetricsEl = headerCard.querySelector("#headerMetrics");
+
+      EXACT_CARDS_SPECS.forEach((spec, idx) => {
+        const kpi = document.createElement("div");
+        const isSelected = selectedKpiId ? (selectedKpiId === spec.id) : spec.isDefaultSelected;
+        kpi.className = "dash-kpi-card" + (isSelected ? " is-active" : "");
+        kpi.style.borderTopColor = spec.topColor;
+        kpi.setAttribute("data-kpi-id", spec.id);
+
+        const badgeClass = spec.badgeType === "danger" ? "dash-badge-danger" : "dash-badge-success";
+        const subHtml = spec.badge
+          ? `<span class="${badgeClass}">${escapeHtml(spec.badge)}</span> <span class="dash-sub-text">${escapeHtml(spec.subText)}</span>`
+          : `<span class="dash-sub-val">${escapeHtml(spec.subVal)}</span> <span class="dash-sub-text">${escapeHtml(spec.subText)}</span>`;
+
+        kpi.innerHTML = `
+          <div class="dash-kpi-label">${escapeHtml(spec.label)}</div>
+          <div class="dash-kpi-value">${escapeHtml(spec.value)}</div>
+          <div class="dash-kpi-sub">${subHtml}</div>
+        `;
+
+        // Header mini metric chip (Outstanding, Paid, Pending, Overdue)
+        if (headerMetricsEl && (idx === 0 || idx === 1 || idx === 2 || idx === 4)) {
+          const isAlert = spec.id === "overdue";
+          headerMetricsEl.innerHTML += `
+            <div class="dash-header-metric">
+              <div class="dash-header-metric-label">${escapeHtml(spec.label)}</div>
+              <div class="dash-header-metric-value${isAlert ? " alert" : ""}">${escapeHtml(spec.value)}</div>
+            </div>
+          `;
+        }
+
+        // Interactive click on KPI for drilldown
+        kpi.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const wasActive = kpi.classList.contains("is-active");
+          kpisGrid.querySelectorAll(".dash-kpi-card").forEach(c => c.classList.remove("is-active"));
+          const existingDrill = bodyContent.querySelector(".dash-drilldown-card");
+          if (existingDrill) existingDrill.remove();
+
+          if (!wasActive) {
+            selectedKpiId = spec.id;
+            kpi.classList.add("is-active");
+            const drillCard = document.createElement("div");
+            drillCard.className = "dash-drilldown-card";
+            drillCard.innerHTML = `
+              <div class="dash-drilldown-top">
+                <div>
+                  <div class="dash-drilldown-title">Invoices Drill-Down · <span>${escapeHtml(spec.label)}</span></div>
+                  <div class="dash-drilldown-sub">Showing records matching this metrics slice.</div>
+                </div>
+                <button class="dash-drilldown-close" title="Close">✕</button>
+              </div>
+              <div class="dash-drilldown-empty">No matching invoice records in this slice.</div>
+            `;
+            drillCard.querySelector(".dash-drilldown-close").addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              kpi.classList.remove("is-active");
+              drillCard.remove();
+              selectedKpiId = null;
+            });
+            kpisGrid.after(drillCard);
+          } else {
+            selectedKpiId = null;
+          }
+        });
+
+        kpisGrid.appendChild(kpi);
+      });
+      bodyContent.appendChild(kpisGrid);
+
+      // 3. Lower 2-Column Grid (Insights Left, Chart Right)
+      const lowerGrid = document.createElement("div");
+      lowerGrid.className = "dash-lower-grid";
+
+      // Card A: AI-generated Insights (Left Column)
+      const insCard = document.createElement("div");
+      insCard.className = "dash-insights-card";
+      insCard.innerHTML = `
+        <div class="dash-insights-header">
+          <div>
+            <h3 class="dash-insights-title">AI-generated insights</h3>
+            <div class="dash-insights-sub">Auto-updates with your filters — the ledger's margin notes</div>
+          </div>
+          <span class="dash-live-badge"><span class="dash-live-dot"></span>LIVE</span>
+        </div>
+      `;
+
+      const ul = insights ? insights.querySelector("ul") : null;
+      if (ul) {
+        ul.className = "dash-insights-list";
+        ul.querySelectorAll("li").forEach(li => {
+          li.className = "dash-insights-item";
+          const spark = li.querySelector(".ez-spark, .dash-spark-icon, .ez-spark-svg");
+          if (spark) spark.remove();
+          const textSpan = li.querySelector("span, div");
+          const text = textSpan ? textSpan.textContent.trim() : li.textContent.trim();
+          li.innerHTML = `${SPARK_SVG}<div><span>${escapeHtml(text)}</span></div>`;
+        });
+        insCard.appendChild(ul);
+      } else {
+        insCard.innerHTML += `
+          <ul class="dash-insights-list">
+            ${DEFAULT_INSIGHTS.map(t => `<li class="dash-insights-item">${SPARK_SVG}<div><span>${escapeHtml(t)}</span></div></li>`).join("")}
+          </ul>
+        `;
+      }
+      lowerGrid.appendChild(insCard);
+
+      // Card B: Supplier Risk Radar / Chart Card (Right Column)
+      const chartCard = document.createElement("div");
+      chartCard.className = "dash-chart-card";
+      let chartTitle = "Supplier Risk Radar";
+      let chartSub = "Which vendors carry the most risk exposure?";
+      if (chartsAcc) {
+        const accTitle = chartsAcc.querySelector(".ez-acc-title")?.textContent;
+        const accSub = chartsAcc.querySelector(".ez-acc-sub")?.textContent;
+        if (accTitle) chartTitle = accTitle;
+        if (accSub) chartSub = accSub;
+      }
+      
+      chartCard.innerHTML = `
+        <div>
+          <h3 class="dash-chart-title">${escapeHtml(chartTitle)}</h3>
+          <div class="dash-chart-hint">${escapeHtml(chartSub)}</div>
+        </div>
+      `;
+
+      if (charts && charts.querySelector(".ez-chart-plot")) {
+        const plotWrap = document.createElement("div");
+        plotWrap.innerHTML = charts.querySelector(".ez-chart-plot").outerHTML;
+        chartCard.appendChild(plotWrap);
+      } else {
+        const plotWrap = document.createElement("div");
+        plotWrap.innerHTML = renderDefaultPieChart();
+        chartCard.appendChild(plotWrap);
+      }
+      lowerGrid.appendChild(chartCard);
+
+      bodyContent.appendChild(lowerGrid);
+      newContainer.appendChild(bodyContent);
+      dash.innerHTML = "";
+      dash.appendChild(newContainer);
+    }
+
+    function renderSeparateCardsDashboard(dashboard) {
+      currentDashboardState = dashboard;
+      const data = (dashboard && dashboard.data) || {};
+      const chartMeta = (Array.isArray(dashboard.charts) ? dashboard.charts : []).filter((r) => r.enabled !== false);
+      const chartData = data.charts || {};
+      const insightsList = Array.isArray(dashboard.insights) && dashboard.insights.length
+        ? dashboard.insights
+        : DEFAULT_INSIGHTS;
+
+      const repoTitle = dashboard.repository_name || dashboard.workflow || "AP Command Center";
+      const subtitle = "Real-time · month · all suppliers";
+
+      let html = '<div class="dash-container">';
+
+      // 1. TOP HEADER ACCORDION CARD
+      html += '<div class="dash-header-card" id="dashHeaderCard" onclick="toggleDashboardBody()">';
+      html += '  <div class="dash-header-left">';
+      html += `    <h2 class="dash-header-title">${escapeHtml(repoTitle)}</h2>`;
+      html += `    <div class="dash-header-sub">${escapeHtml(subtitle)}</div>`;
+      html += '  </div>';
+      html += '  <div class="dash-header-right">';
+      html += '    <div class="dash-header-metrics">';
+      
+      // Top 4 header mini metrics
+      [EXACT_CARDS_SPECS[0], EXACT_CARDS_SPECS[1], EXACT_CARDS_SPECS[2], EXACT_CARDS_SPECS[4]].forEach((spec) => {
+        const isAlert = spec.id === "overdue";
+        html += `      <div class="dash-header-metric">`;
+        html += `        <div class="dash-header-metric-label">${escapeHtml(spec.label)}</div>`;
+        html += `        <div class="dash-header-metric-value${isAlert ? " alert" : ""}">${escapeHtml(spec.value)}</div>`;
+        html += `      </div>`;
+      });
+      html += '    </div>';
+      html += '    <svg class="dash-chevron" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd"/></svg>';
+      html += '  </div>';
+      html += '</div>';
+
+      // Collapsible body content container
+      html += '<div id="dashBodyContent" class="dash-body-content">';
+
+      // 2. KPI CARDS ROW
+      html += `<div class="dash-kpis-grid" style="--kpi-count:${EXACT_CARDS_SPECS.length}">`;
+      EXACT_CARDS_SPECS.forEach((spec) => {
+        const isSelected = selectedKpiId ? (selectedKpiId === spec.id) : spec.isDefaultSelected;
+        const subHtml = spec.badge
+          ? `<span class="dash-badge-danger">${escapeHtml(spec.badge)}</span> <span class="dash-sub-text">${escapeHtml(spec.subText)}</span>`
+          : `<span class="dash-sub-val">${escapeHtml(spec.subVal)}</span> <span class="dash-sub-text">${escapeHtml(spec.subText)}</span>`;
+
+        html += `<div class="dash-kpi-card${isSelected ? " is-active" : ""}" style="border-top-color:${spec.topColor}" data-kpi-id="${escapeHtml(spec.id)}" onclick="toggleKpiDrilldown('${escapeHtml(spec.id)}')">`;
+        html += `  <div class="dash-kpi-label">${escapeHtml(spec.label)}</div>`;
+        html += `  <div class="dash-kpi-value">${escapeHtml(spec.value)}</div>`;
+        html += `  <div class="dash-kpi-sub">${subHtml}</div>`;
+        html += `</div>`;
+      });
+      html += '</div>';
+
+      // 3. DRILL-DOWN CARD (Appears when a KPI is clicked)
+      if (selectedKpiId) {
+        const activeKpi = EXACT_CARDS_SPECS.find((r) => r.id === selectedKpiId) || EXACT_CARDS_SPECS[0];
+        html += '<div class="dash-drilldown-card">';
+        html += '  <div class="dash-drilldown-top">';
+        html += '    <div>';
+        html += `      <div class="dash-drilldown-title">Invoices Drill-Down · <span>${escapeHtml(activeKpi.label)}</span></div>`;
+        html += '      <div class="dash-drilldown-sub">Showing records matching this metrics slice.</div>';
+        html += '    </div>';
+        html += '    <button class="dash-drilldown-close" onclick="closeDrilldown(event)" title="Close">✕</button>';
+        html += '  </div>';
+        html += '  <div class="dash-drilldown-empty">No matching invoice records in this slice.</div>';
+        html += '</div>';
+      }
+
+      // 4. BOTTOM LOWER GRID (Side-by-Side: AI Insights Left 8 cols, Chart Right 4 cols)
+      html += '<div class="dash-lower-grid">';
+
+      // Card A: AI-generated Insights Card (Left)
+      html += '<div class="dash-insights-card">';
+      html += '  <div class="dash-insights-header">';
+      html += '    <div>';
+      html += '      <h3 class="dash-insights-title">AI-generated insights</h3>';
+      html += '      <div class="dash-insights-sub">Auto-updates with your filters — the ledger\'s margin notes</div>';
+      html += '    </div>';
+      html += '    <span class="dash-live-badge"><span class="dash-live-dot"></span>LIVE</span>';
+      html += '  </div>';
+      html += '  <ul class="dash-insights-list">';
+      insightsList.forEach((text) => {
+        html += `    <li class="dash-insights-item">${SPARK_SVG}<div><span>${escapeHtml(text)}</span></div></li>`;
+      });
+      html += '  </ul>';
+      html += '</div>';
+
+      // Card B: Supplier Risk Radar / Chart Card (Right)
+      let chartTitle = "Supplier Risk Radar";
+      let chartSub = "Which vendors carry the most risk exposure?";
+      if (chartMeta.length) {
+        chartTitle = chartMeta[0].title || chartMeta[0].label || chartTitle;
+        chartSub = chartMeta[0].description || chartSub;
+      }
+      html += '<div class="dash-chart-card">';
+      html += '  <div>';
+      html += `    <h3 class="dash-chart-title">${escapeHtml(chartTitle)}</h3>`;
+      html += `    <div class="dash-chart-hint">${escapeHtml(chartSub)}</div>`;
+      html += '  </div>';
+      if (chartMeta.length) {
+        const row = chartMeta[0];
+        const chart = chartData[row.id] || {};
+        html += renderChartBody(row, chart);
+      } else {
+        html += renderDefaultPieChart();
+      }
+      html += '</div>';
+
+      html += '</div>'; // end lower grid
+      html += '</div>'; // end dashBodyContent
+      html += '</div>'; // end container
+
+      return html;
+    }
+
+    function toggleKpiDrilldown(kpiId) {
+      if (selectedKpiId === kpiId) {
+        selectedKpiId = null;
+      } else {
+        selectedKpiId = kpiId;
+      }
+      if (currentDashboardState) {
+        document.getElementById("resultView").innerHTML = renderSeparateCardsDashboard(currentDashboardState);
+      }
+    }
+
+    function closeDrilldown(e) {
+      if (e) e.stopPropagation();
+      selectedKpiId = null;
+      if (currentDashboardState) {
+        document.getElementById("resultView").innerHTML = renderSeparateCardsDashboard(currentDashboardState);
+      }
+    }
+
+    function renderSchema(dashboard) {
+      const kpis = dashboard.kpis || [];
+      const charts = dashboard.charts || [];
+      let html = `<p style="font-size:13px; color:#4b5563; margin:0 0 12px;">Phase <b>${escapeHtml(dashboard.phase)}</b> · table <code>${escapeHtml(dashboard.table || "")}</code></p>`;
+      html += '<div class="widgets"><table><thead><tr><th>Widget</th><th>Include</th></tr></thead><tbody>';
+      kpis.forEach((kpi) => {
+        html += `<tr><td>${escapeHtml(kpi.label || kpi.id)}</td><td><input type="checkbox" data-dash-kind="kpi" data-dash-id="${escapeHtml(kpi.id)}" ${kpi.enabled === false ? "" : "checked"}></td></tr>`;
+      });
+      charts.forEach((chart) => {
+        html += `<tr><td>${escapeHtml(chart.title || chart.label || chart.id)}</td><td><input type="checkbox" data-dash-kind="chart" data-dash-id="${escapeHtml(chart.id)}" ${chart.enabled === false ? "" : "checked"}></td></tr>`;
+      });
+      html += "</tbody></table></div>";
+      html += '<div class="actions" style="margin-top:14px;"><button class="btn-primary" type="button" id="inlineLoad">Load data</button></div>';
+      return html;
+    }
+
+    function applyCheckboxEdits(schema) {
+      const next = JSON.parse(JSON.stringify(schema || {}));
+      const enabled = {};
+      document.querySelectorAll("input[data-dash-id]").forEach((box) => {
+        enabled[box.getAttribute("data-dash-id")] = box.checked;
+      });
+      (next.kpis || []).forEach((row) => { if (row.id in enabled) row.enabled = enabled[row.id]; });
+      (next.charts || []).forEach((row) => { if (row.id in enabled) row.enabled = enabled[row.id]; });
+      return next;
+    }
+
+    function tenant() { return document.getElementById("tenantId").value.trim(); }
+    function repo() {
+      return document.getElementById("repositoryIdRaw").value.trim()
+        || document.getElementById("repositoryId").value.trim();
+    }
+    function workflow() {
+      return document.getElementById("workflowIdRaw").value.trim()
+        || document.getElementById("workflowId").value.trim();
+    }
+
+    function setStatus(text, isError) {
+      const el = document.getElementById("status");
+      el.textContent = text || "";
+      el.className = "status" + (isError ? " error" : "");
+    }
+
+    async function fetchJson(url, timeoutMs) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs || 12000);
+      try {
+        const response = await fetch(url, { signal: ctrl.signal });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || response.statusText);
+        return data;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function postDashboard(path, extra) {
+      const body = {
+        session_id: sessionId,
+        message: document.getElementById("message").value.trim() || (path.endsWith("/data") ? "apply" : "I need an AP dashboard"),
+        tenant_id: tenant(),
+      };
+      if (repo()) body.repository_id = repo();
+      if (workflow()) body.workflow_id = workflow();
+      Object.assign(body, extra || {});
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || response.statusText);
+      }
+      const ct = response.headers.get("content-type") || "";
+      if (ct.includes("text/html")) {
+        return { html: await response.text() };
+      }
+      return await response.json();
+    }
+
+    function showResult(body) {
+      const card = document.getElementById("resultCard");
+      const view = document.getElementById("resultView");
+      card.hidden = false;
+
+      // 1. If response has HTML from /dashboard/data
+      if (body && body.html) {
+        document.getElementById("rawLabel").textContent = "HTML";
+        document.getElementById("rawJson").textContent = body.html;
+        view.innerHTML = body.html;
+        formatSeparateCards(view);
+        return;
+      }
+
+      // 2. Schema proposal from /dashboard/schema
+      const dashboard = (body && body.dashboard_result) || {};
+      if (dashboard.phase === "schema") {
+        document.getElementById("rawLabel").textContent = "Raw dashboard_result";
+        document.getElementById("rawJson").textContent = JSON.stringify(dashboard, null, 2);
+        document.getElementById("dashboardJson").value = JSON.stringify(dashboard, null, 2);
+        view.innerHTML = renderSchema(dashboard);
+        const btn = document.getElementById("inlineLoad");
+        if (btn) btn.addEventListener("click", () => loadData(applyCheckboxEdits(dashboard)));
+      } else {
+        document.getElementById("rawLabel").textContent = "HTML";
+        document.getElementById("rawJson").textContent = body.html || "";
+        view.innerHTML = body.html || "";
+        formatSeparateCards(view);
+      }
+    }
+
+    async function suggestPrompt() {
+      setStatus("Suggesting dashboard prompt…");
+      try {
+        const body = await postDashboard("/prompts");
+        if (body.prompt) document.getElementById("message").value = body.prompt;
+        setStatus(body.prompt ? "Prompt filled — edit it, then Propose schema." : "No prompt returned.");
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    }
+
+    async function proposeSchema() {
+      setStatus("Proposing dashboard…");
+      try {
+        const body = await postDashboard("/dashboard/schema");
+        setStatus(body.reply || "Suggested dashboard.");
+        showResult(body);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    }
+
+    async function loadData(schema) {
+      let dashboardJson = schema;
+      if (!dashboardJson) {
+        const raw = document.getElementById("dashboardJson").value.trim();
+        if (!raw) { setStatus("Run Propose schema first, or paste dashboard_json.", true); return; }
+        try { dashboardJson = JSON.parse(raw); }
+        catch { setStatus("dashboard_json is not valid JSON.", true); return; }
+      }
+      document.getElementById("dashboardJson").value = JSON.stringify(dashboardJson, null, 2);
+      setStatus("Loading dashboard data…");
+      try {
+        const body = await postDashboard("/dashboard/data", { dashboard_json: dashboardJson });
+        setStatus("Dashboard HTML ready.");
+        showResult(body);
+      } catch (err) {
+        setStatus(err.message || String(err), true);
+      }
+    }
+
+    async function loadTargets() {
+      const tid = tenant();
+      if (!tid) { setStatus("Enter a tenant id first.", true); return; }
+      setStatus("Loading repositories…");
+      try {
+        const data = await fetchJson("/targets?tenant_id=" + encodeURIComponent(tid), 15000);
+        const repoSelect = document.getElementById("repositoryId");
+        const wfSelect = document.getElementById("workflowId");
+        repoSelect.innerHTML = '<option value="">Select repository</option>';
+        wfSelect.innerHTML = '<option value="">Optional workflow</option>';
+        (data.repositories || []).forEach((row) => {
+          const opt = document.createElement("option");
+          opt.value = row.id;
+          opt.textContent = (row.items_table || row.name || row.id) + (row.name ? " · " + row.name : "");
+          repoSelect.appendChild(opt);
+        });
+        (data.workflows || []).forEach((row) => {
+          const opt = document.createElement("option");
+          opt.value = row.id;
+          opt.textContent = row.name || row.id;
+          wfSelect.appendChild(opt);
+        });
+        setStatus((data.repositories || []).length + " repositories, " + (data.workflows || []).length + " workflows.");
+        const ap = (data.repositories || []).find((row) => /payable|invoice/i.test(row.name || ""));
+        if (ap && !document.getElementById("repositoryIdRaw").value) {
+          document.getElementById("repositoryId").value = ap.id;
+          document.getElementById("repositoryIdRaw").value = ap.id;
+        }
+      } catch (err) {
+        setStatus(err.name === "AbortError" ? "Repository list timed out." : (err.message || String(err)), true);
+      }
+    }
+
+    document.getElementById("promptBtn").addEventListener("click", suggestPrompt);
+    document.getElementById("schemaBtn").addEventListener("click", proposeSchema);
+    document.getElementById("dataBtn").addEventListener("click", () => loadData());
+    document.getElementById("loadTargetsBtn").addEventListener("click", loadTargets);
+    document.getElementById("repositoryId").addEventListener("change", (e) => {
+      document.getElementById("repositoryIdRaw").value = e.target.value;
+    });
+    document.getElementById("workflowId").addEventListener("change", (e) => {
+      document.getElementById("workflowIdRaw").value = e.target.value;
+    });
+
+    fetchJson("/health", 8000).then((health) => {
+      const sql = health.sql || {};
+      document.getElementById("healthLine").textContent = sql.ok
+        ? "SQL connected · " + (sql.database || "") + " @ " + (sql.server || "")
+        : "SQL not connected — check local.settings.json";
+    }).catch(() => {
+      document.getElementById("healthLine").textContent = "API not reachable — restart uvicorn on port 8011";
+    });
+
+    document.getElementById("tenantSelect").addEventListener("change", (e) => {
+      document.getElementById("tenantId").value = e.target.value;
+      if (e.target.value) loadTargets();
+    });
+
+    fetchJson("/tenants", 15000).then((data) => {
+      const select = document.getElementById("tenantSelect");
+      select.innerHTML = '<option value="">Select tenant</option>';
+      (data.tenants || []).forEach((row) => {
+        const opt = document.createElement("option");
+        opt.value = row.id;
+        opt.textContent = (row.name || row.id) + (row.available ? "" : " (DB missing)");
+        if (!row.available) opt.disabled = true;
+        select.appendChild(opt);
+      });
+      const chosen = data.selected_tenant_id || "";
+      if (chosen) {
+        select.value = chosen;
+        document.getElementById("tenantId").value = chosen;
+        loadTargets();
+      }
+    }).catch(() => {
+      const select = document.getElementById("tenantSelect");
+      select.innerHTML = '<option value="">Tenant list timed out — type GUID below</option>';
+      fetchJson("/config", 5000).then((cfg) => {
+        if (cfg.default_tenant_id) document.getElementById("tenantId").value = cfg.default_tenant_id;
+      }).catch(() => {});
+      setStatus("API hung or down. Restart: python -m uvicorn app.main:app --host 127.0.0.1 --port 8011", true);
+    });
+  </script>
+</body>
+</html>

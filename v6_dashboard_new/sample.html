@@ -1,0 +1,524 @@
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@500;600;700&display=swap");
+  .ez-dash{
+  --ez-violet:var(--accent-primary, var(--primary-9, #7c5cff));
+  --ez-cyan:var(--primary, var(--secondary-9, var(--accent-primary, #00bcd4)));
+  --ez-bg:var(--surface, #ffffff);
+  --ez-surface:var(--surface-raised, var(--surface, #ffffff));
+  --ez-muted-bg:var(--surface-muted, var(--surface-hover, var(--gray-2, #eef0f3)));
+  --ez-ink:var(--text-primary, var(--gray-13, #0f172a));
+  --ez-sub:var(--text-secondary, var(--gray-11, #334155));
+  --ez-muted:var(--text-muted, var(--gray-9, #64748b));
+  --ez-line:var(--border-default, #d1d5db);
+  --ez-line-strong:var(--border-strong, #9ca3af);
+  --ez-ok:var(--success-main, var(--green-9, #30a46c));
+  --ez-warn:var(--warning-main, var(--orange-9, #f76b15));
+  --ez-err:var(--error-main, var(--red-9, #ef4444));
+  --ez-info:var(--info-main, var(--blue-9, #0090ff));
+  --ez-soft:var(--accent-soft, var(--primary-3, #f3f0ff));
+  --ez-shadow:0 1px 3px 0 rgb(15 23 42 / 0.06), 0 1px 2px -1px rgb(15 23 42 / 0.04);
+  --ez-shadow-md:0 4px 14px -2px rgb(15 23 42 / 0.1);
+  --ez-heading:Poppins,sans-serif;--ez-body:Inter,sans-serif;
+  font-family:var(--ez-body);font-weight:450;color:var(--ez-ink);background:var(--ez-bg);
+  border:0;border-radius:0;padding:16px;min-width:0
+  }
+  [data-mantine-color-scheme="dark"] .ez-dash,.ez-dash[data-mantine-color-scheme="dark"]{
+  --ez-violet:var(--accent-primary, var(--primary-9, #a855f7));
+  --ez-cyan:var(--primary, var(--secondary-9, var(--accent-primary, #00bcd4)));
+  --ez-bg:#000000;
+  --ez-surface:var(--surface-primary, var(--surface, #121113));
+  --ez-muted-bg:#1a191b;
+  --ez-ink:var(--text-primary, #eeeef0);
+  --ez-sub:var(--text-secondary, #b5b2bc);
+  --ez-muted:var(--text-muted, #6f6d78);
+  --ez-line:#232225;
+  --ez-line-strong:#2b292d;
+  --ez-ok:var(--success-main, #3dd68c);
+  --ez-warn:var(--warning-main, var(--orange-9, #f76b15));
+  --ez-err:var(--error-main, var(--red-9, #e5484d));
+  --ez-info:var(--info-main, var(--blue-9, #0090ff));
+  --ez-soft:var(--accent-soft, #2e1945);
+  --ez-shadow:0 1px 2px 0 rgb(0 0 0 / 0.25);
+  --ez-shadow-md:0 4px 12px -2px rgb(0 0 0 / 0.35)
+  }
+  .ez-dash *{box-sizing:border-box}
+  .ez-acc-list{display:flex;flex-direction:column;gap:14px;margin:0}
+  .ez-acc{display:flex;flex-direction:column;gap:14px;background:transparent;border:0;border-radius:0;box-shadow:none}
+  .ez-acc-btn{position:relative;overflow:hidden;width:100%;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:24px;padding:16px;border:1px solid var(--ez-line);border-radius:8px;background:#fff;background:var(--ez-surface);color:var(--ez-ink);box-shadow:0 1px 2px 0 rgba(0,0,0,0.03);cursor:pointer;text-align:left;font:inherit;outline:none;user-select:none;transition:all .3s ease}
+  .ez-acc-btn:hover{border-color:rgba(124,92,255,0.4);background:rgba(124,92,255,0.02);box-shadow:0 1px 3px 0 rgba(0,0,0,0.06)}
+  .ez-acc-btn:active{transform:scale(0.99)}
+  .ez-acc.is-open .ez-acc-btn{border-color:var(--ez-line)}
+  .ez-acc.is-open .ez-acc-btn:hover{border-color:rgba(124,92,255,0.4);background:rgba(124,92,255,0.02);box-shadow:0 1px 3px 0 rgba(0,0,0,0.06)}
+  .ez-acc-copy{position:relative;z-index:10;min-width:0}
+  .ez-acc-title{font-family:var(--ez-heading);font-size:14px;font-weight:600;color:var(--ez-ink);margin:0;line-height:1.3}
+  .ez-acc-sub{font-family:var(--ez-body);font-size:11px;color:var(--ez-muted);margin:4px 0 0;line-height:1.4;white-space:normal}
+  .ez-acc-meta{position:relative;z-index:10;display:flex;flex-wrap:wrap;align-items:center;gap:24px}
+  .ez-acc-chip{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ez-violet);background:var(--ez-soft);border-radius:999px;padding:4px 8px;white-space:nowrap}
+  .ez-acc-metric{display:flex;flex-direction:column;gap:2px;text-align:right}
+  .ez-acc-metric-label{font-family:var(--ez-heading);font-size:10px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--ez-sub);line-height:1.2;white-space:nowrap}
+  .ez-acc-metric-value{font-size:15px;font-weight:600;color:var(--ez-violet);line-height:1.2;white-space:nowrap}
+  .ez-acc-metric-value.is-cyan{color:var(--ez-cyan)}
+  .ez-acc-metric-value.is-alert{color:var(--ez-err)}
+  .ez-acc-chevron-wrap{z-index:20;margin-left:8px;border-radius:8px;padding:6px;color:var(--ez-sub);display:flex;align-items:center;justify-content:center;transition:color .15s ease}
+  .ez-acc-chevron{width:20px;height:20px;color:var(--ez-violet);transition:transform .25s ease;flex-shrink:0}
+  .ez-acc.is-open .ez-acc-chevron{transform:rotate(180deg)}
+  .ez-acc-panel{display:none;padding:0;margin:0;background:transparent;border:0;flex-direction:column;gap:14px}
+  .ez-acc.is-open .ez-acc-panel{display:flex}
+  .ez-acc-panel>.ez-kpis,.ez-acc-panel>.ez-charts{margin-top:0}
+  .ez-acc-panel>.ez-insights{margin-top:0;padding-top:0;border-top:0}
+  .ez-kpis{display:grid;grid-template-columns:repeat(var(--ez-kpi-count,1),minmax(0,1fr));gap:16px}
+  @media(max-width:1024px){.ez-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:640px){.ez-kpis{grid-template-columns:1fr}}
+  .ez-kpi{cursor:pointer;border-radius:8px;border:1px solid var(--ez-line);border-top:3px solid var(--ez-violet);background:#fff;background:var(--ez-surface);padding:16px;box-shadow:0 1px 2px 0 rgba(0,0,0,0.03);transition:all .2s ease;display:flex;flex-direction:column;justify-content:space-between;min-height:92px}
+  .ez-kpi:hover{transform:translateY(-2px);box-shadow:0 4px 6px -1px rgba(0,0,0,0.06)}
+  .ez-kpi.is-active,.ez-kpi.is-selected{border-color:var(--ez-violet)!important;border-top:3px solid var(--ez-violet)!important;box-shadow:0 0 0 2px rgba(124,92,255,0.16),0 2px 6px rgba(124,92,255,0.06)!important}
+  .ez-kpi-label{font-family:var(--ez-heading);font-size:8px;font-weight:600;text-transform:uppercase;color:var(--ez-sub);letter-spacing:.04em;line-height:1.2}
+  .ez-kpi-value{font-family:var(--ez-heading);font-size:18px;font-weight:600;color:var(--ez-ink);margin:6px 0 0;line-height:1.2}
+  .ez-kpi-sub{margin-top:8px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;flex-wrap:nowrap}
+  .ez-kpi-badge{border-radius:4px;padding:2px 6px;line-height:1.25;display:inline-block;font-size:11px;font-weight:600}
+  .ez-kpi-badge.is-danger,.ez-kpi-badge.is-down{background:#fee2e2;color:#e5484d}
+  .ez-kpi-badge.is-success,.ez-kpi-badge.is-up{background:#d1fae5;color:#10b981}
+  .ez-kpi-sub-text{font-family:var(--ez-body);font-weight:400;color:var(--ez-muted);font-size:11px}
+  .ez-insights{min-width:0;overflow:hidden;white-space:normal}
+  .ez-insights-top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 0 16px;min-width:0}
+  .ez-insights-top>div{min-width:0;flex:1}
+  .ez-insights-title{font-family:var(--ez-heading);font-size:14px;font-weight:600;color:var(--ez-ink);margin:0;line-height:1.3}
+  .ez-insights-sub{font-family:var(--ez-body);font-size:11px;color:var(--ez-muted);margin:2px 0 0;white-space:normal;line-height:1.4;overflow-wrap:anywhere}
+  .ez-insights ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0;min-width:0}
+  .ez-insights li{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px dashed var(--ez-line);font-size:13px;color:var(--ez-sub);line-height:1.5;min-width:0;white-space:normal}
+  .ez-insights li:first-child{padding-top:0}
+  .ez-insights li:last-child{border-bottom:0;padding-bottom:0}
+  .ez-insights li > div{min-width:0;flex:1 1 auto;white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+  .ez-spark-svg{width:16px;height:16px;margin-top:2px;flex-shrink:0;color:#00a2c7;animation:ez-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite}
+  @keyframes ez-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  @keyframes ez-blink{0%,100%{opacity:1}50%{opacity:.4}}
+  .ez-live{font-family:var(--ez-body);font-size:10px;font-weight:600;letter-spacing:.04em;background:transparent;color:#c2410c;border:1px solid #fed7aa;border-radius:9999px;padding:2px 8px;flex-shrink:0;display:inline-flex;align-items:center;gap:6px}
+  .ez-live-dot{width:6px;height:6px;border-radius:50%;background:#ea580c;animation:ez-pulse 1.5s infinite;flex-shrink:0}
+  [data-mantine-color-scheme="dark"] .ez-live,.ez-dash[data-mantine-color-scheme="dark"] .ez-live{background:transparent;color:#fb923c;border-color:#7c2d12}
+  [data-mantine-color-scheme="dark"] .ez-live-dot,.ez-dash[data-mantine-color-scheme="dark"] .ez-live-dot{background:#f97316}
+  .ez-charts{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:16px}
+  .ez-chart{background:#fff;background:var(--ez-surface);border:1px solid var(--ez-line);border-radius:8px;padding:20px;overflow:visible;position:relative;box-shadow:0 1px 2px 0 rgba(0,0,0,0.03);display:flex;flex-direction:column;justify-content:flex-start}
+  .ez-chart.span-2,.ez-chart.pos-full,.ez-chart.pos-bottom,.ez-chart.pos-top{grid-column:1/-1}
+  .ez-chart.pos-left{grid-column:span 8 / span 8}
+  .ez-chart.pos-right{grid-column:span 4 / span 4}
+  .ez-chart-title{font-family:var(--ez-heading);font-weight:600;font-size:14px;margin:0;color:var(--ez-ink);line-height:1.3}
+  .ez-chart-sub{font-family:var(--ez-body);font-size:11px;color:var(--ez-muted);margin:2px 0 16px;line-height:1.4}
+  .ez-tip{position:absolute;z-index:6;background:var(--chart-tooltip-bg, var(--gray-13, #1f2937));color:var(--chart-tooltip-text, var(--text-on-accent, #fff));font-size:11px;font-weight:600;padding:6px 8px;border-radius:8px;pointer-events:none;white-space:nowrap;box-shadow:var(--ez-shadow-md)}
+  .ez-tip[hidden]{display:none!important}
+  .ez-hit{cursor:pointer}
+  .ez-chart:hover .ez-hit{opacity:.42}
+  .ez-chart .ez-hit:hover{opacity:1;filter:brightness(1.06)}
+  .ez-donut{width:148px;height:148px;margin:4px auto 0;display:block}
+  .ez-donut-hole{pointer-events:none}
+  .ez-legend{list-style:none;padding:0;margin:12px 0 0;font-family:var(--ez-body);font-size:11px;color:var(--ez-sub);display:flex;flex-wrap:wrap;justify-content:space-around;gap:6px 12px;max-height:160px;overflow:auto}
+  .ez-legend li{display:flex;gap:6px;align-items:center;margin:2px 0;cursor:pointer}
+  .ez-legend li:hover{color:var(--ez-ink)}
+  .ez-swatch{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+  .ez-svg{width:100%;height:176px;max-height:176px;display:block}
+  .ez-lollipop{width:100%;max-height:200px;display:block}
+  .ez-radar{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .ez-radar svg{width:148px;height:148px;max-width:148px;max-height:148px;flex:0 0 148px;display:block}
+  .ez-empty{color:var(--ez-muted);font-size:12px}
+  @media(max-width:1024px){
+  .ez-charts{grid-template-columns:1fr}
+  .ez-chart,.ez-chart.pos-left,.ez-chart.pos-right{grid-column:1/-1}
+  }
+  @media(max-width:700px){
+  .ez-acc-btn{grid-template-columns:minmax(0,1fr) 18px}
+  .ez-acc-meta{grid-column:1/-1;justify-content:flex-start;flex-wrap:wrap}
+  .ez-acc-metric{align-items:flex-start}
+  }
+</style>
+<div class="ez-dash">
+  <div class="ez-acc-list">
+    <div class="ez-acc is-open">
+      <div class="ez-acc-btn" role="button" tabindex="0" aria-expanded="true" onclick="var p=this.closest('.ez-acc');if(!p)return;var o=p.classList.toggle('is-open');this.setAttribute('aria-expanded',o?'true':'false')">
+        <div class="ez-acc-copy">
+          <h2 class="ez-acc-title">AP Command Center</h2>
+          <div class="ez-acc-sub">Real-time · month · all suppliers</div>
+        </div>
+        <div class="ez-acc-meta">
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">RECORDS</div>
+            <div class="ez-acc-metric-value">32</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">TOTAL</div>
+            <div class="ez-acc-metric-value">407.4K</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">AVERAGE</div>
+            <div class="ez-acc-metric-value">12.7K</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">OUTSTANDING</div>
+            <div class="ez-acc-metric-value is-alert">256.9K</div>
+          </div>
+          <div class="ez-acc-chevron-wrap"><svg class="ez-acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></div>
+        </div>
+      </div>
+      <div class="ez-acc-panel">
+        <div class="ez-kpis" style="--ez-kpi-count:8">
+          <div class="ez-kpi" style="border-top-color:var(--ez-violet, var(--accent-primary, var(--primary-9, #7c5cff)))">
+            <div class="ez-kpi-label">RECORDS</div>
+            <div class="ez-kpi-value">32</div>
+            <div class="ez-kpi-sub"><span class="ez-kpi-badge is-danger">+225%</span> <span class="ez-kpi-sub-text">vs last month</span></div>
+          </div>
+          <div class="ez-kpi" style="border-top-color:var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))">
+            <div class="ez-kpi-label">TOTAL</div>
+            <div class="ez-kpi-value">407,420.5</div>
+            <div class="ez-kpi-sub"><span class="ez-kpi-badge is-danger">+379.9%</span> <span class="ez-kpi-sub-text">vs last month</span></div>
+          </div>
+          <div class="ez-kpi" style="border-top-color:var(--ez-err, var(--error-main, var(--red-9, #e5484d)))">
+            <div class="ez-kpi-label">AVERAGE</div>
+            <div class="ez-kpi-value">12,731.89</div>
+            <div class="ez-kpi-sub"><span class="ez-kpi-badge is-up">+47.7%</span> <span class="ez-kpi-sub-text">vs last month</span></div>
+          </div>
+          <div class="ez-kpi" style="border-top-color:var(--pink-9, #d6409f)">
+            <div class="ez-kpi-label">OUTSTANDING</div>
+            <div class="ez-kpi-value">256,920</div>
+            <div class="ez-kpi-sub"><span class="ez-kpi-badge is-danger">+377.9%</span> <span class="ez-kpi-sub-text">vs last month</span></div>
+          </div>
+          <div class="ez-kpi" style="border-top-color:var(--purple-9, #8e4ec6)">
+            <div class="ez-kpi-label">TOTAL PAID</div>
+            <div class="ez-kpi-value">150,500.5</div>
+            <div class="ez-kpi-sub"><span class="ez-kpi-badge is-danger">+383.9%</span> <span class="ez-kpi-sub-text">vs last month</span></div>
+          </div>
+          <div class="ez-kpi" style="border-top-color:var(--ez-ok, var(--success-main, var(--green-9, #30a46c)))">
+            <div class="ez-kpi-label">OVERDUE</div>
+            <div class="ez-kpi-value">$70,000</div>
+            <div class="ez-kpi-sub"><span class="ez-kpi-badge is-danger">+232.1%</span> <span class="ez-kpi-sub-text">vs last month</span></div>
+          </div>
+          <div class="ez-kpi" style="border-top-color:var(--orange-8, #ec9455)">
+            <div class="ez-kpi-label">OVERDUE COUNT</div>
+            <div class="ez-kpi-value">5</div>
+            <div class="ez-kpi-sub"><span class="ez-kpi-badge is-danger">+300%</span> <span class="ez-kpi-sub-text">vs last month</span></div>
+          </div>
+          <div class="ez-kpi" style="border-top-color:var(--indigo-9, #3e63dd)">
+            <div class="ez-kpi-label">CURRENT / DUE</div>
+            <div class="ez-kpi-value">$186,920</div>
+            <div class="ez-kpi-sub"><span class="ez-kpi-badge is-danger">+100%</span> <span class="ez-kpi-sub-text">vs last month</span></div>
+          </div>
+        </div>
+        <div class="ez-charts">
+          <div class="ez-chart pos-left">
+            <div class="ez-insights">
+              <div class="ez-insights-top">
+                <div>
+                  <h3 class="ez-insights-title">AI-generated insights</h3>
+                  <div class="ez-insights-sub">Auto-updates with your filters — the ledger&#x27;s margin notes</div>
+                </div>
+                <span class="ez-live"><span class="ez-live-dot"></span>LIVE</span>
+              </div>
+              <ul>
+                <li><svg class="ez-spark-svg" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" fill="currentColor" r="3"></circle></svg><div><span>Value by status: Not Matched leads at 198,800.</span></div></li>
+                <li><svg class="ez-spark-svg" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" fill="currentColor" r="3"></circle></svg><div><span>By status: Matched is the largest slice at 17.</span></div></li>
+                <li><svg class="ez-spark-svg" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" fill="currentColor" r="3"></circle></svg><div><span>Aging: Current leads at 186,920.</span></div></li>
+                <li><svg class="ez-spark-svg" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" fill="currentColor" r="3"></circle></svg><div><span>Value by month: Sep 2026 leads at 161,350.</span></div></li>
+                <li><svg class="ez-spark-svg" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" fill="currentColor" r="3"></circle></svg><div><span>By group: Zenith Office Products leads at 86,500.</span></div></li>
+              </ul>
+            </div>
+          </div>
+          <div class="ez-chart pos-right">
+            <h3 class="ez-chart-title">By status</h3>
+            <div class="ez-chart-sub">Donut showing record count grouped by MatchedStatus.</div>
+            <div class="ez-chart-plot" onmousemove="var h=event.target.closest('[data-tip]');var box=this.closest('.ez-chart');var t=box&&box.querySelector('.ez-tip');if(!t)return;if(!h){t.hidden=true;return;}t.hidden=false;t.textContent=h.getAttribute('data-tip');var r=box.getBoundingClientRect();t.style.left=(event.clientX-r.left+12)+'px';t.style.top=(event.clientY-r.top-28)+'px'" onmouseleave="var t=this.closest('.ez-chart')&&this.closest('.ez-chart').querySelector('.ez-tip');if(t)t.hidden=true">
+            <svg class="ez-donut" viewBox="0 0 148 148">
+              <path class="ez-hit" data-tip="Matched · 17" d="M 74.0 74.0 L 74.0 6.0 A 68.0 68.0 0 1 1 60.7 140.7 Z" fill="var(--ez-violet, var(--accent-primary, var(--primary-9, #7c5cff)))"><title>Matched · 17</title></path>
+              <path class="ez-hit" data-tip="Not Matched · 10" d="M 74.0 74.0 L 60.7 140.7 A 68.0 68.0 0 0 1 17.5 36.2 Z" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))"><title>Not Matched · 10</title></path>
+              <path class="ez-hit" data-tip="Partially Matched · 5" d="M 74.0 74.0 L 17.5 36.2 A 68.0 68.0 0 0 1 74.0 6.0 Z" fill="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))"><title>Partially Matched · 5</title></path>
+              <circle class="ez-donut-hole" cx="74" cy="74" r="40" fill="var(--ez-surface)"/>
+            </svg>
+            <ul class="ez-legend">
+              <li class="ez-hit" data-tip="Matched · 17"><span class="ez-swatch" style="background:var(--ez-violet, var(--accent-primary, var(--primary-9, #7c5cff)))"></span>Matched · 17.0</li>
+              <li class="ez-hit" data-tip="Not Matched · 10"><span class="ez-swatch" style="background:var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))"></span>Not Matched · 10.0</li>
+              <li class="ez-hit" data-tip="Partially Matched · 5"><span class="ez-swatch" style="background:var(--ez-err, var(--error-main, var(--red-9, #e5484d)))"></span>Partially Matched · 5.0</li>
+            </ul>
+            </div>
+            <div class="ez-tip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ez-acc">
+      <div class="ez-acc-btn" role="button" tabindex="0" aria-expanded="false" onclick="var p=this.closest('.ez-acc');if(!p)return;var o=p.classList.toggle('is-open');this.setAttribute('aria-expanded',o?'true':'false')">
+        <div class="ez-acc-copy">
+          <h2 class="ez-acc-title">By status</h2>
+          <div class="ez-acc-sub">Donut showing record count grouped by MatchedStatus.</div>
+        </div>
+        <div class="ez-acc-meta">
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">MATCHED</div>
+            <div class="ez-acc-metric-value is-cyan">17</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">NOT MATCHED</div>
+            <div class="ez-acc-metric-value">10</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">PARTIALLY MATCHED</div>
+            <div class="ez-acc-metric-value">5</div>
+          </div>
+          <div class="ez-acc-chevron-wrap"><svg class="ez-acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></div>
+        </div>
+      </div>
+      <div class="ez-acc-panel">
+        <div class="ez-charts">
+          <div class="ez-chart pos-full">
+            <div class="ez-chart-plot" onmousemove="var h=event.target.closest('[data-tip]');var box=this.closest('.ez-chart');var t=box&&box.querySelector('.ez-tip');if(!t)return;if(!h){t.hidden=true;return;}t.hidden=false;t.textContent=h.getAttribute('data-tip');var r=box.getBoundingClientRect();t.style.left=(event.clientX-r.left+12)+'px';t.style.top=(event.clientY-r.top-28)+'px'" onmouseleave="var t=this.closest('.ez-chart')&&this.closest('.ez-chart').querySelector('.ez-tip');if(t)t.hidden=true">
+            <svg class="ez-donut" viewBox="0 0 148 148">
+              <path class="ez-hit" data-tip="Matched · 17" d="M 74.0 74.0 L 74.0 6.0 A 68.0 68.0 0 1 1 60.7 140.7 Z" fill="var(--ez-violet, var(--accent-primary, var(--primary-9, #7c5cff)))"><title>Matched · 17</title></path>
+              <path class="ez-hit" data-tip="Not Matched · 10" d="M 74.0 74.0 L 60.7 140.7 A 68.0 68.0 0 0 1 17.5 36.2 Z" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))"><title>Not Matched · 10</title></path>
+              <path class="ez-hit" data-tip="Partially Matched · 5" d="M 74.0 74.0 L 17.5 36.2 A 68.0 68.0 0 0 1 74.0 6.0 Z" fill="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))"><title>Partially Matched · 5</title></path>
+              <circle class="ez-donut-hole" cx="74" cy="74" r="40" fill="var(--ez-surface)"/>
+            </svg>
+            <ul class="ez-legend">
+              <li class="ez-hit" data-tip="Matched · 17"><span class="ez-swatch" style="background:var(--ez-violet, var(--accent-primary, var(--primary-9, #7c5cff)))"></span>Matched · 17.0</li>
+              <li class="ez-hit" data-tip="Not Matched · 10"><span class="ez-swatch" style="background:var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))"></span>Not Matched · 10.0</li>
+              <li class="ez-hit" data-tip="Partially Matched · 5"><span class="ez-swatch" style="background:var(--ez-err, var(--error-main, var(--red-9, #e5484d)))"></span>Partially Matched · 5.0</li>
+            </ul>
+            </div>
+            <div class="ez-tip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ez-acc">
+      <div class="ez-acc-btn" role="button" tabindex="0" aria-expanded="false" onclick="var p=this.closest('.ez-acc');if(!p)return;var o=p.classList.toggle('is-open');this.setAttribute('aria-expanded',o?'true':'false')">
+        <div class="ez-acc-copy">
+          <h2 class="ez-acc-title">By group</h2>
+          <div class="ez-acc-sub">Lollipop showing sum of InvoiceAmount grouped by Supplier.</div>
+        </div>
+        <div class="ez-acc-meta">
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">ZENITH OFFICE PRODUC</div>
+            <div class="ez-acc-metric-value is-cyan">86.5k</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">OMNICORP INTERNATION</div>
+            <div class="ez-acc-metric-value">82.1k</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">APEX LOGISTICS</div>
+            <div class="ez-acc-metric-value">66.6k</div>
+          </div>
+          <div class="ez-acc-chevron-wrap"><svg class="ez-acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></div>
+        </div>
+      </div>
+      <div class="ez-acc-panel">
+        <div class="ez-charts">
+          <div class="ez-chart pos-full">
+            <div class="ez-chart-plot" onmousemove="var h=event.target.closest('[data-tip]');var box=this.closest('.ez-chart');var t=box&&box.querySelector('.ez-tip');if(!t)return;if(!h){t.hidden=true;return;}t.hidden=false;t.textContent=h.getAttribute('data-tip');var r=box.getBoundingClientRect();t.style.left=(event.clientX-r.left+12)+'px';t.style.top=(event.clientY-r.top-28)+'px'" onmouseleave="var t=this.closest('.ez-chart')&&this.closest('.ez-chart').querySelector('.ez-tip');if(t)t.hidden=true">
+            <svg class="ez-lollipop" viewBox="0 0 360 270">
+              <text x="104" y="24.5" text-anchor="end" font-size="10" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Zenith Office P…</text><line x1="112" y1="21.0" x2="291.9" y2="21.0" stroke="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke-width="2.4"/><circle class="ez-hit" data-tip="Zenith Office Products · 86.5k" cx="291.9" cy="21.0" r="8" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" fill-opacity="0.01" stroke="none"/><circle class="ez-hit" data-tip="Zenith Office Products · 86.5k" cx="291.9" cy="21.0" r="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke="#fff" stroke-width="2"><title>Zenith Office Products · 86.5k</title></circle>
+              <text x="104" y="54.5" text-anchor="end" font-size="10" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">OmniCorp Intern…</text><line x1="112" y1="51.0" x2="282.8" y2="51.0" stroke="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke-width="2.4"/><circle class="ez-hit" data-tip="OmniCorp International · 82.1k" cx="282.8" cy="51.0" r="8" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" fill-opacity="0.01" stroke="none"/><circle class="ez-hit" data-tip="OmniCorp International · 82.1k" cx="282.8" cy="51.0" r="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke="#fff" stroke-width="2"><title>OmniCorp International · 82.1k</title></circle>
+              <text x="104" y="84.5" text-anchor="end" font-size="10" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Apex Logistics</text><line x1="112" y1="81.0" x2="250.5" y2="81.0" stroke="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke-width="2.4"/><circle class="ez-hit" data-tip="Apex Logistics · 66.6k" cx="250.5" cy="81.0" r="8" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" fill-opacity="0.01" stroke="none"/><circle class="ez-hit" data-tip="Apex Logistics · 66.6k" cx="250.5" cy="81.0" r="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke="#fff" stroke-width="2"><title>Apex Logistics · 66.6k</title></circle>
+              <text x="104" y="114.5" text-anchor="end" font-size="10" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Acme Supplies</text><line x1="112" y1="111.0" x2="209.5" y2="111.0" stroke="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke-width="2.4"/><circle class="ez-hit" data-tip="Acme Supplies · 46.9k" cx="209.5" cy="111.0" r="8" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" fill-opacity="0.01" stroke="none"/><circle class="ez-hit" data-tip="Acme Supplies · 46.9k" cx="209.5" cy="111.0" r="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke="#fff" stroke-width="2"><title>Acme Supplies · 46.9k</title></circle>
+              <text x="104" y="144.5" text-anchor="end" font-size="10" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Nexus Consulting</text><line x1="112" y1="141.0" x2="207.1" y2="141.0" stroke="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke-width="2.4"/><circle class="ez-hit" data-tip="Nexus Consulting · 45.7k" cx="207.1" cy="141.0" r="8" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" fill-opacity="0.01" stroke="none"/><circle class="ez-hit" data-tip="Nexus Consulting · 45.7k" cx="207.1" cy="141.0" r="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke="#fff" stroke-width="2"><title>Nexus Consulting · 45.7k</title></circle>
+              <text x="104" y="174.5" text-anchor="end" font-size="10" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Delta Cloud Ser…</text><line x1="112" y1="171.0" x2="182.2" y2="171.0" stroke="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke-width="2.4"/><circle class="ez-hit" data-tip="Delta Cloud Services · 33.8k" cx="182.2" cy="171.0" r="8" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" fill-opacity="0.01" stroke="none"/><circle class="ez-hit" data-tip="Delta Cloud Services · 33.8k" cx="182.2" cy="171.0" r="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke="#fff" stroke-width="2"><title>Delta Cloud Services · 33.8k</title></circle>
+              <text x="104" y="204.5" text-anchor="end" font-size="10" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Starlight Power…</text><line x1="112" y1="201.0" x2="151.1" y2="201.0" stroke="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke-width="2.4"/><circle class="ez-hit" data-tip="Starlight Power &amp; Utilities · 18.8k" cx="151.1" cy="201.0" r="8" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" fill-opacity="0.01" stroke="none"/><circle class="ez-hit" data-tip="Starlight Power &amp; Utilities · 18.8k" cx="151.1" cy="201.0" r="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke="#fff" stroke-width="2"><title>Starlight Power &amp; Utilities · 18.8k</title></circle>
+              <text x="104" y="234.5" text-anchor="end" font-size="10" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Global Tech Inc</text><line x1="112" y1="231.0" x2="144.8" y2="231.0" stroke="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke-width="2.4"/><circle class="ez-hit" data-tip="Global Tech Inc · 15.8k" cx="144.8" cy="231.0" r="8" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" fill-opacity="0.01" stroke="none"/><circle class="ez-hit" data-tip="Global Tech Inc · 15.8k" cx="144.8" cy="231.0" r="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))" stroke="#fff" stroke-width="2"><title>Global Tech Inc · 15.8k</title></circle>
+            </svg>
+            </div>
+            <div class="ez-tip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ez-acc">
+      <div class="ez-acc-btn" role="button" tabindex="0" aria-expanded="false" onclick="var p=this.closest('.ez-acc');if(!p)return;var o=p.classList.toggle('is-open');this.setAttribute('aria-expanded',o?'true':'false')">
+        <div class="ez-acc-copy">
+          <h2 class="ez-acc-title">By month</h2>
+          <div class="ez-acc-sub">Line of record count by month.</div>
+        </div>
+        <div class="ez-acc-meta">
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">AUG 2026</div>
+            <div class="ez-acc-metric-value is-cyan">13</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">SEP 2026</div>
+            <div class="ez-acc-metric-value">10</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">JUL 2026</div>
+            <div class="ez-acc-metric-value">4</div>
+          </div>
+          <div class="ez-acc-chevron-wrap"><svg class="ez-acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></div>
+        </div>
+      </div>
+      <div class="ez-acc-panel">
+        <div class="ez-charts">
+          <div class="ez-chart pos-full">
+            <div class="ez-chart-plot" onmousemove="var h=event.target.closest('[data-tip]');var box=this.closest('.ez-chart');var t=box&&box.querySelector('.ez-tip');if(!t)return;if(!h){t.hidden=true;return;}t.hidden=false;t.textContent=h.getAttribute('data-tip');var r=box.getBoundingClientRect();t.style.left=(event.clientX-r.left+12)+'px';t.style.top=(event.clientY-r.top-28)+'px'" onmouseleave="var t=this.closest('.ez-chart')&&this.closest('.ez-chart').querySelector('.ez-tip');if(t)t.hidden=true">
+            <svg class="ez-svg" viewBox="0 0 340 168">
+              <line x1="34" y1="140.0" x2="330" y2="140.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="143.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">0</text>
+              <line x1="34" y1="108.0" x2="330" y2="108.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="111.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">5</text>
+              <line x1="34" y1="76.0" x2="330" y2="76.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="79.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">10</text>
+              <line x1="34" y1="44.0" x2="330" y2="44.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="47.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">15</text>
+              <line x1="34" y1="12.0" x2="330" y2="12.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="15.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">20</text>
+              <polyline points="34.0,133.6 108.0,114.4 182.0,56.8 256.0,76.0 330.0,114.4" fill="none" stroke="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" stroke-width="2.4" stroke-linejoin="round"/>
+              <circle class="ez-hit" data-tip="Jun 2026 · 1" cx="34.0" cy="133.6" r="7" fill="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" fill-opacity="0.01" stroke="none"/><circle cx="34.0" cy="133.6" r="3.2" fill="#fff" stroke="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" stroke-width="2"/>
+              <circle class="ez-hit" data-tip="Jul 2026 · 4" cx="108.0" cy="114.4" r="7" fill="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" fill-opacity="0.01" stroke="none"/><circle cx="108.0" cy="114.4" r="3.2" fill="#fff" stroke="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" stroke-width="2"/>
+              <circle class="ez-hit" data-tip="Aug 2026 · 13" cx="182.0" cy="56.8" r="7" fill="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" fill-opacity="0.01" stroke="none"/><circle cx="182.0" cy="56.8" r="3.2" fill="#fff" stroke="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" stroke-width="2"/>
+              <circle class="ez-hit" data-tip="Sep 2026 · 10" cx="256.0" cy="76.0" r="7" fill="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" fill-opacity="0.01" stroke="none"/><circle cx="256.0" cy="76.0" r="3.2" fill="#fff" stroke="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" stroke-width="2"/>
+              <circle class="ez-hit" data-tip="Oct 2026 · 4" cx="330.0" cy="114.4" r="7" fill="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" fill-opacity="0.01" stroke="none"/><circle cx="330.0" cy="114.4" r="3.2" fill="#fff" stroke="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))" stroke-width="2"/>
+              <text x="34.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Jun 2026</text>
+              <text x="108.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Jul 2026</text>
+              <text x="182.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Aug 2026</text>
+              <text x="256.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Sep 2026</text>
+              <text x="330.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Oct 2026</text>
+            </svg>
+            </div>
+            <div class="ez-tip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ez-acc">
+      <div class="ez-acc-btn" role="button" tabindex="0" aria-expanded="false" onclick="var p=this.closest('.ez-acc');if(!p)return;var o=p.classList.toggle('is-open');this.setAttribute('aria-expanded',o?'true':'false')">
+        <div class="ez-acc-copy">
+          <h2 class="ez-acc-title">Value by month</h2>
+          <div class="ez-acc-sub">Area of sum InvoiceAmount by month.</div>
+        </div>
+        <div class="ez-acc-meta">
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">SEP 2026</div>
+            <div class="ez-acc-metric-value is-cyan">161.3k</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">AUG 2026</div>
+            <div class="ez-acc-metric-value">118.1k</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">OCT 2026</div>
+            <div class="ez-acc-metric-value">95.1k</div>
+          </div>
+          <div class="ez-acc-chevron-wrap"><svg class="ez-acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></div>
+        </div>
+      </div>
+      <div class="ez-acc-panel">
+        <div class="ez-charts">
+          <div class="ez-chart pos-full">
+            <div class="ez-chart-plot" onmousemove="var h=event.target.closest('[data-tip]');var box=this.closest('.ez-chart');var t=box&&box.querySelector('.ez-tip');if(!t)return;if(!h){t.hidden=true;return;}t.hidden=false;t.textContent=h.getAttribute('data-tip');var r=box.getBoundingClientRect();t.style.left=(event.clientX-r.left+12)+'px';t.style.top=(event.clientY-r.top-28)+'px'" onmouseleave="var t=this.closest('.ez-chart')&&this.closest('.ez-chart').querySelector('.ez-tip');if(t)t.hidden=true">
+            <svg class="ez-svg" viewBox="0 0 340 168">
+              <line x1="34" y1="140.0" x2="330" y2="140.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="143.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">0</text>
+              <line x1="34" y1="108.0" x2="330" y2="108.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="111.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">50k</text>
+              <line x1="34" y1="76.0" x2="330" y2="76.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="79.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">100k</text>
+              <line x1="34" y1="44.0" x2="330" y2="44.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="47.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">150k</text>
+              <line x1="34" y1="12.0" x2="330" y2="12.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="15.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">200k</text>
+              <polygon points="34,140 34.0,134.7 108.0,124.3 182.0,64.4 256.0,36.7 330.0,79.1 330,140" fill="var(--pink-9, #d6409f)" fill-opacity="0.16"/>
+              <polyline points="34.0,134.7 108.0,124.3 182.0,64.4 256.0,36.7 330.0,79.1" fill="none" stroke="var(--pink-9, #d6409f)" stroke-width="2.4" stroke-linejoin="round"/>
+              <circle class="ez-hit" data-tip="Jun 2026 · 8.3k" cx="34.0" cy="134.7" r="7" fill="var(--pink-9, #d6409f)" fill-opacity="0.01" stroke="none"/><circle cx="34.0" cy="134.7" r="3.2" fill="#fff" stroke="var(--pink-9, #d6409f)" stroke-width="2"/>
+              <circle class="ez-hit" data-tip="Jul 2026 · 24.6k" cx="108.0" cy="124.3" r="7" fill="var(--pink-9, #d6409f)" fill-opacity="0.01" stroke="none"/><circle cx="108.0" cy="124.3" r="3.2" fill="#fff" stroke="var(--pink-9, #d6409f)" stroke-width="2"/>
+              <circle class="ez-hit" data-tip="Aug 2026 · 118.1k" cx="182.0" cy="64.4" r="7" fill="var(--pink-9, #d6409f)" fill-opacity="0.01" stroke="none"/><circle cx="182.0" cy="64.4" r="3.2" fill="#fff" stroke="var(--pink-9, #d6409f)" stroke-width="2"/>
+              <circle class="ez-hit" data-tip="Sep 2026 · 161.3k" cx="256.0" cy="36.7" r="7" fill="var(--pink-9, #d6409f)" fill-opacity="0.01" stroke="none"/><circle cx="256.0" cy="36.7" r="3.2" fill="#fff" stroke="var(--pink-9, #d6409f)" stroke-width="2"/>
+              <circle class="ez-hit" data-tip="Oct 2026 · 95.1k" cx="330.0" cy="79.1" r="7" fill="var(--pink-9, #d6409f)" fill-opacity="0.01" stroke="none"/><circle cx="330.0" cy="79.1" r="3.2" fill="#fff" stroke="var(--pink-9, #d6409f)" stroke-width="2"/>
+              <text x="34.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Jun 2026</text>
+              <text x="108.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Jul 2026</text>
+              <text x="182.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Aug 2026</text>
+              <text x="256.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Sep 2026</text>
+              <text x="330.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Oct 2026</text>
+            </svg>
+            </div>
+            <div class="ez-tip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ez-acc">
+      <div class="ez-acc-btn" role="button" tabindex="0" aria-expanded="false" onclick="var p=this.closest('.ez-acc');if(!p)return;var o=p.classList.toggle('is-open');this.setAttribute('aria-expanded',o?'true':'false')">
+        <div class="ez-acc-copy">
+          <h2 class="ez-acc-title">Aging</h2>
+          <div class="ez-acc-sub">Column of InvoiceAmount by aging bucket.</div>
+        </div>
+        <div class="ez-acc-meta">
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">CURRENT</div>
+            <div class="ez-acc-metric-value is-cyan">186.9k</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">1-30</div>
+            <div class="ez-acc-metric-value">70k</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">31-60</div>
+            <div class="ez-acc-metric-value">0</div>
+          </div>
+          <div class="ez-acc-chevron-wrap"><svg class="ez-acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></div>
+        </div>
+      </div>
+      <div class="ez-acc-panel">
+        <div class="ez-charts">
+          <div class="ez-chart pos-full">
+            <div class="ez-chart-plot" onmousemove="var h=event.target.closest('[data-tip]');var box=this.closest('.ez-chart');var t=box&&box.querySelector('.ez-tip');if(!t)return;if(!h){t.hidden=true;return;}t.hidden=false;t.textContent=h.getAttribute('data-tip');var r=box.getBoundingClientRect();t.style.left=(event.clientX-r.left+12)+'px';t.style.top=(event.clientY-r.top-28)+'px'" onmouseleave="var t=this.closest('.ez-chart')&&this.closest('.ez-chart').querySelector('.ez-tip');if(t)t.hidden=true">
+            <svg class="ez-svg" viewBox="0 0 340 168">
+              <line x1="34" y1="140.0" x2="330" y2="140.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="143.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">0</text>
+              <line x1="34" y1="108.0" x2="330" y2="108.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="111.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">50k</text>
+              <line x1="34" y1="76.0" x2="330" y2="76.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="79.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">100k</text>
+              <line x1="34" y1="44.0" x2="330" y2="44.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="47.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">150k</text>
+              <line x1="34" y1="12.0" x2="330" y2="12.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="15.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">200k</text>
+              <rect class="ez-hit" data-tip="Current · 186.9k" x="50.0" y="20.4" width="27.2" height="119.6" rx="5" fill="var(--purple-9, #8e4ec6)"><title>Current · 186.9k</title></rect>
+              <rect class="ez-hit" data-tip="1-30 · 70k" x="109.2" y="95.2" width="27.2" height="44.8" rx="5" fill="var(--ez-violet, var(--accent-primary, var(--primary-9, #7c5cff)))"><title>1-30 · 70k</title></rect>
+              <rect class="ez-hit" data-tip="31-60 · 0" x="168.4" y="138.0" width="27.2" height="2.0" rx="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))"><title>31-60 · 0</title></rect>
+              <rect class="ez-hit" data-tip="61-90 · 0" x="227.6" y="138.0" width="27.2" height="2.0" rx="5" fill="var(--ez-err, var(--error-main, var(--red-9, #e5484d)))"><title>61-90 · 0</title></rect>
+              <rect class="ez-hit" data-tip="90+ · 0" x="286.8" y="138.0" width="27.2" height="2.0" rx="5" fill="var(--pink-9, #d6409f)"><title>90+ · 0</title></rect>
+              <text x="63.6" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Current</text>
+              <text x="122.8" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">1-30</text>
+              <text x="182.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">31-60</text>
+              <text x="241.2" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">61-90</text>
+              <text x="300.4" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">90+</text>
+            </svg>
+            </div>
+            <div class="ez-tip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ez-acc">
+      <div class="ez-acc-btn" role="button" tabindex="0" aria-expanded="false" onclick="var p=this.closest('.ez-acc');if(!p)return;var o=p.classList.toggle('is-open');this.setAttribute('aria-expanded',o?'true':'false')">
+        <div class="ez-acc-copy">
+          <h2 class="ez-acc-title">Value by status</h2>
+          <div class="ez-acc-sub">Column showing sum of InvoiceAmount grouped by MatchedStatus.</div>
+        </div>
+        <div class="ez-acc-meta">
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">NOT MATCHED</div>
+            <div class="ez-acc-metric-value is-cyan">198.8k</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">MATCHED</div>
+            <div class="ez-acc-metric-value">150.5k</div>
+          </div>
+          <div class="ez-acc-metric">
+            <div class="ez-acc-metric-label">PARTIALLY MATCHED</div>
+            <div class="ez-acc-metric-value">58.1k</div>
+          </div>
+          <div class="ez-acc-chevron-wrap"><svg class="ez-acc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></div>
+        </div>
+      </div>
+      <div class="ez-acc-panel">
+        <div class="ez-charts">
+          <div class="ez-chart pos-full">
+            <div class="ez-chart-plot" onmousemove="var h=event.target.closest('[data-tip]');var box=this.closest('.ez-chart');var t=box&&box.querySelector('.ez-tip');if(!t)return;if(!h){t.hidden=true;return;}t.hidden=false;t.textContent=h.getAttribute('data-tip');var r=box.getBoundingClientRect();t.style.left=(event.clientX-r.left+12)+'px';t.style.top=(event.clientY-r.top-28)+'px'" onmouseleave="var t=this.closest('.ez-chart')&&this.closest('.ez-chart').querySelector('.ez-tip');if(t)t.hidden=true">
+            <svg class="ez-svg" viewBox="0 0 340 168">
+              <line x1="34" y1="140.0" x2="330" y2="140.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="143.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">0</text>
+              <line x1="34" y1="108.0" x2="330" y2="108.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="111.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">50k</text>
+              <line x1="34" y1="76.0" x2="330" y2="76.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="79.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">100k</text>
+              <line x1="34" y1="44.0" x2="330" y2="44.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="47.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">150k</text>
+              <line x1="34" y1="12.0" x2="330" y2="12.0" stroke="var(--ez-line, var(--chart-grid, var(--border-default, var(--gray-3, #e6e6ef))))"/><text x="28" y="15.0" text-anchor="end" font-size="9" fill="var(--ez-muted, var(--chart-axis, var(--text-muted, var(--gray-9, #8181a0))))">200k</text>
+              <rect class="ez-hit" data-tip="Not Matched · 198.8k" x="69.3" y="12.8" width="28.0" height="127.2" rx="5" fill="var(--ez-ok, var(--success-main, var(--green-9, #30a46c)))"><title>Not Matched · 198.8k</title></rect>
+              <rect class="ez-hit" data-tip="Matched · 150.5k" x="168.0" y="43.7" width="28.0" height="96.3" rx="5" fill="var(--ez-violet, var(--accent-primary, var(--primary-9, #7c5cff)))"><title>Matched · 150.5k</title></rect>
+              <rect class="ez-hit" data-tip="Partially Matched · 58.1k" x="266.7" y="102.8" width="28.0" height="37.2" rx="5" fill="var(--ez-cyan, var(--primary, var(--secondary-9, #00bcd4)))"><title>Partially Matched · 58.1k</title></rect>
+              <text x="83.3" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Not Matched</text>
+              <text x="182.0" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Matched</text>
+              <text x="280.7" y="160" text-anchor="middle" font-size="9" fill="var(--ez-sub, var(--text-secondary, var(--gray-11, #4d4d73)))">Partially Matched</text>
+            </svg>
+            </div>
+            <div class="ez-tip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -628,6 +628,7 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
   }
+  .dash-preview { width: 100%; min-height: 520px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
   @media (max-width: 700px) { .ocr-grid { grid-template-columns: 1fr; } }
   .ocr-grid label { display: block; font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: 4px; }
   .ocr-grid textarea { min-height: 54px; resize: vertical; }
@@ -1843,6 +1844,40 @@ Due Date,DATE</textarea>
         </div>
       </div>
     </details>
+    <details class="ocr-panel" id="dashPanel">
+      <summary>Dashboard options (prompts · schema · data)</summary>
+      <div class="ocr-grid">
+        <div>
+          <label for="dashPhase">Step</label>
+          <select id="dashPhase">
+            <option value="prompts">prompts</option>
+            <option value="schema" selected>schema</option>
+            <option value="data">data</option>
+          </select>
+        </div>
+        <div>
+          <label for="dashTenant">Tenant</label>
+          <input type="text" id="dashTenant" placeholder="tenant UUID" />
+        </div>
+        <div class="span-all">
+          <label for="dashRepositoryId">Repository id</label>
+          <input type="text" id="dashRepositoryId" placeholder="required unless workflow id is set" />
+        </div>
+        <div class="span-all">
+          <label for="dashWorkflowId">Workflow id (optional — used when repository id is empty)</label>
+          <input type="text" id="dashWorkflowId" placeholder="workflow UUID" />
+        </div>
+        <div class="span-all">
+          <label for="dashJson">dashboard_json (data step — filled after schema)</label>
+          <textarea id="dashJson" rows="8" placeholder='{"phase":"schema","kpis":[],"charts":[]}'></textarea>
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-ghost" id="dashPromptBtn">Suggest prompt</button>
+          <button type="button" class="btn-ghost" id="dashSchemaBtn">Propose schema</button>
+          <button type="button" class="btn-primary" id="dashDataBtn">Load data</button>
+        </div>
+      </div>
+    </details>
     <details class="ocr-panel" id="cbPanel">
       <summary>Chatbot options</summary>
       <div class="ocr-grid">
@@ -2301,6 +2336,7 @@ const ICONS = {
   pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
   global_search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>',
   chatbot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16v10H8l-4 4V6Z"/><path d="M8 10h8M8 13h5"/></svg>',
+  dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="4" rx="1"/><rect x="14" y="10" width="7" height="11" rx="1"/><rect x="3" y="13" width="7" height="8" rx="1"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
@@ -2311,6 +2347,7 @@ const CAP_ACTIONS = [
   { slug: 'pdf', label: 'PDF generator', mode: 'pdf' },
   { slug: 'global_search', label: 'Global Search', mode: 'global_search' },
   { slug: 'chatbot', label: 'Chatbot', mode: 'chatbot' },
+  { slug: 'dashboard', label: 'Dashboard agent', mode: 'dashboard' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
 const MODE_LABELS = {
@@ -2323,11 +2360,13 @@ const MODE_LABELS = {
   pdf: 'PDF generator',
   global_search: 'Global Search',
   chatbot: 'Chatbot',
+  dashboard: 'Dashboard agent',
 };
 const capActionsEl = document.getElementById('capActions');
 const apPanel = document.getElementById('apPanel');
 const gsPanel = document.getElementById('gsPanel');
 const cbPanel = document.getElementById('cbPanel');
+const dashPanel = document.getElementById('dashPanel');
 let composerMode = 'chat';
 let consoleAgentsCache = [];
 window.activeCustomIntent = '';
@@ -2345,7 +2384,7 @@ function setConsoleTenantId(tenantId) {
   if (input) input.value = tid;
   if (tid) sessionStorage.setItem(CONSOLE_TENANT_KEY, tid);
   else sessionStorage.removeItem(CONSOLE_TENANT_KEY);
-  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant'].forEach(id => {
+  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'dashTenant'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = tid;
   });
@@ -2620,6 +2659,7 @@ const EMPTY_SPECS = {
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
   global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
   chatbot: { title: 'Chatbot', sub: 'Search, then act: start workflow / upload / ticket+attach / create user. Confirm before execute.', chips: '' },
+  dashboard: { title: 'Dashboard', sub: 'Prompts, schema, then load HTML. Need tenant + repository or workflow.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
 };
 
@@ -2656,17 +2696,22 @@ function syncMainControls() {
   const mc = document.getElementById('mainControls');
   const panel = document.getElementById('docPanel');
   if (!mc || !panel) return;
-  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open);
+  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open) || (dashPanel && dashPanel.open);
   mc.hidden = !active;
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result)) return;
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
   if (gsPanel) gsPanel.open = false;
   if (cbPanel) cbPanel.open = false;
+  if (dashPanel && composerMode === 'dashboard') {
+    dashPanel.open = true;
+  } else if (dashPanel) {
+    dashPanel.open = false;
+  }
   syncMainControls();
   requestAnimationFrame(() => {
     transcript.scrollTop = transcript.scrollHeight;
@@ -2674,7 +2719,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -2688,6 +2733,7 @@ function setComposerMode(mode) {
   if (apPanel) apPanel.open = mode === 'ap';
   if (gsPanel) gsPanel.open = mode === 'global_search';
   if (cbPanel) cbPanel.open = mode === 'chatbot';
+  if (dashPanel) dashPanel.open = mode === 'dashboard';
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
@@ -2742,6 +2788,11 @@ function setComposerMode(mode) {
   } else if (mode === 'chatbot') {
     banner.textContent = 'Chatbot';
     messageInput.placeholder = 'Ask Chatbot — e.g. help or find INV-2026-6001';
+  } else if (mode === 'dashboard') {
+    banner.textContent = 'Dashboard';
+    messageInput.placeholder = 'Schema message — e.g. I need an AP dashboard';
+    const dashTenant = document.getElementById('dashTenant');
+    if (dashTenant && !dashTenant.value.trim()) dashTenant.value = consoleTenantId();
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -4368,10 +4419,68 @@ async function confirmChatbotAction(actionId, sessionId) {
   }
 }
 
+function renderDashboardResult(dashboard, request) {
+  const phase = dashboard && dashboard.phase ? String(dashboard.phase) : 'schema';
+  const prompt = dashboard && dashboard.prompt ? String(dashboard.prompt) : '';
+  const kpiN = Array.isArray(dashboard && dashboard.kpis) ? dashboard.kpis.length : 0;
+  const chartN = Array.isArray(dashboard && dashboard.charts) ? dashboard.charts.length : 0;
+  const resultJson = JSON.stringify(dashboard || {}, null, 2);
+  const curlText = buildChatCurl(request && { ...request, intent: request.intent || 'dashboard' }, 'dashboard');
+  let html = `<div class="detail-block"><div class="dt-title">Dashboard ${escapeHtml(phase)}</div><table>`;
+  html += fieldRow('Phase', phase);
+  html += fieldRow('Tenant', dashboard && dashboard.tenant_id);
+  html += fieldRow('Repository', dashboard && (dashboard.repository_name || dashboard.repository_id));
+  html += fieldRow('Workflow', dashboard && dashboard.workflow_id);
+  html += fieldRow('Table', dashboard && dashboard.table);
+  if (prompt) html += fieldRow('Prompt', prompt);
+  html += fieldRow('KPIs', String(kpiN));
+  html += fieldRow('Charts', String(chartN));
+  html += `</table>`;
+  html += `<div class="ocr-actions" style="margin-top:12px">`;
+  if (phase === 'prompts') {
+    html += `<button type="button" class="btn-primary dash-next-btn" data-dash-phase="schema">Next: Propose schema</button>`;
+    html += `<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="data">Load data</button>`;
+  } else if (phase === 'schema') {
+    html += `<button type="button" class="btn-primary dash-next-btn" data-dash-phase="data">Next: Load data</button>`;
+    html += `<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="prompts">Suggest prompt</button>`;
+  } else {
+    html += `<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="schema">Propose schema</button>`;
+    html += `<button type="button" class="btn-primary dash-next-btn" data-dash-phase="data">Reload data</button>`;
+  }
+  html += `</div></div>`;
+  return { html, resultJson, curlText };
+}
+
+function renderDashboardHtmlPreview(html) {
+  clearEmptyState();
+  const div = document.createElement('div');
+  div.className = 'msg assistant has-summary';
+  const frame = document.createElement('iframe');
+  frame.className = 'dash-preview';
+  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+  frame.srcdoc = html || '';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = 'Dashboard HTML loaded.';
+  div.appendChild(bubble);
+  const block = document.createElement('div');
+  block.className = 'detail-block';
+  block.appendChild(frame);
+  const actions = document.createElement('div');
+  actions.className = 'ocr-actions';
+  actions.style.marginTop = '12px';
+  actions.innerHTML = '<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="schema">Propose schema</button>'
+    + '<button type="button" class="btn-primary dash-next-btn" data-dash-phase="data">Reload data</button>';
+  block.appendChild(actions);
+  div.appendChild(block);
+  transcript.appendChild(div);
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result)
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -4430,8 +4539,13 @@ function renderAssistantMessage(body, sessionId, request) {
     details += cbCode.html;
     codeBlocks.push(cbCode);
   }
+  if (body.dashboard_result) {
+    const dashCode = renderDashboardResult(body.dashboard_result, request);
+    details += dashCode.html;
+    codeBlocks.push(dashCode);
+  }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !body.dashboard_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -4476,6 +4590,9 @@ function renderAssistantMessage(body, sessionId, request) {
   }
   if (body.chatbot_result) {
     bubbleText = body.reply || 'Chatbot ready.';
+  }
+  if (body.dashboard_result) {
+    bubbleText = body.reply || 'Dashboard ready.';
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -5470,6 +5587,109 @@ async function sendChatbotJob() {
   }
 }
 
+async function sendDashboardJob(forcedPhase) {
+  const phaseEl = document.getElementById('dashPhase');
+  const phase = (forcedPhase || (phaseEl && phaseEl.value) || 'schema').trim().toLowerCase();
+  if (phaseEl && forcedPhase) phaseEl.value = phase;
+  const tenantId = ((document.getElementById('dashTenant') || {}).value || '').trim() || consoleTenantId();
+  const repositoryId = ((document.getElementById('dashRepositoryId') || {}).value || '').trim();
+  const workflowId = ((document.getElementById('dashWorkflowId') || {}).value || '').trim();
+  if (!tenantId) {
+    addSystemMessage('Select a tenant first — Dashboard is tenant-scoped.');
+    return;
+  }
+  if (!repositoryId && !workflowId) {
+    addSystemMessage('Enter a repository id or a workflow id.');
+    return;
+  }
+  let message = messageInput.value.trim();
+  if (phase === 'prompts') message = message || 'I need a dashboard';
+  if (phase === 'schema') message = message || 'I need an AP dashboard';
+  if (phase === 'data') message = message || 'apply';
+  let dashboardJson = null;
+  if (phase === 'data') {
+    const raw = ((document.getElementById('dashJson') || {}).value || '').trim();
+    if (!raw) {
+      addSystemMessage('Run Propose schema first, or paste dashboard_json (kpis + charts).');
+      return;
+    }
+    try { dashboardJson = JSON.parse(raw); }
+    catch (_) {
+      addSystemMessage('dashboard_json is not valid JSON.');
+      return;
+    }
+  }
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  addUserMessage(phase === 'data' ? 'Load dashboard data' : message);
+  const processing = addProcessingMessage(phase === 'prompts' ? 'Suggesting prompt…' : (phase === 'data' ? 'Loading dashboard…' : 'Proposing schema…'));
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Sending';
+  try {
+    const payload = { phase, tenant_id: tenantId };
+    if (repositoryId) payload.repository_id = repositoryId;
+    if (workflowId) payload.workflow_id = workflowId;
+    if (dashboardJson) payload.dashboard_json = dashboardJson;
+    const body = {
+      session_id: sessionId,
+      intent: 'dashboard',
+      message: message,
+      payload: payload,
+    };
+    const request = { intent: 'dashboard', kind: 'json', session_id: sessionId, body };
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const ctype = (res.headers.get('content-type') || '').toLowerCase();
+    removeProcessingMessage(processing);
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const err = JSON.parse(await res.text());
+        detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail || err);
+      } catch (_) {
+        detail = 'Dashboard request failed';
+      }
+      addSystemMessage(`${res.status}: ${detail}`);
+      return;
+    }
+    if (ctype.includes('text/html')) {
+      const html = await res.text();
+      renderDashboardHtmlPreview(html);
+      return;
+    }
+    const data = await readResponseJson(res);
+    const dash = data.dashboard_result || {};
+    if (dash.phase === 'schema' && Array.isArray(dash.kpis)) {
+      const slim = { phase: 'schema', kpis: dash.kpis, charts: dash.charts || [] };
+      const box = document.getElementById('dashJson');
+      if (box) box.value = JSON.stringify(slim, null, 2);
+      if (dash.repository_id) {
+        const repoEl = document.getElementById('dashRepositoryId');
+        if (repoEl && !repoEl.value.trim()) repoEl.value = dash.repository_id;
+      }
+    }
+    if (dash.phase === 'prompts' && dash.prompt) {
+      messageInput.value = dash.prompt;
+      autosizeComposer();
+      if (phaseEl) phaseEl.value = 'schema';
+    }
+    if (dash.phase === 'schema' && phaseEl) phaseEl.value = 'data';
+    if (dashPanel) dashPanel.open = true;
+    syncMainControls();
+    collapseFormsAfterResult(data);
+    renderAssistantMessage(data, sessionId, request);
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
 async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
@@ -5479,6 +5699,7 @@ async function sendMessage() {
   if (composerMode === 'pdf') return sendPdfJob();
   if (composerMode === 'global_search') return sendGlobalSearchJob();
   if (composerMode === 'chatbot') return sendChatbotJob();
+  if (composerMode === 'dashboard') return sendDashboardJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');
@@ -5524,7 +5745,19 @@ const gsSendBtn = document.getElementById('gsSendBtn');
 if (gsSendBtn) gsSendBtn.addEventListener('click', () => sendGlobalSearchJob());
 const cbSendBtn = document.getElementById('cbSendBtn');
 if (cbSendBtn) cbSendBtn.addEventListener('click', () => sendChatbotJob());
+const dashPromptBtn = document.getElementById('dashPromptBtn');
+const dashSchemaBtn = document.getElementById('dashSchemaBtn');
+const dashDataBtn = document.getElementById('dashDataBtn');
+if (dashPromptBtn) dashPromptBtn.addEventListener('click', () => sendDashboardJob('prompts'));
+if (dashSchemaBtn) dashSchemaBtn.addEventListener('click', () => sendDashboardJob('schema'));
+if (dashDataBtn) dashDataBtn.addEventListener('click', () => sendDashboardJob('data'));
 document.addEventListener('click', (ev) => {
+  const dashBtn = ev.target && ev.target.closest ? ev.target.closest('.dash-next-btn') : null;
+  if (dashBtn) {
+    const nextPhase = dashBtn.getAttribute('data-dash-phase') || '';
+    if (nextPhase) sendDashboardJob(nextPhase);
+    return;
+  }
   const btn = ev.target && ev.target.closest ? ev.target.closest('.cb-confirm-btn') : null;
   if (!btn) return;
   const actionId = btn.getAttribute('data-action-id') || '';

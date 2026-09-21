@@ -16,7 +16,17 @@ logger = logging.getLogger("orchestrator.agent_packs")
 
 _MAX_BODY_CHARS = 64 * 1024
 _CUSTOM_SLUG_RE = re.compile(r"^custom(\d+)$")
-_PACK_AGENTS = ("summary", "ocr", "insight", "prompt", "pdf", "ap")
+_PACK_AGENTS = (
+    "summary",
+    "ocr",
+    "insight",
+    "prompt",
+    "pdf",
+    "ap",
+    "dashboard-prompts",
+    "dashboard-schema",
+    "dashboard-data",
+)
 
 
 def _row_get(row: Any, key: str) -> Any:
