@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.dashboard.agent import _sample_columns, _sample_payload
+from app.dashboard.agent import _sample_columns, _sample_payload, _workflow_fields_for_response
 from app.dashboard.llm import LLMError, chat_json
 from app.dashboard.pack import dashboard_system_prompt
 from app.dashboard.propose import _occupancy
@@ -159,12 +159,13 @@ async def generate_prompt(
     except Exception as exc:
         logger.warning("dashboard_prompt_failed: %s", exc)
 
+    wf_id, wf_name = _workflow_fields_for_response(repository_id=repository_id, target=target)
     return {
         "prompt": prompt,
         "tenant_id": target["tenant_id"],
         "repository_id": target["repository_id"],
         "repository_name": target.get("repository_name"),
-        "workflow_id": target.get("workflow_id"),
-        "workflow_name": target.get("workflow_name"),
+        "workflow_id": wf_id,
+        "workflow_name": wf_name,
         "table": target.get("qualified_table"),
     }

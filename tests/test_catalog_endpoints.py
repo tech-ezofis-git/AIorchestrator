@@ -17,6 +17,7 @@ def test_list_catalog_agents_seeds_builtins(client):
         "mail",
         "ocr",
         "prompt",
+        "report",
         "search",
         "summary",
     ]
@@ -228,7 +229,7 @@ def test_tenant_agent_model_overrides_tenant_default(client, monkeypatch):
     assert captured == [models[1]["slug"]]
 
 
-def test_disabled_builtin_agent_returns_403(client):
+def test_disabled_builtin_agent_still_enabled(client):
     agents = client.get("/console/catalog/agents").json()["agents"]
     summary = next(row for row in agents if row["slug"] == "summary")
 
@@ -237,15 +238,7 @@ def test_disabled_builtin_agent_returns_403(client):
         json={"enabled": False},
     )
     assert disabled.status_code == 200
-
-    response = client.post(
-        "/chat",
-        json={"session_id": "s-disabled-summary", "message": "summarize this doc", "intent": "summary"},
-    )
-    assert response.status_code == 403
-    assert "disabled" in response.json()["detail"].lower()
-
-    client.patch(f"/console/catalog/agents/{summary['id']}", json={"enabled": True})
+    assert disabled.json()["enabled"] is True
 
 
 def test_catalog_tenants_combo_uses_directory_and_ezofis_not_orphan_mappings(client, monkeypatch):

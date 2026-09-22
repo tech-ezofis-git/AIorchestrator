@@ -138,26 +138,24 @@ Data **response** is raw HTML (`text/html; charset=utf-8`), not the Chat JSON en
 
 ## 4. Responses
 
-**Prompts / schema** — compact Chat JSON:
+**Prompts** — flat JSON (no `dashboard_result` / `reply` / `html`):
 
 ```json
 {
   "session_id": "demo",
-  "reply": "Suggested dashboard prompt.",
+  "prompt": "...",
   "correlation_id": "...",
   "latency_ms": 0,
-  "dashboard_result": {
-    "phase": "prompts",
-    "prompt": "...",
-    "tenant_id": "...",
-    "repository_id": "...",
-    "table": "repository.items_..."
-  },
-  "html": null
+  "tenant_id": "...",
+  "repository_id": "...",
+  "repository_name": "...",
+  "workflow_id": null,
+  "workflow_name": null,
+  "table": "repository.items_..."
 }
 ```
 
-Schema `dashboard_result` includes `phase: "schema"`, `kpis`, `charts`, and `"data": null`.
+**Schema** — compact Chat JSON with `dashboard_result` (`phase: "schema"`, `kpis`, `charts`, `"data": null`).
 
 **Data** — HTML document (styles + `.ez-dash` markup). Rows are capped at 50.
 
@@ -172,6 +170,8 @@ Schema `dashboard_result` includes `phase: "schema"`, `kpis`, `charts`, and `"da
 | Items table | `repository.items_{first 8 chars of repository UUID}` |
 
 `DATABASE_URL` is the orchestrator app DB, **not** the tenant items DB.
+
+If the tenant DB cannot be opened or the repository/workflow is missing, `/chat` returns **400**. It does not substitute the demo Accounts Payable repository.
 
 ---
 

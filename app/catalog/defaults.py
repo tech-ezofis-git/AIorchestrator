@@ -25,6 +25,11 @@ BUILTIN_AGENTS: list[dict[str, str]] = [
         "name": "Dashboard",
         "description": "Prompts, schema, and live HTML from a tenant repository or workflow (Postgres, first 50 rows).",
     },
+    {
+        "slug": "report",
+        "name": "Report Agent",
+        "description": "Discover live schema, plan SQL, and generate executive business reports.",
+    },
 ]
 
 RESERVED_SLUGS: frozenset[str] = frozenset(row["slug"] for row in BUILTIN_AGENTS)

@@ -1650,6 +1650,213 @@
     .ap-pipe-form,
     .ap-pipe-thresholds { grid-template-columns: 1fr 1fr; }
   }
+
+  /* —— Report agent styles —— */
+  .report-card {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.95);
+    box-shadow: var(--shadow);
+  }
+  .report-card-header {
+    padding: 18px 20px;
+    background: var(--gradient-soft);
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .report-card-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 4px 0 8px;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .report-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .report-pill {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: var(--radius-pill);
+    font-weight: 600;
+    background: var(--surface-3);
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .report-pill.chart { background: #fdf4ff; color: #9333ea; border-color: #f0abfc; }
+  .report-pill.score-pass { background: #ecfdf5; color: #059669; border-color: #a7f3d0; }
+  .report-pill.score-warn { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+  .report-pill.score-fail { background: #fff1f2; color: #e11d48; border-color: #fecdd3; }
+  .report-pill.readonly { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; font-family: var(--mono); }
+  .report-pill.schema { background: #f0fdfa; color: #0d9488; border-color: #99f6e4; }
+  .report-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+    margin: 14px 0;
+  }
+  .report-grid-cell {
+    padding: 12px 14px;
+    background: rgba(248, 246, 252, 0.85);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+  }
+  .report-grid-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-4);
+    margin-bottom: 4px;
+  }
+  .report-grid-val {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.4;
+  }
+  .report-table-wrap {
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    background: #fff;
+    max-height: 380px;
+    scrollbar-width: thin;
+  }
+  .report-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .report-data-table th {
+    position: sticky;
+    top: 0;
+    background: #f8fafc;
+    color: var(--ink-3);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    padding: 9px 12px;
+    border-bottom: 2px solid var(--line);
+    text-align: left;
+    z-index: 1;
+  }
+  .report-data-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+    vertical-align: middle;
+  }
+  .report-data-table tr:hover td {
+    background: rgba(99, 102, 241, 0.04);
+  }
+  .report-sql-box {
+    position: relative;
+    background: #18122b;
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-top: 10px;
+    overflow-x: auto;
+  }
+  .report-sql-code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: #e2e8f0;
+    margin: 0;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .report-warning-box {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #92400e;
+    line-height: 1.45;
+  }
+  .report-prompt-box {
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    margin-top: 10px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    white-space: pre-wrap;
+    font-family: var(--font);
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .report-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    margin-top: 10px;
+  }
+  .report-workspace-pane {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    background: var(--surface-2);
+    display: flex;
+    flex-direction: column;
+  }
+  .report-workspace-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  #reportPromptOverride {
+    min-height: 360px;
+    resize: vertical;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    width: 100%;
+    box-sizing: border-box;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 10px;
+    color: var(--ink);
+  }
+  #reportPlanPreview {
+    min-height: 360px;
+    overflow: auto;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 12px;
+    box-sizing: border-box;
+    flex: 1;
+  }
+  @media (max-width: 900px) {
+    .report-workspace {
+      grid-template-columns: 1fr;
+    }
+  }
 </style>
 </head>
 <body>
@@ -2046,6 +2253,55 @@ vendor_validate</textarea>
           <button type="button" class="btn-ghost" id="dashPromptBtn">Suggest prompt</button>
           <button type="button" class="btn-ghost" id="dashSchemaBtn">Propose schema</button>
           <button type="button" class="btn-primary" id="dashDataBtn">Load data</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="ocr-panel" id="reportPanel">
+      <summary>Report Agent options</summary>
+      <div class="ocr-grid">
+        <div class="span-all">
+          <label for="reportTemplateSelect">Template</label>
+          <select id="reportTemplateSelect"></select>
+        </div>
+        <div class="span-all" id="reportTemplateInfo" style="padding:10px 14px;background:rgba(255,255,255,0.7);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:12px;line-height:1.45;">
+          <strong id="reportTemplateInfoTitle">Accounts Payable Aging</strong>
+          <span class="kind-pill" id="reportTemplateInfoDomain" style="margin-left:6px">Accounts Payable</span>
+          <div id="reportTemplateInfoDesc" style="color:var(--ink-3);margin-top:4px">Outstanding AP requests bucketed by age.</div>
+        </div>
+        <div>
+          <label for="reportTenant">Tenant</label>
+          <input type="text" id="reportTenant" placeholder="Tenant ID (e.g. b843b988)" />
+        </div>
+        <div>
+          <label for="reportLimit">Row Limit</label>
+          <input type="number" id="reportLimit" value="20" min="1" max="500" />
+        </div>
+
+        <section class="report-workspace span-all" aria-label="Live report workspace">
+          <div class="report-workspace-pane">
+            <div class="report-workspace-heading">
+              <label for="reportPromptOverride" style="margin:0;font-weight:600;">Prompt</label>
+              <span id="reportPromptStatus" role="status" style="font-size:11px;color:var(--ink-3);">Generate a template to start</span>
+            </div>
+            <textarea id="reportPromptOverride"
+              placeholder="Select a template to generate a schema-backed prompt..."></textarea>
+          </div>
+
+          <div class="report-workspace-pane">
+            <div class="report-workspace-heading">
+              <span style="font-weight:600;">Report plan</span>
+              <button type="button" class="btn-ghost" id="reportPlanRefreshBtn" style="padding:3px 8px;font-size:11px;">Refresh plan</button>
+            </div>
+            <div id="reportPlanPreview" aria-live="polite">
+              Edit the prompt to generate the report plan.
+            </div>
+          </div>
+        </section>
+
+        <div class="ocr-actions span-all">
+          <button type="button" class="btn-primary" id="reportPlanBtn">Generate Plan &amp; Run</button>
+          <button type="button" class="btn-ghost" id="reportPromptBtn">Generate Prompt only</button>
         </div>
       </div>
     </details>
@@ -2520,7 +2776,8 @@ const ICONS = {
   pdf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
   global_search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>',
   chatbot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16v10H8l-4 4V6Z"/><path d="M8 10h8M8 13h5"/></svg>',
-  dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="4" rx="1"/><rect x="14" y="10" width="7" height="11" rx="1"/><rect x="3" y="13" width="7" height="8" rx="1"/></svg>',
+  report: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>',
+      dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="4" rx="1"/><rect x="14" y="10" width="7" height="11" rx="1"/><rect x="3" y="13" width="7" height="8" rx="1"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
@@ -2531,6 +2788,7 @@ const CAP_ACTIONS = [
   { slug: 'pdf', label: 'PDF generator', mode: 'pdf' },
   { slug: 'global_search', label: 'Global Search', mode: 'global_search' },
   { slug: 'chatbot', label: 'Chatbot', mode: 'chatbot' },
+  { slug: 'report', label: 'Report agent', mode: 'report' },
   { slug: 'dashboard', label: 'Dashboard agent', mode: 'dashboard' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
@@ -2544,12 +2802,14 @@ const MODE_LABELS = {
   pdf: 'PDF generator',
   global_search: 'Global Search',
   chatbot: 'Chatbot',
+  report: 'Report agent',
   dashboard: 'Dashboard agent',
 };
 const capActionsEl = document.getElementById('capActions');
 const apPanel = document.getElementById('apPanel');
 const gsPanel = document.getElementById('gsPanel');
 const cbPanel = document.getElementById('cbPanel');
+const reportPanel = document.getElementById('reportPanel');
 const dashPanel = document.getElementById('dashPanel');
 let composerMode = 'chat';
 let consoleAgentsCache = [];
@@ -2568,7 +2828,7 @@ function setConsoleTenantId(tenantId) {
   if (input) input.value = tid;
   if (tid) sessionStorage.setItem(CONSOLE_TENANT_KEY, tid);
   else sessionStorage.removeItem(CONSOLE_TENANT_KEY);
-  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'dashTenant'].forEach(id => {
+  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'dashTenant', 'reportTenant'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = tid;
   });
@@ -2835,6 +3095,9 @@ const ASK_EMPTY_CHIPS = `
       <button type="button" class="ask-chip" data-ask="search for the PTO policy">Search PTO policy<small>Find a document</small></button>
       <button type="button" class="ask-chip" data-ask="forecast revenue for next quarter">Forecast revenue<small>Look ahead</small></button>
       <button type="button" class="ask-chip" data-ask="remember that I prefer email over phone calls">Remember this<small>Save a preference</small></button>`;
+const REPORT_EMPTY_CHIPS = `
+      <button type="button" class="ask-chip" data-report-template="tpl-accounts-payable-aging">AP Aging<small>Accounts Payable</small></button>
+      <button type="button" class="ask-chip" data-report-template="tpl-pending-workflow-requests">Pending Requests<small>Workflow Automation</small></button>`;
 const EMPTY_SPECS = {
   chat: { title: 'Ask AI', sub: 'Search, remember, forecast, or just talk.', chips: ASK_EMPTY_CHIPS },
   ocr: { title: 'OCR', sub: 'Add a file or blob path, then send.', chips: '' },
@@ -2843,6 +3106,7 @@ const EMPTY_SPECS = {
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
   global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
   chatbot: { title: 'Chatbot', sub: 'Search, then act: start workflow / upload / ticket+attach / create user. Confirm before execute.', chips: '' },
+  report: { title: 'Report Agent', sub: 'Select a template to discover live schema, generate SQL, and preview report data.', chips: REPORT_EMPTY_CHIPS },
   dashboard: { title: 'Dashboard', sub: 'Prompts, schema, then load HTML. Need tenant + repository or workflow.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
 };
@@ -2880,18 +3144,19 @@ function syncMainControls() {
   const mc = document.getElementById('mainControls');
   const panel = document.getElementById('docPanel');
   if (!mc || !panel) return;
-  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open) || (dashPanel && dashPanel.open);
+  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open) || (dashPanel && dashPanel.open) || (reportPanel && reportPanel.open);
   mc.hidden = !active;
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result)) return;
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
   if (gsPanel) gsPanel.open = false;
   if (cbPanel) cbPanel.open = false;
-  if (dashPanel && composerMode === 'dashboard') {
+  if (reportPanel) reportPanel.open = false;
+      if (dashPanel && composerMode === 'dashboard') {
     dashPanel.open = true;
   } else if (dashPanel) {
     dashPanel.open = false;
@@ -2903,7 +3168,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -2918,6 +3183,8 @@ function setComposerMode(mode) {
   if (gsPanel) gsPanel.open = mode === 'global_search';
   if (cbPanel) cbPanel.open = mode === 'chatbot';
   if (dashPanel) dashPanel.open = mode === 'dashboard';
+      if (reportPanel) reportPanel.open = mode === 'report';
+      if (mode === 'report' && typeof loadReportTemplates === 'function') loadReportTemplates();
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   document.getElementById('insightFields').hidden = mode !== 'insight';
@@ -2981,6 +3248,11 @@ function setComposerMode(mode) {
     messageInput.placeholder = 'Schema message — e.g. I need an AP dashboard';
     const dashTenant = document.getElementById('dashTenant');
     if (dashTenant && !dashTenant.value.trim()) dashTenant.value = consoleTenantId();
+  } else if (mode === 'report') {
+    banner.textContent = 'Report Agent';
+    messageInput.placeholder = 'Optional prompt instruction or requirement override…';
+    const reportTenant = document.getElementById('reportTenant');
+    if (reportTenant && !reportTenant.value.trim()) reportTenant.value = consoleTenantId();
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -2996,7 +3268,19 @@ setComposerMode('chat');
 
 transcript.addEventListener('click', (e) => {
   const chip = e.target.closest('.ask-chip');
-  if (!chip || !chip.dataset.ask) return;
+  if (!chip) return;
+  if (chip.dataset.reportTemplate) {
+    const tplId = chip.dataset.reportTemplate;
+    setComposerMode('report');
+    const sel = document.getElementById('reportTemplateSelect');
+    if (sel) {
+      sel.value = tplId;
+      sel.dispatchEvent(new Event('change'));
+    }
+    sendReportPlanJob();
+    return;
+  }
+  if (!chip.dataset.ask) return;
   setComposerMode('chat');
   messageInput.value = chip.dataset.ask;
   sendMessage();
@@ -3018,6 +3302,7 @@ setInterval(checkHealth, 15000);
   const docPanel = document.getElementById('docPanel');
   if (docPanel) docPanel.addEventListener('toggle', syncMainControls);
   if (apPanel) apPanel.addEventListener('toggle', syncMainControls);
+  if (reportPanel) reportPanel.addEventListener('toggle', syncMainControls);
   syncMainControls();
 })();
 
@@ -4627,6 +4912,23 @@ async function confirmChatbotAction(actionId, sessionId) {
   }
 }
 
+function dashboardResultFromBody(body) {
+  if (body && body.dashboard_result) return body.dashboard_result;
+  if (body && typeof body.prompt === 'string' && body.prompt && body.tenant_id && body.kpis == null) {
+    return {
+      phase: 'prompts',
+      prompt: body.prompt,
+      tenant_id: body.tenant_id,
+      repository_id: body.repository_id,
+      repository_name: body.repository_name,
+      workflow_id: body.workflow_id,
+      workflow_name: body.workflow_name,
+      table: body.table,
+    };
+  }
+  return null;
+}
+
 function renderDashboardResult(dashboard, request) {
   const phase = dashboard && dashboard.phase ? String(dashboard.phase) : 'schema';
   const prompt = dashboard && dashboard.prompt ? String(dashboard.prompt) : '';
@@ -4685,10 +4987,256 @@ function renderDashboardHtmlPreview(html) {
   transcript.scrollTop = transcript.scrollHeight;
 }
 
-function renderAssistantMessage(body, sessionId, request) {
+function renderReportPromptResult(result, request) {
+  const tplId = result.template_id || result.templateId || '';
+  const title = result.title || 'Dynamic Report Prompt';
+  const domain = result.domain || '';
+  const tables = Array.isArray(result.discovered_tables) ? result.discovered_tables : [];
+  const fields = Array.isArray(result.discovered_fields) ? result.discovered_fields : [];
+  const missing = Array.isArray(result.missing_fields) ? result.missing_fields : [];
+  const promptText = result.prompt || '';
+
+  const tableChips = tables.map(t => `<span class="report-pill schema">🗄️ ${escapeHtml(t)}</span>`).join(' ') || '<span style="color:var(--ink-4)">None</span>';
+  const fieldCount = fields.length;
+
+  let missingHtml = '';
+  if (missing.length) {
+    missingHtml = `<div class="report-warning-box">
+      <strong>Missing Fields / Warnings:</strong><br>
+      ${missing.map(m => `• <strong>${escapeHtml(m.field || '')}</strong>: ${escapeHtml(m.reason || m.status || '')}`).join('<br>')}
+    </div>`;
+  }
+
+  let html = `<div class="report-card">
+    <div class="report-card-header">
+      <div>
+        <div class="summary-card-kicker">Report Agent · Dynamic Prompt (Phase 1)</div>
+        <div class="report-card-title">${escapeHtml(title)}</div>
+        <div class="report-badges">
+          ${domain ? `<span class="report-pill">${escapeHtml(domain)}</span>` : ''}
+          <span class="report-pill score-pass">✓ Schema Discovered</span>
+          <span class="report-pill">${escapeHtml(String(fieldCount))} Fields</span>
+        </div>
+      </div>
+    </div>
+    <div style="padding:16px 20px;">
+      <div class="report-grid-label">Discovered Tables</div>
+      <div style="margin:4px 0 12px;">${tableChips}</div>
+      ${missingHtml}
+      <div class="report-grid-label" style="margin-top:14px;">Generated Strict Dynamic Prompt</div>
+      <div class="report-prompt-box">${escapeHtml(promptText)}</div>
+    </div>
+    ${codePanelHtml()}
+  </div>`;
+
+  const resultJson = JSON.stringify(result || {}, null, 2);
+  const curlText = `curl -X POST http://localhost:8000/api/report-agent/generate-prompt \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(request && request.body ? request.body : { templateId: tplId, tenantId: consoleTenantId() })}'`;
+  return { html, resultJson, curlText };
+}
+
+function renderLiveReportPlan(result) {
+  const plan = result.reportPlan || result.report_plan || result.plan || {};
+  const query = result.dataQuery || result.data_query || result.sql || {};
+  const data = result.data || {};
+  const validation = result.validation || {};
+
+  const title = plan.title || plan.reportTitle || result.title || 'Report Plan';
+  const description = plan.description || '';
+  const sourceTable = (plan.source && plan.source.table) ? (plan.source.schemaName ? `${plan.source.schemaName}.${plan.source.table}` : plan.source.table) : '—';
+  const columnsList = Array.isArray(plan.columns) && plan.columns.length ? plan.columns.map(c => c.label || c.field).join(', ') : '—';
+  const groupList = Array.isArray(plan.groupBy) && plan.groupBy.length ? plan.groupBy.join(', ') : (Array.isArray(plan.group_by) && plan.group_by.length ? plan.group_by.join(', ') : 'None');
+  const sortList = Array.isArray(plan.orderBy) && plan.orderBy.length ? plan.orderBy.map(s => `${s.field} (${s.direction || 'ASC'})`).join(', ') : (Array.isArray(plan.order_by) && plan.order_by.length ? plan.order_by.map(s => `${s.field} (${s.direction || 'ASC'})`).join(', ') : 'Default');
+  const calcsList = Array.isArray(plan.calculations) && plan.calculations.length ? plan.calculations.map(c => `${c.label} (${c.expression})`).join(', ') : '';
+  const isValid = validation.valid != null ? validation.valid : (validation.passed != null ? validation.passed : true);
+  const sqlQuery = query.sql || query.sqlQuery || '';
+
+  const errors = Array.isArray(validation.errors) ? validation.errors : [];
+  const warnings = Array.isArray(plan.warnings) && plan.warnings.length ? plan.warnings : (Array.isArray(validation.warnings) ? validation.warnings : (Array.isArray(validation.issues) ? validation.issues : []));
+  const allNotices = [...errors, ...warnings];
+
+  let noticesHtml = '';
+  if (allNotices.length) {
+    noticesHtml = `<div class="report-warning-box" style="margin:8px 0;padding:8px 12px;font-size:11.5px;">
+      <strong>${errors.length ? 'Errors / Warnings:' : 'Notices & Recommendations:'}</strong><br>
+      ${allNotices.map(w => `• ${escapeHtml(String(w))}`).join('<br>')}
+    </div>`;
+  }
+
+  // Data preview table
+  const dataCols = Array.isArray(data.columns) ? data.columns : [];
+  const dataRows = Array.isArray(data.rows) ? data.rows : [];
+  let tableHtml = '';
+  if (dataCols.length) {
+    const ths = dataCols.map(c => `<th>${escapeHtml(String(c))}</th>`).join('');
+    const trs = dataRows.slice(0, 10).map(row => {
+      const tds = dataCols.map(col => {
+        let val = row && typeof row === 'object' ? row[col] : '';
+        if (val === null || val === undefined) val = '<span style="color:var(--ink-4)">null</span>';
+        else if (typeof val === 'number') val = Number.isInteger(val) ? val.toLocaleString() : val.toFixed(2);
+        else val = escapeHtml(String(val));
+        return `<td>${val}</td>`;
+      }).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+    tableHtml = `<div class="report-table-wrap" style="max-height:220px;margin-top:8px;">
+      <table class="report-data-table" style="font-size:11px;">
+        <thead><tr>${ths}</tr></thead>
+        <tbody>${trs || '<tr><td colspan="' + dataCols.length + '" style="text-align:center;color:var(--ink-3);padding:10px;">No rows returned</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  }
+
+  const container = document.getElementById('reportPlanPreview');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">
+      <h4 style="margin:0;font-size:14px;font-weight:700;color:var(--ink);">${escapeHtml(title)}</h4>
+      <span class="report-pill ${isValid ? 'score-pass' : 'score-fail'}" style="font-size:10px;padding:2px 8px;">
+        ${isValid ? '✓ Valid' : 'Needs Review'}
+      </span>
+    </div>
+    ${description ? `<p style="margin:0 0 8px;font-size:12px;color:var(--ink-3);">${escapeHtml(description)}</p>` : ''}
+    
+    <div style="font-size:11.5px;line-height:1.6;color:var(--ink-2);background:var(--surface-3);padding:8px 10px;border-radius:var(--radius-xs);border:1px solid var(--line);">
+      <div><strong>Source:</strong> <code>${escapeHtml(sourceTable)}</code></div>
+      <div><strong>Columns:</strong> ${escapeHtml(columnsList)}</div>
+      ${groupList !== 'None' ? `<div><strong>Group By:</strong> ${escapeHtml(groupList)}</div>` : ''}
+      <div><strong>Sort:</strong> ${escapeHtml(sortList)}</div>
+      ${calcsList ? `<div><strong>Calculations:</strong> ${escapeHtml(calcsList)}</div>` : ''}
+    </div>
+
+    ${noticesHtml}
+
+    ${sqlQuery ? `
+      <div style="margin-top:8px;">
+        <div class="report-grid-label" style="font-size:9.5px;margin-bottom:2px;">Safe SQL Query</div>
+        <pre class="report-sql-code" style="background:#18122b;padding:8px 10px;border-radius:var(--radius-xs);font-size:10.5px;max-height:140px;overflow:auto;">${escapeHtml(sqlQuery)}</pre>
+      </div>
+    ` : ''}
+
+    ${tableHtml ? `
+      <div style="margin-top:8px;">
+        <div class="report-grid-label" style="font-size:9.5px;margin-bottom:2px;">Data Preview (${dataRows.length} ${dataRows.length === 1 ? 'row' : 'rows'})</div>
+        ${tableHtml}
+      </div>
+    ` : ''}
+  `;
+}
+
+function renderReportPlanResult(result, request) {
+  const tplId = result.template_id || result.templateId || '';
+  const plan = result.reportPlan || result.report_plan || result.plan || {};
+  const query = result.dataQuery || result.data_query || result.sql || {};
+  const data = result.data || {};
+  const validation = result.validation || {};
+  const executionMs = result.total_pipeline_time_ms || result.execution_time_ms || result.executionTimeMs || 0;
+
+  const title = plan.title || plan.reportTitle || result.title || 'Executive Business Report';
+  const domain = plan.domain || result.domain || '';
+  const chartRec = plan.chartRecommendation || '';
+  const isValid = validation.valid != null ? validation.valid : (validation.passed != null ? validation.passed : true);
+  const score = validation.score != null ? validation.score : (isValid ? 100 : 60);
+  const scoreClass = score >= 90 ? 'score-pass' : (score >= 70 ? 'score-warn' : 'score-fail');
+  const passLabel = isValid ? `${score}% Validated` : 'Needs Review';
+
+  // Metrics summary
+  const metrics = Array.isArray(plan.columns) ? plan.columns.map(c => c.label || c.field || String(c)).join(', ') : '—';
+  const aggregation = (Array.isArray(plan.calculations) && plan.calculations.length) ? plan.calculations.map(c => c.label).join(', ') : 'Standard';
+  const groupBy = Array.isArray(plan.groupBy) && plan.groupBy.length ? plan.groupBy.join(', ') : (Array.isArray(plan.group_by) && plan.group_by.length ? plan.group_by.join(', ') : 'None');
+  const sort = Array.isArray(plan.orderBy) && plan.orderBy.length ? plan.orderBy.map(s => `${s.field} (${s.direction || 'ASC'})`).join(', ') : (Array.isArray(plan.order_by) && plan.order_by.length ? plan.order_by.map(s => `${s.field} (${s.direction || 'ASC'})`).join(', ') : (Array.isArray(plan.sort) ? plan.sort.map(s => `${s.column} (${s.direction || 'asc'})`).join(', ') : 'Default'));
+
+  // Warnings
+  const warnings = Array.isArray(plan.warnings) ? plan.warnings : (Array.isArray(validation.warnings) ? validation.warnings : []);
+  const errors = Array.isArray(validation.errors) ? validation.errors : (Array.isArray(validation.issues) ? validation.issues : []);
+  const allWarnings = [...errors, ...warnings];
+  let warningsHtml = '';
+  if (allWarnings.length) {
+    warningsHtml = `<div class="report-warning-box">
+      <strong>Notices &amp; Recommendations:</strong><br>
+      ${allWarnings.map(w => `• ${escapeHtml(String(w))}`).join('<br>')}
+    </div>`;
+  }
+
+  // Data table columns and rows
+  const columns = Array.isArray(data.columns) ? data.columns : [];
+  const rows = Array.isArray(data.rows) ? data.rows : [];
+  let tableHtml = '';
+  if (columns.length) {
+    const ths = columns.map(col => `<th>${escapeHtml(String(col))}</th>`).join('');
+    const trs = rows.map(row => {
+      const tds = columns.map(col => {
+        let val = row && typeof row === 'object' ? row[col] : '';
+        if (val === null || val === undefined) val = '<span style="color:var(--ink-4)">null</span>';
+        else if (typeof val === 'number') val = Number.isInteger(val) ? val.toLocaleString() : val.toFixed(2);
+        else val = escapeHtml(String(val));
+        return `<td>${val}</td>`;
+      }).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+    tableHtml = `<div class="report-table-wrap">
+      <table class="report-data-table">
+        <thead><tr>${ths}</tr></thead>
+        <tbody>${trs || '<tr><td colspan="' + columns.length + '" style="text-align:center;color:var(--ink-3);padding:20px;">No rows returned</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  } else {
+    tableHtml = `<div style="padding:12px;color:var(--ink-3);font-size:12px;font-style:italic;">No live data available for this query preview.</div>`;
+  }
+
+  const sqlQuery = query.sql || query.sqlQuery || '';
+
+  let html = `<div class="report-card">
+    <div class="report-card-header">
+      <div>
+        <div class="summary-card-kicker">Report Agent · Plan &amp; Live Data (Phase 2)</div>
+        <div class="report-card-title">${escapeHtml(title)}</div>
+        <div class="report-badges">
+          ${domain ? `<span class="report-pill">${escapeHtml(domain)}</span>` : ''}
+          ${chartRec ? `<span class="report-pill chart">📊 ${escapeHtml(chartRec)}</span>` : ''}
+          <span class="report-pill ${scoreClass}">✓ ${escapeHtml(passLabel)}</span>
+          <span class="report-pill">⏱️ ${escapeHtml(String(executionMs))} ms</span>
+          <span class="report-pill readonly">READ ONLY</span>
+        </div>
+      </div>
+    </div>
+    <div style="padding:16px 20px;">
+      ${plan.description ? `<div class="summary-prose" style="margin-bottom:12px;">${escapeHtml(plan.description)}</div>` : (plan.explanation ? `<div class="summary-prose" style="margin-bottom:12px;">${escapeHtml(plan.explanation)}</div>` : '')}
+      <div class="report-grid">
+        <div class="report-grid-cell">
+          <div class="report-grid-label">Aggregation &amp; Metrics</div>
+          <div class="report-grid-val">${escapeHtml(aggregation)}: ${escapeHtml(metrics)}</div>
+        </div>
+        <div class="report-grid-cell">
+          <div class="report-grid-label">Group By &amp; Sort</div>
+          <div class="report-grid-val">Group: ${escapeHtml(groupBy)}<br>Sort: ${escapeHtml(sort)}</div>
+        </div>
+      </div>
+      ${warningsHtml}
+      ${sqlQuery ? `
+        <div class="report-grid-label" style="margin-top:14px;">Generated Safe SQL Query</div>
+        <div class="report-sql-box">
+          <pre class="report-sql-code">${escapeHtml(sqlQuery)}</pre>
+        </div>
+      ` : ''}
+      <div class="report-grid-label" style="margin-top:16px;">
+        Live Data Preview (${rows.length} ${rows.length === 1 ? 'row' : 'rows'}${data.totalRowCount && data.totalRowCount > rows.length ? ' of ' + data.totalRowCount : ''})
+      </div>
+      ${tableHtml}
+    </div>
+    ${codePanelHtml()}
+  </div>`;
+
+  const resultJson = JSON.stringify(result || {}, null, 2);
+  const curlText = `curl -X POST http://localhost:8000/api/report-agent/generate-report-plan \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(request && request.body ? request.body : { templateId: tplId, tenantId: consoleTenantId(), limit: 20 })}'`;
+  return { html, resultJson, curlText };
+}
+
+    function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result)
+  const dashBody = dashboardResultFromBody(body);
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -4747,13 +5295,23 @@ function renderAssistantMessage(body, sessionId, request) {
     details += cbCode.html;
     codeBlocks.push(cbCode);
   }
-  if (body.dashboard_result) {
-    const dashCode = renderDashboardResult(body.dashboard_result, request);
+  if (body.report_prompt_result) {
+    const reportPromptCode = renderReportPromptResult(body.report_prompt_result, request);
+    details += reportPromptCode.html;
+    codeBlocks.push(reportPromptCode);
+  }
+  if (body.report_plan_result) {
+    const reportPlanCode = renderReportPlanResult(body.report_plan_result, request);
+    details += reportPlanCode.html;
+    codeBlocks.push(reportPlanCode);
+  }
+  if (dashBody) {
+    const dashCode = renderDashboardResult(dashBody, request);
     details += dashCode.html;
     codeBlocks.push(dashCode);
   }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !body.dashboard_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !dashBody && !body.report_plan_result && !body.report_prompt_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -4799,8 +5357,14 @@ function renderAssistantMessage(body, sessionId, request) {
   if (body.chatbot_result) {
     bubbleText = body.reply || 'Chatbot ready.';
   }
-  if (body.dashboard_result) {
-    bubbleText = body.reply || 'Dashboard ready.';
+  if (body.report_prompt_result) {
+    bubbleText = body.reply || 'Dynamic report prompt generated.';
+  }
+  if (body.report_plan_result) {
+    bubbleText = body.reply || 'Report plan and live data ready.';
+  }
+  if (dashBody) {
+    bubbleText = body.reply || (dashBody.phase === 'prompts' ? 'Suggested dashboard prompt.' : 'Dashboard ready.');
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -5921,7 +6485,7 @@ async function sendDashboardJob(forcedPhase) {
       return;
     }
     const data = await readResponseJson(res);
-    const dash = data.dashboard_result || {};
+    const dash = dashboardResultFromBody(data) || {};
     if (dash.phase === 'schema' && Array.isArray(dash.kpis)) {
       const slim = { phase: 'schema', kpis: dash.kpis, charts: dash.charts || [] };
       const box = document.getElementById('dashJson');
@@ -5950,7 +6514,283 @@ async function sendDashboardJob(forcedPhase) {
   }
 }
 
-async function sendMessage() {
+const BUILTIN_REPORT_TEMPLATES = [
+  { id: 'tpl-accounts-payable-aging', title: 'Accounts Payable Aging', domain: 'Accounts Payable', description: 'Outstanding AP requests bucketed by age.' },
+  { id: 'tpl-pending-workflow-requests', title: 'Pending Workflow Requests', domain: 'Workflow Automation', description: 'Open workflow requests awaiting action.' },
+  // { id: 'tpl-workflow-sla-compliance', title: 'Workflow SLA Compliance', domain: 'Workflow Automation', description: 'Completed workflows within vs. outside SLA.' },
+  // { id: 'tpl-documents-without-recent-access', title: 'Documents Without Recent Access', domain: 'Document Management', description: 'Documents with no views in the selected period.' },
+  // { id: 'tpl-document-retention-status', title: 'Document Retention Status', domain: 'Document Management', description: 'Active, archived, and scheduled-deletion counts.' },
+  // { id: 'tpl-document-version-activity', title: 'Document Version Activity', domain: 'Document Management', description: 'Version history and access counts by document.' },
+  // { id: 'tpl-portal-submission-performance', title: 'Portal Submission Performance', domain: 'External Portal', description: 'Submission volume and completion rate trends.' },
+  // { id: 'tpl-user-login-and-security-activity', title: 'User Login and Security Activity', domain: 'User Sessions & Security', description: 'Login activity, failures and anomalies.' },
+  // { id: 'tpl-ai-credit-consumption', title: 'AI Credit Consumption', domain: 'Report Agent Impact & ROI', description: 'Monthly AI credit usage vs. allocation.' },
+  // { id: 'tpl-report-agent-roi', title: 'Report Agent ROI', domain: 'Report Agent Impact & ROI', description: 'Net business value and ROI% by report.' },
+];
+let reportTemplatesCache = BUILTIN_REPORT_TEMPLATES;
+
+let reportPlanTimer;
+let reportPlanController;
+let reportPlanRevision = 0;
+
+function setReportPromptStatus(text) {
+  const el = document.getElementById('reportPromptStatus');
+  if (el) el.textContent = text;
+}
+
+function queueReportPlanRefresh() {
+  clearTimeout(reportPlanTimer);
+  setReportPromptStatus('Waiting for typing to stop…');
+  reportPlanTimer = setTimeout(refreshReportPlan, 600);
+}
+
+function renderPlanEmptyState() {
+  const container = document.getElementById('reportPlanPreview');
+  if (container) {
+    container.innerHTML = '<div style="color:var(--ink-3);font-style:italic;padding:12px;">Edit the prompt to generate the report plan.</div>';
+  }
+  setReportPromptStatus('Ready');
+}
+
+function renderPlanError(errorMsg) {
+  const container = document.getElementById('reportPlanPreview');
+  if (container) {
+    container.innerHTML = `<div class="report-warning-box" style="margin:0;">
+      <strong>Plan generation failed:</strong><br>${escapeHtml(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg))}
+    </div>`;
+  }
+  setReportPromptStatus('Error updating plan');
+}
+
+async function refreshReportPlan() {
+  clearTimeout(reportPlanTimer);
+  const revision = ++reportPlanRevision;
+  if (reportPlanController) {
+    reportPlanController.abort();
+  }
+  reportPlanController = new AbortController();
+
+  const promptOverride = document.getElementById('reportPromptOverride');
+  const prompt = promptOverride ? promptOverride.value.trim() : '';
+  if (!prompt) {
+    renderPlanEmptyState();
+    return;
+  }
+
+  setReportPromptStatus('Updating plan…');
+  const templateSelect = document.getElementById('reportTemplateSelect');
+  const templateId = (templateSelect ? templateSelect.value : '') || 'tpl-accounts-payable-aging';
+  const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
+  const limitInput = document.getElementById('reportLimit');
+  const limit = limitInput ? parseInt(limitInput.value, 10) || 20 : 20;
+
+  try {
+    const response = await fetch('/api/report-agent/generate-report-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: reportPlanController.signal,
+      body: JSON.stringify({
+        templateId,
+        tenantId: tenantId || undefined,
+        limit,
+        prompt,
+      }),
+    });
+
+    const result = await readResponseJson(response);
+    if (revision !== reportPlanRevision) return;
+
+    if (!response.ok) {
+      const detail = typeof result.detail === 'string' ? result.detail : (result.error || JSON.stringify(result));
+      renderPlanError(detail);
+      return;
+    }
+
+    renderLiveReportPlan(result);
+    setReportPromptStatus('Plan is up to date');
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    if (revision !== reportPlanRevision) return;
+    renderPlanError(err && err.message ? err.message : 'Network error');
+  }
+}
+
+async function loadReportTemplates() {
+  const select = document.getElementById('reportTemplateSelect');
+  if (!select) return;
+  try {
+    const res = await fetch('/api/report-agent/templates');
+    if (res.ok) {
+      const templates = await res.json();
+      if (Array.isArray(templates) && templates.length) {
+        reportTemplatesCache = templates;
+      }
+    }
+  } catch (_) {}
+
+  select.innerHTML = '';
+  reportTemplatesCache.forEach(tpl => {
+    const opt = document.createElement('option');
+    opt.value = tpl.id;
+    opt.textContent = `${tpl.title} (${tpl.domain})`;
+    select.appendChild(opt);
+  });
+
+  function updateInfo() {
+    const current = reportTemplatesCache.find(t => t.id === select.value) || reportTemplatesCache[0];
+    if (current) {
+      const titleEl = document.getElementById('reportTemplateInfoTitle');
+      const domainEl = document.getElementById('reportTemplateInfoDomain');
+      const descEl = document.getElementById('reportTemplateInfoDesc');
+      if (titleEl) titleEl.textContent = current.title;
+      if (domainEl) domainEl.textContent = current.domain;
+      if (descEl) descEl.textContent = current.description;
+    }
+  }
+
+  async function handleTemplateChange(triggerPlan = true) {
+    updateInfo();
+    const templateId = select.value;
+    const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
+    setReportPromptStatus('Generating dynamic prompt…');
+    try {
+      const res = await fetch('/api/report-agent/generate-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateId, tenantId: tenantId || undefined }),
+      });
+      if (res.ok) {
+        const data = await readResponseJson(res);
+        const promptOverride = document.getElementById('reportPromptOverride');
+        if (promptOverride && data.prompt) {
+          promptOverride.value = data.prompt;
+          setReportPromptStatus('Prompt generated');
+          if (triggerPlan) {
+            refreshReportPlan();
+          }
+        }
+      } else {
+        setReportPromptStatus('Ready');
+      }
+    } catch (_) {
+      setReportPromptStatus('Ready');
+    }
+  }
+
+  select.addEventListener('change', () => handleTemplateChange(true));
+  updateInfo();
+  handleTemplateChange(true);
+}
+loadReportTemplates();
+
+// Event listeners for live Prompt editing and Refresh button
+const reportPromptEl = document.getElementById('reportPromptOverride');
+if (reportPromptEl) {
+  reportPromptEl.addEventListener('input', queueReportPlanRefresh);
+  reportPromptEl.addEventListener('paste', () => {
+    setReportPromptStatus('Pasted prompt — refreshing plan…');
+    setTimeout(refreshReportPlan, 80);
+  });
+}
+const reportRefreshBtnEl = document.getElementById('reportPlanRefreshBtn');
+if (reportRefreshBtnEl) {
+  reportRefreshBtnEl.addEventListener('click', refreshReportPlan);
+}
+
+async function sendReportPromptJob() {
+  const templateSelect = document.getElementById('reportTemplateSelect');
+  const templateId = (templateSelect ? templateSelect.value : '') || 'tpl-accounts-payable-aging';
+  const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
+  const currentTpl = reportTemplatesCache.find(t => t.id === templateId) || { title: templateId };
+
+  addUserMessage(`Generate prompt for Report: ${currentTpl.title}`);
+  const btn = document.getElementById('reportPromptBtn');
+  const origText = btn ? btn.textContent : 'Generate Prompt only';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner dark"></span> Generating…'; }
+  const processing = addProcessingMessage('Discovering schema & generating prompt…');
+
+  const payload = { templateId, tenantId: tenantId || undefined };
+  const request = { intent: 'report_prompt', kind: 'json', body: payload };
+
+  try {
+    const res = await fetch('/api/report-agent/generate-prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      const promptOverride = document.getElementById('reportPromptOverride');
+      if (promptOverride && data.prompt) promptOverride.value = data.prompt;
+      renderAssistantMessage({ report_prompt_result: data, reply: `Dynamic prompt generated for "${data.title || currentTpl.title}".` }, sessionIdInput.value.trim() || newSessionId(), request);
+      refreshReportPlan();
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+      addSystemMessage(`${res.status}: ${detail || 'Prompt generation failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
+  }
+}
+
+async function sendReportPlanJob() {
+  const templateSelect = document.getElementById('reportTemplateSelect');
+  const templateId = (templateSelect ? templateSelect.value : '') || 'tpl-accounts-payable-aging';
+  const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
+  const limitInput = document.getElementById('reportLimit');
+  const limit = limitInput ? parseInt(limitInput.value, 10) || 20 : 20;
+  const promptOverride = document.getElementById('reportPromptOverride') ? document.getElementById('reportPromptOverride').value.trim() : '';
+  const currentTpl = reportTemplatesCache.find(t => t.id === templateId) || { title: templateId };
+
+  addUserMessage(`Run Report Agent: ${currentTpl.title}`);
+  const btn = document.getElementById('reportPlanBtn');
+  const origText = btn ? btn.textContent : 'Generate Plan & Run';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Running…'; }
+  sendBtn.disabled = true;
+  const processing = addProcessingMessage('Building report plan, safe SQL & fetching data…');
+
+  const payload = {
+    templateId,
+    tenantId: tenantId || undefined,
+    limit,
+    prompt: promptOverride || undefined,
+  };
+  const request = { intent: 'report_plan', kind: 'json', body: payload };
+
+  try {
+    const res = await fetch('/api/report-agent/generate-report-plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      const planTitle = (data.reportPlan && data.reportPlan.title) || (data.report_plan && data.report_plan.title) || (data.plan && data.plan.reportTitle) || currentTpl.title;
+      renderAssistantMessage({
+        report_plan_result: data,
+        reply: `Report generated for "${planTitle}" with ${((data.data && data.data.rows) || []).length} rows.`,
+        latency_ms: data.total_pipeline_time_ms || data.execution_time_ms,
+        token_usage: data.token_usage,
+      }, sessionIdInput.value.trim() || newSessionId(), request);
+      renderLiveReportPlan(data);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+      addSystemMessage(`${res.status}: ${detail || 'Report plan failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
+    sendBtn.disabled = false;
+  }
+}
+
+    async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'insight') return sendInsightJob();
   if (composerMode === 'ocr') return sendOcrJob();
@@ -5959,7 +6799,8 @@ async function sendMessage() {
   if (composerMode === 'pdf') return sendPdfJob();
   if (composerMode === 'global_search') return sendGlobalSearchJob();
   if (composerMode === 'chatbot') return sendChatbotJob();
-  if (composerMode === 'dashboard') return sendDashboardJob();
+  if (composerMode === 'report') return sendReportPlanJob();
+      if (composerMode === 'dashboard') return sendDashboardJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');
@@ -6011,6 +6852,20 @@ const dashDataBtn = document.getElementById('dashDataBtn');
 if (dashPromptBtn) dashPromptBtn.addEventListener('click', () => sendDashboardJob('prompts'));
 if (dashSchemaBtn) dashSchemaBtn.addEventListener('click', () => sendDashboardJob('schema'));
 if (dashDataBtn) dashDataBtn.addEventListener('click', () => sendDashboardJob('data'));
+const reportPlanBtn = document.getElementById('reportPlanBtn');
+if (reportPlanBtn) reportPlanBtn.addEventListener('click', () => sendReportPlanJob());
+const reportPromptBtn = document.getElementById('reportPromptBtn');
+if (reportPromptBtn) reportPromptBtn.addEventListener('click', () => sendReportPromptJob());
+const reportTenantEl = document.getElementById('reportTenant');
+if (reportTenantEl) {
+  reportTenantEl.addEventListener('input', queueReportPlanRefresh);
+  reportTenantEl.addEventListener('change', queueReportPlanRefresh);
+}
+const reportLimitEl = document.getElementById('reportLimit');
+if (reportLimitEl) {
+  reportLimitEl.addEventListener('input', queueReportPlanRefresh);
+  reportLimitEl.addEventListener('change', queueReportPlanRefresh);
+}
 document.addEventListener('click', (ev) => {
   const dashBtn = ev.target && ev.target.closest ? ev.target.closest('.dash-next-btn') : null;
   if (dashBtn) {
