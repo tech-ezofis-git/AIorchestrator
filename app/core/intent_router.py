@@ -233,8 +233,6 @@ class IntentRouter:
             return Intent.OCR
         if any(trigger in normalized for trigger in _FORECAST_TRIGGERS):
             return Intent.FORECAST
-        if any(trigger in normalized for trigger in _DASHBOARD_TRIGGERS):
-            return Intent.DASHBOARD
         if any(trigger in normalized for trigger in _AP_TRIGGERS):
             return Intent.AP
         if any(trigger in normalized for trigger in _MAIL_TRIGGERS):

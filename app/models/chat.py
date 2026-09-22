@@ -762,6 +762,23 @@ class ChatResponse(BaseModel):
         data = serializer(self)
         if not isinstance(data, dict) or data.get("dashboard_result") is None:
             return data
+        dash = data.get("dashboard_result")
+        if isinstance(dash, dict) and str(dash.get("phase") or "").strip().lower() in {
+            "prompt",
+            "prompts",
+        }:
+            return {
+                "session_id": data.get("session_id"),
+                "prompt": dash.get("prompt"),
+                "correlation_id": data.get("correlation_id"),
+                "latency_ms": data.get("latency_ms"),
+                "tenant_id": dash.get("tenant_id"),
+                "repository_id": dash.get("repository_id"),
+                "repository_name": dash.get("repository_name"),
+                "workflow_id": dash.get("workflow_id"),
+                "workflow_name": dash.get("workflow_name"),
+                "table": dash.get("table"),
+            }
         keep = (
             "session_id",
             "reply",

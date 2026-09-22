@@ -133,6 +133,13 @@ def _dashboard_phase(job: dict[str, Any], dashboard_json: dict[str, Any] | None)
     return "schema"
 
 
+def _workflow_fields_for_response(*, repository_id: str | None, target: dict[str, Any]) -> tuple[Any, Any]:
+    """If the caller sent repository_id, do not echo a workflow on prompts/schema."""
+    if (repository_id or "").strip():
+        return None, None
+    return target.get("workflow_id"), target.get("workflow_name")
+
+
 class DashboardAgent:
     def __init__(self, store: DashboardStore, *, proposer: Proposer | None = None):
         self._store = store
@@ -209,13 +216,15 @@ class DashboardAgent:
             apply_default_layout(kpis, charts)
             ensure_widget_descriptions(kpis, charts)
             _ensure_widget_contract(kpis, charts)
+            wf_id, wf_name = _workflow_fields_for_response(repository_id=repository_id, target=target)
             result = {
                 "phase": "schema",
                 "workflow": workflow_slug,
                 "tenant_id": target["tenant_id"],
                 "repository_id": target["repository_id"],
                 "repository_name": target.get("repository_name"),
-                "workflow_id": target.get("workflow_id"),
+                "workflow_id": wf_id,
+                "workflow_name": wf_name,
                 "table": target["qualified_table"],
                 "columns": columns,
                 "message": message,

@@ -11,10 +11,7 @@ from typing import Any, Optional
 
 from app.dashboard.ids import guid_prefix, normalize_guid
 from app.dashboard.mock_data import (
-    get_sample_columns,
     get_sample_repositories,
-    get_sample_rows,
-    get_sample_target,
     get_sample_workflows,
 )
 from app.data_import.ident import quote_ident
@@ -115,8 +112,14 @@ class DashboardStore:
         try:
             pool = await self._connect(tenant_id)
         except Exception as exc:
-            logger.info("Postgres unavailable, using sample target for tenant=%s: %s", tenant_id, exc)
-            return get_sample_target(tenant_id=tenant_id, repository_id=repository_id, workflow_id=workflow_id)
+            logger.warning(
+                "dashboard_tenant_db_unavailable tenant=%s: %s",
+                tenant_id,
+                exc,
+            )
+            raise ValueError(
+                "Dashboard could not connect to the tenant database for this tenant_id."
+            ) from exc
 
         form_id = None
         workflow_name = None
@@ -126,31 +129,31 @@ class DashboardStore:
                     """
                     SELECT "Id"::text AS id, "Name" AS name, "RepositoryId"::text AS repository_id, "FormId"::text AS form_id
                     FROM workflow."Workflows"
-                    WHERE "Id"::text = $1
+                    WHERE "Id" = $1::uuid
                       AND COALESCE("IsDeleted", false) = false
                     """,
                     normalize_guid(workflow_id) or workflow_id,
                 )
                 if wf is None:
-                    return get_sample_target(tenant_id=tenant_id, repository_id=repository_id, workflow_id=workflow_id)
+                    raise ValueError("payload.workflow_id was not found in this tenant.")
                 mapping = dict(wf)
                 repository_id = _as_str(_row_get(mapping, "repository_id", "RepositoryId")) or None
                 form_id = _as_str(_row_get(mapping, "form_id", "FormId")) or None
                 workflow_name = _as_str(_row_get(mapping, "name", "Name")) or None
                 if not repository_id:
-                    return get_sample_target(tenant_id=tenant_id, repository_id=repository_id, workflow_id=workflow_id)
+                    raise ValueError("payload.workflow_id has no repository.")
 
             repo = await pool.fetchrow(
                 """
                 SELECT "Id"::text AS id, "Name" AS name, "ItemsTableName" AS items_table_name
                 FROM repository."Repositories"
-                WHERE "Id"::text = $1
+                WHERE "Id" = $1::uuid
                   AND COALESCE("IsDeleted", false) = false
                 """,
                 normalize_guid(repository_id) or repository_id,
             )
             if repo is None:
-                return get_sample_target(tenant_id=tenant_id, repository_id=repository_id, workflow_id=workflow_id)
+                raise ValueError("payload.repository_id was not found in this tenant.")
             mapping = dict(repo)
             schema, table = split_table(
                 _as_str(_row_get(mapping, "items_table_name", "ItemsTableName")),
@@ -167,15 +170,20 @@ class DashboardStore:
                 "table": table,
                 "qualified_table": f"{schema}.{table}",
             }
+        except ValueError:
+            raise
         except Exception as exc:
-            logger.info("dashboard_resolve_failed, using sample target: %s", exc)
-            return get_sample_target(tenant_id=tenant_id, repository_id=repository_id, workflow_id=workflow_id)
+            logger.warning("dashboard_resolve_failed: %s", exc)
+            raise ValueError(
+                "Dashboard could not resolve repository or workflow in the tenant database."
+            ) from exc
 
     async def list_columns(self, *, tenant_id: str, schema: str, table: str) -> list[str]:
         try:
             pool = await self._connect(tenant_id)
-        except Exception:
-            return get_sample_columns(table)
+        except Exception as exc:
+            logger.warning("dashboard_columns_connect_failed: %s", exc)
+            return []
         try:
             rows = await pool.fetch(
                 """
@@ -188,11 +196,10 @@ class DashboardStore:
                 table,
             )
             names = [str(_row_get(dict(row), "column_name")) for row in rows if _row_get(dict(row), "column_name")]
-            if names:
-                return names
+            return names
         except Exception as exc:
             logger.warning("dashboard_columns_failed: %s", exc)
-        return get_sample_columns(table)
+            return []
 
     async def fetch_rows(
         self,
@@ -208,8 +215,9 @@ class DashboardStore:
         cap = _clamp_limit(limit)
         try:
             pool = await self._connect(tenant_id)
-        except Exception:
-            return get_sample_rows(table, limit=cap)[:cap]
+        except Exception as exc:
+            logger.warning("dashboard_items_connect_failed: %s", exc)
+            return []
         try:
             quoted_cols = ", ".join(_safe_ident(name) for name in columns)
             qualified = f"{_safe_ident(schema)}.{_safe_ident(table)}"
@@ -219,10 +227,10 @@ class DashboardStore:
             rows = await pool.fetch(sql)
             if rows:
                 return [dict(row) for row in rows][:cap]
+            return []
         except Exception as exc:
             logger.warning("dashboard_items_failed: %s", exc)
-        sample = get_sample_rows(table, limit=cap)
-        return sample[:cap]
+            return []
 
     async def fetch_extract_artifacts(
         self,

@@ -4045,7 +4045,8 @@ vendor_validate</textarea>
         <p class="lede">Built-in agents are registered in code. Custom agents run as LLM specialists (system prompt +
           keyword triggers). Pick a <strong>model per agent</strong> and toggle <strong>Enabled</strong>, then click
           <strong>Save tenant settings</strong>. Disabled agents are hidden from the Chat console sidebar for this
-          tenant.</p>
+          tenant.
+        </p>
         <form class="catalog-form" id="catalogTenantForm" style="margin-top:0">
           <div>
             <label for="catTenantDefault">default model</label>
@@ -4723,13 +4724,12 @@ vendor_validate</textarea>
     }
 
     function collapseFormsAfterResult(body) {
-      if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || body.report_plan_result || body.report_prompt_result)) return;
+      if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result)) return;
       const panel = document.getElementById('docPanel');
       if (panel) panel.open = false;
       if (apPanel) apPanel.open = false;
       if (gsPanel) gsPanel.open = false;
       if (cbPanel) cbPanel.open = false;
-      if (reportPanel) reportPanel.open = false;
       if (dashPanel && composerMode === 'dashboard') {
         dashPanel.open = true;
       } else if (dashPanel) {
@@ -6485,251 +6485,6 @@ vendor_validate</textarea>
       }
     }
 
-    function renderReportPromptResult(result, request) {
-      const tplId = result.template_id || result.templateId || '';
-      const title = result.title || 'Dynamic Report Prompt';
-      const domain = result.domain || '';
-      const tables = Array.isArray(result.discovered_tables) ? result.discovered_tables : [];
-      const fields = Array.isArray(result.discovered_fields) ? result.discovered_fields : [];
-      const missing = Array.isArray(result.missing_fields) ? result.missing_fields : [];
-      const promptText = result.prompt || '';
-
-      const tableChips = tables.map(t => `<span class="report-pill schema">🗄️ ${escapeHtml(t)}</span>`).join(' ') || '<span style="color:var(--ink-4)">None</span>';
-      const fieldCount = fields.length;
-
-      let missingHtml = '';
-      if (missing.length) {
-        missingHtml = `<div class="report-warning-box">
-      <strong>Missing Fields / Warnings:</strong><br>
-      ${missing.map(m => `• <strong>${escapeHtml(m.field || '')}</strong>: ${escapeHtml(m.reason || m.status || '')}`).join('<br>')}
-    </div>`;
-      }
-
-      let html = `<div class="report-card">
-    <div class="report-card-header">
-      <div>
-        <div class="summary-card-kicker">Report Agent · Dynamic Prompt (Phase 1)</div>
-        <div class="report-card-title">${escapeHtml(title)}</div>
-        <div class="report-badges">
-          ${domain ? `<span class="report-pill">${escapeHtml(domain)}</span>` : ''}
-          <span class="report-pill score-pass">✓ Schema Discovered</span>
-          <span class="report-pill">${escapeHtml(String(fieldCount))} Fields</span>
-        </div>
-      </div>
-    </div>
-    <div style="padding:16px 20px;">
-      <div class="report-grid-label">Discovered Tables</div>
-      <div style="margin:4px 0 12px;">${tableChips}</div>
-      ${missingHtml}
-      <div class="report-grid-label" style="margin-top:14px;">Generated Strict Dynamic Prompt</div>
-      <div class="report-prompt-box">${escapeHtml(promptText)}</div>
-    </div>
-    ${codePanelHtml()}
-  </div>`;
-
-      const resultJson = JSON.stringify(result || {}, null, 2);
-      const curlText = `curl -X POST http://localhost:8000/api/report-agent/generate-prompt \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(request && request.body ? request.body : { templateId: tplId, tenantId: consoleTenantId() })}'`;
-      return { html, resultJson, curlText };
-    }
-
-    function renderLiveReportPlan(result) {
-      const plan = result.reportPlan || result.report_plan || result.plan || {};
-      const query = result.dataQuery || result.data_query || result.sql || {};
-      const data = result.data || {};
-      const validation = result.validation || {};
-
-      const title = plan.title || plan.reportTitle || result.title || 'Report Plan';
-      const description = plan.description || '';
-      const sourceTable = (plan.source && plan.source.table) ? (plan.source.schemaName ? `${plan.source.schemaName}.${plan.source.table}` : plan.source.table) : '—';
-      const columnsList = Array.isArray(plan.columns) && plan.columns.length ? plan.columns.map(c => c.label || c.field).join(', ') : '—';
-      const groupList = Array.isArray(plan.groupBy) && plan.groupBy.length ? plan.groupBy.join(', ') : (Array.isArray(plan.group_by) && plan.group_by.length ? plan.group_by.join(', ') : 'None');
-      const sortList = Array.isArray(plan.orderBy) && plan.orderBy.length ? plan.orderBy.map(s => `${s.field} (${s.direction || 'ASC'})`).join(', ') : (Array.isArray(plan.order_by) && plan.order_by.length ? plan.order_by.map(s => `${s.field} (${s.direction || 'ASC'})`).join(', ') : 'Default');
-      const calcsList = Array.isArray(plan.calculations) && plan.calculations.length ? plan.calculations.map(c => `${c.label} (${c.expression})`).join(', ') : '';
-      const isValid = validation.valid != null ? validation.valid : (validation.passed != null ? validation.passed : true);
-      const sqlQuery = query.sql || query.sqlQuery || '';
-
-      const errors = Array.isArray(validation.errors) ? validation.errors : [];
-      const warnings = Array.isArray(plan.warnings) && plan.warnings.length ? plan.warnings : (Array.isArray(validation.warnings) ? validation.warnings : (Array.isArray(validation.issues) ? validation.issues : []));
-      const allNotices = [...errors, ...warnings];
-
-      let noticesHtml = '';
-      if (allNotices.length) {
-        noticesHtml = `<div class="report-warning-box" style="margin:8px 0;padding:8px 12px;font-size:11.5px;">
-      <strong>${errors.length ? 'Errors / Warnings:' : 'Notices & Recommendations:'}</strong><br>
-      ${allNotices.map(w => `• ${escapeHtml(String(w))}`).join('<br>')}
-    </div>`;
-      }
-
-      // Data preview table
-      const dataCols = Array.isArray(data.columns) ? data.columns : [];
-      const dataRows = Array.isArray(data.rows) ? data.rows : [];
-      let tableHtml = '';
-      if (dataCols.length) {
-        const ths = dataCols.map(c => `<th>${escapeHtml(String(c))}</th>`).join('');
-        const trs = dataRows.slice(0, 10).map(row => {
-          const tds = dataCols.map(col => {
-            let val = row && typeof row === 'object' ? row[col] : '';
-            if (val === null || val === undefined) val = '<span style="color:var(--ink-4)">null</span>';
-            else if (typeof val === 'number') val = Number.isInteger(val) ? val.toLocaleString() : val.toFixed(2);
-            else val = escapeHtml(String(val));
-            return `<td>${val}</td>`;
-          }).join('');
-          return `<tr>${tds}</tr>`;
-        }).join('');
-        tableHtml = `<div class="report-table-wrap" style="max-height:220px;margin-top:8px;">
-      <table class="report-data-table" style="font-size:11px;">
-        <thead><tr>${ths}</tr></thead>
-        <tbody>${trs || '<tr><td colspan="' + dataCols.length + '" style="text-align:center;color:var(--ink-3);padding:10px;">No rows returned</td></tr>'}</tbody>
-      </table>
-    </div>`;
-      }
-
-      const container = document.getElementById('reportPlanPreview');
-      if (!container) return;
-
-      container.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px;">
-      <h4 style="margin:0;font-size:14px;font-weight:700;color:var(--ink);">${escapeHtml(title)}</h4>
-      <span class="report-pill ${isValid ? 'score-pass' : 'score-fail'}" style="font-size:10px;padding:2px 8px;">
-        ${isValid ? '✓ Valid' : 'Needs Review'}
-      </span>
-    </div>
-    ${description ? `<p style="margin:0 0 8px;font-size:12px;color:var(--ink-3);">${escapeHtml(description)}</p>` : ''}
-    
-    <div style="font-size:11.5px;line-height:1.6;color:var(--ink-2);background:var(--surface-3);padding:8px 10px;border-radius:var(--radius-xs);border:1px solid var(--line);">
-      <div><strong>Source:</strong> <code>${escapeHtml(sourceTable)}</code></div>
-      <div><strong>Columns:</strong> ${escapeHtml(columnsList)}</div>
-      ${groupList !== 'None' ? `<div><strong>Group By:</strong> ${escapeHtml(groupList)}</div>` : ''}
-      <div><strong>Sort:</strong> ${escapeHtml(sortList)}</div>
-      ${calcsList ? `<div><strong>Calculations:</strong> ${escapeHtml(calcsList)}</div>` : ''}
-    </div>
-
-    ${noticesHtml}
-
-    ${sqlQuery ? `
-      <div style="margin-top:8px;">
-        <div class="report-grid-label" style="font-size:9.5px;margin-bottom:2px;">Safe SQL Query</div>
-        <pre class="report-sql-code" style="background:#18122b;padding:8px 10px;border-radius:var(--radius-xs);font-size:10.5px;max-height:140px;overflow:auto;">${escapeHtml(sqlQuery)}</pre>
-      </div>
-    ` : ''}
-
-    ${tableHtml ? `
-      <div style="margin-top:8px;">
-        <div class="report-grid-label" style="font-size:9.5px;margin-bottom:2px;">Data Preview (${dataRows.length} ${dataRows.length === 1 ? 'row' : 'rows'})</div>
-        ${tableHtml}
-      </div>
-    ` : ''}
-  `;
-    }
-
-    function renderReportPlanResult(result, request) {
-      const tplId = result.template_id || result.templateId || '';
-      const plan = result.reportPlan || result.report_plan || result.plan || {};
-      const query = result.dataQuery || result.data_query || result.sql || {};
-      const data = result.data || {};
-      const validation = result.validation || {};
-      const executionMs = result.total_pipeline_time_ms || result.execution_time_ms || result.executionTimeMs || 0;
-
-      const title = plan.title || plan.reportTitle || result.title || 'Executive Business Report';
-      const domain = plan.domain || result.domain || '';
-      const chartRec = plan.chartRecommendation || '';
-      const isValid = validation.valid != null ? validation.valid : (validation.passed != null ? validation.passed : true);
-      const score = validation.score != null ? validation.score : (isValid ? 100 : 60);
-      const scoreClass = score >= 90 ? 'score-pass' : (score >= 70 ? 'score-warn' : 'score-fail');
-      const passLabel = isValid ? `${score}% Validated` : 'Needs Review';
-
-      // Metrics summary
-      const metrics = Array.isArray(plan.columns) ? plan.columns.map(c => c.label || c.field || String(c)).join(', ') : '—';
-      const aggregation = (Array.isArray(plan.calculations) && plan.calculations.length) ? plan.calculations.map(c => c.label).join(', ') : 'Standard';
-      const groupBy = Array.isArray(plan.groupBy) && plan.groupBy.length ? plan.groupBy.join(', ') : (Array.isArray(plan.group_by) && plan.group_by.length ? plan.group_by.join(', ') : 'None');
-      const sort = Array.isArray(plan.orderBy) && plan.orderBy.length ? plan.orderBy.map(s => `${s.field} (${s.direction || 'ASC'})`).join(', ') : (Array.isArray(plan.order_by) && plan.order_by.length ? plan.order_by.map(s => `${s.field} (${s.direction || 'ASC'})`).join(', ') : (Array.isArray(plan.sort) ? plan.sort.map(s => `${s.column} (${s.direction || 'asc'})`).join(', ') : 'Default'));
-
-      // Warnings
-      const warnings = Array.isArray(plan.warnings) ? plan.warnings : (Array.isArray(validation.warnings) ? validation.warnings : []);
-      const errors = Array.isArray(validation.errors) ? validation.errors : (Array.isArray(validation.issues) ? validation.issues : []);
-      const allWarnings = [...errors, ...warnings];
-      let warningsHtml = '';
-      if (allWarnings.length) {
-        warningsHtml = `<div class="report-warning-box">
-      <strong>Notices &amp; Recommendations:</strong><br>
-      ${allWarnings.map(w => `• ${escapeHtml(String(w))}`).join('<br>')}
-    </div>`;
-      }
-
-      // Data table columns and rows
-      const columns = Array.isArray(data.columns) ? data.columns : [];
-      const rows = Array.isArray(data.rows) ? data.rows : [];
-      let tableHtml = '';
-      if (columns.length) {
-        const ths = columns.map(col => `<th>${escapeHtml(String(col))}</th>`).join('');
-        const trs = rows.map(row => {
-          const tds = columns.map(col => {
-            let val = row && typeof row === 'object' ? row[col] : '';
-            if (val === null || val === undefined) val = '<span style="color:var(--ink-4)">null</span>';
-            else if (typeof val === 'number') val = Number.isInteger(val) ? val.toLocaleString() : val.toFixed(2);
-            else val = escapeHtml(String(val));
-            return `<td>${val}</td>`;
-          }).join('');
-          return `<tr>${tds}</tr>`;
-        }).join('');
-        tableHtml = `<div class="report-table-wrap">
-      <table class="report-data-table">
-        <thead><tr>${ths}</tr></thead>
-        <tbody>${trs || '<tr><td colspan="' + columns.length + '" style="text-align:center;color:var(--ink-3);padding:20px;">No rows returned</td></tr>'}</tbody>
-      </table>
-    </div>`;
-      } else {
-        tableHtml = `<div style="padding:12px;color:var(--ink-3);font-size:12px;font-style:italic;">No live data available for this query preview.</div>`;
-      }
-
-      const sqlQuery = query.sql || query.sqlQuery || '';
-
-      let html = `<div class="report-card">
-    <div class="report-card-header">
-      <div>
-        <div class="summary-card-kicker">Report Agent · Plan &amp; Live Data (Phase 2)</div>
-        <div class="report-card-title">${escapeHtml(title)}</div>
-        <div class="report-badges">
-          ${domain ? `<span class="report-pill">${escapeHtml(domain)}</span>` : ''}
-          ${chartRec ? `<span class="report-pill chart">📊 ${escapeHtml(chartRec)}</span>` : ''}
-          <span class="report-pill ${scoreClass}">✓ ${escapeHtml(passLabel)}</span>
-          <span class="report-pill">⏱️ ${escapeHtml(String(executionMs))} ms</span>
-          <span class="report-pill readonly">READ ONLY</span>
-        </div>
-      </div>
-    </div>
-    <div style="padding:16px 20px;">
-      ${plan.description ? `<div class="summary-prose" style="margin-bottom:12px;">${escapeHtml(plan.description)}</div>` : (plan.explanation ? `<div class="summary-prose" style="margin-bottom:12px;">${escapeHtml(plan.explanation)}</div>` : '')}
-      <div class="report-grid">
-        <div class="report-grid-cell">
-          <div class="report-grid-label">Aggregation &amp; Metrics</div>
-          <div class="report-grid-val">${escapeHtml(aggregation)}: ${escapeHtml(metrics)}</div>
-        </div>
-        <div class="report-grid-cell">
-          <div class="report-grid-label">Group By &amp; Sort</div>
-          <div class="report-grid-val">Group: ${escapeHtml(groupBy)}<br>Sort: ${escapeHtml(sort)}</div>
-        </div>
-      </div>
-      ${warningsHtml}
-      ${sqlQuery ? `
-        <div class="report-grid-label" style="margin-top:14px;">Generated Safe SQL Query</div>
-        <div class="report-sql-box">
-          <pre class="report-sql-code">${escapeHtml(sqlQuery)}</pre>
-        </div>
-      ` : ''}
-      <div class="report-grid-label" style="margin-top:16px;">
-        Live Data Preview (${rows.length} ${rows.length === 1 ? 'row' : 'rows'}${data.totalRowCount && data.totalRowCount > rows.length ? ' of ' + data.totalRowCount : ''})
-      </div>
-      ${tableHtml}
-    </div>
-    ${codePanelHtml()}
-  </div>`;
-
-      const resultJson = JSON.stringify(result || {}, null, 2);
-      const curlText = `curl -X POST http://localhost:8000/api/report-agent/generate-report-plan \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(request && request.body ? request.body : { templateId: tplId, tenantId: consoleTenantId(), limit: 20 })}'`;
-      return { html, resultJson, curlText };
-    }
-
     function renderDashboardResult(dashboard, request) {
       const phase = dashboard && dashboard.phase ? String(dashboard.phase) : 'schema';
       const prompt = dashboard && dashboard.prompt ? String(dashboard.prompt) : '';
@@ -6792,7 +6547,7 @@ vendor_validate</textarea>
     function renderAssistantMessage(body, sessionId, request) {
       clearEmptyState();
       const div = document.createElement('div');
-      div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || body.report_plan_result || body.report_prompt_result)
+      div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result)
         ? 'msg assistant has-summary'
         : 'msg assistant';
 
@@ -6856,18 +6611,8 @@ vendor_validate</textarea>
         details += dashCode.html;
         codeBlocks.push(dashCode);
       }
-      if (body.report_prompt_result) {
-        const reportPromptCode = renderReportPromptResult(body.report_prompt_result, request);
-        details += reportPromptCode.html;
-        codeBlocks.push(reportPromptCode);
-      }
-      if (body.report_plan_result) {
-        const reportPlanCode = renderReportPlanResult(body.report_plan_result, request);
-        details += reportPlanCode.html;
-        codeBlocks.push(reportPlanCode);
-      }
       const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-        && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !body.dashboard_result && !body.report_plan_result && !body.report_prompt_result;
+        && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !body.dashboard_result;
       if (body.forecast_result) {
         const f = body.forecast_result;
         details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -6912,12 +6657,6 @@ vendor_validate</textarea>
       }
       if (body.chatbot_result) {
         bubbleText = body.reply || 'Chatbot ready.';
-      }
-      if (body.report_prompt_result) {
-        bubbleText = body.reply || 'Dynamic report prompt generated.';
-      }
-      if (body.report_plan_result) {
-        bubbleText = body.reply || 'Report plan and live data ready.';
       }
       if (body.dashboard_result) {
         bubbleText = body.reply || 'Dashboard ready.';

@@ -7,10 +7,9 @@ services:
       - .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      # Orchestrator app DB stays local. Catalog + tenant ConnectionStrings
+      # come from CATALOG_DATABASE_URL in .env (do not override here).
       DATABASE_URL: postgresql://orchestrator:orchestrator@postgres:5432/orchestrator
-      # Override .env Azure catalog host for local compose so packs/seed use
-      # the same Postgres service (agent packs live in Catalog tables).
-      CATALOG_DATABASE_URL: postgresql://orchestrator:orchestrator@postgres:5432/orchestrator
       AGENT_PACKS_FROM_DB: "true"
       # Runner reads Catalog pipeline when true (default true in Settings; Phase 2).
       AP_PIPELINE_FROM_DB: "true"
