@@ -2885,7 +2885,7 @@ function syncMainControls() {
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result)) return;
+  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body))) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
@@ -4627,6 +4627,23 @@ async function confirmChatbotAction(actionId, sessionId) {
   }
 }
 
+function dashboardResultFromBody(body) {
+  if (body && body.dashboard_result) return body.dashboard_result;
+  if (body && typeof body.prompt === 'string' && body.prompt && body.tenant_id && body.kpis == null) {
+    return {
+      phase: 'prompts',
+      prompt: body.prompt,
+      tenant_id: body.tenant_id,
+      repository_id: body.repository_id,
+      repository_name: body.repository_name,
+      workflow_id: body.workflow_id,
+      workflow_name: body.workflow_name,
+      table: body.table,
+    };
+  }
+  return null;
+}
+
 function renderDashboardResult(dashboard, request) {
   const phase = dashboard && dashboard.phase ? String(dashboard.phase) : 'schema';
   const prompt = dashboard && dashboard.prompt ? String(dashboard.prompt) : '';
@@ -4688,7 +4705,8 @@ function renderDashboardHtmlPreview(html) {
 function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result)
+  const dashBody = dashboardResultFromBody(body);
+  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -4747,13 +4765,13 @@ function renderAssistantMessage(body, sessionId, request) {
     details += cbCode.html;
     codeBlocks.push(cbCode);
   }
-  if (body.dashboard_result) {
-    const dashCode = renderDashboardResult(body.dashboard_result, request);
+  if (dashBody) {
+    const dashCode = renderDashboardResult(dashBody, request);
     details += dashCode.html;
     codeBlocks.push(dashCode);
   }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !body.dashboard_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !dashBody;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -4799,8 +4817,8 @@ function renderAssistantMessage(body, sessionId, request) {
   if (body.chatbot_result) {
     bubbleText = body.reply || 'Chatbot ready.';
   }
-  if (body.dashboard_result) {
-    bubbleText = body.reply || 'Dashboard ready.';
+  if (dashBody) {
+    bubbleText = body.reply || (dashBody.phase === 'prompts' ? 'Suggested dashboard prompt.' : 'Dashboard ready.');
   }
 
   const rawId = 'raw-' + Math.random().toString(16).slice(2);
@@ -5921,7 +5939,7 @@ async function sendDashboardJob(forcedPhase) {
       return;
     }
     const data = await readResponseJson(res);
-    const dash = data.dashboard_result || {};
+    const dash = dashboardResultFromBody(data) || {};
     if (dash.phase === 'schema' && Array.isArray(dash.kpis)) {
       const slim = { phase: 'schema', kpis: dash.kpis, charts: dash.charts || [] };
       const box = document.getElementById('dashJson');
