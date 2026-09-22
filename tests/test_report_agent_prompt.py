@@ -72,21 +72,13 @@ def mock_enterprise_schema_rows() -> list[dict]:
     ]
 
 
-def test_list_templates_returns_exactly_10():
+def test_list_templates_returns_active_templates():
     templates = list_templates()
-    assert len(templates) == 10
+    assert len(templates) == 2
     ids = {t.id for t in templates}
     expected_ids = {
         "tpl-accounts-payable-aging",
         "tpl-pending-workflow-requests",
-        "tpl-workflow-sla-compliance",
-        "tpl-documents-without-recent-access",
-        "tpl-document-retention-status",
-        "tpl-document-version-activity",
-        "tpl-portal-submission-performance",
-        "tpl-user-login-and-security-activity",
-        "tpl-ai-credit-consumption",
-        "tpl-report-agent-roi",
     }
     assert ids == expected_ids
 
@@ -165,7 +157,7 @@ def test_api_list_templates_endpoint(client):
     response = client.get("/api/report-agent/templates")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 10
+    assert len(data) == 2
     assert any(t["id"] == "tpl-pending-workflow-requests" for t in data)
 
 

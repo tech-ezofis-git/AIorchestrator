@@ -504,28 +504,29 @@ def test_generate_report_plan_from_raw_prompt(client):
 Create a report for:
 
 Title:
-Portal Submission Performance
+Accounts Payable Aging
 
 Description:
-Submission volume and completion rate trends.
+Outstanding AP requests bucketed by age.
 
 Domain:
-External Portal
+Accounts Payable
 
 Database schema discovered:
 
-Table: ezfb_d7ad8ffb_items
+Table: ezfb_invoices
 Fields:
-- item_id (uuid)
-- Enquiry_Form (text)
-- Customer (text)
-- Shipper (text)
-- Vessel (text)
+- id (uuid)
+- invoice_number (text)
+- vendor_name (text)
+- invoice_date (date)
+- due_date (date)
+- total_amount (numeric)
+- status (text)
 - created_at (timestamp without time zone)
-- is_deleted (boolean)
 
 Report Requirements:
-1. Analyze external portal submission volumes, processing turnaround, and completion rates over time.
+1. Bucket open/unpaid accounts payable requests into standard aging brackets.
 """
     mock_db = MockDbPool()
     client.app.state.report_agent_service._db_pool = mock_db
@@ -537,8 +538,8 @@ Report Requirements:
     )
     assert res.status_code == 200, res.text
     data = res.json()
-    assert data["templateId"] == "tpl-portal-submission-performance"
-    assert data["reportPlan"]["title"] == "Portal Submission Performance"
+    assert data["templateId"] == "tpl-accounts-payable-aging"
+    assert data["reportPlan"]["title"] == "Accounts Payable Aging"
     # Prompt-provided schema is informational only; the source must come from the live mock schema.
     assert data["reportPlan"]["source"]["table"] in ("ezfb_invoices", "repositoryitem", "workflow_instances")
     assert len(data["reportPlan"]["columns"]) > 0

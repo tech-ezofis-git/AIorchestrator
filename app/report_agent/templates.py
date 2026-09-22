@@ -48,54 +48,54 @@ SUPPORTED_TEMPLATES: dict[str, TemplateDefinition] = {
         domain="Workflow Automation",
         description="Open workflow requests awaiting action.",
     ),
-    "tpl-workflow-sla-compliance": TemplateDefinition(
-        id="tpl-workflow-sla-compliance",
-        title="Workflow SLA Compliance",
-        domain="Workflow Automation",
-        description="Completed workflows within vs. outside SLA.",
-    ),
-    "tpl-documents-without-recent-access": TemplateDefinition(
-        id="tpl-documents-without-recent-access",
-        title="Documents Without Recent Access",
-        domain="Document Management",
-        description="Documents with no views in the selected period.",
-    ),
-    "tpl-document-retention-status": TemplateDefinition(
-        id="tpl-document-retention-status",
-        title="Document Retention Status",
-        domain="Document Management",
-        description="Active, archived, and scheduled-deletion counts.",
-    ),
-    "tpl-document-version-activity": TemplateDefinition(
-        id="tpl-document-version-activity",
-        title="Document Version Activity",
-        domain="Document Management",
-        description="Version history and access counts by document.",
-    ),
-    "tpl-portal-submission-performance": TemplateDefinition(
-        id="tpl-portal-submission-performance",
-        title="Portal Submission Performance",
-        domain="External Portal",
-        description="Submission volume and completion rate trends.",
-    ),
-    "tpl-user-login-and-security-activity": TemplateDefinition(
-        id="tpl-user-login-and-security-activity",
-        title="User Login and Security Activity",
-        domain="User Sessions & Security",
-        description="Login activity, failures and anomalies.",
-    ),
-    "tpl-ai-credit-consumption": TemplateDefinition(
-        id="tpl-ai-credit-consumption",
-        title="AI Credit Consumption",
-        domain="Report Agent Impact & ROI",
-        description="Monthly AI credit usage vs. allocation.",
-    ),
-    "tpl-report-agent-roi": TemplateDefinition(
-        id="tpl-report-agent-roi",
-        title="Report Agent ROI",
-        domain="Report Agent Impact & ROI",
-        description="Net business value and ROI% by report.",
-    ),
+    # "tpl-workflow-sla-compliance": TemplateDefinition(
+    #     id="tpl-workflow-sla-compliance",
+    #     title="Workflow SLA Compliance",
+    #     domain="Workflow Automation",
+    #     description="Completed workflows within vs. outside SLA.",
+    # ),
+    # "tpl-documents-without-recent-access": TemplateDefinition(
+    #     id="tpl-documents-without-recent-access",
+    #     title="Documents Without Recent Access",
+    #     domain="Document Management",
+    #     description="Documents with no views in the selected period.",
+    # ),
+    # "tpl-document-retention-status": TemplateDefinition(
+    #     id="tpl-document-retention-status",
+    #     title="Document Retention Status",
+    #     domain="Document Management",
+    #     description="Active, archived, and scheduled-deletion counts.",
+    # ),
+    # "tpl-document-version-activity": TemplateDefinition(
+    #     id="tpl-document-version-activity",
+    #     title="Document Version Activity",
+    #     domain="Document Management",
+    #     description="Version history and access counts by document.",
+    # ),
+    # "tpl-portal-submission-performance": TemplateDefinition(
+    #     id="tpl-portal-submission-performance",
+    #     title="Portal Submission Performance",
+    #     domain="External Portal",
+    #     description="Submission volume and completion rate trends.",
+    # ),
+    # "tpl-user-login-and-security-activity": TemplateDefinition(
+    #     id="tpl-user-login-and-security-activity",
+    #     title="User Login and Security Activity",
+    #     domain="User Sessions & Security",
+    #     description="Login activity, failures and anomalies.",
+    # ),
+    # "tpl-ai-credit-consumption": TemplateDefinition(
+    #     id="tpl-ai-credit-consumption",
+    #     title="AI Credit Consumption",
+    #     domain="Report Agent Impact & ROI",
+    #     description="Monthly AI credit usage vs. allocation.",
+    # ),
+    # "tpl-report-agent-roi": TemplateDefinition(
+    #     id="tpl-report-agent-roi",
+    #     title="Report Agent ROI",
+    #     domain="Report Agent Impact & ROI",
+    #     description="Net business value and ROI% by report.",
+    # ),
 }
 
 

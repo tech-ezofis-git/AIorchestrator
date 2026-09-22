@@ -140,9 +140,14 @@ def test_ap_aging_never_selects_ap_runs():
 
 def test_ai_credit_consumption_selects_orchestrator_tables():
     """AI Credit Consumption template MUST select ap_runs or ap_credit_ledger."""
+    from app.report_agent.templates import TemplateDefinition
     schema = _build_multi_domain_schema()
-    template = get_template("tpl-ai-credit-consumption")
-    assert template is not None
+    template = TemplateDefinition(
+        id="tpl-ai-credit-consumption",
+        title="AI Credit Consumption",
+        domain="Report Agent Impact & ROI",
+        description="Monthly AI credit usage vs. allocation.",
+    )
 
     disc_tables, disc_fields, _ = find_relevant_fields(template, schema)
     assert any(t in ("ap_runs", "ap_credit_ledger", "public.ap_runs", "public.ap_credit_ledger") for t in disc_tables)
