@@ -29,6 +29,9 @@ def test_console_serves_html(client):
     assert "summary-code" in response.text
     assert "cURL" in response.text
     assert "intent: 'summary'" in response.text
+    assert "intent: 'classification'" in response.text
+    assert "Classification agent" in response.text
+    assert 'id="classificationFields"' in response.text
     assert "intent: 'ocr'" in response.text
     assert "intent: 'ap'" in response.text
     assert "intent: 'prompt'" in response.text

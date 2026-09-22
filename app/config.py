@@ -113,6 +113,7 @@ class Settings(BaseSettings):
     # customers can drop in their own instructions without code changes.
     agent_skills_root: Optional[str] = None
     summary_skill_dir: Optional[str] = None
+    classification_skill_dir: Optional[str] = None
     ocr_skill_dir: Optional[str] = None
     insight_skill_dir: Optional[str] = None
     prompt_skill_dir: Optional[str] = None

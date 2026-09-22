@@ -21,6 +21,7 @@ def test_disk_packs_parse_for_all_markdown_agents():
     root = default_skills_root()
     for agent in (
         "summary",
+        "classification",
         "ocr",
         "insight",
         "prompt",

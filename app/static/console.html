@@ -1998,6 +1998,37 @@
           </div>
         </details>
       </div>
+      <div class="mode-fields" id="classificationFields" hidden>
+        <div>
+          <label for="classificationFile">File</label>
+          <input type="file" id="classificationFile" accept=".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
+        </div>
+        <div>
+          <label for="classificationFilepath">Blob path</label>
+          <input type="text" id="classificationFilepath" placeholder="folder/file.pdf" />
+        </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
+        <div>
+          <label for="classificationTenant">Tenant</label>
+          <input type="text" id="classificationTenant" placeholder="tenant id" />
+        </div>
+        <div>
+          <label for="classificationPageno">Page</label>
+          <input type="text" id="classificationPageno" value="1" placeholder="1 or -1" />
+        </div>
+        <div>
+          <label for="classificationModel">Model</label>
+          <select id="classificationModel"></select>
+        </div>
+        <div class="span-all">
+          <label for="classificationOcrText">Pasted text</label>
+          <textarea id="classificationOcrText" placeholder="Paste extracted text…"></textarea>
+        </div>
+          </div>
+        </details>
+      </div>
       <div class="mode-fields" id="insightFields" hidden>
         <div>
           <label for="insightFile">File</label>
@@ -2613,6 +2644,7 @@ const sendBtn = document.getElementById('sendBtn');
 const healthDot = document.getElementById('healthDot');
 const healthLabel = document.getElementById('healthLabel');
 const summaryModelSelect = document.getElementById('summaryModel');
+const classificationModelSelect = document.getElementById('classificationModel');
 const insightModelSelect = document.getElementById('insightModel');
 const promptModelSelect = document.getElementById('promptModel');
 
@@ -2689,6 +2721,12 @@ async function loadLlmPresetsAndConfig() {
     fillPresetSelect(summaryModelSelect, llmPresets, '', { includeNone: true });
     if (summaryModelSelect.options.length && summaryModelSelect.options[0].value === '') {
       summaryModelSelect.options[0].textContent = 'Console default';
+    }
+    if (classificationModelSelect) {
+      fillPresetSelect(classificationModelSelect, llmPresets, '', { includeNone: true });
+      if (classificationModelSelect.options.length && classificationModelSelect.options[0].value === '') {
+        classificationModelSelect.options[0].textContent = 'Console default';
+      }
     }
     if (insightModelSelect) {
       fillPresetSelect(insightModelSelect, llmPresets, '', { includeNone: true });
@@ -2770,6 +2808,7 @@ const ICONS = {
   chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 3c4.5 0 8 3.1 8 7.2 0 2.6-1.4 4.9-3.6 6.2L17 21l-3.2-1.6A9 9 0 0 1 12 19.4c-4.5 0-8-3.1-8-7.2S7.5 3 12 3Z"/></svg>',
   ocr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 12h5M8 15h3"/></svg>',
   summary: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 4h8l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M9 12h6M9 16h4"/></svg>',
+  classification: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg>',
   insight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18V9l5 4 5-8 6 10"/></svg>',
   ap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6V4h8v2"/></svg>',
   prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 17 4 12l4-5M16 7l4 5-4 5M13 5l-2 14"/></svg>',
@@ -2782,6 +2821,7 @@ const ICONS = {
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
   { slug: 'summary', label: 'Summary agent', mode: 'summary' },
+  { slug: 'classification', label: 'Classification agent', mode: 'classification' },
   { slug: 'insight', label: 'Insight agent', mode: 'insight' },
   { slug: 'ap', label: 'AP agent', mode: 'ap' },
   { slug: 'prompt', label: 'Prompt agent', mode: 'prompt' },
@@ -2796,6 +2836,7 @@ const MODE_LABELS = {
   chat: 'Ask AI',
   ocr: 'OCR agent',
   summary: 'Summary agent',
+  classification: 'Classification agent',
   insight: 'Insight agent',
   ap: 'AP agent',
   prompt: 'Prompt agent',
@@ -2828,7 +2869,7 @@ function setConsoleTenantId(tenantId) {
   if (input) input.value = tid;
   if (tid) sessionStorage.setItem(CONSOLE_TENANT_KEY, tid);
   else sessionStorage.removeItem(CONSOLE_TENANT_KEY);
-  ['summaryTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'dashTenant', 'reportTenant'].forEach(id => {
+  ['summaryTenant', 'classificationTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'dashTenant', 'reportTenant'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = tid;
   });
@@ -3102,6 +3143,7 @@ const EMPTY_SPECS = {
   chat: { title: 'Ask AI', sub: 'Search, remember, forecast, or just talk.', chips: ASK_EMPTY_CHIPS },
   ocr: { title: 'OCR', sub: 'Add a file or blob path, then send.', chips: '' },
   summary: { title: 'Summary', sub: 'Add a file, JSON, or pasted text.', chips: '' },
+  classification: { title: 'Classification', sub: 'Add a file, blob path, or pasted text.', chips: '' },
   insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
   global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
@@ -3149,7 +3191,7 @@ function syncMainControls() {
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result)) return;
+  if (!(body.summary_result || body.classification_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
@@ -3168,7 +3210,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'classification' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -3176,7 +3218,7 @@ function setComposerMode(mode) {
   const banner = document.getElementById('docBanner');
   const composerWrap = document.getElementById('composerWrap');
   const modeLabel = document.getElementById('composerModeLabel');
-  const showDoc = mode === 'summary' || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
+  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
   panel.classList.toggle('visible', showDoc);
   panel.open = showDoc;
   if (apPanel) apPanel.open = mode === 'ap';
@@ -3187,6 +3229,8 @@ function setComposerMode(mode) {
       if (mode === 'report' && typeof loadReportTemplates === 'function') loadReportTemplates();
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
+  const classificationFields = document.getElementById('classificationFields');
+  if (classificationFields) classificationFields.hidden = mode !== 'classification';
   document.getElementById('insightFields').hidden = mode !== 'insight';
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
   const pdfFields = document.getElementById('pdfFields');
@@ -3218,6 +3262,10 @@ function setComposerMode(mode) {
     banner.textContent = 'Summary';
     messageInput.placeholder = 'Optional note';
     loadAgentSkillsPack('summary');
+  } else if (mode === 'classification') {
+    banner.textContent = 'Classification';
+    messageInput.placeholder = 'Optional note';
+    loadAgentSkillsPack('classification');
   } else if (mode === 'insight') {
     banner.textContent = 'Insights';
     messageInput.placeholder = 'Optional note';
@@ -3379,9 +3427,10 @@ function setSummarySkillsStatus(kind, text) {
   el.textContent = text;
 }
 
-const PACK_AGENTS = ['summary', 'ocr', 'insight', 'prompt', 'pdf', 'ap'];
+const PACK_AGENTS = ['summary', 'classification', 'ocr', 'insight', 'prompt', 'pdf', 'ap'];
 const PACK_AGENT_LABELS = {
   summary: 'Summary',
+  classification: 'Classification',
   ocr: 'OCR',
   insight: 'Insight',
   prompt: 'Prompt',
@@ -3390,6 +3439,7 @@ const PACK_AGENT_LABELS = {
 };
 const PACK_TENANT_FIELDS = {
   summary: 'summaryTenant',
+  classification: 'classificationTenant',
   ocr: 'ocrTenant',
   insight: 'insightTenant',
   prompt: 'summaryTenant',
@@ -3406,7 +3456,7 @@ const summaryPackState = {
 
 function isPackAgent(mode) {
   // Inline check so setComposerMode('chat') at boot cannot hit TDZ on PACK_AGENTS.
-  return mode === 'summary' || mode === 'ocr' || mode === 'insight'
+  return mode === 'summary' || mode === 'classification' || mode === 'ocr' || mode === 'insight'
     || mode === 'prompt' || mode === 'pdf';
 }
 
@@ -3971,7 +4021,7 @@ async function saveSummaryCustomRuleFile() {
 }
 
 document.getElementById('summaryRuleSaveBtn').addEventListener('click', saveSummaryCustomRuleFile);
-['summaryTenant', 'ocrTenant', 'insightTenant'].forEach(id => {
+['summaryTenant', 'ocrTenant', 'insightTenant', 'classificationTenant'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('input', loadSummaryTenantCustom);
@@ -4489,6 +4539,10 @@ function buildSummaryCurl(request) {
   return buildChatCurl(request && { ...request, intent: request.intent || 'summary' }, 'summary');
 }
 
+function buildClassificationCurl(request) {
+  return buildChatCurl(request && { ...request, intent: request.intent || 'classification' }, 'classification');
+}
+
 function buildInsightCurl(request) {
   return buildChatCurl(request && { ...request, intent: request.intent || 'insight' }, 'insight');
 }
@@ -4581,6 +4635,47 @@ function renderSummaryResult(summary, request) {
   if (summary.ocr_text) {
     html += `<details class="summary-ocr"><summary>Show extracted text</summary>
       <div class="ocr-text-preview">${escapeHtml(summary.ocr_text)}</div></details>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson, curlText };
+}
+
+function renderClassificationResult(result, request) {
+  const labels = Array.isArray(result.suggested_labels) ? result.suggested_labels : [];
+  const labelChips = labels.map(l => `<span class="summary-chip">${escapeHtml(String(l))}</span>`).join('');
+  const score = Number(result.confidence_score);
+  const hasScore = Number.isFinite(score);
+  const confClass = !hasScore ? '' : (score >= 80 ? '' : score >= 50 ? 'mid' : 'low');
+  const width = hasScore ? Math.max(0, Math.min(100, score)) : 0;
+  const title = result.document_type || 'Document classification';
+  const chips = [
+    result.document_type ? `<span class="summary-chip">${escapeHtml(result.document_type)}</span>` : '',
+    result.source_reference ? `<span class="summary-chip source">${escapeHtml(result.source_reference)}</span>` : '',
+    labelChips,
+  ].join('');
+  const resultJson = JSON.stringify(result, null, 2);
+  const curlText = buildClassificationCurl(request);
+
+  let html = `<div class="summary-card">
+    <div class="summary-card-header">
+      <div class="summary-card-kicker">Document classification</div>
+      <div class="summary-card-title">${escapeHtml(title)}</div>
+      <div class="summary-meta">${chips}</div>`;
+  if (hasScore) {
+    html += `<div class="summary-conf">
+      <span class="summary-conf-label">Confidence</span>
+      <div class="summary-conf-bar ${confClass}"><span style="width:${width}%"></span></div>
+      <span class="summary-conf-score">${escapeHtml(String(result.confidence_score))}</span>
+    </div>`;
+  }
+  html += `</div><div class="summary-card-body">`;
+  if (result.rationale) {
+    html += `<div class="summary-prose">${escapeHtml(result.rationale)}</div>`;
+  }
+  if (result.ocr_text) {
+    html += `<details class="summary-ocr"><summary>Show extracted text</summary>
+      <div class="ocr-text-preview">${escapeHtml(result.ocr_text)}</div></details>`;
   }
   html += codePanelHtml();
   html += `</div></div>`;
@@ -5236,7 +5331,7 @@ function renderReportPlanResult(result, request) {
   clearEmptyState();
   const div = document.createElement('div');
   const dashBody = dashboardResultFromBody(body);
-  div.className = (body.summary_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result)
+  div.className = (body.summary_result || body.classification_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -5248,7 +5343,7 @@ function renderReportPlanResult(result, request) {
   if (body.chunk_ids && body.chunk_ids.length) {
     details += `<div class="detail-block"><div class="dt-title">Sources</div>${body.chunk_ids.map(id => escapeHtml(String(id))).join(', ')}</div>`;
   }
-  if (body.document_id && !body.summary_result) {
+  if (body.document_id && !body.summary_result && !body.classification_result) {
     details += `<div class="detail-block"><div class="dt-title">Document</div>${escapeHtml(body.document_id)}</div>`;
   }
   if (body.cited_data_points && body.cited_data_points.length) {
@@ -5269,6 +5364,11 @@ function renderReportPlanResult(result, request) {
     const summaryCode = renderSummaryResult(body.summary_result, request);
     details += summaryCode.html;
     codeBlocks.push(summaryCode);
+  }
+  if (body.classification_result) {
+    const classCode = renderClassificationResult(body.classification_result, request);
+    details += classCode.html;
+    codeBlocks.push(classCode);
   }
   if (body.insight_result) {
     const insightCode = renderInsightResult(body.insight_result, request);
@@ -5310,7 +5410,7 @@ function renderReportPlanResult(result, request) {
     details += dashCode.html;
     codeBlocks.push(dashCode);
   }
-  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result
+  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result && !body.classification_result
     && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !dashBody && !body.report_plan_result && !body.report_prompt_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
@@ -5340,6 +5440,10 @@ function renderReportPlanResult(result, request) {
   if (body.summary_result) {
     const kind = body.summary_result.document_type || 'document';
     bubbleText = body.reply || `Summary ready — ${kind}.`;
+  }
+  if (body.classification_result) {
+    const kind = body.classification_result.document_type || 'document';
+    bubbleText = body.reply || `Classification ready — ${kind}.`;
   }
   if (body.insight_result) {
     const n = (body.insight_result.insights || []).length;
@@ -5607,6 +5711,103 @@ async function sendSummaryJob() {
         body: JSON.stringify({
           session_id: sessionId,
           intent: 'summary',
+          payload,
+        }),
+      });
+    }
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
+async function sendClassificationJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const fileInput = document.getElementById('classificationFile');
+  const filepath = document.getElementById('classificationFilepath').value.trim();
+  const tenantId = document.getElementById('classificationTenant').value.trim();
+  const ocrText = (document.getElementById('classificationOcrText').value || '').trim();
+  const file = fileInput.files && fileInput.files[0];
+  const pageno = document.getElementById('classificationPageno').value.trim() || '1';
+  const model = (classificationModelSelect && classificationModelSelect.value) || '';
+
+  if (!file && !filepath && !ocrText) {
+    addSystemMessage('Classification needs a file upload, a blob filepath, or OCR text.');
+    return;
+  }
+  if (!file && !ocrText && filepath && !tenantId) {
+    addSystemMessage('Classification blob filepath needs tenant_id (container ezts{tenantid}).');
+    return;
+  }
+
+  const label = ocrText
+    ? `Classify OCR text (${ocrText.length} chars)`
+    : (file ? `Classify file: ${file.name}` : `Classify filepath: ${filepath}`);
+  addUserMessage(label);
+  const processing = addProcessingMessage(
+    ocrText
+      ? 'Classifying the document…'
+      : 'Extracting text and classifying… this can take a minute.'
+  );
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Classifying';
+
+  try {
+    let res;
+    let request;
+    const payloadExtras = {};
+    if (model) payloadExtras.model = model;
+
+    if (ocrText) {
+      const payload = { ocr_text: ocrText, ...payloadExtras };
+      if (tenantId) payload.tenant_id = tenantId;
+      request = { intent: 'classification', kind: 'ocr_text', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          intent: 'classification',
+          payload,
+        }),
+      });
+    } else if (file) {
+      request = {
+        intent: 'classification',
+        kind: 'file',
+        session_id: sessionId,
+        filename: file.name,
+        form: { pageno, model: model || undefined },
+      };
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'classification');
+      form.append('pageno', pageno);
+      if (model) form.append('model', model);
+      if (tenantId) form.append('tenant_id', tenantId);
+      form.append('file', file, file.name);
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      const payload = { filepath, pageno, tenant_id: tenantId || null, ...payloadExtras };
+      request = { intent: 'classification', kind: 'filepath', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          intent: 'classification',
           payload,
         }),
       });
@@ -6792,6 +6993,7 @@ async function sendReportPlanJob() {
 
     async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
+  if (composerMode === 'classification') return sendClassificationJob();
   if (composerMode === 'insight') return sendInsightJob();
   if (composerMode === 'ocr') return sendOcrJob();
   if (composerMode === 'ap') return sendApJob();

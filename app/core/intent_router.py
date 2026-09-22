@@ -56,6 +56,7 @@ class Intent(str, Enum):
     PDF = "pdf"
     GLOBAL_SEARCH = "global_search"
     CHATBOT = "chatbot"
+    CLASSIFICATION = "classification"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the
@@ -106,6 +107,13 @@ _SEARCH_TRIGGERS = (
     "where can i find",
     "show me",
     "locate",
+)
+
+_CLASSIFICATION_TRIGGERS = (
+    "classify",
+    "classification",
+    "categorize this document",
+    "document category",
 )
 
 _SUMMARY_TRIGGERS = (
@@ -225,6 +233,8 @@ class IntentRouter:
             return Intent.GLOBAL_SEARCH
         if any(trigger in normalized for trigger in _SEARCH_TRIGGERS):
             return Intent.SEARCH
+        if any(trigger in normalized for trigger in _CLASSIFICATION_TRIGGERS):
+            return Intent.CLASSIFICATION
         if any(trigger in normalized for trigger in _SUMMARY_TRIGGERS):
             return Intent.SUMMARY
         if any(trigger in normalized for trigger in _INSIGHT_TRIGGERS):
