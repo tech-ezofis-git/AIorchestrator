@@ -1,0 +1,13 @@
+---
+description: Locked classification JSON keys and forbidden extra fields
+alwaysApply: true
+---
+
+# Output contract
+
+- `document_type` is a short label matching the inferred type (Invoice, Insurance Policy, Purchase Order, Letter, …).
+- `confidence_score` is 0–100 reflecting how clearly the type is supported by the text.
+- `rationale` is one or two sentences citing evidence in the text. Do not invent facts.
+- `suggested_labels` is an array of short slugs (invoice, letter, contract, …). Empty array if unsure.
+- JSON keys stay exactly: `confidence_score`, `document_type`, `rationale`, `suggested_labels`.
+- Do not add summary, key_facts, or any other extra fields.

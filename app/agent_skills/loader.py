@@ -141,6 +141,7 @@ def resolve_pack_dir_from_settings(agent: str, settings: Optional[object] = None
 
     specific = {
         "summary": getattr(settings, "summary_skill_dir", None),
+        "classification": getattr(settings, "classification_skill_dir", None),
         "ocr": getattr(settings, "ocr_skill_dir", None),
         "insight": getattr(settings, "insight_skill_dir", None),
         "prompt": getattr(settings, "prompt_skill_dir", None),

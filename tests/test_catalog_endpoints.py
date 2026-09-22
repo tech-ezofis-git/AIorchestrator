@@ -10,6 +10,7 @@ def test_list_catalog_agents_seeds_builtins(client):
         "ap",
         "chat",
         "chatbot",
+        "classification",
         "dashboard",
         "forecast",
         "global_search",

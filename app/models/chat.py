@@ -69,7 +69,7 @@ class DocumentPayload(BaseModel):
     ocr_text: Optional[str] = Field(
         default=None,
         description=(
-            "Pre-extracted OCR text. When set on intent=summary or insight, blob "
+            "Pre-extracted OCR text. When set on intent=summary, classification, or insight, blob "
             "download and Paddle extract are skipped. Wins over file/filepath "
             "(summary_json / insight_json still win over ocr_text)."
         ),
@@ -490,7 +490,7 @@ class ChatRequest(BaseModel):
         default=None,
         description=(
             "Free-text chat message, or the full prompt when intent=prompt. "
-            "Optional when intent=ocr/summary/insight/ap with file, filepath, "
+            "Optional when intent=ocr/summary/classification/insight/ap with file, filepath, "
             "ocr_text, summary_json, insight_json, or invoice_json."
         ),
     )
@@ -618,10 +618,11 @@ class ChatRequest(BaseModel):
             and not has_dashboard_target
         ):
             # Multipart uploads attach file bytes outside this model; main.py
-            # validates file/filepath/ocr_text for intent=ocr/summary/insight/ap/pdf after parsing.
+            # validates file/filepath/ocr_text for intent=ocr/summary/classification/insight/ap/pdf after parsing.
             if (self.intent or "").strip().lower() in {
                 "ocr",
                 "summary",
+                "classification",
                 "insight",
                 "ap",
                 "pdf",
@@ -674,6 +675,14 @@ class ChatResponse(BaseModel):
             "Summary document-job output — confidence_score, document_type, "
             "document_title, document_language, document_summary, "
             "key_facts_extracted, ocr_text (plus optional source_reference). "
+            "`reply` is a short status line. Token counts live in token_usage."
+        ),
+    )
+    classification_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Classification document-job output — confidence_score, document_type, "
+            "rationale, suggested_labels, ocr_text (plus optional source_reference). "
             "`reply` is a short status line. Token counts live in token_usage."
         ),
     )

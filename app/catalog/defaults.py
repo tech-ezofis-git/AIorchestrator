@@ -4,6 +4,7 @@ BUILTIN_AGENTS: list[dict[str, str]] = [
     {"slug": "chat", "name": "Chat", "description": "General EZOFIS assistant."},
     {"slug": "search", "name": "Search", "description": "Search indexed documents."},
     {"slug": "summary", "name": "Summary", "description": "Summarize a document."},
+    {"slug": "classification", "name": "Classification", "description": "Classify a document type from OCR or a file."},
     {"slug": "insight", "name": "Insight", "description": "Analyze a document or report."},
     {"slug": "ocr", "name": "OCR", "description": "Extract and structure text from a document."},
     {"slug": "forecast", "name": "Forecast", "description": "Narrate a numeric forecast."},

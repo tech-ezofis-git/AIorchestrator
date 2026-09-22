@@ -123,6 +123,7 @@ from app.agents.pdf_agent import PdfAgent
 from app.agents.prompt_agent import PromptAgent
 from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
+from app.agents.classification_agent import ClassificationAgent
 from app.agents.global_search_agent import GlobalSearchAgent
 from app.agents.chatbot_agent import ChatbotAgent
 from app.agents.dashboard_agent import DashboardAgent
@@ -242,6 +243,7 @@ _SNIPPETABLE_INTENTS = {
     "chat",
     "search",
     "summary",
+    "classification",
     "insight",
     "ocr",
     "forecast",
@@ -492,6 +494,13 @@ async def lifespan(app: FastAPI):
         llm_adapter=llm_adapter,
         runtime_models=runtime_models,
     )
+    classification_agent = ClassificationAgent(
+        dispatcher,
+        response_composer,
+        settings,
+        llm_adapter=llm_adapter,
+        runtime_models=runtime_models,
+    )
     insight_agent = InsightAgent(
         dispatcher,
         response_composer,
@@ -565,6 +574,7 @@ async def lifespan(app: FastAPI):
     agent_router = AgentRouter(chat_agent)
     agent_router.register(Intent.SEARCH, search_agent.handle)
     agent_router.register(Intent.SUMMARY, summary_agent.handle)
+    agent_router.register(Intent.CLASSIFICATION, classification_agent.handle)
     agent_router.register(Intent.INSIGHT, insight_agent.handle)
     agent_router.register(Intent.OCR, ocr_agent.handle)
     agent_router.register(Intent.FORECAST, forecast_agent.handle)
@@ -1104,6 +1114,7 @@ SummaryCustomSkillUpdate = SummaryCustomRuleUpdate
 _PACK_CONSOLE_AGENTS = frozenset(
     {
         "summary",
+        "classification",
         "ocr",
         "insight",
         "prompt",
@@ -1901,7 +1912,7 @@ _CHAT_MULTIPART_SCHEMA = {
     "type": "object",
     "properties": {
         "session_id": {"type": "string", "description": "Required session id."},
-        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/insight/ap with file/filepath/ocr_text/summary_json/insight_json/invoice_json)."},
+        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/classification/insight/ap with file/filepath/ocr_text/summary_json/insight_json/invoice_json)."},
         "intent": {
             "type": "string",
             "description": "Explicit agent (ocr, ap, chat, …). Omit to use keyword routing.",
@@ -1920,7 +1931,7 @@ _CHAT_MULTIPART_SCHEMA = {
         },
         "ocr_text": {
             "type": "string",
-            "description": "Pre-extracted OCR text (summary/insight). Skips blob download and Paddle. Wins over file/filepath (summary_json / insight_json still win).",
+            "description": "Pre-extracted OCR text (summary/classification/insight). Skips blob download and Paddle. Wins over file/filepath (summary_json / insight_json still win).",
         },
         "summary_json": {
             "type": "string",
@@ -2190,6 +2201,17 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "classification_ocr_text": {
+                            "summary": "Classify from OCR text (no blob / Paddle)",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "classification",
+                                "payload": {
+                                    "ocr_text": "Niss Internet Services Private Limited\nInvoice Number: INV/26-27/002140\nTotal: 1770.00",
+                                    "model": "qwen3.5-9b",
+                                },
+                            },
+                        },
                         "summary_json": {
                             "summary": "Summarize from structured JSON (no blob / Paddle)",
                             "value": {
@@ -2283,10 +2305,12 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             or has_summary_json
             or has_insight_json
             or has_pdf_json
-            or explicit in {"ocr", "summary", "insight", "ap", "pdf"}
+            or explicit in {"ocr", "summary", "classification", "insight", "ap", "pdf"}
         ):
             if explicit == "summary":
                 message = "Summarize the document."
+            elif explicit == "classification":
+                message = "Classify the document."
             elif explicit == "insight":
                 message = "Generate insights from the supplied data."
             elif explicit == "pdf":
@@ -2469,7 +2493,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "model": payload.payload.model if payload.payload else None,
             "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
-    elif intent in {Intent.SUMMARY, Intent.INSIGHT} and has_ocr_text:
+    elif intent in {Intent.SUMMARY, Intent.CLASSIFICATION, Intent.INSIGHT} and has_ocr_text:
         # Direct OCR text: skip blob download and Paddle. Wins over file/filepath.
         document_job = {
             "instruction": payload.instruction,
@@ -2489,7 +2513,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "model": payload.payload.model if payload.payload else None,
             "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
-    elif intent in {Intent.OCR, Intent.SUMMARY, Intent.INSIGHT} and has_document:
+    elif intent in {Intent.OCR, Intent.SUMMARY, Intent.CLASSIFICATION, Intent.INSIGHT} and has_document:
         if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
         # Prefer upload over filepath when both are present.
@@ -2520,6 +2544,10 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         }
     elif intent == Intent.OCR and explicit == "ocr" and not has_document:
         # Explicit OCR without a document still allows legacy "run ocr on SCN-.." messages.
+        pass
+    elif intent == Intent.CLASSIFICATION and explicit == "classification" and not (
+        has_document or has_ocr_text
+    ):
         pass
     elif intent == Intent.SUMMARY and explicit == "summary" and not (
         has_document or has_ocr_text or has_summary_json
@@ -2733,6 +2761,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         cited_data_points=result.get("cited_data_points"),
         ocr_result=result.get("ocr_result"),
         summary_result=result.get("summary_result"),
+        classification_result=result.get("classification_result"),
         insight_result=result.get("insight_result"),
         forecast_result=result.get("forecast_result"),
         invoice_reference=result.get("invoice_reference"),
