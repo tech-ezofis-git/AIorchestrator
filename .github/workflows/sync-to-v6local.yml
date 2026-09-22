@@ -1,0 +1,52 @@
+name: Sync to v6local (agents/)
+
+# Every push to main mirrors this repository (FastAPI + console UI) into the
+# agents/ folder of tech-ezofis-git/v6local.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout AIorchestrator (source)
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Checkout v6local
+        uses: actions/checkout@v4
+        with:
+          repository: tech-ezofis-git/v6local
+          # Prefer a dedicated token; fall back to the existing monorepo sync PAT.
+          token: ${{ secrets.V6LOCAL_SYNC_TOKEN != '' && secrets.V6LOCAL_SYNC_TOKEN || secrets.MONOREPO_SYNC_TOKEN }}
+          path: v6local
+
+      - name: Mirror into agents/
+        run: |
+          mkdir -p v6local/agents
+          rsync -a --delete \
+            --exclude '.git' \
+            --exclude '.github' \
+            source/ v6local/agents/
+
+      - name: Commit and push
+        working-directory: v6local
+        env:
+          SOURCE_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          git config user.name "aiorchestrator-sync"
+          git config user.email "aiorchestrator-sync@users.noreply.github.com"
+          git add -A agents
+          if git diff --cached --quiet; then
+            echo "No changes to sync."
+            exit 0
+          fi
+          SUMMARY=$(printf '%s' "$SOURCE_MSG" | head -n 1)
+          git commit -m "Sync agents/ from AIorchestrator@${GITHUB_SHA:0:7}: ${SUMMARY:-manual sync}"
+          git pull --rebase origin main || true
+          git push
