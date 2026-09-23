@@ -29,6 +29,7 @@ async def _pack_store(request: Request) -> Optional[AgentPackStore]:
         for agent in (
             "summary",
             "classification",
+            "document_intelligent",
             "ocr",
             "insight",
             "prompt",

@@ -1,0 +1,13 @@
+---
+description: Locked Document Intelligent JSON keys
+alwaysApply: true
+---
+
+# Output contract
+
+- `repository_id` is a UUID copied from the catalog, or null.
+- `repository_name` is the catalog name for that id, or null.
+- `confidence_score` is 0–100.
+- `rationale` is one or two sentences citing OCR evidence. Do not invent facts.
+- `candidates` is an array of `{repository_id, repository_name, score}` from the catalog only (max 5).
+- JSON keys stay exactly: `confidence_score`, `repository_id`, `repository_name`, `rationale`, `candidates`.

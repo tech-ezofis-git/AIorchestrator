@@ -1,0 +1,298 @@
+[
+  {
+    "family": "Project",
+    "field": "Customer legal name",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Exact customer record",
+    "agent_behaviour": "No priced output without customer identity"
+  },
+  {
+    "family": "Project",
+    "field": "Project name/address",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Customer email/spec",
+    "agent_behaviour": "Use in remarks"
+  },
+  {
+    "family": "Project",
+    "field": "Base vs alternate scope",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Spec/email",
+    "agent_behaviour": "Human review if unclear"
+  },
+  {
+    "family": "Opening Schedule",
+    "field": "Elevator/car ID",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "One row per car",
+    "agent_behaviour": "Never infer total cars"
+  },
+  {
+    "family": "Opening Schedule",
+    "field": "Entrance ID (Front/Rear)",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "One row per opening",
+    "agent_behaviour": "Operator quantity is opening count"
+  },
+  {
+    "family": "Door",
+    "field": "Door type (1S/2C/2T)",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Normalize spec wording",
+    "agent_behaviour": "Unknown blocks operator selection"
+  },
+  {
+    "family": "Door",
+    "field": "Clear opening width",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Inches",
+    "agent_behaviour": "Non-stock size review"
+  },
+  {
+    "family": "Door",
+    "field": "Door height",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Inches",
+    "agent_behaviour": "84 in standard; other height review"
+  },
+  {
+    "family": "Door",
+    "field": "Hand as provided + view convention",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "OEM label and diagram",
+    "agent_behaviour": "Normalize to Wittur hand"
+  },
+  {
+    "family": "Door",
+    "field": "Existing operator/door OEM",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "GAL/MAC/Dover/OTIS/West/etc.",
+    "agent_behaviour": "Other requires survey"
+  },
+  {
+    "family": "Door",
+    "field": "Landing-lock plan",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Retain / replace with GAL / other",
+    "agent_behaviour": "Drives clutch and OTIS rules"
+  },
+  {
+    "family": "Car Door",
+    "field": "Retain / skin / replace",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Cab interior section often controls",
+    "agent_behaviour": "Drives universal door/adaptor"
+  },
+  {
+    "family": "Car Door",
+    "field": "Top-of-door bolt pattern",
+    "stage": "Order",
+    "mandatory": "Conditional",
+    "validation_allowed_values": "Required when car door retained",
+    "agent_behaviour": "Photo/drawing preferred"
+  },
+  {
+    "family": "Car Door",
+    "field": "Finish",
+    "stage": "Order",
+    "mandatory": "Conditional",
+    "validation_allowed_values": "#4 brushed stock or approved special finish",
+    "agent_behaviour": "Resolve 304 vs 441 description"
+  },
+  {
+    "family": "Car Door",
+    "field": "A-F and S dimensions",
+    "stage": "Order",
+    "mandatory": "Conditional",
+    "validation_allowed_values": "Retained doors/locks; survey pages 7/8",
+    "agent_behaviour": "Form definitions missing"
+  },
+  {
+    "family": "Detector",
+    "field": "Voltage/current/wiring confirmation",
+    "stage": "Order",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Formula datasheet + SUPRA IPD",
+    "agent_behaviour": "Resolve AC/DC conflict"
+  },
+  {
+    "family": "Governor",
+    "field": "Rated car speed",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "FPM or m/s",
+    "agent_behaviour": "Calibrates governor"
+  },
+  {
+    "family": "Governor",
+    "field": "Governor application",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Car or CWT",
+    "agent_behaviour": "Required"
+  },
+  {
+    "family": "Governor",
+    "field": "Pulley and rope diameter",
+    "stage": "Order",
+    "mandatory": "Yes",
+    "validation_allowed_values": "12/8 in; rope diameter",
+    "agent_behaviour": "Encoder/remote constraints"
+  },
+  {
+    "family": "Governor",
+    "field": "Trip direction/hand",
+    "stage": "Order",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Wittur convention",
+    "agent_behaviour": "Handed code needed"
+  },
+  {
+    "family": "Governor",
+    "field": "MR/MRL/pit mounting",
+    "stage": "Order",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Mounting location",
+    "agent_behaviour": "Cover/base configuration"
+  },
+  {
+    "family": "Governor",
+    "field": "Remote/encoder option",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "MT/RC/RE",
+    "agent_behaviour": "RC is FTL standard"
+  },
+  {
+    "family": "Governor",
+    "field": "Travel height",
+    "stage": "Order",
+    "mandatory": "Conditional",
+    "validation_allowed_values": "Especially OL100",
+    "agent_behaviour": "Tension/filler selection"
+  },
+  {
+    "family": "Governor Tension",
+    "field": "Guide rail + AK pickup distance + orientation",
+    "stage": "Order",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Swingarm survey",
+    "agent_behaviour": "Exact assembly selection"
+  },
+  {
+    "family": "WRG",
+    "field": "Car or CWT application",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Also top/bottom if partial",
+    "agent_behaviour": "WRG80 is CWT only"
+  },
+  {
+    "family": "WRG",
+    "field": "Rated speed",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "FPM",
+    "agent_behaviour": "Must fall within model range"
+  },
+  {
+    "family": "WRG",
+    "field": "Guide rail type/head width",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "T82/T89/T114/T127/T140 etc.",
+    "agent_behaviour": "Photo if uncertain"
+  },
+  {
+    "family": "WRG",
+    "field": "Car weight + rated load",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "lb/kg",
+    "agent_behaviour": "Engineering selection"
+  },
+  {
+    "family": "WRG",
+    "field": "Face/side mounting + photos",
+    "stage": "Order",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Existing guide/frame",
+    "agent_behaviour": "Compatibility review"
+  },
+  {
+    "family": "Safety",
+    "field": "Fmax = car + capacity + compensation",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "lb/kg",
+    "agent_behaviour": "Primary range variable"
+  },
+  {
+    "family": "Safety",
+    "field": "Nominal and tripping speed",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "FPM",
+    "agent_behaviour": "Both required"
+  },
+  {
+    "family": "Safety",
+    "field": "Rail size and condition",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Machined/oiled or machined/dry",
+    "agent_behaviour": "Rail alone is insufficient"
+  },
+  {
+    "family": "Safety",
+    "field": "Governor pull-through force + rope location",
+    "stage": "Order",
+    "mandatory": "Yes",
+    "validation_allowed_values": "lbf/N + A/B",
+    "agent_behaviour": "Must match safety"
+  },
+  {
+    "family": "Safety",
+    "field": "Simplex/duplex; housing/SYNC scope",
+    "stage": "Order",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Existing frame clearances",
+    "agent_behaviour": "Engineering confirmation"
+  },
+  {
+    "family": "Commercial",
+    "field": "Customer price/discount profile",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Versioned approval",
+    "agent_behaviour": "No historical inference"
+  },
+  {
+    "family": "Commercial",
+    "field": "Freight class/value",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Approved matrix or manual",
+    "agent_behaviour": "No default matrix currently"
+  },
+  {
+    "family": "Commercial",
+    "field": "Payment terms",
+    "stage": "Estimate",
+    "mandatory": "Yes",
+    "validation_allowed_values": "Customer record",
+    "agent_behaviour": "Do not invent"
+  }
+]

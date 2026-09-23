@@ -1,0 +1,482 @@
+[
+  {
+    "rule_id": "CORE-001",
+    "category": "Core Control",
+    "trigger_spec_says": "Any enquiry",
+    "agent_action": "Build scope from source documents before pricing",
+    "rule_status": "Required",
+    "required_inputs": "Customer email + spec + schedules",
+    "human_review_if": "Conflicting source documents",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "CORE-002",
+    "category": "Core Control",
+    "trigger_spec_says": "Missing quantity/configuration",
+    "agent_action": "Flag missing data; do not create a priced line",
+    "rule_status": "Block",
+    "required_inputs": "Exact quantity and configuration",
+    "human_review_if": "Always",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "CORE-003",
+    "category": "Core Control",
+    "trigger_spec_says": "Product selection",
+    "agent_action": "Use only an approved Product Master code and approved price source",
+    "rule_status": "Required",
+    "required_inputs": "SKU + price version",
+    "human_review_if": "No exact match",
+    "authority": "FTL training rule"
+  },
+  {
+    "rule_id": "CORE-004",
+    "category": "Core Control",
+    "trigger_spec_says": "One enquiry",
+    "agent_action": "Create one primary quote; duplicate only for an alternate configuration",
+    "rule_status": "Required",
+    "required_inputs": "Base-vs-alternate classification",
+    "human_review_if": "Unclear commercial choice",
+    "authority": "Seth/FTL workflow"
+  },
+  {
+    "rule_id": "CORE-005",
+    "category": "Core Control",
+    "trigger_spec_says": "Historical quote/manual language",
+    "agent_action": "Treat as evidence, not permission to add scope or copy price",
+    "rule_status": "Required",
+    "required_inputs": "Current master/customer profile",
+    "human_review_if": "Source conflicts",
+    "authority": "FTL training rule"
+  },
+  {
+    "rule_id": "QTY-001",
+    "category": "Quantity",
+    "trigger_spec_says": "Multiple elevators/openings",
+    "agent_action": "Create a car-by-car, front/rear opening schedule",
+    "rule_status": "Required",
+    "required_inputs": "Car ID + entrance ID",
+    "human_review_if": "Schedule cannot reconcile",
+    "authority": "Telegram test"
+  },
+  {
+    "rule_id": "QTY-002",
+    "category": "Quantity",
+    "trigger_spec_says": "Door system",
+    "agent_action": "Number of cars is not number of operators; operator quantity equals confirmed openings",
+    "rule_status": "Required",
+    "required_inputs": "Front/rear status per car",
+    "human_review_if": "Any inferred opening",
+    "authority": "Telegram test"
+  },
+  {
+    "rule_id": "DOOR-001",
+    "category": "Door System",
+    "trigger_spec_says": "Door type wording",
+    "agent_action": "Map SSSO/1SSO/single-speed side-opening to 1S; centre opening/bi-parting to 2C; two-speed/telescopic side-opening to 2T",
+    "rule_status": "Required",
+    "required_inputs": "Door type",
+    "human_review_if": "Ambiguous door description",
+    "authority": "SGV Catalogue sheet 09"
+  },
+  {
+    "rule_id": "DOOR-002",
+    "category": "Door System",
+    "trigger_spec_says": "Door hand",
+    "agent_action": "Normalize to Wittur hand as seen from hall; never copy OEM/GAL label blindly",
+    "rule_status": "Required",
+    "required_inputs": "Source hand + view convention",
+    "human_review_if": "No approved conversion",
+    "authority": "SGV Catalogue + Element email"
+  },
+  {
+    "rule_id": "DOOR-003",
+    "category": "Door System",
+    "trigger_spec_says": "GAL one-panel hand",
+    "agent_action": "Use approved conversion: GAL RH -> Wittur 1S-L; GAL LH -> Wittur 1S-R",
+    "rule_status": "Conditional",
+    "required_inputs": "GAL hand confirmed",
+    "human_review_if": "Non-1S or unclear diagram",
+    "authority": "Element inline hand diagrams"
+  },
+  {
+    "rule_id": "DOOR-004",
+    "category": "Car Door",
+    "trigger_spec_says": "Spec calls for car-door skinning or replacement",
+    "agent_action": "Quote the universal car door",
+    "rule_status": "FTL standard",
+    "required_inputs": "Opening type + W x H + finish",
+    "human_review_if": "Non-stock size/finish",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "DOOR-005",
+    "category": "Car Door",
+    "trigger_spec_says": "Landing locks converted to GAL",
+    "agent_action": "Push the universal car door as the preferred easier-install solution and label it as FTL recommended unless also spec-required",
+    "rule_status": "Recommended",
+    "required_inputs": "Lock plan + car-door decision",
+    "human_review_if": "Customer rejects new door",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "DOOR-006",
+    "category": "Car Door",
+    "trigger_spec_says": "Existing car door definitely retained or customer declines new door",
+    "agent_action": "Quote correct panel adaptor",
+    "rule_status": "Conditional",
+    "required_inputs": "Door OEM or existing car-door lock + top bolt pattern",
+    "human_review_if": "No matching approved adaptor",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "DOOR-007",
+    "category": "Survey",
+    "trigger_spec_says": "GAL locks + new/skinned car doors + non-OTIS OEM",
+    "agent_action": "Only W x H are required as additional field dimensions; opening count/type/hand still must be known",
+    "rule_status": "Simplified survey",
+    "required_inputs": "Opening schedule + W x H",
+    "human_review_if": "Any condition false",
+    "authority": "FTL Element guidance"
+  },
+  {
+    "rule_id": "DOOR-008",
+    "category": "Survey",
+    "trigger_spec_says": "Landing interlocks and car doors retained",
+    "agent_action": "Require bolt pattern, car/landing OEM, lock details/photos, and A-F plus S measurements",
+    "rule_status": "Required",
+    "required_inputs": "Page 7 for 1S/2C; page 8 for 2T",
+    "human_review_if": "Survey page definitions unavailable",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "OTIS-001",
+    "category": "OTIS",
+    "trigger_spec_says": "OTIS OEM",
+    "agent_action": "Use custom OTIS clutch/coupler logic",
+    "rule_status": "Required",
+    "required_inputs": "6940 retained vs GAL conversion",
+    "human_review_if": "Unknown OTIS lock",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "OTIS-002",
+    "category": "OTIS",
+    "trigger_spec_says": "OTIS 6940 landing locks retained",
+    "agent_action": "Require landing-door count and bracket at each landing",
+    "rule_status": "Conditional",
+    "required_inputs": "Landing count",
+    "human_review_if": "Bracket SKU/price missing",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "OTIS-003",
+    "category": "OTIS",
+    "trigger_spec_says": "OTIS locks replaced with GAL",
+    "agent_action": "Use GAL clutch; no OTIS landing-lock brackets",
+    "rule_status": "Conditional",
+    "required_inputs": "GAL lock conversion confirmed",
+    "human_review_if": "OTIS car door retained without bolt pattern",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "OTIS-004",
+    "category": "OTIS",
+    "trigger_spec_says": "Universal car door selected on OTIS",
+    "agent_action": "Use special OTIS universal-door adaptor for clearance",
+    "rule_status": "Conditional",
+    "required_inputs": "OTIS application confirmed",
+    "human_review_if": "Adaptor SKU/price missing",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "BUNDLE-001",
+    "category": "Door Bundle",
+    "trigger_spec_says": "Each SGV2 opening",
+    "agent_action": "Quote 1 operator + 1 clutch + 1 Formula 3D + 1 customer-visible $0 restrictor/value line",
+    "rule_status": "Required",
+    "required_inputs": "Confirmed opening",
+    "human_review_if": "Scope excludes a component",
+    "authority": "FTL standard"
+  },
+  {
+    "rule_id": "BUNDLE-002",
+    "category": "Door Bundle",
+    "trigger_spec_says": "One project",
+    "agent_action": "Quote one programming tool unless customer profile/estimator override says customer already has one or tool is waived",
+    "rule_status": "Conditional",
+    "required_inputs": "Customer profile",
+    "human_review_if": "Tool price conflict",
+    "authority": "FTL training examples"
+  },
+  {
+    "rule_id": "PANEL-001",
+    "category": "Car Door",
+    "trigger_spec_says": "1S universal door",
+    "agent_action": "Quantity equals 1 panel per opening",
+    "rule_status": "Required",
+    "required_inputs": "Opening count",
+    "human_review_if": "Non-standard door",
+    "authority": "FTL quote examples"
+  },
+  {
+    "rule_id": "PANEL-002",
+    "category": "Car Door",
+    "trigger_spec_says": "2C or 2T universal door",
+    "agent_action": "Quantity equals 2 panels per opening",
+    "rule_status": "Required",
+    "required_inputs": "Opening count",
+    "human_review_if": "Price-list UOM conflict",
+    "authority": "FTL quote examples"
+  },
+  {
+    "rule_id": "DET-001",
+    "category": "Detector",
+    "trigger_spec_says": "SGV2 package",
+    "agent_action": "Use Formula VisionPlus 3D only",
+    "rule_status": "FTL standard",
+    "required_inputs": "Opening count",
+    "human_review_if": "Electrical data unresolved",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "DET-002",
+    "category": "Detector",
+    "trigger_spec_says": "SGV2 package",
+    "agent_action": "Do not automatically add separate detector power supply",
+    "rule_status": "Required",
+    "required_inputs": "SUPRA board application",
+    "human_review_if": "Detector exceeds +24 VDC/150 mA or non-SGV2",
+    "authority": "SUPRA V2 manual sheet 10"
+  },
+  {
+    "rule_id": "GOV-001",
+    "category": "Governor",
+    "trigger_spec_says": "Governor called in scope",
+    "agent_action": "Select model from speed/application; never add because it is typical MOD equipment",
+    "rule_status": "Required",
+    "required_inputs": "Rated speed + application",
+    "human_review_if": "Missing survey fields",
+    "authority": "FTL training rule"
+  },
+  {
+    "rule_id": "GOV-002",
+    "category": "Governor",
+    "trigger_spec_says": "Standard OL35 quote",
+    "agent_action": "Use remote-control version unless spec/customer directs manual or encoder",
+    "rule_status": "FTL standard",
+    "required_inputs": "Remote/encoder requirement",
+    "human_review_if": "8-in pulley or encoder requirement",
+    "authority": "FTL governor survey"
+  },
+  {
+    "rule_id": "GOV-003",
+    "category": "Governor",
+    "trigger_spec_says": "Any OL governor",
+    "agent_action": "Add one pit swingarm/tension assembly",
+    "rule_status": "Required companion",
+    "required_inputs": "Governor quantity",
+    "human_review_if": "Exact OL100 tension configuration",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "GOV-004",
+    "category": "Governor",
+    "trigger_spec_says": "OL100 selected",
+    "agent_action": "Add $2,950 OL100 pit tension line",
+    "rule_status": "Required companion",
+    "required_inputs": "OL100 selection",
+    "human_review_if": "SKU/vertical-vs-swingarm unresolved",
+    "authority": "FTL explicit rule"
+  },
+  {
+    "rule_id": "GOV-005",
+    "category": "Governor",
+    "trigger_spec_says": "OL35 candidate",
+    "agent_action": "Validate against NA range: 12-in pulley 100-500 fpm; 8-in pulley 200 fpm only",
+    "rule_status": "Required",
+    "required_inputs": "Rated speed + pulley",
+    "human_review_if": "Outside range",
+    "authority": "OL35-NA sheet D700CDEGB.3"
+  },
+  {
+    "rule_id": "GOV-006",
+    "category": "Governor",
+    "trigger_spec_says": "OL35 8-in pulley",
+    "agent_action": "Remote control is obligatory and encoder is unavailable",
+    "rule_status": "Required",
+    "required_inputs": "Pulley diameter",
+    "human_review_if": "Any contrary request",
+    "authority": "OL35 order form D700CDEGB.37"
+  },
+  {
+    "rule_id": "GOV-007",
+    "category": "Governor",
+    "trigger_spec_says": "Outside OL35 range/high-performance",
+    "agent_action": "Route OL100 to engineering review",
+    "rule_status": "Review",
+    "required_inputs": "Speed + rope + travel + force",
+    "human_review_if": "Always before release",
+    "authority": "OL100 sheet TC.7.000533.DE.04"
+  },
+  {
+    "rule_id": "WRG-001",
+    "category": "Roller Guides",
+    "trigger_spec_says": "WRG in requested scope",
+    "agent_action": "Select by car/CWT application, speed, rail and load/balance",
+    "rule_status": "Required",
+    "required_inputs": "Survey data",
+    "human_review_if": "Any missing field",
+    "authority": "WRG survey + sheet 03"
+  },
+  {
+    "rule_id": "WRG-002",
+    "category": "Roller Guides",
+    "trigger_spec_says": "Full car or CWT set",
+    "agent_action": "Quote 4 individual assemblies",
+    "rule_status": "Required",
+    "required_inputs": "Number of full sets",
+    "human_review_if": "Partial top/bottom scope",
+    "authority": "2026 Price List p.4"
+  },
+  {
+    "rule_id": "WRG-003",
+    "category": "Roller Guides",
+    "trigger_spec_says": "Application validation",
+    "agent_action": "Passenger elevators only; well-balanced car/CWT; dry rail; no roll-formed HT rail",
+    "rule_status": "Required",
+    "required_inputs": "Application and rail condition",
+    "human_review_if": "Any condition fails",
+    "authority": "WRG Catalogue sheets 02-03"
+  },
+  {
+    "rule_id": "SAFE-001",
+    "category": "Safety Gear",
+    "trigger_spec_says": "Safety gear not explicitly in scope",
+    "agent_action": "Do not quote or add it",
+    "rule_status": "Block",
+    "required_inputs": "Explicit scope",
+    "human_review_if": "Typical-package reasoning only",
+    "authority": "Telegram test"
+  },
+  {
+    "rule_id": "SAFE-002",
+    "category": "Safety Gear",
+    "trigger_spec_says": "Safety gear explicitly required",
+    "agent_action": "Require Fmax, nominal/tripping speed, rail size/condition, governor pull force/location and configuration",
+    "rule_status": "Required",
+    "required_inputs": "Completed safety survey",
+    "human_review_if": "Any missing field",
+    "authority": "Safety catalogue/order form"
+  },
+  {
+    "rule_id": "SAFE-003",
+    "category": "Safety Gear",
+    "trigger_spec_says": "Family selection",
+    "agent_action": "Do not select safety family by rail size alone; mass/speed/rail condition govern",
+    "rule_status": "Required",
+    "required_inputs": "Full engineering inputs",
+    "human_review_if": "CSGB/SGB mapping unresolved",
+    "authority": "Safety sheet TC.7.004750.EN.03"
+  },
+  {
+    "rule_id": "SAFE-004",
+    "category": "Safety Gear",
+    "trigger_spec_says": "Standard car safety",
+    "agent_action": "Quote in pairs only after engineering confirmation",
+    "rule_status": "Required",
+    "required_inputs": "Pair quantity",
+    "human_review_if": "Housing/SYNC scope unclear",
+    "authority": "Safety order form"
+  },
+  {
+    "rule_id": "COMM-001",
+    "category": "Commercial",
+    "trigger_spec_says": "Pricing",
+    "agent_action": "Use current approved price master plus exact customer pricing profile",
+    "rule_status": "Required",
+    "required_inputs": "Price version + customer",
+    "human_review_if": "Conflict or missing profile",
+    "authority": "FTL policy"
+  },
+  {
+    "rule_id": "COMM-002",
+    "category": "Commercial",
+    "trigger_spec_says": "Discount/incentive",
+    "agent_action": "Do not infer from historical quotes; apply only approved customer or project rule",
+    "rule_status": "Required",
+    "required_inputs": "Approval/profile",
+    "human_review_if": "None",
+    "authority": "Element training example"
+  },
+  {
+    "rule_id": "COMM-003",
+    "category": "Commercial",
+    "trigger_spec_says": "Bundle incentive",
+    "agent_action": "Flag eligibility; do not apply discretionary 'up to' discount automatically",
+    "rule_status": "Review",
+    "required_inputs": "Qualifying product lines",
+    "human_review_if": "No written approval",
+    "authority": "2026 Price List p.5"
+  },
+  {
+    "rule_id": "COMM-004",
+    "category": "Commercial",
+    "trigger_spec_says": "Freight",
+    "agent_action": "Use an approved freight matrix or estimator-entered value",
+    "rule_status": "Review",
+    "required_inputs": "Shipment size/location",
+    "human_review_if": "Matrix absent",
+    "authority": "Conflict I-009"
+  },
+  {
+    "rule_id": "COMM-005",
+    "category": "Commercial",
+    "trigger_spec_says": "Payment terms",
+    "agent_action": "Populate from customer record or approved quote template only",
+    "rule_status": "Required",
+    "required_inputs": "Customer record",
+    "human_review_if": "No record",
+    "authority": "Telegram feedback"
+  },
+  {
+    "rule_id": "OUT-001",
+    "category": "Output",
+    "trigger_spec_says": "Customer remarks",
+    "agent_action": "State known project facts, opening schedule, scope boundaries and required final survey confirmation",
+    "rule_status": "Required",
+    "required_inputs": "Validated scope",
+    "human_review_if": "Unknown facts",
+    "authority": "FTL training rule"
+  },
+  {
+    "rule_id": "OUT-002",
+    "category": "Output",
+    "trigger_spec_says": "Internal notes",
+    "agent_action": "List unresolved fields and source conflicts without using them to justify guessed lines",
+    "rule_status": "Required",
+    "required_inputs": "Open questions",
+    "human_review_if": "None",
+    "authority": "FTL training rule"
+  },
+  {
+    "rule_id": "OUT-003",
+    "category": "Validation",
+    "trigger_spec_says": "Before quote release",
+    "agent_action": "Reconcile operators, clutches, detectors and $0 lines to opening count; panel quantities to door type",
+    "rule_status": "Block on failure",
+    "required_inputs": "Opening schedule",
+    "human_review_if": "Any mismatch",
+    "authority": "FTL regression controls"
+  },
+  {
+    "rule_id": "OUT-004",
+    "category": "Audit",
+    "trigger_spec_says": "Every line",
+    "agent_action": "Tag origin as SPEC, FTL_RULE, CUSTOMER_PROFILE or ESTIMATOR_OVERRIDE",
+    "rule_status": "Required",
+    "required_inputs": "Line provenance",
+    "human_review_if": "Missing origin",
+    "authority": "Recommended implementation control"
+  }
+]

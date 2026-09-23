@@ -25,11 +25,13 @@ def test_default_skills_root_contains_summary_ocr_insight_and_prompt_packs():
     assert (root / "insight" / "SKILL.md").is_file()
     assert (root / "prompt" / "SKILL.md").is_file()
     assert (root / "classification" / "SKILL.md").is_file()
+    assert (root / "document_intelligent" / "SKILL.md").is_file()
     assert list((root / "summary" / "rules").glob("*.mdc"))
     assert list((root / "ocr" / "rules").glob("*.mdc"))
     assert list((root / "insight" / "rules").glob("*.mdc"))
     assert list((root / "prompt" / "rules").glob("*.mdc"))
     assert list((root / "classification" / "rules").glob("*.mdc"))
+    assert list((root / "document_intelligent" / "rules").glob("*.mdc"))
 
 
 def test_load_summary_skill_includes_rules_in_system_prompt():

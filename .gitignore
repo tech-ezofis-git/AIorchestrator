@@ -16,3 +16,13 @@ app/tenant_skills/data/*.sqlite
 # Generated PDFs
 app/static/generated_pdfs/*.pdf
 !app/static/generated_pdfs/.gitkeep
+
+# FTL runtime uploads / generated quote PDFs
+app/ftl/qualifier/data/uploads/
+app/ftl/qualifier/data/runs.json
+app/ftl/quote_estimator/data/uploads/
+app/ftl/quote_estimator/data/pdf_downloads/
+app/ftl/quote_estimator/data/quotes.json
+
+# Nested NewAIorchestrator copy — not part of this repo
+NewAIorchestrator/

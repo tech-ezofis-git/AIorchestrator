@@ -1,0 +1,58 @@
+[
+  {
+    "test_id": "T-001",
+    "scenario": "Telegram Mews / EST-261132",
+    "confirmed_scope": "5 cars; 8 openings",
+    "expected_quote_logic": "4x 36 1S, 2x 42 1S, 2x 42 2C operators; 8 clutches; 8 Formula 3D; 8 $0 lines; 1 tool; 4 OL35 + 4 tensions; 1 OL100 + tension rule",
+    "must_not_do": "Do not add safeties or WRGs; do not assume 4 cars",
+    "notes": "Old total is not regression truth until I-017 resolved"
+  },
+  {
+    "test_id": "T-002",
+    "scenario": "1901-1905 Pilgrims Way / EST-261111",
+    "confirmed_scope": "6 cars; 6 openings",
+    "expected_quote_logic": "6x 1S operators: 36 RHx2, 36 LHx1, 42 LHx2, 42 RHx1; 6 universal 1S panels; 6 GAL GMD clutches; 6 Formula 3D; 1 tool",
+    "must_not_do": "GAL conversion, non-OTIS, car-door reskinning; W x H survey path",
+    "notes": "Element discounts/free tool are customer-specific"
+  },
+  {
+    "test_id": "T-003",
+    "scenario": "2181 Yonge / EST-261112",
+    "confirmed_scope": "4 cars; 5 openings including Car 4 rear",
+    "expected_quote_logic": "3x 42 2C + 2x 48 2C operators; 10 center-opening panels; 5 clutches; 5 Formula 3D; 1 tool",
+    "must_not_do": "Hand must be confirmed before release",
+    "notes": "Proves cars are not openings and 2C panel qty is 2/opening"
+  },
+  {
+    "test_id": "T-004",
+    "scenario": "Missing-count negative test",
+    "confirmed_scope": "Spec mentions modernization package but no car/opening schedule",
+    "expected_quote_logic": "No priced operator, clutch, detector, door, guide, governor or safety quantities",
+    "must_not_do": "Generate review flag and required-information request",
+    "notes": "Never assume typical car count"
+  },
+  {
+    "test_id": "T-005",
+    "scenario": "OTIS 6940 retained",
+    "confirmed_scope": "OTIS car/landing system",
+    "expected_quote_logic": "OTIS clutch/coupler; landing count; one small bracket per landing; bolt pattern if car door retained",
+    "must_not_do": "No GAL clutch unless locks convert to GAL",
+    "notes": "Bracket/adaptor SKU and price require review"
+  },
+  {
+    "test_id": "T-006",
+    "scenario": "WRG request",
+    "confirmed_scope": "Scope calls for car and/or CWT guide replacement",
+    "expected_quote_logic": "4 pcs per full car set and 4 pcs per full CWT set only for called applications",
+    "must_not_do": "Select model by application/speed/rail/load; never add both automatically",
+    "notes": "Reject roll-formed HT rail or non-passenger application"
+  },
+  {
+    "test_id": "T-007",
+    "scenario": "Safety request",
+    "confirmed_scope": "Spec calls for progressive safeties",
+    "expected_quote_logic": "No priced safety until completed survey and CSGB/SGB mapping approval",
+    "must_not_do": "Mass and rail condition govern; rail alone is insufficient",
+    "notes": "Pair quantity only after engineering confirmation"
+  }
+]

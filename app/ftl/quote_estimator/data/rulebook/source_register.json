@@ -1,0 +1,205 @@
+[
+  {
+    "source_id": "S-001",
+    "file_source": "FTL DISTRIBUTION - WITTUR PRICELIST (2026).pdf",
+    "role": "Commercial master",
+    "primary_use": "SKUs, catalogue prices, bundles, terms, spare parts",
+    "control_note": "Controlled but contains open conflicts/typos"
+  },
+  {
+    "source_id": "S-002",
+    "file_source": "TECH_CATOLOGUE_SGV2 - EN.pdf",
+    "role": "Manufacturer technical",
+    "primary_use": "Door types/ranges, hand convention, OEM couplers/adaptors, order form",
+    "control_note": "Technical authority; not commercial authorization"
+  },
+  {
+    "source_id": "S-003",
+    "file_source": "WIRING(EN)_INSTRUCTIONS_V2 SUPRA BOARD.pdf",
+    "role": "Manufacturer technical",
+    "primary_use": "SUPRA electrical interfaces, IPD +24 VDC/150 mA, WPT",
+    "control_note": "Use for electrical validation"
+  },
+  {
+    "source_id": "S-004",
+    "file_source": "FTL_SGV2_DOOR-MOD_KIT - SALES_BROCHURE.pdf",
+    "role": "FTL sales/technical",
+    "primary_use": "MOD kit value, integrated interlock, OEM coverage",
+    "control_note": "Sales facts; no SKU/pricing authority"
+  },
+  {
+    "source_id": "S-005",
+    "file_source": "FTL_SGV_DOOR-MOD-KIT - EXAMPLE_2T_2SPD - GAL_O.E.M..pdf",
+    "role": "FTL example",
+    "primary_use": "GAL adaptor/clutch, integrated restriction benefit",
+    "control_note": "Training/reference only"
+  },
+  {
+    "source_id": "S-006",
+    "file_source": "INSTALL_INSTRUCTION - CAR_DOOR_OP.pdf",
+    "role": "Installation",
+    "primary_use": "Mounting, brackets, panel adaptor interface",
+    "control_note": "Order-stage reference"
+  },
+  {
+    "source_id": "S-007",
+    "file_source": "0904056.AT1.Clutch INSTALL & ADJ.pdf",
+    "role": "Installation",
+    "primary_use": "GAL/MAC/Dover clutch geometry and adjustment",
+    "control_note": "Order-stage reference"
+  },
+  {
+    "source_id": "S-008",
+    "file_source": "Re_ WITTUR Survey Forms.eml",
+    "role": "FTL/customer history",
+    "primary_use": "Minimal survey logic, universal doors, hand concern, customer pricing",
+    "control_note": "Customer-specific pricing is not global"
+  },
+  {
+    "source_id": "S-009",
+    "file_source": "Embedded EST-261111",
+    "role": "Approved example",
+    "primary_use": "Six 1S openings and Element pricing",
+    "control_note": "Training only"
+  },
+  {
+    "source_id": "S-010",
+    "file_source": "Embedded EST-261112",
+    "role": "Approved example",
+    "primary_use": "Four cars/five 2C openings and Element pricing",
+    "control_note": "Training only"
+  },
+  {
+    "source_id": "S-011",
+    "file_source": "WRG_ROLLER_GUIDE_ASSY - TECHNICAL_CATALOGUE.pdf",
+    "role": "Manufacturer technical",
+    "primary_use": "WRG speed/load/rail application ranges and order form",
+    "control_note": "Primary WRG selection source"
+  },
+  {
+    "source_id": "S-012",
+    "file_source": "WRG_ROLLER_GUIDE_SURVEY - FIELD.pdf",
+    "role": "Manufacturer form",
+    "primary_use": "WRG product/rail/quantity fields",
+    "control_note": "Order-stage input"
+  },
+  {
+    "source_id": "S-013",
+    "file_source": "FTL - WRG_ROLLER_GUIDE_SURVEY_INSTRUCTIONS.pdf",
+    "role": "FTL guidance",
+    "primary_use": "Capacity, speed, rail, application, OEM, mounting/photos",
+    "control_note": "Estimate-stage checklist"
+  },
+  {
+    "source_id": "S-014",
+    "file_source": "WRG isolated operating manuals (3 PDFs)",
+    "role": "Installation/maintenance",
+    "primary_use": "WRG80-300 installation and maintenance",
+    "control_note": "Do not use to auto-add scope"
+  },
+  {
+    "source_id": "S-015",
+    "file_source": "WRG_ROLLERGUIDES_MTCE_FREQUENCY (PARTS-SPARE).pdf",
+    "role": "Maintenance/spares",
+    "primary_use": "Seven-year/4M-cycle wheel check and ERP codes",
+    "control_note": "Replacement-only knowledge"
+  },
+  {
+    "source_id": "S-016",
+    "file_source": "OVERSPEED_GOVERNOR - TECHNICAL CATALOGUE.pdf",
+    "role": "Manufacturer technical",
+    "primary_use": "OL35-NA range/options/tension assemblies/order form",
+    "control_note": "Primary OL35 source"
+  },
+  {
+    "source_id": "S-017",
+    "file_source": "OPERATING_MANUAL_OVERSPEED_GOVERNOR.pdf",
+    "role": "Installation/maintenance",
+    "primary_use": "OL35 operation, installation and service",
+    "control_note": "Order/release reference"
+  },
+  {
+    "source_id": "S-018",
+    "file_source": "OPERATING_MANUAL_OVERSPEED_GOVERNOR - ENCODER.pdf",
+    "role": "Installation/maintenance",
+    "primary_use": "OL35 encoder configuration",
+    "control_note": "Conditional reference"
+  },
+  {
+    "source_id": "S-019",
+    "file_source": "OVERSPEED_GOV - SITE_SURVEY_FORM (ESTIMATE AND ORDER-PO).pdf",
+    "role": "Manufacturer form",
+    "primary_use": "OL35 pulley, rope, speed, direction, options, tension",
+    "control_note": "Order-stage input"
+  },
+  {
+    "source_id": "S-020",
+    "file_source": "OVERSPEED_GOV_ENCODER - SITE_SURVEY_FORM (ESTIMATE AND ORDER-PO).pdf",
+    "role": "Manufacturer form",
+    "primary_use": "OL35E encoder/tension options",
+    "control_note": "Order-stage input"
+  },
+  {
+    "source_id": "S-021",
+    "file_source": "FTL - OVERSPEED_GOVENOR_SURVEY_INSTRUCTIONS.pdf",
+    "role": "FTL guidance",
+    "primary_use": "Simplified governor input checklist",
+    "control_note": "Overridden where latest FTL tension rule conflicts"
+  },
+  {
+    "source_id": "S-022",
+    "file_source": "TC.7.000533.DE.01.pdf",
+    "role": "Manufacturer technical",
+    "primary_use": "OL100/OL120 range, tension devices and order form",
+    "control_note": "Primary OL100 technical source"
+  },
+  {
+    "source_id": "S-023",
+    "file_source": "FTL - RANGE_OF_SAFETY_COMPONENTS - TECHNICAL_CATALOGUE.pdf",
+    "role": "Manufacturer overview",
+    "primary_use": "CSGB/SGB/governor family comparisons",
+    "control_note": "High-level only"
+  },
+  {
+    "source_id": "S-024",
+    "file_source": "PROGRESSIVE_TYPE_SAFETIES - TECHNICAL_CATALOGUE.pdf",
+    "role": "Manufacturer technical",
+    "primary_use": "SGB ranges, rail matrix, delivery content, order form",
+    "control_note": "Does not resolve CSGB product master"
+  },
+  {
+    "source_id": "S-025",
+    "file_source": "PROGRESSIVE_TYPE_SAFETIES - SURVEY (FTL_FILLABLE).pdf",
+    "role": "Manufacturer form",
+    "primary_use": "Fmax, speed, rail, condition and rope location",
+    "control_note": "Required safety input"
+  },
+  {
+    "source_id": "S-026",
+    "file_source": "FTL - SAFETY_GEAR_SURVEY_INSTRUCTIONS.pdf",
+    "role": "FTL guidance",
+    "primary_use": "Survey workflow and retrofit/housing discussion",
+    "control_note": "Rail-only family mapping must be revised"
+  },
+  {
+    "source_id": "S-027",
+    "file_source": "SGB operating manuals - simplex and duplex",
+    "role": "Installation/maintenance",
+    "primary_use": "SGB installation and maintenance",
+    "control_note": "Order/release reference"
+  },
+  {
+    "source_id": "S-028",
+    "file_source": "FTL - SAFETY_GEAR_SPARE_PARTS_GUIDE-LIST.pdf",
+    "role": "Maintenance/spares",
+    "primary_use": "Safety spare parts",
+    "control_note": "Replacement-only knowledge"
+  },
+  {
+    "source_id": "S-029",
+    "file_source": "JR/Francine rules - 2026-08-29",
+    "role": "FTL controlling rule",
+    "primary_use": "Universal car door, Formula 3D, OL tension policy",
+    "control_note": "Highest-priority commercial instruction in this release"
+  }
+]

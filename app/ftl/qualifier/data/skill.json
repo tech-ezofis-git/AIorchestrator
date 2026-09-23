@@ -1,0 +1,34 @@
+{
+  "name": "ftl-rfq-qualifier",
+  "description": "Qualifies incoming elevator-parts RFQs for FTL Distribution — decides qualify / disqualify / needs_review within FTL's 24-business-hour SLA, using the Wittur pricelist as its only knowledge base.",
+  "instructions": "Updated test qualification instructions.",
+  "references": [
+    {
+      "title": "Product-line / OEM compatibility guide",
+      "content": "Door operators (Wittur SGV2): types 2T (2-speed side opening), 2C (center opening/bi-parting), 1S (single-speed side opening); door hand LH/RH; widths 36\"/42\"/48\"; OEM panel-adaptor compatibility covers Otis, Westinghouse, GAL, MAC, Dover (interlock/clutch is OEM-specific — Otis, Westinghouse \"WEST\", GAL \"G.M.D.\" — and priced separately from the operator itself; a door operator PO must include a clutch c/w car door interlock). A schedule row naming a brand outside this list (e.g. \"harmonic,\" or any other manufacturer not on it) is NOT a confirmed match — treat it as unsupported/excluded rather than assuming the generic SGV2 operator is an acceptable substitute, unless FTL confirms otherwise.\n\nRoller guides: frame sizes RG80/RG100/RG125/RG150/RG200/RG300, sold per 4-piece set, for both car and counterweight application, OEM-agnostic (\"ALL\"). This line is for ROLLER-type guides only — a spec calling for \"sliding guides\" or \"guide shoes\" is a different mechanical system Wittur doesn't carry; do not match a sliding-guide request to this catalog entry.\n\nGovernors: OL35-MT (manual trip), OL35-RC (remote control), OL35-RE (remote+encoder) — plus a swingarm tension weight/sheave assembly for the counterweight side. Unidirectional car safeties are sold as a synchronized set of 2 (\"sync\"); heavier/larger cars may need a duplex (2-safety-set) configuration, which may not always be an exact pricelist SKU — treat as ambiguous/needs review if so, not as unsupported. Note: not every elevator has a governor/safety system in the first place — some hydraulic elevators rely on an overspeed (rupture) valve instead, with no governor or car-safety hardware at all. Only count these as matched if the spec has an explicit \"new\" call-out for a governor or car safety on this specific unit (Step 1) — don't infer one just because the word appears in general code-reference or O&M-manual boilerplate.\n\nDoor protective devices/detectors (3D Detector / infra-red beam): requires a Formula System Power Supply to operate. A matched Wittur SGV2 door operator supplies this power, so don't add a separate Formula System Power Supply match when an SGV2 operator is also matched for the same opening. When the detector is matched WITHOUT an accompanying matchable SGV2 operator (see the door-package coupling rule), add \"Formula System Power Supply\" as an additional matched item paired with the detector — confirmed directly by FTL: \"When quoting Wittur door operators, a Formula System Power Supply is not required with the 3D Detector... Since we cannot quote a Wittur SGV2 Door Operator for this quote, we can include the power supply.\""
+    },
+    {
+      "title": "Modernization vs. new-construction classification guide",
+      "content": "Modernization tender structural signature: three linked spec sections, commonly numbered 14000 (general/bid instructions), 14100 (general technical modernization spec), and 14900 (a per-car/per-building schedule with existing-equipment make/model). Some consultants combine these into a single section number (e.g. ATTA's \"14200\") but keep the same three-part internal structure — look for the shape (bid instructions + general spec + per-unit schedule), not the literal section number. Direct parts emails requesting specific replacement parts are also qualify-favoring modernization/parts orders.\n\nNew-construction tender structural signature: a single consultant-authored specification (no split general/schedule sections) covering literally every elevator subsystem from scratch — commonly structured as PART 1 - GENERAL / PART 2 - PRODUCTS / PART 3 - EXECUTION for a brand new building. If you see this shape, classify as new_construction and default toward disqualify per the policy above."
+    },
+    {
+      "title": "Ambiguous-item handling — worked example",
+      "content": "A real FTL quote included \"CSGB03-D_CAR_SAFETIES_DUPLEX\" (a duplex unidirectional safety configuration) even though the standard pricelist only lists the single \"CSGB03-SYNC\" safety set. The right call: still in-scope (it's a car safety, a category FTL sells), but flag `needs_engineering_review` since the exact configuration isn't a confirmed catalog line — do not treat an unlisted variant within a supported category as out-of-scope, and do not silently assume an exact price/SKU match either."
+    },
+    {
+      "title": "Grounding & door-package coupling — worked example",
+      "content": "A real RFQ (a hydraulic freight elevator modernization) was wrongly qualified with 7 matched_items. On inspection: two entries were the same infra-red door detector counted twice; a \"nudging\" door by-pass clause was really a control-logic requirement; \"roller guide assemblies\" was wrong because the schedule actually specified \"sliding guides\"; and \"elevator governors\" plus \"unidirectional car safeties\" appeared nowhere in the spec for this unit at all. The door operator schedule row read \"new harmonic,\" a brand not on FTL's supported OEM list. Once de-duplicated and grounded, the ONLY real match was the single infra-red door detector — and per the door-package coupling rule, FTL's call was to disqualify rather than quote that detector alone. If other items like governors or safeties were present, it would have qualified."
+    }
+  ],
+  "templates": [
+    {
+      "name": "internal-qualified-notification",
+      "content": "Subject: [QUALIFY] {project_name}\n\nFTL can quote this one. Matched: {matched_items_summary}.\nProject type: {project_type}. Deadline: {deadline}.\nFlags: {flags}.\n\nReasoning: {reasoning}"
+    },
+    {
+      "name": "internal-disqualify-notification",
+      "content": "Subject: [DISQUALIFY] {project_name}\n\nRecommending we pass on this one — for your review before it's actually declined.\nProject type: {project_type}.\n\nReasoning: {reasoning}"
+    }
+  ],
+  "evals": []
+}

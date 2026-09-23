@@ -1,0 +1,170 @@
+[
+  {
+    "family": "SGV2",
+    "model_type": "1S",
+    "parameter": "Clear opening",
+    "approved_range_value": "32-48 in",
+    "conditions_notes": "Stock price list currently 36 and 42 in only",
+    "source": "SGV Catalogue sheet 09"
+  },
+  {
+    "family": "SGV2",
+    "model_type": "2C",
+    "parameter": "Clear opening",
+    "approved_range_value": "36-60 in",
+    "conditions_notes": "Stock price list currently 36/42/48 in",
+    "source": "SGV Catalogue sheet 09"
+  },
+  {
+    "family": "SGV2",
+    "model_type": "2T",
+    "parameter": "Clear opening",
+    "approved_range_value": "30-72 in",
+    "conditions_notes": "Stock price list currently 42/48 in",
+    "source": "SGV Catalogue sheet 09"
+  },
+  {
+    "family": "SGV2",
+    "model_type": "All",
+    "parameter": "Max panel weight",
+    "approved_range_value": "275 lb / 125 kg",
+    "conditions_notes": "Per panel",
+    "source": "SGV Catalogue sheet 12"
+  },
+  {
+    "family": "SGV2",
+    "model_type": "SUPRA",
+    "parameter": "Power",
+    "approved_range_value": "115-230 VAC operator supply",
+    "conditions_notes": "Detector IPD is separate +24 VDC max 150 mA",
+    "source": "SGV sheet 11 + SUPRA sheet 10"
+  },
+  {
+    "family": "WRG",
+    "model_type": "WRG80",
+    "parameter": "Max nominal speed",
+    "approved_range_value": "Car: not rated; CWT: 500 fpm",
+    "conditions_notes": "Passenger elevator, balanced",
+    "source": "WRG sheet 03"
+  },
+  {
+    "family": "WRG",
+    "model_type": "WRG100",
+    "parameter": "Max nominal speed",
+    "approved_range_value": "Car: 350; CWT: 800 fpm",
+    "conditions_notes": "Passenger elevator, balanced",
+    "source": "WRG sheet 03"
+  },
+  {
+    "family": "WRG",
+    "model_type": "WRG125",
+    "parameter": "Max nominal speed",
+    "approved_range_value": "Car: 500; CWT: 1400 fpm",
+    "conditions_notes": "Passenger elevator, balanced",
+    "source": "WRG sheet 03"
+  },
+  {
+    "family": "WRG",
+    "model_type": "WRG150",
+    "parameter": "Max nominal speed",
+    "approved_range_value": "Car: 800; CWT: 1400 fpm",
+    "conditions_notes": "Passenger elevator, balanced",
+    "source": "WRG sheet 03"
+  },
+  {
+    "family": "WRG",
+    "model_type": "WRG150HD",
+    "parameter": "Max nominal speed",
+    "approved_range_value": "Car: 700; CWT: not rated",
+    "conditions_notes": "No FTL list price",
+    "source": "WRG sheet 03"
+  },
+  {
+    "family": "WRG",
+    "model_type": "WRG200",
+    "parameter": "Max nominal speed",
+    "approved_range_value": "Car: 1000; CWT: 2000 fpm",
+    "conditions_notes": "Passenger elevator, balanced",
+    "source": "WRG sheet 03"
+  },
+  {
+    "family": "WRG",
+    "model_type": "WRG300",
+    "parameter": "Max nominal speed",
+    "approved_range_value": "Car: 2000; CWT: not rated",
+    "conditions_notes": "Passenger elevator, balanced",
+    "source": "WRG sheet 03"
+  },
+  {
+    "family": "WRG",
+    "model_type": "All",
+    "parameter": "Rail condition",
+    "approved_range_value": "Dry only",
+    "conditions_notes": "Do not use on roll-formed HT rails",
+    "source": "WRG sheets 02-03"
+  },
+  {
+    "family": "OL35-NA",
+    "model_type": "12 in pulley",
+    "parameter": "Rated speed",
+    "approved_range_value": "100-500 fpm",
+    "conditions_notes": "Rope 6 or 9.5 mm; encoder available",
+    "source": "D700CDEGB.3"
+  },
+  {
+    "family": "OL35-NA",
+    "model_type": "8 in pulley",
+    "parameter": "Rated speed",
+    "approved_range_value": "200 fpm only",
+    "conditions_notes": "Remote mandatory; encoder unavailable",
+    "source": "D700CDEGB.3/.37"
+  },
+  {
+    "family": "OL100",
+    "model_type": "Static/live shaft",
+    "parameter": "Rated speed",
+    "approved_range_value": "0.51-10 m/s",
+    "conditions_notes": "Travel: 150 m static; 400 m live",
+    "source": "TC.7.000533.DE.04"
+  },
+  {
+    "family": "Safety SGB",
+    "model_type": "SGB05",
+    "parameter": "Fmax range",
+    "approved_range_value": "Oiled 1,388-3,924 lb; dry 1,388-3,527 lb",
+    "conditions_notes": "Nominal <=500 fpm; trip <=625 fpm",
+    "source": "TC.7.004750.EN.03"
+  },
+  {
+    "family": "Safety SGB",
+    "model_type": "SGB01",
+    "parameter": "Fmax range",
+    "approved_range_value": "Oiled 3,924-6,746 lb; dry 3,527-7,936 lb",
+    "conditions_notes": "Nominal <=500 fpm; trip <=625 fpm",
+    "source": "TC.7.004750.EN.03"
+  },
+  {
+    "family": "Safety SGB",
+    "model_type": "SGB02",
+    "parameter": "Fmax range",
+    "approved_range_value": "Oiled 6,746-12,566 lb; dry 7,936-12,566 lb",
+    "conditions_notes": "Nominal <=500 fpm; trip <=625 fpm",
+    "source": "TC.7.004750.EN.03"
+  },
+  {
+    "family": "Safety SGB",
+    "model_type": "SGB03",
+    "parameter": "Fmax range",
+    "approved_range_value": "Oiled 12,566-18,430 lb; dry 12,566-18,265 lb",
+    "conditions_notes": "Nominal <=500 fpm; trip <=625 fpm",
+    "source": "TC.7.004750.EN.03"
+  },
+  {
+    "family": "Safety SGB",
+    "model_type": "SGB03 Duplex",
+    "parameter": "Fmax range",
+    "approved_range_value": "Oiled 18,430-34,061 lb; dry 18,265-34,061 lb",
+    "conditions_notes": "Nominal <=500 fpm; trip <=625 fpm",
+    "source": "TC.7.004750.EN.03"
+  }
+]

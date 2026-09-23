@@ -2029,6 +2029,37 @@
           </div>
         </details>
       </div>
+      <div class="mode-fields" id="documentIntelligentFields" hidden>
+        <div>
+          <label for="diFile">File</label>
+          <input type="file" id="diFile" accept=".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff,.txt" />
+        </div>
+        <div>
+          <label for="diFilepath">Blob path</label>
+          <input type="text" id="diFilepath" placeholder="folder/file.pdf" />
+        </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
+        <div>
+          <label for="diTenant">Tenant</label>
+          <input type="text" id="diTenant" placeholder="required" />
+        </div>
+        <div>
+          <label for="diPageno">Page</label>
+          <input type="text" id="diPageno" value="1" placeholder="1 or -1" />
+        </div>
+        <div>
+          <label for="diModel">Model</label>
+          <select id="diModel"></select>
+        </div>
+        <div class="span-all">
+          <label for="diOcrText">Pasted text</label>
+          <textarea id="diOcrText" placeholder="Paste extracted text…"></textarea>
+        </div>
+          </div>
+        </details>
+      </div>
       <div class="mode-fields" id="insightFields" hidden>
         <div>
           <label for="insightFile">File</label>
@@ -2333,6 +2364,55 @@ vendor_validate</textarea>
         <div class="ocr-actions span-all">
           <button type="button" class="btn-primary" id="reportPlanBtn">Generate Plan &amp; Run</button>
           <button type="button" class="btn-ghost" id="reportPromptBtn">Generate Prompt only</button>
+        </div>
+      </div>
+    </details>
+    <details class="ocr-panel" id="ftlQualPanel">
+      <summary>FTL Qualifier options</summary>
+      <div class="ocr-grid">
+        <div class="span-all">
+          <label for="ftlQualFile">RFQ Spec File (.pdf, .docx, .eml, .txt)</label>
+          <input type="file" id="ftlQualFile" accept=".pdf,.docx,.eml,.txt" />
+        </div>
+        <div>
+          <label for="ftlQualModel">Model Override (optional)</label>
+          <select id="ftlQualModel"></select>
+        </div>
+        <div class="span-all">
+          <label for="ftlQualCandidateText">Candidate / Tender Text (or paste spec excerpt)</label>
+          <textarea id="ftlQualCandidateText" rows="4" placeholder="Paste RFQ text, elevator modernization requirements, or door operator specifications here…"></textarea>
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-primary" id="ftlQualSendBtn">Run Qualification</button>
+          <button type="button" class="btn-ghost" id="ftlQualSampleBtn">Load Sample Spec</button>
+        </div>
+      </div>
+    </details>
+    <details class="ocr-panel" id="ftlQuotePanel">
+      <summary>FTL Quote Estimator options</summary>
+      <div class="ocr-grid">
+        <div class="span-all">
+          <label for="ftlQuoteFile">RFQ Spec File (.pdf, .docx, .eml, .txt)</label>
+          <input type="file" id="ftlQuoteFile" accept=".pdf,.docx,.eml,.txt" />
+        </div>
+        <div>
+          <label for="ftlQuoteTemplateType">Template Format</label>
+          <select id="ftlQuoteTemplateType">
+            <option value="inflow" selected>InFlow (customer)</option>
+            <option value="internal_review">Internal review</option>
+          </select>
+        </div>
+        <div>
+          <label for="ftlQuoteModel">Model Override (optional)</label>
+          <select id="ftlQuoteModel"></select>
+        </div>
+        <div class="span-all">
+          <label for="ftlQuoteCandidateText">Candidate / Specification Text (optional if file uploaded)</label>
+          <textarea id="ftlQuoteCandidateText" rows="4" placeholder="Paste RFQ requirements, elevator IDs, quantities, and door operator models…"></textarea>
+        </div>
+        <div class="ocr-actions">
+          <button type="button" class="btn-primary" id="ftlQuoteSendBtn">Generate Sales Estimate</button>
+          <button type="button" class="btn-ghost" id="ftlQuoteSampleBtn">Load Sample RFQ</button>
         </div>
       </div>
     </details>
@@ -2645,6 +2725,7 @@ const healthDot = document.getElementById('healthDot');
 const healthLabel = document.getElementById('healthLabel');
 const summaryModelSelect = document.getElementById('summaryModel');
 const classificationModelSelect = document.getElementById('classificationModel');
+const diModelSelect = document.getElementById('diModel');
 const insightModelSelect = document.getElementById('insightModel');
 const promptModelSelect = document.getElementById('promptModel');
 
@@ -2728,6 +2809,24 @@ async function loadLlmPresetsAndConfig() {
         classificationModelSelect.options[0].textContent = 'Console default';
       }
     }
+    if (diModelSelect) {
+      fillPresetSelect(diModelSelect, llmPresets, '', { includeNone: true });
+      if (diModelSelect.options.length && diModelSelect.options[0].value === '') {
+        diModelSelect.options[0].textContent = 'Console default';
+      }
+    }
+    if (ftlQualModelSelect) {
+      fillPresetSelect(ftlQualModelSelect, llmPresets, '', { includeNone: true });
+      if (ftlQualModelSelect.options.length && ftlQualModelSelect.options[0].value === '') {
+        ftlQualModelSelect.options[0].textContent = 'Console default';
+      }
+    }
+    if (ftlQuoteModelSelect) {
+      fillPresetSelect(ftlQuoteModelSelect, llmPresets, '', { includeNone: true });
+      if (ftlQuoteModelSelect.options.length && ftlQuoteModelSelect.options[0].value === '') {
+        ftlQuoteModelSelect.options[0].textContent = 'Console default';
+      }
+    }
     if (insightModelSelect) {
       fillPresetSelect(insightModelSelect, llmPresets, '', { includeNone: true });
       if (insightModelSelect.options.length && insightModelSelect.options[0].value === '') {
@@ -2809,6 +2908,7 @@ const ICONS = {
   ocr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 12h5M8 15h3"/></svg>',
   summary: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 4h8l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M9 12h6M9 16h4"/></svg>',
   classification: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg>',
+  document_intelligent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>',
   insight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18V9l5 4 5-8 6 10"/></svg>',
   ap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6V4h8v2"/></svg>',
   prompt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 17 4 12l4-5M16 7l4 5-4 5M13 5l-2 14"/></svg>',
@@ -2817,11 +2917,14 @@ const ICONS = {
   chatbot: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16v10H8l-4 4V6Z"/><path d="M8 10h8M8 13h5"/></svg>',
   report: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>',
       dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="4" rx="1"/><rect x="14" y="10" width="7" height="11" rx="1"/><rect x="3" y="13" width="7" height="8" rx="1"/></svg>',
+  ftl_qualifier: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+  ftl_quote_estimator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 15h0M2 9.5h20M7 8h10"/></svg>',
 };
 const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
   { slug: 'summary', label: 'Summary agent', mode: 'summary' },
   { slug: 'classification', label: 'Classification agent', mode: 'classification' },
+  { slug: 'document_intelligent', label: 'Document Intelligent', mode: 'document_intelligent' },
   { slug: 'insight', label: 'Insight agent', mode: 'insight' },
   { slug: 'ap', label: 'AP agent', mode: 'ap' },
   { slug: 'prompt', label: 'Prompt agent', mode: 'prompt' },
@@ -2830,6 +2933,8 @@ const CAP_ACTIONS = [
   { slug: 'chatbot', label: 'Chatbot', mode: 'chatbot' },
   { slug: 'report', label: 'Report agent', mode: 'report' },
   { slug: 'dashboard', label: 'Dashboard agent', mode: 'dashboard' },
+  { slug: 'ftl_qualifier', label: 'FTL Qualifier', mode: 'ftl_qualifier' },
+  { slug: 'ftl_quote_estimator', label: 'FTL Quote Estimator', mode: 'ftl_quote_estimator' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
 const MODE_LABELS = {
@@ -2837,6 +2942,7 @@ const MODE_LABELS = {
   ocr: 'OCR agent',
   summary: 'Summary agent',
   classification: 'Classification agent',
+  document_intelligent: 'Document Intelligent',
   insight: 'Insight agent',
   ap: 'AP agent',
   prompt: 'Prompt agent',
@@ -2845,6 +2951,8 @@ const MODE_LABELS = {
   chatbot: 'Chatbot',
   report: 'Report agent',
   dashboard: 'Dashboard agent',
+  ftl_qualifier: 'FTL Qualifier',
+  ftl_quote_estimator: 'FTL Quote Estimator',
 };
 const capActionsEl = document.getElementById('capActions');
 const apPanel = document.getElementById('apPanel');
@@ -2852,6 +2960,10 @@ const gsPanel = document.getElementById('gsPanel');
 const cbPanel = document.getElementById('cbPanel');
 const reportPanel = document.getElementById('reportPanel');
 const dashPanel = document.getElementById('dashPanel');
+const ftlQualPanel = document.getElementById('ftlQualPanel');
+const ftlQuotePanel = document.getElementById('ftlQuotePanel');
+const ftlQualModelSelect = document.getElementById('ftlQualModel');
+const ftlQuoteModelSelect = document.getElementById('ftlQuoteModel');
 let composerMode = 'chat';
 let consoleAgentsCache = [];
 window.activeCustomIntent = '';
@@ -2869,7 +2981,7 @@ function setConsoleTenantId(tenantId) {
   if (input) input.value = tid;
   if (tid) sessionStorage.setItem(CONSOLE_TENANT_KEY, tid);
   else sessionStorage.removeItem(CONSOLE_TENANT_KEY);
-  ['summaryTenant', 'classificationTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'dashTenant', 'reportTenant'].forEach(id => {
+  ['summaryTenant', 'classificationTenant', 'diTenant', 'insightTenant', 'ocrTenant', 'apTenant', 'dashTenant', 'reportTenant'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = tid;
   });
@@ -3144,6 +3256,7 @@ const EMPTY_SPECS = {
   ocr: { title: 'OCR', sub: 'Add a file or blob path, then send.', chips: '' },
   summary: { title: 'Summary', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   classification: { title: 'Classification', sub: 'Add a file, blob path, or pasted text.', chips: '' },
+  document_intelligent: { title: 'Document Intelligent', sub: 'Tenant required. File, blob path, or pasted text.', chips: '' },
   insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
   global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
@@ -3151,6 +3264,20 @@ const EMPTY_SPECS = {
   report: { title: 'Report Agent', sub: 'Select a template to discover live schema, generate SQL, and preview report data.', chips: REPORT_EMPTY_CHIPS },
   dashboard: { title: 'Dashboard', sub: 'Prompts, schema, then load HTML. Need tenant + repository or workflow.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
+  ftl_qualifier: {
+    title: 'FTL RFQ Qualifier',
+    sub: 'Upload an RFQ specification document (.pdf, .docx, .eml, .txt) or paste tender text to evaluate catalog fit.',
+    chips: `
+      <button type="button" class="ask-chip" data-ask="Qualify RFQ specification for elevator modernization project">Modernization RFQ<small>Wittur Door Operators</small></button>
+      <button type="button" class="ask-chip" data-ask="Check Wittur catalog fit for custom cab interior and fixtures">Out-of-Scope RFQ<small>Excluded cab materials</small></button>`
+  },
+  ftl_quote_estimator: {
+    title: 'FTL Quote Estimator',
+    sub: 'Upload an RFQ spec or paste requirements to generate itemized Wittur Sales Estimates with live pricing & PDF.',
+    chips: `
+      <button type="button" class="ask-chip" data-ask="Generate Wittur quote for 120 Bloor St E door operator replacement">Bloor St Operator Quote<small>InFlow template</small></button>
+      <button type="button" class="ask-chip" data-ask="Estimate price for Wittur Roller Guides WRG 150mm with freight">Roller Guides Quote<small>Internal review</small></button>`
+  },
 };
 
 function emptyStateHtml(mode) {
@@ -3186,18 +3313,20 @@ function syncMainControls() {
   const mc = document.getElementById('mainControls');
   const panel = document.getElementById('docPanel');
   if (!mc || !panel) return;
-  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open) || (dashPanel && dashPanel.open) || (reportPanel && reportPanel.open);
+  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open) || (dashPanel && dashPanel.open) || (reportPanel && reportPanel.open) || (ftlQualPanel && ftlQualPanel.open) || (ftlQuotePanel && ftlQuotePanel.open);
   mc.hidden = !active;
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.classification_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result)) return;
+  if (!(body.summary_result || body.classification_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
   if (gsPanel) gsPanel.open = false;
   if (cbPanel) cbPanel.open = false;
   if (reportPanel) reportPanel.open = false;
+  if (ftlQualPanel) ftlQualPanel.open = false;
+  if (ftlQuotePanel) ftlQuotePanel.open = false;
       if (dashPanel && composerMode === 'dashboard') {
     dashPanel.open = true;
   } else if (dashPanel) {
@@ -3210,7 +3339,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'classification' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'classification' || mode === 'document_intelligent' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report' || mode === 'ftl_qualifier' || mode === 'ftl_quote_estimator')) {
     mode = 'chat';
   }
   composerMode = mode;
@@ -3218,7 +3347,7 @@ function setComposerMode(mode) {
   const banner = document.getElementById('docBanner');
   const composerWrap = document.getElementById('composerWrap');
   const modeLabel = document.getElementById('composerModeLabel');
-  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
+  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'document_intelligent' || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
   panel.classList.toggle('visible', showDoc);
   panel.open = showDoc;
   if (apPanel) apPanel.open = mode === 'ap';
@@ -3226,11 +3355,15 @@ function setComposerMode(mode) {
   if (cbPanel) cbPanel.open = mode === 'chatbot';
   if (dashPanel) dashPanel.open = mode === 'dashboard';
       if (reportPanel) reportPanel.open = mode === 'report';
+  if (ftlQualPanel) ftlQualPanel.open = mode === 'ftl_qualifier';
+  if (ftlQuotePanel) ftlQuotePanel.open = mode === 'ftl_quote_estimator';
       if (mode === 'report' && typeof loadReportTemplates === 'function') loadReportTemplates();
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   const classificationFields = document.getElementById('classificationFields');
   if (classificationFields) classificationFields.hidden = mode !== 'classification';
+  const diFields = document.getElementById('documentIntelligentFields');
+  if (diFields) diFields.hidden = mode !== 'document_intelligent';
   document.getElementById('insightFields').hidden = mode !== 'insight';
   document.getElementById('ocrFields').hidden = mode !== 'ocr';
   const pdfFields = document.getElementById('pdfFields');
@@ -3266,6 +3399,10 @@ function setComposerMode(mode) {
     banner.textContent = 'Classification';
     messageInput.placeholder = 'Optional note';
     loadAgentSkillsPack('classification');
+  } else if (mode === 'document_intelligent') {
+    banner.textContent = 'Document Intelligent';
+    messageInput.placeholder = 'Optional note';
+    loadAgentSkillsPack('document_intelligent');
   } else if (mode === 'insight') {
     banner.textContent = 'Insights';
     messageInput.placeholder = 'Optional note';
@@ -3301,6 +3438,12 @@ function setComposerMode(mode) {
     messageInput.placeholder = 'Optional prompt instruction or requirement override…';
     const reportTenant = document.getElementById('reportTenant');
     if (reportTenant && !reportTenant.value.trim()) reportTenant.value = consoleTenantId();
+  } else if (mode === 'ftl_qualifier') {
+    banner.textContent = 'FTL Qualifier';
+    messageInput.placeholder = 'Optional note, or paste RFQ text if no file is attached';
+  } else if (mode === 'ftl_quote_estimator') {
+    banner.textContent = 'FTL Quote Estimator';
+    messageInput.placeholder = 'Optional note, or paste RFQ requirements if no file is attached';
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -3350,6 +3493,8 @@ setInterval(checkHealth, 15000);
   const docPanel = document.getElementById('docPanel');
   if (docPanel) docPanel.addEventListener('toggle', syncMainControls);
   if (apPanel) apPanel.addEventListener('toggle', syncMainControls);
+  if (ftlQualPanel) ftlQualPanel.addEventListener('toggle', syncMainControls);
+  if (ftlQuotePanel) ftlQuotePanel.addEventListener('toggle', syncMainControls);
   if (reportPanel) reportPanel.addEventListener('toggle', syncMainControls);
   syncMainControls();
 })();
@@ -3427,10 +3572,11 @@ function setSummarySkillsStatus(kind, text) {
   el.textContent = text;
 }
 
-const PACK_AGENTS = ['summary', 'classification', 'ocr', 'insight', 'prompt', 'pdf', 'ap'];
+const PACK_AGENTS = ['summary', 'classification', 'document_intelligent', 'ocr', 'insight', 'prompt', 'pdf', 'ap'];
 const PACK_AGENT_LABELS = {
   summary: 'Summary',
   classification: 'Classification',
+  document_intelligent: 'Document Intelligent',
   ocr: 'OCR',
   insight: 'Insight',
   prompt: 'Prompt',
@@ -3440,6 +3586,7 @@ const PACK_AGENT_LABELS = {
 const PACK_TENANT_FIELDS = {
   summary: 'summaryTenant',
   classification: 'classificationTenant',
+  document_intelligent: 'diTenant',
   ocr: 'ocrTenant',
   insight: 'insightTenant',
   prompt: 'summaryTenant',
@@ -3456,7 +3603,7 @@ const summaryPackState = {
 
 function isPackAgent(mode) {
   // Inline check so setComposerMode('chat') at boot cannot hit TDZ on PACK_AGENTS.
-  return mode === 'summary' || mode === 'classification' || mode === 'ocr' || mode === 'insight'
+  return mode === 'summary' || mode === 'classification' || mode === 'document_intelligent' || mode === 'ocr' || mode === 'insight'
     || mode === 'prompt' || mode === 'pdf';
 }
 
@@ -4021,7 +4168,7 @@ async function saveSummaryCustomRuleFile() {
 }
 
 document.getElementById('summaryRuleSaveBtn').addEventListener('click', saveSummaryCustomRuleFile);
-['summaryTenant', 'ocrTenant', 'insightTenant', 'classificationTenant'].forEach(id => {
+['summaryTenant', 'ocrTenant', 'insightTenant', 'classificationTenant', 'diTenant'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('input', loadSummaryTenantCustom);
@@ -4682,6 +4829,49 @@ function renderClassificationResult(result, request) {
   return { html, resultJson, curlText };
 }
 
+function renderDocumentIntelligentResult(result, request) {
+  const score = Number(result.confidence_score);
+  const hasScore = Number.isFinite(score);
+  const confClass = !hasScore ? '' : (score >= 80 ? '' : score >= 50 ? 'mid' : 'low');
+  const width = hasScore ? Math.max(0, Math.min(100, score)) : 0;
+  const title = result.repository_name || 'No repository match';
+  const chips = [
+    result.repository_id ? `<span class="summary-chip source">${escapeHtml(result.repository_id)}</span>` : '',
+    result.source_reference ? `<span class="summary-chip source">${escapeHtml(result.source_reference)}</span>` : '',
+  ].join('');
+  const candidates = Array.isArray(result.candidates) ? result.candidates : [];
+  const candHtml = candidates.map(c => `<li>${escapeHtml(c.repository_name || '')} · ${escapeHtml(String(c.score ?? ''))}</li>`).join('');
+  const resultJson = JSON.stringify(result, null, 2);
+  const curlText = buildChatCurl(request && { ...request, intent: request.intent || 'document_intelligent' }, 'document_intelligent');
+
+  let html = `<div class="summary-card">
+    <div class="summary-card-header">
+      <div class="summary-card-kicker">Document Intelligent</div>
+      <div class="summary-card-title">${escapeHtml(title)}</div>
+      <div class="summary-meta">${chips}</div>`;
+  if (hasScore) {
+    html += `<div class="summary-conf">
+      <span class="summary-conf-label">Confidence</span>
+      <div class="summary-conf-bar ${confClass}"><span style="width:${width}%"></span></div>
+      <span class="summary-conf-score">${escapeHtml(String(result.confidence_score))}</span>
+    </div>`;
+  }
+  html += `</div><div class="summary-card-body">`;
+  if (result.rationale) {
+    html += `<div class="summary-prose">${escapeHtml(result.rationale)}</div>`;
+  }
+  if (candHtml) {
+    html += `<div class="summary-section-label">Candidates</div><ul class="summary-facts">${candHtml}</ul>`;
+  }
+  if (result.ocr_text) {
+    html += `<details class="summary-ocr"><summary>Show extracted text</summary>
+      <div class="ocr-text-preview">${escapeHtml(result.ocr_text)}</div></details>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson, curlText };
+}
+
 function insightSourceLabel(source) {
   const raw = String(source || '').trim();
   if (raw === 'ocr_text') return 'Pasted text';
@@ -5331,7 +5521,7 @@ function renderReportPlanResult(result, request) {
   clearEmptyState();
   const div = document.createElement('div');
   const dashBody = dashboardResultFromBody(body);
-  div.className = (body.summary_result || body.classification_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result)
+  div.className = (body.summary_result || body.classification_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -5343,7 +5533,7 @@ function renderReportPlanResult(result, request) {
   if (body.chunk_ids && body.chunk_ids.length) {
     details += `<div class="detail-block"><div class="dt-title">Sources</div>${body.chunk_ids.map(id => escapeHtml(String(id))).join(', ')}</div>`;
   }
-  if (body.document_id && !body.summary_result && !body.classification_result) {
+  if (body.document_id && !body.summary_result && !body.classification_result && !body.document_intelligent_result) {
     details += `<div class="detail-block"><div class="dt-title">Document</div>${escapeHtml(body.document_id)}</div>`;
   }
   if (body.cited_data_points && body.cited_data_points.length) {
@@ -5369,6 +5559,11 @@ function renderReportPlanResult(result, request) {
     const classCode = renderClassificationResult(body.classification_result, request);
     details += classCode.html;
     codeBlocks.push(classCode);
+  }
+  if (body.document_intelligent_result) {
+    const diCode = renderDocumentIntelligentResult(body.document_intelligent_result, request);
+    details += diCode.html;
+    codeBlocks.push(diCode);
   }
   if (body.insight_result) {
     const insightCode = renderInsightResult(body.insight_result, request);
@@ -5410,7 +5605,7 @@ function renderReportPlanResult(result, request) {
     details += dashCode.html;
     codeBlocks.push(dashCode);
   }
-  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result && !body.classification_result
+  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result && !body.classification_result && !body.document_intelligent_result
     && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !dashBody && !body.report_plan_result && !body.report_prompt_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
@@ -5444,6 +5639,10 @@ function renderReportPlanResult(result, request) {
   if (body.classification_result) {
     const kind = body.classification_result.document_type || 'document';
     bubbleText = body.reply || `Classification ready — ${kind}.`;
+  }
+  if (body.document_intelligent_result) {
+    const kind = body.document_intelligent_result.repository_name || 'no match';
+    bubbleText = body.reply || `Repository match — ${kind}.`;
   }
   if (body.insight_result) {
     const n = (body.insight_result.insights || []).length;
@@ -5810,6 +6009,86 @@ async function sendClassificationJob() {
           intent: 'classification',
           payload,
         }),
+      });
+    }
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
+async function sendDocumentIntelligentJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const fileInput = document.getElementById('diFile');
+  const filepath = document.getElementById('diFilepath').value.trim();
+  const tenantId = document.getElementById('diTenant').value.trim();
+  const ocrText = (document.getElementById('diOcrText').value || '').trim();
+  const file = fileInput.files && fileInput.files[0];
+  const pageno = document.getElementById('diPageno').value.trim() || '1';
+  const model = (diModelSelect && diModelSelect.value) || '';
+
+  if (!tenantId) {
+    addSystemMessage('Document Intelligent needs tenant_id.');
+    return;
+  }
+  if (!file && !filepath && !ocrText) {
+    addSystemMessage('Document Intelligent needs a file upload, a blob filepath, or OCR text.');
+    return;
+  }
+
+  const label = ocrText
+    ? `Match repo from OCR text (${ocrText.length} chars)`
+    : (file ? `Match repo for file: ${file.name}` : `Match repo for filepath: ${filepath}`);
+  addUserMessage(label);
+  const processing = addProcessingMessage(
+    ocrText ? 'Matching repository…' : 'Extracting text and matching repository… this can take a minute.'
+  );
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Matching';
+
+  try {
+    let res;
+    let request;
+    const payloadExtras = { tenant_id: tenantId };
+    if (model) payloadExtras.model = model;
+
+    if (ocrText) {
+      const payload = { ocr_text: ocrText, ...payloadExtras };
+      request = { intent: 'document_intelligent', kind: 'ocr_text', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, intent: 'document_intelligent', payload }),
+      });
+    } else if (file) {
+      request = { intent: 'document_intelligent', kind: 'file', session_id: sessionId, filename: file.name, form: { pageno, model: model || undefined } };
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'document_intelligent');
+      form.append('pageno', pageno);
+      form.append('tenant_id', tenantId);
+      if (model) form.append('model', model);
+      form.append('file', file, file.name);
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      const payload = { filepath, pageno, ...payloadExtras };
+      request = { intent: 'document_intelligent', kind: 'filepath', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, intent: 'document_intelligent', payload }),
       });
     }
     const data = await readResponseJson(res);
@@ -6991,9 +7270,136 @@ async function sendReportPlanJob() {
   }
 }
 
+async function sendFtlQualifyJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const fileInput = document.getElementById('ftlQualFile');
+  const candidateText = (document.getElementById('ftlQualCandidateText').value || '').trim();
+  const noteMessage = messageInput.value.trim();
+  const model = (ftlQualModelSelect && ftlQualModelSelect.value) || '';
+  const file = fileInput.files && fileInput.files[0];
+  const textToProcess = candidateText || noteMessage;
+  if (!file && !textToProcess) {
+    addSystemMessage('FTL Qualifier requires an uploaded spec file (.pdf, .docx, .eml, .txt) or pasted tender text.');
+    return;
+  }
+  const label = file ? `Qualify RFQ spec: ${file.name}` : `Qualify RFQ spec text (${textToProcess.length} chars)`;
+  addUserMessage(label);
+  messageInput.value = '';
+  autosizeComposer();
+  const processing = addProcessingMessage('Analyzing RFQ scope against Wittur pricelist catalog…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Qualifying';
+  try {
+    let res;
+    let request;
+    if (file) {
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'ftl_qualifier');
+      form.append('file', file, file.name);
+      if (candidateText) form.append('candidate_text', candidateText);
+      if (model) form.append('model', model);
+      request = { intent: 'ftl_qualifier', kind: 'file', session_id: sessionId, filename: file.name };
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      const body = attachConsoleTenantBody({
+        session_id: sessionId,
+        intent: 'ftl_qualifier',
+        payload: { candidate_text: textToProcess, model: model || undefined },
+      });
+      request = { intent: 'ftl_qualifier', kind: 'json', session_id: sessionId, body };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'FTL qualification failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
+async function sendFtlQuoteJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const fileInput = document.getElementById('ftlQuoteFile');
+  const candidateText = (document.getElementById('ftlQuoteCandidateText').value || '').trim();
+  const templateType = (document.getElementById('ftlQuoteTemplateType').value || 'inflow').trim();
+  const noteMessage = messageInput.value.trim();
+  const model = (ftlQuoteModelSelect && ftlQuoteModelSelect.value) || '';
+  const file = fileInput.files && fileInput.files[0];
+  const textToProcess = candidateText || noteMessage;
+  if (!file && !textToProcess) {
+    addSystemMessage('FTL Quote Estimator requires an uploaded spec file (.pdf, .docx, .eml, .txt) or pasted requirements text.');
+    return;
+  }
+  const label = file ? `Generate Sales Estimate for: ${file.name} (${templateType})` : `Generate Sales Estimate (${textToProcess.length} chars, ${templateType})`;
+  addUserMessage(label);
+  messageInput.value = '';
+  autosizeComposer();
+  const processing = addProcessingMessage('Extracting quote line items, calculating totals, and compiling PDF estimate…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Estimating';
+  try {
+    let res;
+    let request;
+    if (file) {
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'ftl_quote_estimator');
+      form.append('file', file, file.name);
+      form.append('template_type', templateType);
+      if (candidateText) form.append('candidate_text', candidateText);
+      if (model) form.append('model', model);
+      request = { intent: 'ftl_quote_estimator', kind: 'file', session_id: sessionId, filename: file.name };
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      const body = attachConsoleTenantBody({
+        session_id: sessionId,
+        intent: 'ftl_quote_estimator',
+        payload: { candidate_text: textToProcess, template_type: templateType, model: model || undefined },
+      });
+      request = { intent: 'ftl_quote_estimator', kind: 'json', session_id: sessionId, body };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'FTL quote estimation failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
     async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'classification') return sendClassificationJob();
+  if (composerMode === 'document_intelligent') return sendDocumentIntelligentJob();
   if (composerMode === 'insight') return sendInsightJob();
   if (composerMode === 'ocr') return sendOcrJob();
   if (composerMode === 'ap') return sendApJob();
@@ -7003,6 +7409,8 @@ async function sendReportPlanJob() {
   if (composerMode === 'chatbot') return sendChatbotJob();
   if (composerMode === 'report') return sendReportPlanJob();
       if (composerMode === 'dashboard') return sendDashboardJob();
+  if (composerMode === 'ftl_qualifier') return sendFtlQualifyJob();
+  if (composerMode === 'ftl_quote_estimator') return sendFtlQuoteJob();
   const message = messageInput.value.trim();
   if (!message) {
     addSystemMessage('Type a question, or pick a suggestion above.');
@@ -7044,6 +7452,43 @@ async function sendReportPlanJob() {
 }
 
 composerForm.addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });
+const ftlQualSendBtn = document.getElementById('ftlQualSendBtn');
+if (ftlQualSendBtn) ftlQualSendBtn.addEventListener('click', () => sendFtlQualifyJob());
+const ftlQuoteSendBtn = document.getElementById('ftlQuoteSendBtn');
+if (ftlQuoteSendBtn) ftlQuoteSendBtn.addEventListener('click', () => sendFtlQuoteJob());
+const ftlQualSampleBtn = document.getElementById('ftlQualSampleBtn');
+if (ftlQualSampleBtn) {
+  ftlQualSampleBtn.addEventListener('click', () => {
+    const el = document.getElementById('ftlQualCandidateText');
+    if (el) {
+      el.value = `PROJECT: 120 Bloor St East Modernization Tender
+SCOPE: Supply of elevator car door equipment and landing door operators for 2 passenger cars (Car #1, Car #2).
+SPECIFICATIONS:
+- Wittur Hydra Plus 2-Panel Center Opening Door Operator, 42 inch opening width
+- Wittur SGV2 Car Door Restrictor
+- Standard 230V AC drive
+- 4 weeks standard delivery required
+- Excluded: Cab custom woodwork and fixtures by general contractor`;
+    }
+  });
+}
+const ftlQuoteSampleBtn = document.getElementById('ftlQuoteSampleBtn');
+if (ftlQuoteSampleBtn) {
+  ftlQuoteSampleBtn.addEventListener('click', () => {
+    const el = document.getElementById('ftlQuoteCandidateText');
+    if (el) {
+      el.value = `PROJECT: 120 Bloor St E Elevator Modernization
+CUSTOMER: Elevator Services Corp
+ELEVATOR: Car #1 (Passenger Bank)
+DATE: 2026-09-22
+REQUIREMENTS:
+1x Wittur Hydra Plus 2-Panel Center Opening Door Operator 42in (HYDRA_PLUS_CO_42)
+1x Wittur SGV2 Car Door Restrictor (SGV2_CAR_DOOR_RESTRICTOR)
+2x Wittur Roller Guide 150mm (WRG_MOTION_GEAR150)
+Freight to Toronto GTA site.`;
+    }
+  });
+}
 const gsSendBtn = document.getElementById('gsSendBtn');
 if (gsSendBtn) gsSendBtn.addEventListener('click', () => sendGlobalSearchJob());
 const cbSendBtn = document.getElementById('cbSendBtn');

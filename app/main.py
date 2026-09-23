@@ -124,6 +124,11 @@ from app.agents.prompt_agent import PromptAgent
 from app.agents.search_agent import SearchAgent
 from app.agents.summary_agent import SummaryAgent
 from app.agents.classification_agent import ClassificationAgent
+from app.agents.document_intelligent_agent import DocumentIntelligentAgent
+from app.document_intelligent.store import DocumentIntelligentStore
+from app.agents.ftl_qualifier_agent import FtlQualifierAgent
+from app.agents.ftl_quote_estimator_agent import FtlQuoteEstimatorAgent
+from app.ftl.api import router as ftl_router
 from app.agents.global_search_agent import GlobalSearchAgent
 from app.agents.chatbot_agent import ChatbotAgent
 from app.agents.dashboard_agent import DashboardAgent
@@ -244,6 +249,7 @@ _SNIPPETABLE_INTENTS = {
     "search",
     "summary",
     "classification",
+    "document_intelligent",
     "insight",
     "ocr",
     "forecast",
@@ -501,6 +507,18 @@ async def lifespan(app: FastAPI):
         llm_adapter=llm_adapter,
         runtime_models=runtime_models,
     )
+    document_intelligent_store = DocumentIntelligentStore(
+        tenant_pools=tenant_pools,
+        catalog_store=catalog_store,
+    )
+    document_intelligent_agent = DocumentIntelligentAgent(
+        dispatcher,
+        response_composer,
+        settings,
+        llm_adapter=llm_adapter,
+        runtime_models=runtime_models,
+        store=document_intelligent_store,
+    )
     insight_agent = InsightAgent(
         dispatcher,
         response_composer,
@@ -571,10 +589,14 @@ async def lifespan(app: FastAPI):
     )
     audit_store = AuditStore(db_pool)
 
+    ftl_qualifier_agent = FtlQualifierAgent()
+    ftl_quote_estimator_agent = FtlQuoteEstimatorAgent()
+
     agent_router = AgentRouter(chat_agent)
     agent_router.register(Intent.SEARCH, search_agent.handle)
     agent_router.register(Intent.SUMMARY, summary_agent.handle)
     agent_router.register(Intent.CLASSIFICATION, classification_agent.handle)
+    agent_router.register(Intent.DOCUMENT_INTELLIGENT, document_intelligent_agent.handle)
     agent_router.register(Intent.INSIGHT, insight_agent.handle)
     agent_router.register(Intent.OCR, ocr_agent.handle)
     agent_router.register(Intent.FORECAST, forecast_agent.handle)
@@ -585,6 +607,8 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.GLOBAL_SEARCH, global_search_agent.handle)
     agent_router.register(Intent.CHATBOT, chatbot_agent.handle)
     agent_router.register(Intent.DASHBOARD, dashboard_agent.handle)
+    agent_router.register(Intent.FTL_QUALIFIER, ftl_qualifier_agent.handle)
+    agent_router.register(Intent.FTL_QUOTE_ESTIMATOR, ftl_quote_estimator_agent.handle)
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
@@ -613,6 +637,8 @@ async def lifespan(app: FastAPI):
     app.state.report_agent_service = report_agent_service
     app.state.catalog_agent = catalog_agent
     app.state.ezofis_client = ezofis_client
+    app.state.ftl_qualifier_agent = ftl_qualifier_agent
+    app.state.ftl_quote_estimator_agent = ftl_quote_estimator_agent
 
     yield
 
@@ -630,6 +656,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Orchestrator", version="0.1.0", lifespan=lifespan)
+app.include_router(ftl_router)
 app.add_middleware(AuditMiddleware)
 # Backs GET /console's logo (app/static/ezofis-logo-mark.png) and any
 # other static asset dropped in app/static/. Same-origin, so the console
@@ -1115,6 +1142,7 @@ _PACK_CONSOLE_AGENTS = frozenset(
     {
         "summary",
         "classification",
+        "document_intelligent",
         "ocr",
         "insight",
         "prompt",
@@ -1912,7 +1940,7 @@ _CHAT_MULTIPART_SCHEMA = {
     "type": "object",
     "properties": {
         "session_id": {"type": "string", "description": "Required session id."},
-        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/classification/insight/ap with file/filepath/ocr_text/summary_json/insight_json/invoice_json)."},
+        "message": {"type": "string", "description": "Chat text (optional for intent=ocr/summary/classification/document_intelligent/insight/ap with file/filepath/ocr_text/summary_json/insight_json/invoice_json)."},
         "intent": {
             "type": "string",
             "description": "Explicit agent (ocr, ap, chat, …). Omit to use keyword routing.",
@@ -1931,7 +1959,7 @@ _CHAT_MULTIPART_SCHEMA = {
         },
         "ocr_text": {
             "type": "string",
-            "description": "Pre-extracted OCR text (summary/classification/insight). Skips blob download and Paddle. Wins over file/filepath (summary_json / insight_json still win).",
+            "description": "Pre-extracted OCR text (summary/classification/document_intelligent/insight). Skips blob download and Paddle. Wins over file/filepath (summary_json / insight_json still win).",
         },
         "summary_json": {
             "type": "string",
@@ -2212,6 +2240,17 @@ _CHAT_MULTIPART_SCHEMA = {
                                 },
                             },
                         },
+                        "document_intelligent_ocr_text": {
+                            "summary": "Infer tenant repository from OCR text",
+                            "value": {
+                                "session_id": "demo",
+                                "intent": "document_intelligent",
+                                "payload": {
+                                    "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                                    "ocr_text": "Bill of Lading BL-99 Vessel Ocean Star",
+                                },
+                            },
+                        },
                         "summary_json": {
                             "summary": "Summarize from structured JSON (no blob / Paddle)",
                             "value": {
@@ -2276,6 +2315,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     has_upload = parsed.file_bytes is not None  # empty bytes still count as an upload attempt
     has_filepath = bool(payload.payload and (payload.payload.filepath or "").strip())
     has_ocr_text = bool(payload.payload and (payload.payload.ocr_text or "").strip())
+    has_candidate_text = bool(payload.payload and (payload.payload.candidate_text or "").strip())
     has_summary_json = bool(payload.payload and payload.payload.summary_json)
     has_insight_json = bool(payload.payload and payload.payload.insight_json)
     has_pdf_json = bool(payload.payload and (payload.payload.pdf_json or payload.payload.template_json))
@@ -2302,15 +2342,32 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             has_filepath
             or has_upload
             or has_ocr_text
+            or has_candidate_text
             or has_summary_json
             or has_insight_json
             or has_pdf_json
-            or explicit in {"ocr", "summary", "classification", "insight", "ap", "pdf"}
+            or explicit in {
+                "ocr",
+                "summary",
+                "classification",
+                "document_intelligent",
+                "insight",
+                "ap",
+                "pdf",
+                "ftl_qualifier",
+                "ftl_quote_estimator",
+            }
         ):
             if explicit == "summary":
                 message = "Summarize the document."
             elif explicit == "classification":
                 message = "Classify the document."
+            elif explicit == "document_intelligent":
+                message = "Match the document to a tenant repository."
+            elif explicit == "ftl_qualifier":
+                message = "Qualify the RFQ document."
+            elif explicit == "ftl_quote_estimator":
+                message = "Build quote for the RFQ document."
             elif explicit == "insight":
                 message = "Generate insights from the supplied data."
             elif explicit == "pdf":
@@ -2455,6 +2512,29 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "workflow_name": getattr(p, "workflow_name", None) if p else None,
             "phase": getattr(p, "phase", None) if p else None,
         }
+    elif intent == Intent.FTL_QUALIFIER:
+        p = payload.payload
+        document_job = {
+            "file_bytes": parsed.file_bytes,
+            "filename": parsed.filename,
+            "filepath": p.filepath if p else None,
+            "candidate_text": p.candidate_text if p else None,
+            "raw_text": p.ocr_text if p else None,
+            "model": p.model if p else None,
+            "tenant_id": p.tenant_id if p else None,
+        }
+    elif intent == Intent.FTL_QUOTE_ESTIMATOR:
+        p = payload.payload
+        document_job = {
+            "file_bytes": parsed.file_bytes,
+            "filename": parsed.filename,
+            "filepath": p.filepath if p else None,
+            "candidate_text": p.candidate_text if p else None,
+            "raw_text": p.ocr_text if p else None,
+            "template_type": (p.template_type if p else None) or "inflow",
+            "model": p.model if p else None,
+            "tenant_id": p.tenant_id if p else None,
+        }
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
     if intent == Intent.INSIGHT and has_insight_json:
@@ -2493,7 +2573,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "model": payload.payload.model if payload.payload else None,
             "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
-    elif intent in {Intent.SUMMARY, Intent.CLASSIFICATION, Intent.INSIGHT} and has_ocr_text:
+    elif intent in {Intent.SUMMARY, Intent.CLASSIFICATION, Intent.DOCUMENT_INTELLIGENT, Intent.INSIGHT} and has_ocr_text:
         # Direct OCR text: skip blob download and Paddle. Wins over file/filepath.
         document_job = {
             "instruction": payload.instruction,
@@ -2513,7 +2593,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "model": payload.payload.model if payload.payload else None,
             "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
-    elif intent in {Intent.OCR, Intent.SUMMARY, Intent.CLASSIFICATION, Intent.INSIGHT} and has_document:
+    elif intent in {Intent.OCR, Intent.SUMMARY, Intent.CLASSIFICATION, Intent.DOCUMENT_INTELLIGENT, Intent.INSIGHT} and has_document:
         if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
         # Prefer upload over filepath when both are present.
@@ -2546,6 +2626,10 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         # Explicit OCR without a document still allows legacy "run ocr on SCN-.." messages.
         pass
     elif intent == Intent.CLASSIFICATION and explicit == "classification" and not (
+        has_document or has_ocr_text
+    ):
+        pass
+    elif intent == Intent.DOCUMENT_INTELLIGENT and explicit == "document_intelligent" and not (
         has_document or has_ocr_text
     ):
         pass
@@ -2762,6 +2846,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         ocr_result=result.get("ocr_result"),
         summary_result=result.get("summary_result"),
         classification_result=result.get("classification_result"),
+        document_intelligent_result=result.get("document_intelligent_result"),
         insight_result=result.get("insight_result"),
         forecast_result=result.get("forecast_result"),
         invoice_reference=result.get("invoice_reference"),
@@ -2773,6 +2858,10 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         chatbot_result=result.get("chatbot_result"),
         dashboard_result=result.get("dashboard_result"),
         html=result.get("html"),
+        qualifier_result=result.get("qualifier_result"),
+        quote_result=result.get("quote_result"),
+        rendered_html=result.get("rendered_html"),
+        pdf_download_url=result.get("pdf_download_url"),
     )
 
 

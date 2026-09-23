@@ -136,6 +136,7 @@ class ResponseComposer:
         ocr_result: Optional[dict] = None,
         summary_result: Optional[dict] = None,
         classification_result: Optional[dict] = None,
+        document_intelligent_result: Optional[dict] = None,
         insight_result: Optional[dict] = None,
         forecast_result: Optional[dict] = None,
         invoice_reference: Optional[str] = None,
@@ -147,6 +148,10 @@ class ResponseComposer:
         chatbot_result: Optional[dict] = None,
         dashboard_result: Optional[dict] = None,
         html: Optional[str] = None,
+        qualifier_result: Optional[dict] = None,
+        quote_result: Optional[dict] = None,
+        rendered_html: Optional[str] = None,
+        pdf_download_url: Optional[str] = None,
     ) -> ChatResponse:
         return ChatResponse(
             session_id=session_id,
@@ -160,6 +165,7 @@ class ResponseComposer:
             ocr_result=ocr_result,
             summary_result=summary_result,
             classification_result=classification_result,
+            document_intelligent_result=document_intelligent_result,
             insight_result=insight_result,
             forecast_result=forecast_result,
             invoice_reference=invoice_reference,
@@ -171,6 +177,10 @@ class ResponseComposer:
             chatbot_result=chatbot_result,
             dashboard_result=dashboard_result,
             html=html,
+            qualifier_result=qualifier_result,
+            quote_result=quote_result,
+            rendered_html=rendered_html,
+            pdf_download_url=pdf_download_url,
         )
 
     async def _llm_synthesize(self, *, system_prompt: str, user_content: str) -> dict:

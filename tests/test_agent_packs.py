@@ -22,6 +22,7 @@ def test_disk_packs_parse_for_all_markdown_agents():
     for agent in (
         "summary",
         "classification",
+        "document_intelligent",
         "ocr",
         "insight",
         "prompt",

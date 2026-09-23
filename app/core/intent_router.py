@@ -57,6 +57,9 @@ class Intent(str, Enum):
     GLOBAL_SEARCH = "global_search"
     CHATBOT = "chatbot"
     CLASSIFICATION = "classification"
+    DOCUMENT_INTELLIGENT = "document_intelligent"
+    FTL_QUALIFIER = "ftl_qualifier"
+    FTL_QUOTE_ESTIMATOR = "ftl_quote_estimator"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the
@@ -107,6 +110,14 @@ _SEARCH_TRIGGERS = (
     "where can i find",
     "show me",
     "locate",
+)
+
+_DOCUMENT_INTELLIGENT_TRIGGERS = (
+    "document intelligent",
+    "which repository",
+    "which repo",
+    "match repository",
+    "match repo",
 )
 
 _CLASSIFICATION_TRIGGERS = (
@@ -166,6 +177,31 @@ _AP_TRIGGERS = (
 # policy" or "what's my email address"). See the module docstring's NOTE
 # on why this narrowness is only one of three independent safety layers
 # for Mail, not the only one.
+_FTL_QUALIFIER_TRIGGERS = (
+    "qualify rfq",
+    "qualify this rfq",
+    "qualify the rfq",
+    "qualify elevator",
+    "ftl qualifier",
+    "ftl qualify",
+    "qualifier agent",
+    "qualify spec",
+)
+
+_FTL_QUOTE_TRIGGERS = (
+    "build quote",
+    "build a quote",
+    "estimate quote",
+    "estimate a quote",
+    "ftl quote",
+    "ftl estimate",
+    "quote estimator",
+    "quote estimate",
+    "generate quote",
+    "elevator quote",
+    "ftl quote estimator",
+)
+
 _MAIL_TRIGGERS = (
     "send an email",
     "send email",
@@ -223,6 +259,10 @@ class IntentRouter:
         normalized = message.strip().lower()
         if not normalized:
             return Intent.CHAT
+        if any(trigger in normalized for trigger in _FTL_QUALIFIER_TRIGGERS):
+            return Intent.FTL_QUALIFIER
+        if any(trigger in normalized for trigger in _FTL_QUOTE_TRIGGERS):
+            return Intent.FTL_QUOTE_ESTIMATOR
         if any(trigger in normalized for trigger in _CHATBOT_TRIGGERS):
             return Intent.CHATBOT
         if any(trigger in normalized for trigger in _DASHBOARD_TRIGGERS):
@@ -233,6 +273,8 @@ class IntentRouter:
             return Intent.GLOBAL_SEARCH
         if any(trigger in normalized for trigger in _SEARCH_TRIGGERS):
             return Intent.SEARCH
+        if any(trigger in normalized for trigger in _DOCUMENT_INTELLIGENT_TRIGGERS):
+            return Intent.DOCUMENT_INTELLIGENT
         if any(trigger in normalized for trigger in _CLASSIFICATION_TRIGGERS):
             return Intent.CLASSIFICATION
         if any(trigger in normalized for trigger in _SUMMARY_TRIGGERS):
