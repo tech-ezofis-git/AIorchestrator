@@ -46,6 +46,12 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     filepath = _form_str(form.get("filepath"))
     pageno = _form_str(form.get("pageno"))
     ocr_text = _form_str(form.get("ocr_text"))
+    candidate_text = _form_str(form.get("candidate_text")) or _form_str(form.get("candidateText"))
+    template_type = (
+        _form_str(form.get("template_type"))
+        or _form_str(form.get("templateType"))
+        or _form_str(form.get("quote_template_type"))
+    )
     model = _form_str(form.get("model"))
     tenant_id = _form_str(form.get("tenant_id"))
     form_id = (
@@ -171,6 +177,8 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         filepath
         or pageno
         or ocr_text
+        or candidate_text
+        or template_type
         or parameters
         or tableparameters
         or model
@@ -203,6 +211,8 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             template_json=template_json,
             pdf_title=pdf_title,
             pdf_theme=pdf_theme,
+            candidate_text=candidate_text,
+            template_type=template_type,
             parameters=parameters,
             tableparameters=tableparameters,
             model=model,

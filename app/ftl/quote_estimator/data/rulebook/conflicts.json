@@ -1,0 +1,172 @@
+[
+  {
+    "issue_id": "I-001",
+    "issue": "Programming tool price",
+    "evidence_a": "2026 price list: $598.50",
+    "evidence_b": "Approved EST-261132 feedback: $698.50",
+    "safe_interim_rule": "HOLD automatic price; use estimator-approved customer/project price",
+    "decision_needed": "Francine/JR to set master and customer exceptions",
+    "priority": "CRITICAL",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-002",
+    "issue": "Formula detector SKU",
+    "evidence_a": "Price list: VISIONPLUS_3D_DETECTOR",
+    "evidence_b": "FTL rule/approved quote: FS_VISIONPLUS_3D_CAR_DOOR_DET",
+    "safe_interim_rule": "Use FTL stated product in draft but block system release until SKU normalized",
+    "decision_needed": "Confirm canonical accounting/inventory code",
+    "priority": "HIGH",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-003",
+    "issue": "Formula detector electrical description",
+    "evidence_a": "FTL statement says both sides 24 VAC",
+    "evidence_b": "SUPRA manual gives +24 VDC at IPD, max 150 mA",
+    "safe_interim_rule": "Do not publish electrical claim or final wiring BOM until Formula datasheet validates",
+    "decision_needed": "Provide Formula VisionPlus 3D datasheet/wiring/current draw",
+    "priority": "CRITICAL",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-004",
+    "issue": "Universal door UOM and price",
+    "evidence_a": "Price list uses 2-panel set price for 2C/2T",
+    "evidence_b": "Approved quotes use individual-panel quantities/prices",
+    "safe_interim_rule": "Quantity logic fixed by panels; HOLD automatic pricing",
+    "decision_needed": "Define canonical SKU/UOM and price for each panel/set",
+    "priority": "CRITICAL",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-005",
+    "issue": "Universal door stainless description",
+    "evidence_a": "Price list: #4 SS 441",
+    "evidence_b": "Element email: 304 stainless #4 brushed",
+    "safe_interim_rule": "Use neutral '#4 brushed finish' pending manufacturing confirmation",
+    "decision_needed": "Confirm standard stock material and update all sources",
+    "priority": "HIGH",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-006",
+    "issue": "OL100 commercial configuration",
+    "evidence_a": "No OL100 line in current price list",
+    "evidence_b": "EST-261132: $13,200; FTL rule adds $2,950 tension",
+    "safe_interim_rule": "Engineering/manual review and estimator approval required",
+    "decision_needed": "Confirm governor SKU, base price, swingarm vs vertical tension, fillers/fixings",
+    "priority": "CRITICAL",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-007",
+    "issue": "Governor hand codes",
+    "evidence_a": "Price list codes are unhanded",
+    "evidence_b": "Approved quote uses _LH and manuals require trip direction",
+    "safe_interim_rule": "Use type only at estimate draft; block order code until hand confirmed",
+    "decision_needed": "Publish exact LH/RH SKU map",
+    "priority": "HIGH",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-008",
+    "issue": "Safety product identity/content",
+    "evidence_a": "Price list: CSGB03-SYNC generic SKU",
+    "evidence_b": "Detailed manuals: SGB01/02/03/05 and housing/linkage variants",
+    "safe_interim_rule": "No automatic safety selection or pricing",
+    "decision_needed": "Publish CSGB/SGB mapping, exact SKUs, housing/SYNC contents and prices",
+    "priority": "CRITICAL",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-009",
+    "issue": "Freight matrix",
+    "evidence_a": "Telegram correct freight $975",
+    "evidence_b": "Element quotes use $850; prior thresholds not formally approved",
+    "safe_interim_rule": "Manual freight or approved customer/project rule only",
+    "decision_needed": "Issue formal freight matrix with thresholds and exception logic",
+    "priority": "HIGH",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-010",
+    "issue": "Hand conversion coverage",
+    "evidence_a": "1S GAL-vs-Wittur diagrams support reverse mapping",
+    "evidence_b": "No approved matrix for 2T/OTIS/West/other OEMs",
+    "safe_interim_rule": "Apply only approved 1S GAL conversion; review all others",
+    "decision_needed": "Publish complete OEM-to-Wittur handing matrix",
+    "priority": "HIGH",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-011",
+    "issue": "Door survey pages 7/8",
+    "evidence_a": "FTL rule references A-F and S measurements",
+    "evidence_b": "Exact page/form definitions are not in uploaded source set",
+    "safe_interim_rule": "Record rule; do not pretend to validate missing measurements",
+    "decision_needed": "Provide exact door survey package pages 7 and 8",
+    "priority": "HIGH",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-012",
+    "issue": "Price-list description typo",
+    "evidence_a": "2C GAL42 RH code/width is 42",
+    "evidence_b": "Description says GAL adaptor 36",
+    "safe_interim_rule": "Trust code/width only after correction",
+    "decision_needed": "Correct price-list description",
+    "priority": "MEDIUM",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-013",
+    "issue": "Customer-specific pricing profiles",
+    "evidence_a": "Element uses 15% operator/door, 10% clutch, detector reduction and free tool",
+    "evidence_b": "General price list/bundle incentives differ",
+    "safe_interim_rule": "Never learn global discount from historic quote",
+    "decision_needed": "Create versioned customer pricing table",
+    "priority": "CRITICAL",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-014",
+    "issue": "Governor tension optionality",
+    "evidence_a": "Uploaded OL35 guidance/form allows reuse/no tension",
+    "evidence_b": "Latest FTL rule requires swingarm with every OL governor",
+    "safe_interim_rule": "Latest FTL rule controls quoting",
+    "decision_needed": "Update survey guidance to eliminate conflicting option",
+    "priority": "MEDIUM",
+    "status": "PROVISIONAL"
+  },
+  {
+    "issue_id": "I-015",
+    "issue": "Restrictor line meaning",
+    "evidence_a": "Technical material says integrated interlock eliminates added restrictor",
+    "evidence_b": "FTL quotes one $0 restrictor/value line per opening",
+    "safe_interim_rule": "Treat as customer-visible included-value line, not added hardware",
+    "decision_needed": "Confirm naming and whether any physical component is shipped",
+    "priority": "HIGH",
+    "status": "PROVISIONAL"
+  },
+  {
+    "issue_id": "I-016",
+    "issue": "Safety selection heuristic",
+    "evidence_a": "FTL instruction maps families mainly by rail size",
+    "evidence_b": "Manufacturer table selects by Fmax, speed, rail condition and rail compatibility",
+    "safe_interim_rule": "Engineering table controls; rail-only mapping prohibited",
+    "decision_needed": "Revise FTL instruction sheet",
+    "priority": "CRITICAL",
+    "status": "OPEN"
+  },
+  {
+    "issue_id": "I-017",
+    "issue": "Telegram regression total",
+    "evidence_a": "EST-261132 total was approved previously",
+    "evidence_b": "New mandatory OL100 $2,950 tension rule may change it",
+    "safe_interim_rule": "Use scope counts, not old total, until OL100 content is reconciled",
+    "decision_needed": "Confirm whether $13,200 already included the tension assembly",
+    "priority": "CRITICAL",
+    "status": "OPEN"
+  }
+]

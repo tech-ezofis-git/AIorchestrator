@@ -1,0 +1,114 @@
+[
+  {
+    "trigger_id": "RT-001",
+    "condition": "Any missing car/opening quantity",
+    "severity": "BLOCK",
+    "agent_response": "Do not create priced equipment quantities",
+    "required_resolution": "Request car-by-car opening schedule"
+  },
+  {
+    "trigger_id": "RT-002",
+    "condition": "Door type, width or Wittur hand unknown",
+    "severity": "BLOCK",
+    "agent_response": "No operator SKU",
+    "required_resolution": "Request exact configuration/diagram"
+  },
+  {
+    "trigger_id": "RT-003",
+    "condition": "OEM hand not covered by approved conversion table",
+    "severity": "BLOCK",
+    "agent_response": "Do not flip/copy hand",
+    "required_resolution": "Estimator/Wittur review"
+  },
+  {
+    "trigger_id": "RT-004",
+    "condition": "Retained car door without OEM/lock and bolt pattern",
+    "severity": "BLOCK",
+    "agent_response": "No panel adaptor SKU",
+    "required_resolution": "Request top-of-door pattern and photos"
+  },
+  {
+    "trigger_id": "RT-005",
+    "condition": "OTIS 6940 retained",
+    "severity": "REVIEW",
+    "agent_response": "No bracket price or count until landing count known",
+    "required_resolution": "Estimator selects OTIS package"
+  },
+  {
+    "trigger_id": "RT-006",
+    "condition": "Non-stock SGV width/height/finish",
+    "severity": "REVIEW",
+    "agent_response": "No catalogue SKU substitution",
+    "required_resolution": "Engineering/manufacturing price"
+  },
+  {
+    "trigger_id": "RT-007",
+    "condition": "Programming tool price required",
+    "severity": "REVIEW",
+    "agent_response": "Resolve $598.50 vs $698.50/customer waiver",
+    "required_resolution": "Customer pricing profile"
+  },
+  {
+    "trigger_id": "RT-008",
+    "condition": "Detector final wiring/order release",
+    "severity": "BLOCK",
+    "agent_response": "Resolve 24 VAC claim vs +24 VDC manual and current draw",
+    "required_resolution": "Formula datasheet"
+  },
+  {
+    "trigger_id": "RT-009",
+    "condition": "OL35 outside NA range or special pulley/encoder",
+    "severity": "REVIEW",
+    "agent_response": "No governor selection",
+    "required_resolution": "Governor survey/engineering"
+  },
+  {
+    "trigger_id": "RT-010",
+    "condition": "Any OL100 selection",
+    "severity": "REVIEW",
+    "agent_response": "No final SKU/BOM",
+    "required_resolution": "Resolve base + $2,950 tension content"
+  },
+  {
+    "trigger_id": "RT-011",
+    "condition": "WRG application/load/rail/speed missing",
+    "severity": "BLOCK",
+    "agent_response": "No WRG model",
+    "required_resolution": "Completed survey/photos"
+  },
+  {
+    "trigger_id": "RT-012",
+    "condition": "WRG150HD requested",
+    "severity": "REVIEW",
+    "agent_response": "No approved FTL price",
+    "required_resolution": "Pricing approval"
+  },
+  {
+    "trigger_id": "RT-013",
+    "condition": "Roll-formed HT rail, lubricated rail, non-passenger elevator or unbalanced car",
+    "severity": "BLOCK",
+    "agent_response": "WRG standard range invalid",
+    "required_resolution": "Engineering alternative"
+  },
+  {
+    "trigger_id": "RT-014",
+    "condition": "Any safety gear selection",
+    "severity": "BLOCK",
+    "agent_response": "No safety SKU/price until CSGB/SGB and full survey resolved",
+    "required_resolution": "Safety engineering"
+  },
+  {
+    "trigger_id": "RT-015",
+    "condition": "Discount, incentive, payment terms or freight lacks approved profile",
+    "severity": "REVIEW",
+    "agent_response": "No commercial assumption",
+    "required_resolution": "Estimator/customer record"
+  },
+  {
+    "trigger_id": "RT-016",
+    "condition": "Source documents conflict",
+    "severity": "BLOCK",
+    "agent_response": "Preserve both facts and issue ID",
+    "required_resolution": "Resolve conflict before release"
+  }
+]

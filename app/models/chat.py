@@ -69,7 +69,7 @@ class DocumentPayload(BaseModel):
     ocr_text: Optional[str] = Field(
         default=None,
         description=(
-            "Pre-extracted OCR text. When set on intent=summary, classification, or insight, blob "
+            "Pre-extracted OCR text. When set on intent=summary, classification, document_intelligent, or insight, blob "
             "download and Paddle extract are skipped. Wins over file/filepath "
             "(summary_json / insight_json still win over ocr_text)."
         ),
@@ -170,6 +170,16 @@ class DocumentPayload(BaseModel):
     pdf_theme: Optional[str] = Field(
         default=None,
         description="Optional color theme for intent=pdf (corporate_blue, emerald, graphite, purple, amber).",
+    )
+    candidate_text: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("candidate_text", "candidateText", "rfq_text", "spec_text"),
+        description="Pre-extracted candidate text for FTL qualifier / quote estimator.",
+    )
+    template_type: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("template_type", "templateType", "quote_template_type", "quoteTemplateType"),
+        description="Quote template style (inflow or internal_review) for FTL quote estimator.",
     )
     parameters: list[str] = Field(default_factory=list)
     tableparameters: list[str] = Field(default_factory=list)
@@ -490,7 +500,7 @@ class ChatRequest(BaseModel):
         default=None,
         description=(
             "Free-text chat message, or the full prompt when intent=prompt. "
-            "Optional when intent=ocr/summary/classification/insight/ap with file, filepath, "
+            "Optional when intent=ocr/summary/classification/document_intelligent/insight/ap with file, filepath, "
             "ocr_text, summary_json, insight_json, or invoice_json."
         ),
     )
@@ -594,6 +604,7 @@ class ChatRequest(BaseModel):
         has_prompt = bool(payload and (payload.prompt or "").strip())
         has_global_query = bool(payload and (payload.query or "").strip())
         has_dashboard = bool(payload and payload.dashboard_json)
+        has_candidate_text = bool(payload and (payload.candidate_text or "").strip())
         has_dashboard_target = bool(
             payload
             and (payload.tenant_id or "").strip()
@@ -616,24 +627,29 @@ class ChatRequest(BaseModel):
             and not has_global_query
             and not has_dashboard
             and not has_dashboard_target
+            and not has_candidate_text
         ):
             # Multipart uploads attach file bytes outside this model; main.py
-            # validates file/filepath/ocr_text for intent=ocr/summary/classification/insight/ap/pdf after parsing.
+            # validates file/filepath/ocr_text for intent=ocr/summary/classification/document_intelligent/insight/ap/pdf after parsing.
             if (self.intent or "").strip().lower() in {
                 "ocr",
                 "summary",
                 "classification",
+                "document_intelligent",
                 "insight",
                 "ap",
                 "pdf",
                 "global_search",
                 "chatbot",
                 "dashboard",
+                "ftl_qualifier",
+                "ftl_quote_estimator",
             }:
                 return self
             raise ValueError(
                 "Either message, payload.prompt, payload.filepath, payload.ocr_text, "
-                "payload.summary_json, payload.insight_json, payload.pdf_json, or payload.invoice_json is required."
+                "payload.summary_json, payload.insight_json, payload.pdf_json, "
+                "payload.candidate_text, or payload.invoice_json is required."
             )
         return self
 
@@ -684,6 +700,14 @@ class ChatResponse(BaseModel):
             "Classification document-job output — confidence_score, document_type, "
             "rationale, suggested_labels, ocr_text (plus optional source_reference). "
             "`reply` is a short status line. Token counts live in token_usage."
+        ),
+    )
+    document_intelligent_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Document Intelligent output — repository_id, repository_name, "
+            "confidence_score, rationale, candidates, ocr_text (plus source_reference). "
+            "`reply` is a short status line."
         ),
     )
     insight_result: Optional[dict[str, Any]] = Field(
@@ -760,6 +784,22 @@ class ChatResponse(BaseModel):
             "Dashboard agent output via POST /chat intent=dashboard. "
             "phase=prompts | schema | data. Item rows are capped at 50."
         ),
+    )
+    qualifier_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="FTL RFQ Qualifier output — qualify decision, matched/excluded items, flags, confidence.",
+    )
+    quote_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="FTL Quote Estimator output — line items, quantities, pricing, totals, and notes.",
+    )
+    rendered_html: Optional[str] = Field(
+        default=None,
+        description="Rendered HTML quote document for FTL quote estimator.",
+    )
+    pdf_download_url: Optional[str] = Field(
+        default=None,
+        description="Download URL for the generated quote PDF.",
     )
     html: Optional[str] = Field(
         default=None,

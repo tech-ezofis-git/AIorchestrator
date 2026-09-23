@@ -5,6 +5,11 @@ BUILTIN_AGENTS: list[dict[str, str]] = [
     {"slug": "search", "name": "Search", "description": "Search indexed documents."},
     {"slug": "summary", "name": "Summary", "description": "Summarize a document."},
     {"slug": "classification", "name": "Classification", "description": "Classify a document type from OCR or a file."},
+    {
+        "slug": "document_intelligent",
+        "name": "Document Intelligent",
+        "description": "Infer which tenant repository a document belongs to from OCR text.",
+    },
     {"slug": "insight", "name": "Insight", "description": "Analyze a document or report."},
     {"slug": "ocr", "name": "OCR", "description": "Extract and structure text from a document."},
     {"slug": "forecast", "name": "Forecast", "description": "Narrate a numeric forecast."},
@@ -30,6 +35,16 @@ BUILTIN_AGENTS: list[dict[str, str]] = [
         "slug": "report",
         "name": "Report Agent",
         "description": "Discover live schema, plan SQL, and generate executive business reports.",
+    },
+    {
+        "slug": "ftl_qualifier",
+        "name": "FTL RFQ Qualifier",
+        "description": "Qualify incoming elevator-parts RFQs against the Wittur pricelist.",
+    },
+    {
+        "slug": "ftl_quote_estimator",
+        "name": "FTL Quote Estimator",
+        "description": "Build priced Sales Estimates for elevator-parts RFQs against the Wittur pricelist.",
     },
 ]
 

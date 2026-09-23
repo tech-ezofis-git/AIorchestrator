@@ -19,6 +19,7 @@ _CUSTOM_SLUG_RE = re.compile(r"^custom(\d+)$")
 _PACK_AGENTS = (
     "summary",
     "classification",
+    "document_intelligent",
     "ocr",
     "insight",
     "prompt",
