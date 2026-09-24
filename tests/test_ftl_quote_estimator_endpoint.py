@@ -64,7 +64,7 @@ def test_quote_direct_endpoint_and_pdf(client, monkeypatch):
         "notes": ["Standard warranty applies."],
     }
 
-    def fake_run_quote_estimation(skill, candidate_text):
+    def fake_run_quote_estimation(skill, candidate_text, llm_overrides=None):
         return mock_quote, 2100
 
     monkeypatch.setattr(
@@ -114,7 +114,7 @@ def test_chat_ftl_quote_estimator_intent(client, monkeypatch):
         "notes": ["Freight confirmed at order."],
     }
 
-    def fake_run_quote_estimation(skill, candidate_text):
+    def fake_run_quote_estimation(skill, candidate_text, llm_overrides=None):
         return mock_quote, 1800
 
     monkeypatch.setattr(
@@ -200,7 +200,7 @@ def test_quote_pdf_requires_quote_result(client):
 def test_chat_quote_from_edited_qualifier_json(client, monkeypatch):
     seen = {}
 
-    def fake_run_quote_estimation(skill, candidate_text):
+    def fake_run_quote_estimation(skill, candidate_text, llm_overrides=None):
         seen["text"] = candidate_text
         return {
             "project_name": "285-295 Coventry - Modernization",
@@ -262,7 +262,7 @@ def test_chat_quote_from_edited_qualifier_json(client, monkeypatch):
 
 
 def test_chat_pdf_base64_from_edited_quote_json(client, monkeypatch):
-    def fail_run_quote_estimation(skill, candidate_text):
+    def fail_run_quote_estimation(skill, candidate_text, llm_overrides=None):
         raise AssertionError("model must not be called for quote_result input")
 
     monkeypatch.setattr(

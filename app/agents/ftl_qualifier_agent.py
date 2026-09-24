@@ -128,6 +128,7 @@ class FtlQualifierAgent:
         candidate_text: Optional[str] = None,
         raw_text: Optional[str] = None,
         model_override: Optional[str] = None,
+        llm_overrides: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Runs qualification on the given file/text asynchronously in a worker thread."""
         input_filename = filename or (os.path.basename(filepath) if filepath else "manual_input")
@@ -148,19 +149,12 @@ class FtlQualifierAgent:
             raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
 
         skill = skill_store.get_skill()
+        overrides = dict(llm_overrides or {})
+        if model_override:
+            overrides["model"] = model_override
 
         def _run() -> Tuple[Dict[str, Any], int]:
-            if model_override:
-                prev_model = os.environ.get("QUALIFIER_CHAT_MODEL")
-                os.environ["QUALIFIER_CHAT_MODEL"] = model_override
-                try:
-                    return qualifier_agent.run_qualification(skill, rendered)
-                finally:
-                    if prev_model is not None:
-                        os.environ["QUALIFIER_CHAT_MODEL"] = prev_model
-                    else:
-                        os.environ.pop("QUALIFIER_CHAT_MODEL", None)
-            return qualifier_agent.run_qualification(skill, rendered)
+            return qualifier_agent.run_qualification(skill, rendered, llm_overrides=overrides or None)
 
         decision, total_tokens = await asyncio.to_thread(_run)
 
@@ -212,6 +206,7 @@ class FtlQualifierAgent:
                 candidate_text=candidate_text,
                 raw_text=raw_text,
                 model_override=model,
+                llm_overrides=job.get("llm_overrides"),
             )
             run_rec = res["run_record"]
             reply_md = format_decision_markdown(run_rec)

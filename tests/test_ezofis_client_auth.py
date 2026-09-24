@@ -71,6 +71,36 @@ async def test_authenticate_accepts_v6_camelcase_access_token(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_auth_headers_keep_a_token_per_tenant():
+    settings = Settings(
+        ezofis_api_base="http://app/api",
+        ezofis_login_email="pilot@ezofis.com",
+        ezofis_login_password="secret",
+        ezofis_env="live",
+    )
+    client = EzofisClient(settings=settings)
+    client.use_access_token("ez-test-jwt", tenant_id="ez-test")
+    seen: list[str] = []
+
+    async def _login(*, tenant_id: str = ""):
+        seen.append(tenant_id)
+        client._token = "service-jwt"
+        client._token_type = "Bearer"
+        client._auth_tenant_id = tenant_id
+        client._tokens_by_tenant[tenant_id.strip().lower()] = ("service-jwt", "Bearer")
+        return {"access_token": "service-jwt", "tenant_id": tenant_id}
+
+    client.authenticate = _login  # type: ignore[method-assign]
+    other = await client._auth_headers("muscat")
+    same = await client._auth_headers("ez-test")
+    assert other["Authorization"] == "Bearer service-jwt"
+    assert other["X-Tenant-Id"] == "muscat"
+    assert same["Authorization"] == "Bearer ez-test-jwt"
+    assert same["X-Tenant-Id"] == "ez-test"
+    assert seen == ["muscat"]
+
+
+@pytest.mark.asyncio
 async def test_lookup_po_live_does_not_return_acme_mock(monkeypatch):
     settings = Settings(
         ezofis_api_base="http://app/api",

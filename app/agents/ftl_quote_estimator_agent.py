@@ -212,6 +212,7 @@ class FtlQuoteEstimatorAgent:
         qualifier_result: Optional[Dict[str, Any]] = None,
         template_type: str = "inflow",
         model_override: Optional[str] = None,
+        llm_overrides: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Runs quote estimation asynchronously and persists the result."""
         input_filename = filename or (os.path.basename(filepath) if filepath else "manual_input")
@@ -236,19 +237,12 @@ class FtlQuoteEstimatorAgent:
             raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
 
         skill = skill_store.get_skill()
+        overrides = dict(llm_overrides or {})
+        if model_override:
+            overrides["model"] = model_override
 
         def _run() -> Tuple[Dict[str, Any], int]:
-            if model_override:
-                prev_model = os.environ.get("QUOTE_CHAT_MODEL")
-                os.environ["QUOTE_CHAT_MODEL"] = model_override
-                try:
-                    return quote_agent.run_quote_estimation(skill, rendered)
-                finally:
-                    if prev_model is not None:
-                        os.environ["QUOTE_CHAT_MODEL"] = prev_model
-                    else:
-                        os.environ.pop("QUOTE_CHAT_MODEL", None)
-            return quote_agent.run_quote_estimation(skill, rendered)
+            return quote_agent.run_quote_estimation(skill, rendered, llm_overrides=overrides or None)
 
         quote_result, total_tokens = await asyncio.to_thread(_run)
 
@@ -362,6 +356,7 @@ class FtlQuoteEstimatorAgent:
                 qualifier_result=qualifier_result if isinstance(qualifier_result, dict) else None,
                 template_type=template_type,
                 model_override=model,
+                llm_overrides=job.get("llm_overrides"),
             )
             quote = res["quote_result"]
             est_num = res["estimate_number"]

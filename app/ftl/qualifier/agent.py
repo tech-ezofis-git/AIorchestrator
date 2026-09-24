@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -227,9 +227,9 @@ def _run_tool_call(name: str, arguments: Dict[str, Any]) -> str:
     if name == "search_pricelist":
         results = search_pricelist(arguments.get("query", ""), top_k=5)
         if not results:
-            return json.dumps({"results": [], "note": "No pricelist matches found for this query."})
+            return json.dumps({"results": [], "note": "No pricelist matches found for this query."}, default=str)
         payload: Dict[str, Any] = {"results": results}
-        top_score = results[0].get("score", 0.0)
+        top_score = results[0].get("score", 0.0) if results else 0.0
         if top_score < _LOW_CONFIDENCE_SCORE:
             # search_pricelist always returns its top-k closest chunks by cosine similarity, even
             # when nothing in the catalog is actually a real hit (e.g. a real case: querying for a
@@ -245,8 +245,8 @@ def _run_tool_call(name: str, arguments: Dict[str, Any]) -> str:
                 "alone; treat the item as out of scope/excluded unless the result text itself "
                 "independently confirms it's the same product the RFQ is asking for."
             )
-        return json.dumps(payload)
-    return json.dumps({"error": f"Unknown tool: {name}"})
+        return json.dumps(payload, default=str)
+    return json.dumps({"error": f"Unknown tool: {name}"}, default=str)
 
 
 def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[str, Any], candidate_text: str) -> Tuple[Dict[str, Any], int]:
@@ -267,11 +267,10 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
                 }
             )
 
-        resp = client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            response_format={"type": "json_object"},
-        )
+        create_kwargs: Dict[str, Any] = {"model": model_name, "messages": messages}
+        if "gpt-5" not in model_name.lower():
+            create_kwargs["response_format"] = {"type": "json_object"}
+        resp = client.chat.completions.create(**create_kwargs)
         usage = getattr(resp, "usage", None)
         if usage is not None:
             total_tokens += int(getattr(usage, "total_tokens", 0) or 0)
@@ -395,41 +394,28 @@ def _run_qualification_native_tools(client: Any, model_name: str, skill: Dict[st
     raise RuntimeError(f"Model did not submit a decision within {MAX_LOOKUP_ROUNDS} tool-call rounds.")
 
 
-def run_qualification(skill: Dict[str, Any], candidate_text: str) -> Tuple[Dict[str, Any], int]:
-    """Runs the bounded agentic loop to completion and returns (decision_dict, total_tokens).
-    Raises RuntimeError if the model never calls submit_qualification_decision within the round
-    cap, or if no API key is set."""
-    has_key = bool(
-        os.getenv("QWEN_API_KEY")
-        or os.getenv("QWEN_MAC_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or os.getenv("AZURE_OPENAI_API_KEY")
-        or os.getenv("AZURE_SOUTH_INDIA_API_KEY")
-        or os.getenv("AZURE_EAST_US_API_KEY")
-    )
-    if not has_key:
-        raise RuntimeError(
-            "No API key found. Set QWEN_API_KEY, OPENAI_API_KEY, AZURE_OPENAI_API_KEY, "
-            "or AZURE_SOUTH_INDIA_API_KEY in your .env file or environment."
-        )
-    model_name = (
-        os.getenv("QUALIFIER_CHAT_MODEL") or os.getenv("LLM_MODEL") or "qwen3.5-9b"
-    ).strip()
-    client = get_client()
+def run_qualification(
+    skill: Dict[str, Any],
+    candidate_text: str,
+    llm_overrides: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], int]:
+    """Runs the bounded agentic loop and returns (decision_dict, total_tokens).
 
-    deploy_model = model_name
-    if deploy_model.startswith("azure/"):
-        deploy_model = deploy_model[len("azure/"):]
-    elif deploy_model.startswith("openai/"):
-        deploy_model = deploy_model[len("openai/"):]
+    Model and API key come from the same preset overrides other agents use
+    (catalog / tenant selection, or the process default such as gpt-5-nano).
+    """
+    from app.ftl.llm import open_client, prefers_json_mode, resolve_llm_config
 
-    if "qwen" in model_name.lower():
+    config = resolve_llm_config(llm_overrides)
+    client, deploy_model = open_client(config)
+    model_name = str(config.get("model") or deploy_model)
+
+    if prefers_json_mode(model_name):
         return _run_qualification_json_mode(client, deploy_model, skill, candidate_text)
-    else:
-        try:
-            return _run_qualification_native_tools(client, deploy_model, skill, candidate_text)
-        except Exception as e:
-            if "tool" in str(e).lower() or "400" in str(e):
-                return _run_qualification_json_mode(client, deploy_model, skill, candidate_text)
-            raise
+    try:
+        return _run_qualification_native_tools(client, deploy_model, skill, candidate_text)
+    except Exception as e:
+        if "tool" in str(e).lower() or "400" in str(e):
+            return _run_qualification_json_mode(client, deploy_model, skill, candidate_text)
+        raise
 

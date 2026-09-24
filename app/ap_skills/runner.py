@@ -349,38 +349,27 @@ class ApSkillRunner:
                     document_job["form_entry_id"] = str(latest)
             merge_ids_into_job(document_job, resolve_metadata_ids(document_job, document_job.get("form_id")))
             ctx.form_id = str(document_job.get("form_id") or "").strip() or ctx.form_id
-            # Permanent PoMaster: if Core Hangfire omitted master_form_id, read it from
-            # workflow designer JSON (AP_AGENT settings.formId / apAgent.formId).
-            try:
-                from app.ap_skills.po_master_resolve import ensure_master_form_id_on_job
-
-                if not str(
-                    document_job.get("master_form_id") or document_job.get("masterFormId") or ""
-                ).strip():
-                    wf_id = str(
-                        document_job.get("workflow_id")
-                        or document_job.get("workflowId")
-                        or ""
-                    ).strip()
-                    if wf_id and hasattr(self._ezofis, "get_workflow"):
-                        wf = await self._ezofis.get_workflow(tenant_id=tenant_id, workflow_id=wf_id)
-                        wj = (wf or {}).get("workflowJson") or (wf or {}).get("workflow_json")
-                        if ensure_master_form_id_on_job(document_job, wj):
-                            logger.info(
-                                "ap_master_form_id_resolved_from_workflow",
-                                extra={
-                                    "workflow_id": wf_id,
-                                    "master_form_id": document_job.get("master_form_id"),
-                                },
-                            )
-            except Exception as resolve_exc:
-                logger.warning(
-                    "ap_master_form_id_resolve_failed",
-                    extra={"error_type": type(resolve_exc).__name__},
-                )
             ctx.document_job = document_job
         except Exception as exc:
             logger.warning("ap_ticket_hydrate_failed", extra={"error_type": type(exc).__name__})
+        # Every tenant: PO lookup uses apAgent.formId. A missing master, or one
+        # equal to the invoice formid, is replaced from the designer workflow.
+        # Kept outside ticket hydrate so a context lookup failure cannot skip it.
+        try:
+            from app.ap_skills.po_master_resolve import recover_master_form_id
+
+            await recover_master_form_id(
+                document_job,
+                ezofis=self._ezofis,
+                tenant_id=tenant_id,
+                invoice_form_id=ctx.form_id,
+            )
+            ctx.document_job = document_job
+        except Exception as resolve_exc:
+            logger.warning(
+                "ap_master_form_id_resolve_failed",
+                extra={"error_type": type(resolve_exc).__name__},
+            )
         form_controls = await self._store.fetch_form_controls(
             tenant_id=tenant_id,
             form_id=ctx.form_id,

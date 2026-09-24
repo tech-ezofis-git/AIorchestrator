@@ -56,7 +56,7 @@ def test_qualifier_direct_endpoint(client, monkeypatch):
         "confidence": 0.95,
     }
 
-    def fake_run_qualification(skill, candidate_text):
+    def fake_run_qualification(skill, candidate_text, llm_overrides=None):
         return mock_decision, 1250
 
     monkeypatch.setattr(
@@ -93,7 +93,7 @@ def test_chat_ftl_qualifier_intent(client, monkeypatch):
         "confidence": 0.75,
     }
 
-    def fake_run_qualification(skill, candidate_text):
+    def fake_run_qualification(skill, candidate_text, llm_overrides=None):
         return mock_decision, 980
 
     monkeypatch.setattr(
