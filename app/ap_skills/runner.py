@@ -349,14 +349,15 @@ class ApSkillRunner:
                     document_job["form_entry_id"] = str(latest)
             merge_ids_into_job(document_job, resolve_metadata_ids(document_job, document_job.get("form_id")))
             ctx.form_id = str(document_job.get("form_id") or "").strip() or ctx.form_id
-            # Permanent PoMaster: if Core Hangfire omitted master_form_id, read it from
-            # workflow designer JSON (AP_AGENT settings.formId / apAgent.formId).
+            # PoMaster is apAgent.formId. If /chat only has the invoice formid,
+            # or stamped that formid as master_form_id, read the designer form.
             try:
-                from app.ap_skills.po_master_resolve import ensure_master_form_id_on_job
+                from app.ap_skills.po_master_resolve import (
+                    ensure_master_form_id_on_job,
+                    master_form_id_is_usable,
+                )
 
-                if not str(
-                    document_job.get("master_form_id") or document_job.get("masterFormId") or ""
-                ).strip():
+                if not master_form_id_is_usable(document_job):
                     wf_id = str(
                         document_job.get("workflow_id")
                         or document_job.get("workflowId")

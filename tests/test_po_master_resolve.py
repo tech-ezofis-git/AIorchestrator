@@ -43,3 +43,25 @@ def test_ensure_master_form_id_skips_when_present():
     job = {"master_form_id": "already"}
     assert ensure_master_form_id_on_job(job, SAMPLE) is False
     assert job["master_form_id"] == "already"
+
+
+def test_prefers_ap_agent_form_over_invoice_settings_form_id():
+    invoice = "1dea95c8-005f-400d-98e7-f85e6c515a6e"
+    master = "719c181f-d861-4fb5-b10b-f5a9ffdfc657"
+    workflow = {
+        "blocks": [
+            {
+                "type": "AP_AGENT",
+                "settings": {
+                    "formId": invoice,
+                    "apAgent": {"formId": master, "resource": "FORM"},
+                },
+            }
+        ]
+    }
+    source, form_id = extract_po_master_from_workflow_json(workflow)
+    assert source == "InternalForm"
+    assert form_id == master
+    job = {"form_id": invoice, "master_form_id": invoice}
+    assert ensure_master_form_id_on_job(job, workflow) is True
+    assert job["master_form_id"] == master
