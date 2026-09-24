@@ -227,9 +227,9 @@ def _run_tool_call(name: str, arguments: Dict[str, Any]) -> str:
     if name == "search_pricelist":
         results = search_pricelist(arguments.get("query", ""), top_k=5)
         if not results:
-            return json.dumps({"results": [], "note": "No pricelist matches found for this query."})
+            return json.dumps({"results": [], "note": "No pricelist matches found for this query."}, default=str)
         payload: Dict[str, Any] = {"results": results}
-        top_score = results[0].get("score", 0.0)
+        top_score = results[0].get("score", 0.0) if results else 0.0
         if top_score < _LOW_CONFIDENCE_SCORE:
             # search_pricelist always returns its top-k closest chunks by cosine similarity, even
             # when nothing in the catalog is actually a real hit (e.g. a real case: querying for a
@@ -245,8 +245,8 @@ def _run_tool_call(name: str, arguments: Dict[str, Any]) -> str:
                 "alone; treat the item as out of scope/excluded unless the result text itself "
                 "independently confirms it's the same product the RFQ is asking for."
             )
-        return json.dumps(payload)
-    return json.dumps({"error": f"Unknown tool: {name}"})
+        return json.dumps(payload, default=str)
+    return json.dumps({"error": f"Unknown tool: {name}"}, default=str)
 
 
 def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[str, Any], candidate_text: str) -> Tuple[Dict[str, Any], int]:
