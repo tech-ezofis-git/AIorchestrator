@@ -27,6 +27,16 @@ logger = logging.getLogger("orchestrator.ftl.api")
 router = APIRouter(tags=["ftl"])
 
 
+def _request_llm_overrides(request: Request, model: Optional[str]) -> dict[str, Any] | None:
+    """Same frozen preset the chat path stores on document_job['llm_overrides']."""
+    adapter = getattr(request.app.state, "llm_adapter", None)
+    snapshot = adapter.snapshot_overrides() if adapter is not None and hasattr(adapter, "snapshot_overrides") else {}
+    overrides = dict(snapshot or {})
+    if isinstance(model, str) and model.strip():
+        overrides["model"] = model.strip()
+    return overrides or None
+
+
 @router.post("/api/ftl/qualify")
 async def ftl_qualify(request: Request) -> dict[str, Any]:
     """Qualify an elevator-parts RFQ against the Wittur pricelist."""
@@ -79,6 +89,7 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
             candidate_text=cand_text,
             raw_text=r_text,
             model_override=m_override,
+            llm_overrides=_request_llm_overrides(request, m_override),
         )
         return {
             "status": "success",
@@ -197,6 +208,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
             raw_text=r_text,
             template_type=tpl_type,
             model_override=m_override,
+            llm_overrides=_request_llm_overrides(request, m_override),
         )
         return {
             "status": "success",

@@ -2259,11 +2259,10 @@ def _run_quote_json_mode(
                 }
             )
 
-        resp = client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            response_format={"type": "json_object"},
-        )
+        create_kwargs: Dict[str, Any] = {"model": model_name, "messages": messages}
+        if "gpt-5" not in model_name.lower():
+            create_kwargs["response_format"] = {"type": "json_object"}
+        resp = client.chat.completions.create(**create_kwargs)
         usage = getattr(resp, "usage", None)
         if usage is not None:
             total_tokens += int(getattr(usage, "total_tokens", 0) or 0)
@@ -2435,39 +2434,33 @@ def _run_quote_native_tools(
     raise RuntimeError(f"Model did not submit a quote within {MAX_LOOKUP_ROUNDS} tool-call rounds.")
 
 
-def run_quote_estimation(skill: Dict[str, Any], candidate_text: str) -> Tuple[Dict[str, Any], int]:
-    """Runs the bounded agentic loop to completion and returns (quote_dict, total_tokens).
-    Raises RuntimeError if the model never calls submit_quote within the round cap, or if
-    no API key is set."""
-    # Constructing the client performs the endpoint/key validation. Keep this
-    # single source of truth rather than maintaining a separate, looser key check.
-    model_name = (
-        os.getenv("QUOTE_CHAT_MODEL") or os.getenv("LLM_MODEL") or "qwen3.5-9b"
-    ).strip()
-    client = get_client()
+def run_quote_estimation(
+    skill: Dict[str, Any],
+    candidate_text: str,
+    llm_overrides: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], int]:
+    """Runs the bounded agentic loop and returns (quote_dict, total_tokens).
 
-    deploy_model = model_name
-    if deploy_model.startswith("azure/"):
-        deploy_model = deploy_model[len("azure/"):]
-    elif deploy_model.startswith("openai/"):
-        deploy_model = deploy_model[len("openai/"):]
+    Model and API key come from the same preset overrides other agents use.
+    """
+    from app.ftl.llm import open_client, prefers_json_mode, resolve_llm_config
 
-    if "qwen" in model_name.lower():
+    config = resolve_llm_config(llm_overrides)
+    client, deploy_model = open_client(config)
+    model_name = str(config.get("model") or deploy_model)
+
+    if prefers_json_mode(model_name):
         return _run_quote_json_mode(client, deploy_model, skill, candidate_text)
-    else:
-        try:
-            return _run_quote_native_tools(client, deploy_model, skill, candidate_text)
-        except Exception as e:
-            message = str(e).lower()
-            # Fallback only for provider/tool-schema incompatibility. Network,
-            # authentication, rate-limit, and application errors should surface
-            # instead of silently launching a second full generation.
-            tool_schema_error = (
-                "tool" in message
-                and any(term in message for term in (
-                    "unsupported", "not support", "invalid", "schema", "function"
-                ))
-            ) or ("400" in message and "tool" in message)
-            if tool_schema_error:
-                return _run_quote_json_mode(client, deploy_model, skill, candidate_text)
-            raise
+    try:
+        return _run_quote_native_tools(client, deploy_model, skill, candidate_text)
+    except Exception as e:
+        message = str(e).lower()
+        tool_schema_error = (
+            "tool" in message
+            and any(term in message for term in (
+                "unsupported", "not support", "invalid", "schema", "function"
+            ))
+        ) or ("400" in message and "tool" in message)
+        if tool_schema_error:
+            return _run_quote_json_mode(client, deploy_model, skill, candidate_text)
+        raise

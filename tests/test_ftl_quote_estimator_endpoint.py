@@ -61,7 +61,7 @@ def test_quote_direct_endpoint_and_pdf(client, monkeypatch):
         "notes": ["Standard warranty applies."],
     }
 
-    def fake_run_quote_estimation(skill, candidate_text):
+    def fake_run_quote_estimation(skill, candidate_text, llm_overrides=None):
         return mock_quote, 2100
 
     monkeypatch.setattr(
@@ -111,7 +111,7 @@ def test_chat_ftl_quote_estimator_intent(client, monkeypatch):
         "notes": ["Freight confirmed at order."],
     }
 
-    def fake_run_quote_estimation(skill, candidate_text):
+    def fake_run_quote_estimation(skill, candidate_text, llm_overrides=None):
         return mock_quote, 1800
 
     monkeypatch.setattr(
