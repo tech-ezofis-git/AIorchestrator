@@ -137,6 +137,15 @@ async def run(ctx: ApContext) -> ApSkillResult:
         )
         if form_id and invoice_form_id and form_id.lower() == invoice_form_id.lower():
             form_id = None
+        if not form_id:
+            from app.ap_skills.po_master_resolve import recover_master_form_id
+
+            form_id = await recover_master_form_id(
+                job,
+                ezofis=ctx.ezofis,
+                tenant_id=ctx.tenant_id,
+                invoice_form_id=invoice_form_id,
+            ) or None
         if not form_id and invoice_form_id:
             return ApSkillResult(
                 skill_id=SKILL_ID,
