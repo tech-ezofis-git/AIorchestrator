@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     ocr_default_model: Optional[str] = None
     ocr_fallback_model: Optional[str] = None
     ocr_max_pages: int = 5
+    # FTL qualifier / quote estimator only. Caps how many image or scan pages
+    # in one RFQ are sent to Paddle. Text pages are never counted against it.
+    ftl_ocr_max_pages: int = 40
     ocr_max_recommended_fields: int = 15
     ocr_allowed_host_suffixes: str = ".blob.core.windows.net"
     ocr_download_timeout_seconds: float = 60.0
