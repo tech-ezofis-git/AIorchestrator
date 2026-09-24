@@ -176,6 +176,38 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("candidate_text", "candidateText", "rfq_text", "spec_text"),
         description="Pre-extracted candidate text for FTL qualifier / quote estimator.",
     )
+    qualifier_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("qualifier_result", "qualifierResult"),
+        description=(
+            "Edited FTL qualifier decision. When set on intent=ftl_quote_estimator, "
+            "this is priced instead of a file. matched_items are quoted; excluded_items are not."
+        ),
+    )
+    quote_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("quote_result", "quoteResult"),
+        description=(
+            "Edited FTL estimator output. When set on intent=ftl_quote_estimator, no model call is made; "
+            "the quote PDF is rendered from these line items and returned as pdf_base64."
+        ),
+    )
+
+    @field_validator("qualifier_result", "quote_result", mode="before")
+    @classmethod
+    def _parse_qualifier_result(cls, value: Any) -> Any:
+        if value is None or isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return None
     template_type: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("template_type", "templateType", "quote_template_type", "quoteTemplateType"),
@@ -605,6 +637,8 @@ class ChatRequest(BaseModel):
         has_global_query = bool(payload and (payload.query or "").strip())
         has_dashboard = bool(payload and payload.dashboard_json)
         has_candidate_text = bool(payload and (payload.candidate_text or "").strip())
+        has_qualifier_result = bool(payload and isinstance(payload.qualifier_result, dict) and payload.qualifier_result)
+        has_quote_result = bool(payload and isinstance(payload.quote_result, dict) and payload.quote_result)
         has_dashboard_target = bool(
             payload
             and (payload.tenant_id or "").strip()
@@ -628,6 +662,8 @@ class ChatRequest(BaseModel):
             and not has_dashboard
             and not has_dashboard_target
             and not has_candidate_text
+            and not has_qualifier_result
+            and not has_quote_result
         ):
             # Multipart uploads attach file bytes outside this model; main.py
             # validates file/filepath/ocr_text for intent=ocr/summary/classification/document_intelligent/insight/ap/pdf after parsing.
@@ -800,6 +836,14 @@ class ChatResponse(BaseModel):
     pdf_download_url: Optional[str] = Field(
         default=None,
         description="Download URL for the generated quote PDF.",
+    )
+    pdf_base64: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded FTL quote PDF.",
+    )
+    pdf_filename: Optional[str] = Field(
+        default=None,
+        description="Filename for the FTL quote PDF in pdf_base64.",
     )
     html: Optional[str] = Field(
         default=None,

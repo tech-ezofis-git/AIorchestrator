@@ -47,6 +47,24 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     pageno = _form_str(form.get("pageno"))
     ocr_text = _form_str(form.get("ocr_text"))
     candidate_text = _form_str(form.get("candidate_text")) or _form_str(form.get("candidateText"))
+    qualifier_result_raw = _form_str(form.get("qualifier_result")) or _form_str(form.get("qualifierResult"))
+    qualifier_result = None
+    if qualifier_result_raw:
+        try:
+            parsed_qualifier = json.loads(qualifier_result_raw)
+        except json.JSONDecodeError:
+            parsed_qualifier = None
+        if isinstance(parsed_qualifier, dict):
+            qualifier_result = parsed_qualifier
+    quote_result_raw = _form_str(form.get("quote_result")) or _form_str(form.get("quoteResult"))
+    quote_result = None
+    if quote_result_raw:
+        try:
+            parsed_quote = json.loads(quote_result_raw)
+        except json.JSONDecodeError:
+            parsed_quote = None
+        if isinstance(parsed_quote, dict):
+            quote_result = parsed_quote
     template_type = (
         _form_str(form.get("template_type"))
         or _form_str(form.get("templateType"))
@@ -178,6 +196,8 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or pageno
         or ocr_text
         or candidate_text
+        or qualifier_result
+        or quote_result
         or template_type
         or parameters
         or tableparameters
@@ -212,6 +232,8 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             pdf_title=pdf_title,
             pdf_theme=pdf_theme,
             candidate_text=candidate_text,
+            qualifier_result=qualifier_result,
+            quote_result=quote_result,
             template_type=template_type,
             parameters=parameters,
             tableparameters=tableparameters,

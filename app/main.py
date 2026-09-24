@@ -2316,6 +2316,12 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     has_filepath = bool(payload.payload and (payload.payload.filepath or "").strip())
     has_ocr_text = bool(payload.payload and (payload.payload.ocr_text or "").strip())
     has_candidate_text = bool(payload.payload and (payload.payload.candidate_text or "").strip())
+    has_qualifier_result = bool(
+        payload.payload and isinstance(payload.payload.qualifier_result, dict) and payload.payload.qualifier_result
+    )
+    has_quote_result = bool(
+        payload.payload and isinstance(payload.payload.quote_result, dict) and payload.payload.quote_result
+    )
     has_summary_json = bool(payload.payload and payload.payload.summary_json)
     has_insight_json = bool(payload.payload and payload.payload.insight_json)
     has_pdf_json = bool(payload.payload and (payload.payload.pdf_json or payload.payload.template_json))
@@ -2343,6 +2349,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             or has_upload
             or has_ocr_text
             or has_candidate_text
+            or has_qualifier_result
+            or has_quote_result
             or has_summary_json
             or has_insight_json
             or has_pdf_json
@@ -2531,6 +2539,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "filepath": p.filepath if p else None,
             "candidate_text": p.candidate_text if p else None,
             "raw_text": p.ocr_text if p else None,
+            "qualifier_result": p.qualifier_result if p else None,
+            "quote_result": p.quote_result if p else None,
             "template_type": (p.template_type if p else None) or "inflow",
             "model": p.model if p else None,
             "tenant_id": p.tenant_id if p else None,
@@ -2862,6 +2872,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         quote_result=result.get("quote_result"),
         rendered_html=result.get("rendered_html"),
         pdf_download_url=result.get("pdf_download_url"),
+        pdf_base64=result.get("pdf_base64"),
+        pdf_filename=result.get("pdf_filename"),
     )
 
 

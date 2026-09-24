@@ -1,6 +1,9 @@
 """FTL Qualifier and Quote Estimator REST routes."""
 from __future__ import annotations
 
+import base64
+import binascii
+import json
 import logging
 import os
 from typing import Any, Optional
@@ -25,6 +28,18 @@ from app.ftl.quote_estimator import (
 logger = logging.getLogger("orchestrator.ftl.api")
 
 router = APIRouter(tags=["ftl"])
+
+
+def _qualifier_result_from(value: Any) -> Optional[dict[str, Any]]:
+    if isinstance(value, dict):
+        return value or None
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) and parsed else None
+    return None
 
 
 def _request_llm_overrides(request: Request, model: Optional[str]) -> dict[str, Any] | None:
@@ -161,6 +176,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
     f_path: Optional[str] = None
     cand_text: Optional[str] = None
     r_text: Optional[str] = None
+    qualifier_result: Optional[dict[str, Any]] = None
     tpl_type: str = "inflow"
     m_override: Optional[str] = None
 
@@ -174,6 +190,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
         f_path = form.get("filepath") if isinstance(form.get("filepath"), str) else None
         cand_text = form.get("candidate_text") if isinstance(form.get("candidate_text"), str) else None
         r_text = form.get("raw_text") if isinstance(form.get("raw_text"), str) else None
+        qualifier_result = _qualifier_result_from(form.get("qualifier_result") or form.get("qualifierResult"))
         tpl_val = form.get("template_type") or form.get("templateType")
         if isinstance(tpl_val, str) and tpl_val.strip():
             tpl_type = tpl_val.strip()
@@ -188,6 +205,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
             f_path = body.get("filepath")
             cand_text = body.get("candidate_text") or body.get("candidateText")
             r_text = body.get("raw_text") or body.get("rawText") or body.get("message")
+            qualifier_result = _qualifier_result_from(body.get("qualifier_result") or body.get("qualifierResult"))
             tpl_type = body.get("template_type") or body.get("templateType") or tpl_type
             m_override = body.get("model")
             b64_bytes = body.get("file_bytes") or body.get("fileBytes")
@@ -206,6 +224,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
             filepath=f_path,
             candidate_text=cand_text,
             raw_text=r_text,
+            qualifier_result=qualifier_result,
             template_type=tpl_type,
             model_override=m_override,
             llm_overrides=_request_llm_overrides(request, m_override),
@@ -223,6 +242,64 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
     except Exception as exc:
         logger.exception("ftl_quote_endpoint_failed")
         raise HTTPException(status_code=500, detail=f"FTL quote estimation failed: {str(exc)}") from exc
+
+
+@router.post("/api/ftl/base64-to-pdf")
+async def base64_to_pdf(payload: dict[str, Any] = Body(...)) -> Response:
+    """Turn a pdf_base64 string (e.g. from the /chat estimator reply) into a viewable / downloadable PDF."""
+    raw = str(payload.get("pdf_base64") or payload.get("pdfBase64") or "").strip()
+    if raw.startswith("data:"):
+        raw = raw.split(",", 1)[-1]
+    raw = "".join(raw.split())
+    if not raw:
+        raise HTTPException(status_code=400, detail="pdf_base64 is required.")
+    try:
+        pdf_bytes = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="pdf_base64 is not valid base64.") from exc
+    if not pdf_bytes.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="Decoded data is not a PDF.")
+
+    filename = str(payload.get("filename") or payload.get("pdf_filename") or "quote.pdf").strip()
+    filename = filename.replace("/", "-").replace("\\", "-").replace('"', "") or "quote.pdf"
+    if not filename.lower().endswith(".pdf"):
+        filename += ".pdf"
+    disposition = "attachment" if payload.get("download") else "inline"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )
+
+
+@router.post("/api/ftl/quote/pdf")
+async def render_quote_pdf(payload: dict[str, Any] = Body(...)) -> Response:
+    """Build a PDF from an estimator JSON (e.g. an edited quote_result), without re-running the model."""
+    quote = payload.get("quote_result") or payload.get("quoteResult")
+    if isinstance(quote, str) and quote.strip():
+        try:
+            quote = json.loads(quote)
+        except json.JSONDecodeError:
+            quote = None
+    if not isinstance(quote, dict) or not quote:
+        raise HTTPException(status_code=400, detail="quote_result JSON is required.")
+
+    template_type = str(payload.get("template_type") or payload.get("templateType") or "inflow").strip() or "inflow"
+    estimate_number = str(quote.get("estimate_number") or payload.get("estimate_number") or "ESTIMATE").strip()
+
+    try:
+        pdf_bytes = quote_pdf_module.generate_quote_pdf(quote, estimate_number, template_type=template_type)
+    except Exception as exc:
+        logger.exception("ftl_quote_pdf_render_failed")
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(exc)}") from exc
+
+    safe_name = estimate_number.replace("/", "-").replace("\\", "-").replace(" ", "_")
+    suffix = "" if template_type.lower() in ("inflow", "standard") else "_internal_review"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{safe_name}{suffix}.pdf"'},
+    )
 
 
 @router.get("/api/ftl/quote/pdf/{estimate_number}")
