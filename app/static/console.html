@@ -752,6 +752,29 @@
   }
   .insight-facts { counter-reset: insight-counter; }
 
+  /* —— FTL Qualifier & Quote Estimator Styles —— */
+  .ftl-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  .ftl-table th { text-align: left; padding: 9px 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-3); border-bottom: 2px solid var(--line); background: var(--surface-3); }
+  .ftl-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .ftl-table tbody tr:hover { background: rgba(248, 250, 252, 0.8); }
+  .ftl-tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--brand-soft); color: var(--brand); }
+  .ftl-match-pill { display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; letter-spacing: 0.03em; }
+  .ftl-match-pill.exact { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+  .ftl-match-pill.partial { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+  .ftl-decision-pill { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 999px; font-weight: 800; font-size: 13px; letter-spacing: 0.04em; }
+  .ftl-decision-pill .ftl-icon { width: 16px; height: 16px; }
+  .ftl-badge-qualify { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+  .ftl-badge-disqualify { background: #fff1f2; color: #e11d48; border: 1px solid #fecdd3; }
+  .ftl-badge-review { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+  .ftl-excluded-list { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+  .ftl-excluded-item { font-size: 13px; padding: 8px 12px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; color: #9f1239; }
+  .ftl-excluded-reason { font-size: 12px; color: #be123c; margin-left: 4px; }
+  .ftl-flag-badge { font-size: 11.5px; padding: 4px 10px; border-radius: 6px; background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; font-weight: 600; display: inline-flex; align-items: center; }
+  .ftl-totals-card { background: var(--surface-3); border: 1px solid var(--line); border-radius: 10px; padding: 12px 18px; min-width: 260px; }
+  .ftl-total-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 4px 0; color: var(--ink-2); }
+  .ftl-total-row.ftl-grand-total { font-size: 14px; font-weight: 800; color: #0f172a; border-top: 2px solid var(--line); margin-top: 6px; padding-top: 8px; }
+  .ftl-notes-list li { border-left-color: #0f172a; font-size: 13px; }
+
   .dev-panel {
     margin-top: 18px;
     border: 1px solid var(--line);
@@ -3454,6 +3477,27 @@ function setComposerMode(mode) {
 }
 
 
+window.proceedToFtlQuote = function(target) {
+  const candidateText = (target && target.dataset) ? (target.dataset.spec || '') : (typeof target === 'string' ? target : '');
+  if (composerMode !== 'ftl_quote_estimator') {
+    setComposerMode('ftl_quote_estimator');
+  }
+  if (ftlQuotePanel) {
+    ftlQuotePanel.open = true;
+  }
+  const el = document.getElementById('ftlQuoteCandidateText');
+  if (el && candidateText) {
+    el.value = candidateText;
+  }
+  syncMainControls();
+  if (ftlQuotePanel) {
+    ftlQuotePanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  if (el) {
+    el.focus();
+  }
+};
+
 refreshConsoleAgents();
 setComposerMode('chat');
 
@@ -5517,11 +5561,290 @@ function renderReportPlanResult(result, request) {
   return { html, resultJson, curlText };
 }
 
+function renderQualifierResult(qual, request) {
+  if (!qual) return { html: '', resultJson: {}, curlText: '' };
+  const decision = (qual.qualify || 'needs_review').toLowerCase();
+  const decisionBadgeClass = decision === 'qualify' ? 'ftl-badge-qualify' : decision === 'disqualify' ? 'ftl-badge-disqualify' : 'ftl-badge-review';
+  const decisionIcon = decision === 'qualify'
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="ftl-icon"><polyline points="20 6 9 17 4 12"/></svg>'
+    : decision === 'disqualify'
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="ftl-icon"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="ftl-icon"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+  const decisionText = decision === 'qualify' ? 'QUALIFY' : decision === 'disqualify' ? 'DISQUALIFY' : 'NEEDS REVIEW';
+
+  const projectName = qual.project_name || 'Elevator RFQ Tender';
+  const projectType = qual.project_type ? qual.project_type.replace(/_/g, ' ') : 'Modernization';
+  const deadline = qual.deadline || 'N/A';
+  const confidence = Number(qual.confidence);
+  const hasConfidence = Number.isFinite(confidence);
+  const confScorePercent = hasConfidence ? Math.round(confidence <= 1 ? confidence * 100 : confidence) : null;
+  const confClass = confScorePercent >= 80 ? '' : confScorePercent >= 50 ? 'mid' : 'low';
+
+  const matchedItems = Array.isArray(qual.matched_items) ? qual.matched_items : [];
+  const excludedItems = Array.isArray(qual.excluded_items) ? qual.excluded_items : [];
+  const flags = Array.isArray(qual.flags) ? qual.flags : [];
+
+  let matchedRows = '';
+  if (matchedItems.length) {
+    matchedRows = matchedItems.map(m => `
+      <tr>
+        <td><strong>${escapeHtml(m.item || '')}</strong></td>
+        <td><span class="ftl-tag">${escapeHtml(m.category || 'general')}</span></td>
+        <td><span class="ftl-match-pill ${m.match === 'exact' ? 'exact' : 'partial'}">${escapeHtml(m.match || 'match')}</span></td>
+        <td><code>${escapeHtml(m.catalog_ref || '—')}</code></td>
+        <td style="color:var(--ink-3);font-size:12px;">${escapeHtml(m.note || '—')}</td>
+      </tr>
+    `).join('');
+  }
+
+  let excludedList = '';
+  if (excludedItems.length) {
+    excludedList = excludedItems.map(e => `
+      <li class="ftl-excluded-item">
+        <strong>${escapeHtml(e.item || '')}</strong>
+        ${e.reason ? `<span class="ftl-excluded-reason">— ${escapeHtml(e.reason)}</span>` : ''}
+      </li>
+    `).join('');
+  }
+
+  let flagBadges = '';
+  if (flags.length) {
+    flagBadges = flags.map(f => `<span class="ftl-flag-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;display:inline-block;vertical-align:-1px;margin-right:4px;"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>${escapeHtml(String(f))}</span>`).join('');
+  }
+
+  const resultJson = JSON.stringify(qual, null, 2);
+  const curlText = buildChatCurl(request && { ...request, intent: request.intent || 'ftl_qualifier' }, 'ftl_qualifier');
+
+  let html = `
+    <div class="summary-card ftl-qual-card">
+      <div class="summary-card-header ftl-card-header">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+          <div>
+            <div class="summary-card-kicker">FTL RFQ Qualifier · Wittur Catalog Match</div>
+            <div class="summary-card-title" style="margin:4px 0 8px">${escapeHtml(projectName)}</div>
+            <div class="summary-meta">
+              <span class="summary-chip" style="text-transform:capitalize">Type: ${escapeHtml(projectType)}</span>
+              <span class="summary-chip source">Deadline: ${escapeHtml(deadline)}</span>
+              <span class="summary-chip">${matchedItems.length} matched item${matchedItems.length === 1 ? '' : 's'}</span>
+            </div>
+          </div>
+          <div class="ftl-decision-pill ${decisionBadgeClass}">
+            ${decisionIcon}
+            <span>${decisionText}</span>
+          </div>
+        </div>
+        ${hasConfidence ? `
+        <div class="summary-conf" style="margin-top:12px;">
+          <span class="summary-conf-label">Catalog Fit Confidence</span>
+          <div class="summary-conf-bar ${confClass}"><span style="width:${confScorePercent}%"></span></div>
+          <span class="summary-conf-score">${confScorePercent}%</span>
+        </div>` : ''}
+      </div>
+      <div class="summary-card-body">
+        ${qual.reasoning ? `
+        <div class="summary-section-label">Qualification Analysis</div>
+        <div class="summary-prose" style="font-size:13.5px;line-height:1.6;">${renderHighlightedText(qual.reasoning)}</div>` : ''}
+
+        ${matchedItems.length ? `
+        <div class="summary-section-label" style="margin-top:16px;">Matched Wittur Scope</div>
+        <div style="overflow-x:auto;">
+          <table class="ftl-table">
+            <thead>
+              <tr>
+                <th>RFQ Line Item</th>
+                <th>Category</th>
+                <th>Match</th>
+                <th>Catalog Ref / SKU</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${matchedRows}
+            </tbody>
+          </table>
+        </div>` : '<div class="summary-prose" style="margin-top:12px;font-size:13px;color:var(--ink-3);">No catalog items matched in this RFQ scope.</div>'}
+
+        ${excludedItems.length ? `
+        <div class="summary-section-label" style="margin-top:16px;color:var(--danger);">Out of Scope / Excluded Items</div>
+        <ul class="ftl-excluded-list">${excludedList}</ul>` : ''}
+
+        ${flags.length ? `
+        <div class="summary-section-label" style="margin-top:16px;">RFQ Flags &amp; Lead Time Notices</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px;">${flagBadges}</div>` : ''}
+
+        ${(() => {
+          const specLines = [];
+          if (qual.project_name) specLines.push(`Project: ${qual.project_name}`);
+          if (matchedItems.length) {
+            matchedItems.forEach(m => {
+              if (m.item) specLines.push(m.item);
+            });
+          }
+          const candidateSpecText = (request && (request.candidate_text || (request.payload && request.payload.candidate_text) || request.raw_text)) || specLines.join('\n');
+          return `
+          <div style="margin-top:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding-top:12px; border-top:1px solid var(--line);">
+            <button type="button" class="btn-primary" data-spec="${escapeHtml(candidateSpecText)}" onclick="proceedToFtlQuote(this)" style="font-size:12.5px; padding:8px 14px; display:inline-flex; align-items:center; gap:6px;">
+              <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              Proceed to FTL Quote Estimator
+            </button>
+          </div>
+          `;
+        })()}
+
+        ${codePanelHtml()}
+      </div>
+    </div>
+  `;
+  return { html, resultJson, curlText };
+}
+
+function renderQuoteResult(quote, request, body) {
+  if (!quote) return { html: '', resultJson: {}, curlText: '' };
+  const estNumber = (body && body.estimate_number) || quote.estimate_number || 'EST-DRAFT';
+  const projectName = quote.project_name || 'Elevator Modernization Project';
+  const customerName = quote.customer_name || 'Standard Customer';
+  const elevatorId = quote.elevator_id || 'Car #1';
+  const quoteDate = quote.quote_date || new Date().toISOString().slice(0, 10);
+  const items = Array.isArray(quote.line_items) ? quote.line_items : [];
+
+  const formatCurrency = (val) => '$' + Number(val || 0).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  let computedSubtotal = 0;
+  let lineRows = '';
+  items.forEach((it, idx) => {
+    const qty = Number(it.qty != null ? it.qty : (it.quantity != null ? it.quantity : 1)) || 0;
+    const unitPrice = Number(it.unit_price) || 0;
+    const lineTotal = it.subtotal != null ? Number(it.subtotal) : (it.subtotal_override != null ? Number(it.subtotal_override) : (qty * unitPrice));
+    computedSubtotal += (Number(lineTotal) || 0);
+    lineRows += `
+      <tr>
+        <td style="color:var(--ink-4);font-size:11px;width:28px;">${idx + 1}</td>
+        <td><code style="font-size:11px;font-weight:600;">${escapeHtml(it.product_code || '—')}</code></td>
+        <td><div style="font-weight:600;">${escapeHtml(it.description || '')}</div></td>
+        <td style="text-align:center;">${qty}</td>
+        <td style="text-align:right;font-family:var(--mono);">${formatCurrency(unitPrice)}</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:700;">${formatCurrency(lineTotal)}</td>
+      </tr>
+    `;
+  });
+
+  const subtotal = Number(quote.subtotal != null ? quote.subtotal : computedSubtotal) || computedSubtotal;
+  const freight = Number(quote.freight != null ? quote.freight : (quote.freight_estimate != null ? quote.freight_estimate : 0)) || 0;
+  const hst = Number(quote.hst != null ? quote.hst : ((subtotal + freight) * 0.13)) || 0;
+  const total = Number(quote.total != null ? quote.total : (subtotal + freight + hst)) || (subtotal + freight + hst);
+
+  const notes = Array.isArray(quote.notes) ? quote.notes : [];
+  let notesHtml = '';
+  if (notes.length) {
+    notesHtml = `
+      <div class="summary-section-label" style="margin-top:16px;">Notes &amp; Assumptions</div>
+      <ul class="summary-facts ftl-notes-list">
+        ${notes.map(n => `<li>${escapeHtml(String(n))}</li>`).join('')}
+      </ul>
+    `;
+  }
+
+  const pdfUrl = (body && body.pdf_download_url) || `/api/ftl/quote/pdf/${encodeURIComponent(estNumber)}`;
+  const renderedHtml = (body && body.rendered_html) || quote.rendered_html || '';
+  const htmlPreviewId = 'quote-preview-' + Math.random().toString(16).slice(2);
+
+  const resultJson = JSON.stringify({ estimate_number: estNumber, quote_result: quote }, null, 2);
+  const curlText = buildChatCurl(request && { ...request, intent: request.intent || 'ftl_quote_estimator' }, 'ftl_quote_estimator');
+
+  let html = `
+    <div class="summary-card ftl-quote-card">
+      <div class="summary-card-header ftl-card-header" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px;">
+          <div>
+            <div class="summary-card-kicker" style="color:#0f172a; display:flex; align-items:center; gap:6px;">
+              <svg style="width:14px;height:14px;color:#10b981;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              FTL Sales Estimate
+            </div>
+            <div class="summary-card-title" style="margin:4px 0 6px;">${escapeHtml(projectName)}</div>
+            <div class="summary-meta">
+              <span class="summary-chip" style="font-weight:700; background:#0f172a; color:#fff; border-color:#0f172a;">Est: ${escapeHtml(estNumber)}</span>
+              <span class="summary-chip">Customer: ${escapeHtml(customerName)}</span>
+              <span class="summary-chip">Elevator: ${escapeHtml(elevatorId)}</span>
+              <span class="summary-chip source">Date: ${escapeHtml(quoteDate)}</span>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-3);">Estimated Total</div>
+            <div style="font-size:24px;font-weight:800;font-family:var(--display);color:#0f172a;letter-spacing:-0.03em;">${formatCurrency(total)}</div>
+            <div style="font-size:11px;color:var(--ink-4);">CAD (incl. HST &amp; Freight)</div>
+          </div>
+        </div>
+      </div>
+      <div class="summary-card-body">
+        <div class="summary-section-label">Itemized Scope &amp; Pricing</div>
+        <div style="overflow-x:auto;">
+          <table class="ftl-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Product Code</th>
+                <th>Description</th>
+                <th style="text-align:center;">Qty</th>
+                <th style="text-align:right;">Unit Price</th>
+                <th style="text-align:right;">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lineRows}
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+          <div class="ftl-totals-card">
+            <div class="ftl-total-row"><span>Items Subtotal:</span> <strong>${formatCurrency(subtotal)}</strong></div>
+            <div class="ftl-total-row"><span>Freight / Logistics:</span> <strong>${formatCurrency(freight)}</strong></div>
+            <div class="ftl-total-row"><span>HST (13%):</span> <strong>${formatCurrency(hst)}</strong></div>
+            <div class="ftl-total-row ftl-grand-total"><span>Grand Total:</span> <span>${formatCurrency(total)} CAD</span></div>
+          </div>
+        </div>
+
+        ${notesHtml}
+
+        <div style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap; padding-top:14px; border-top:1px solid var(--line); align-items:center;">
+          <a href="${pdfUrl}" download="Sales_Estimate_${escapeHtml(estNumber)}.pdf" class="btn-primary" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:9px 16px; font-size:13px; border-radius:10px; font-weight:600;">
+            <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download PDF Estimate
+          </a>
+          <a href="${pdfUrl}" target="_blank" rel="noopener noreferrer" class="btn-ghost" style="display:inline-flex; align-items:center; gap:6px; text-decoration:none; padding:9px 14px; font-size:13px; border-radius:10px;">
+            <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Preview PDF
+          </a>
+          ${renderedHtml ? `
+          <button type="button" class="btn-ghost" onclick="const p=document.getElementById('${htmlPreviewId}'); if(p){p.style.display = p.style.display==='none'?'block':'none';}" style="display:inline-flex; align-items:center; gap:6px; padding:9px 14px; font-size:13px; border-radius:10px;">
+            <svg style="width:15px;height:15px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            Toggle HTML Quote Sheet
+          </button>` : ''}
+        </div>
+
+        ${renderedHtml ? `
+        <div id="${htmlPreviewId}" style="display:none; margin-top:16px; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#fff;">
+          <div style="padding:8px 14px; background:var(--surface-3); font-size:11px; font-weight:700; color:var(--ink-3); text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;">
+            <span>${(request && (request.template_type === 'internal_review' || (request.payload && request.payload.template_type === 'internal_review') || (request.body && request.body.template_type === 'internal_review'))) ? 'Internal Review Estimate Preview' : 'InFlow Form Render Preview'}</span>
+            <span style="font-family:var(--mono);">${escapeHtml(estNumber)}</span>
+          </div>
+          <div style="padding:16px; max-height:480px; overflow:auto; background:#fff;">
+            ${renderedHtml}
+          </div>
+        </div>` : ''}
+
+        ${codePanelHtml()}
+      </div>
+    </div>
+  `;
+  return { html, resultJson, curlText };
+}
+
     function renderAssistantMessage(body, sessionId, request) {
   clearEmptyState();
   const div = document.createElement('div');
   const dashBody = dashboardResultFromBody(body);
-  div.className = (body.summary_result || body.classification_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result)
+  div.className = (body.summary_result || body.classification_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -5600,13 +5923,23 @@ function renderReportPlanResult(result, request) {
     details += reportPlanCode.html;
     codeBlocks.push(reportPlanCode);
   }
+  if (body.qualifier_result) {
+    const qualCode = renderQualifierResult(body.qualifier_result, request);
+    details += qualCode.html;
+    codeBlocks.push(qualCode);
+  }
+  if (body.quote_result) {
+    const quoteCode = renderQuoteResult(body.quote_result, request, body);
+    details += quoteCode.html;
+    codeBlocks.push(quoteCode);
+  }
   if (dashBody) {
     const dashCode = renderDashboardResult(dashBody, request);
     details += dashCode.html;
     codeBlocks.push(dashCode);
   }
   const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result && !body.classification_result && !body.document_intelligent_result
-    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !dashBody && !body.report_plan_result && !body.report_prompt_result;
+    && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !dashBody && !body.report_plan_result && !body.report_prompt_result && !body.qualifier_result && !body.quote_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
     details += `<div class="detail-block"><div class="dt-title">Forecast result</div><table>
@@ -5665,6 +5998,17 @@ function renderReportPlanResult(result, request) {
   }
   if (body.report_plan_result) {
     bubbleText = body.reply || 'Report plan and live data ready.';
+  }
+  if (body.qualifier_result) {
+    const qual = body.qualifier_result;
+    const status = (qual.qualify || '').toLowerCase();
+    const statusLabel = status === 'qualify' ? 'QUALIFIED' : status === 'disqualify' ? 'DISQUALIFIED' : 'NEEDS REVIEW';
+    bubbleText = body.reply || `FTL Qualification: ${statusLabel} · ${(qual.matched_items || []).length} matched item(s).`;
+  }
+  if (body.quote_result) {
+    const q = body.quote_result;
+    const est = body.estimate_number || q.estimate_number || 'EST';
+    bubbleText = body.reply || `Sales Estimate ${est} ready · ${(q.line_items || []).length} item(s) · Total: $${(q.total || 0).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CAD.`;
   }
   if (dashBody) {
     bubbleText = body.reply || (dashBody.phase === 'prompts' ? 'Suggested dashboard prompt.' : 'Dashboard ready.');
