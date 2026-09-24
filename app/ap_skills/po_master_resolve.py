@@ -190,7 +190,9 @@ async def recover_master_form_id(
     getter = getattr(ezofis, "get_workflow", None) if ezofis is not None else None
     if not wf_id or getter is None:
         logger.warning(
-            "ap_master_form_id_unresolved",
+            "ap_master_form_id_unresolved reason=%s workflow_id=%s",
+            "missing_workflow_id" if not wf_id else "no_workflow_client",
+            wf_id,
             extra={**extra, "reason": "missing_workflow_id" if not wf_id else "no_workflow_client"},
         )
         return ""
@@ -199,10 +201,15 @@ async def recover_master_form_id(
     if not wj:
         status = wf.get("status_code") if isinstance(wf, dict) else None
         logger.warning(
-            "ap_master_form_id_unresolved",
+            "ap_master_form_id_unresolved reason=workflow_json_missing workflow_id=%s status=%s",
+            wf_id,
+            status,
             extra={**extra, "reason": "workflow_json_missing", "status_code": status},
         )
         return ""
+    source, _form = extract_po_master_from_workflow_json(wj)
+    if source and _norm_master_source(source) not in {"", "INTERNALFORM", "INTERNAL", "FORM", "EZOFIS"}:
+        document_job["master_source"] = source
     if ensure_master_form_id_on_job(document_job, wj, invoice_form_id=invoice_form_id):
         logger.info(
             "ap_master_form_id_resolved_from_workflow",
@@ -214,7 +221,19 @@ async def recover_master_form_id(
         )
         return _master_form_id(document_job)
     logger.warning(
-        "ap_master_form_id_unresolved",
+        "ap_master_form_id_unresolved reason=workflow_master_is_invoice_form workflow_id=%s",
+        wf_id,
         extra={**extra, "reason": "workflow_master_is_invoice_form"},
     )
     return ""
+
+
+def _norm_master_source(value: str) -> str:
+    return (
+        (value or "")
+        .strip()
+        .upper()
+        .replace(" ", "")
+        .replace("-", "")
+        .replace("_", "")
+    )

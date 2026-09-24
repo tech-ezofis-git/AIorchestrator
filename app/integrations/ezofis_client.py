@@ -52,6 +52,9 @@ class EzofisClient:
         self._token: Optional[str] = None
         self._token_type: str = "Bearer"
         self._auth_tenant_id: Optional[str] = None
+        # One process serves every tenant. A single token field made a later
+        # tenant call Core with another tenant's JWT (workflow GET 404).
+        self._tokens_by_tenant: dict[str, tuple[str, str]] = {}
 
     def _cfg(self) -> Settings:
         if self._settings is None:
@@ -94,6 +97,14 @@ class EzofisClient:
             url = f"{self._base()}/workflows/{wf_id}"
             async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
                 response = await client.get(url, headers=headers)
+                # A JWT issued for another tenant returns 404 for this workflow.
+                # Log in as this tenant and retry once.
+                if response.status_code == 404 and self._live_enabled():
+                    self._tokens_by_tenant.pop((tenant_id or "").strip().lower(), None)
+                    if (self._auth_tenant_id or "").strip().lower() == (tenant_id or "").strip().lower():
+                        self._token = None
+                    headers = await self._auth_headers(tenant_id)
+                    response = await client.get(url, headers=headers)
                 if response.status_code != 200:
                     return {
                         "ok": False,
@@ -213,6 +224,8 @@ class EzofisClient:
             or "Bearer"
         ).strip() or "Bearer"
         self._auth_tenant_id = resolved_tenant
+        if resolved_tenant:
+            self._tokens_by_tenant[resolved_tenant.strip().lower()] = (self._token, self._token_type)
         return {
             "access_token": token,
             "token_type": self._token_type,
@@ -226,8 +239,10 @@ class EzofisClient:
             return
         self._token = value
         self._token_type = (token_type or "Bearer").strip() or "Bearer"
-        if tenant_id:
-            self._auth_tenant_id = str(tenant_id).strip() or self._auth_tenant_id
+        tenant = str(tenant_id or "").strip()
+        if tenant:
+            self._auth_tenant_id = tenant
+            self._tokens_by_tenant[tenant.lower()] = (self._token, self._token_type)
 
     async def list_tenants(self) -> list[dict[str, str]]:
         """GET /auth/tenants for the configured login email. Empty when login is unset."""
@@ -267,14 +282,31 @@ class EzofisClient:
             rows.append({"id": tenant_id, "name": name or tenant_id})
         return rows
 
+    def _cached_token(self, tenant_id: str) -> Optional[tuple[str, str]]:
+        tenant = (tenant_id or "").strip().lower()
+        if not tenant:
+            return None
+        cached = self._tokens_by_tenant.get(tenant)
+        if cached and cached[0]:
+            return cached
+        if (
+            self._token
+            and (self._auth_tenant_id or "").strip().lower() == tenant
+        ):
+            return self._token, self._token_type
+        return None
+
     async def _auth_headers(self, tenant_id: str) -> dict[str, str]:
-        if not self._token:
-            await self.authenticate(tenant_id=tenant_id)
-        tenant = tenant_id or self._auth_tenant_id or ""
+        tenant = (tenant_id or self._auth_tenant_id or "").strip()
+        cached = self._cached_token(tenant)
+        if cached is None:
+            await self.authenticate(tenant_id=tenant)
+            cached = self._cached_token(tenant) or (self._token or "", self._token_type)
+        token, token_type = cached
         return {
             "accept": "application/json",
             "Content-Type": "application/json",
-            "Authorization": f"{self._token_type} {self._token}",
+            "Authorization": f"{token_type} {token}",
             "X-Tenant-Id": tenant,
         }
 
