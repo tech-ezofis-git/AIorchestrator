@@ -25,6 +25,7 @@ from app.chatbot.search_plan import (
     merge_usage,
     pending_lookup_from_history,
     plan_document_ticket_search,
+    match_repository_id,
     repository_choice_phrase,
     tools_for_plan,
 )
@@ -176,7 +177,9 @@ class ChatbotAgent:
         )
         choice = repository_choice_phrase(user_text) if not specific_id else ""
         if choice:
-            repo_id = await self._match_repository_name(choice, tenant_id)
+            repo_id = await self._match_repository_name(
+                choice, tenant_id, recent_hits=recent_hits
+            )
             if repo_id:
                 pending = pending_lookup_from_history(history)
                 if pending is None:
@@ -319,35 +322,35 @@ class ChatbotAgent:
             action_context={"repositoryId": specific_id, "workspaceId": "", "itemId": ""},
         )
 
-    async def _match_repository_name(self, phrase: str, tenant_id: str) -> str:
-        """Return a repository id when the phrase is exactly one repository name."""
+    async def _repository_hits(self, query: str, tenant_id: str) -> list[Any]:
         try:
             raw = await self._dispatcher.dispatch(
                 "search_repositories",
-                {"query": phrase, "tenant_id": tenant_id, "limit": self._limit},
+                {"query": query, "tenant_id": tenant_id, "limit": self._limit},
             )
         except (ToolExecutionError, ToolNotFoundError):
             logger.warning("chatbot_repository_choice_failed")
-            return ""
-        phrase_key = phrase.casefold()
-        matched: list[str] = []
-        if isinstance(raw, list):
-            for item in raw:
-                if isinstance(item, SearchHit):
-                    hit = item
-                elif isinstance(item, dict):
-                    hit = SearchHit.model_validate(item)
-                else:
-                    continue
-                id_obj = hit.id if isinstance(hit.id, dict) else {}
-                name = str(id_obj.get("repositoryName") or hit.entity_name or hit.name or "").strip()
-                repo_id = str(id_obj.get("repositoryId") or hit.entity_id or "").strip()
-                if repo_id and name.casefold() == phrase_key:
-                    matched.append(repo_id)
-        unique = list(dict.fromkeys(matched))
-        if len(unique) == 1:
-            return unique[0]
-        return ""
+            return []
+        return raw if isinstance(raw, list) else []
+
+    async def _match_repository_name(
+        self,
+        phrase: str,
+        tenant_id: str,
+        *,
+        recent_hits: Optional[list[dict]] = None,
+    ) -> str:
+        """Resolve a typed repository name to one repository id."""
+        found = match_repository_id(phrase, recent_hits or [])
+        if found:
+            return found
+        named = await self._repository_hits(phrase, tenant_id)
+        found = match_repository_id(phrase, named)
+        if found:
+            return found
+        # The name list uses an empty query. Match against that same catalog.
+        catalog = await self._repository_hits("", tenant_id)
+        return match_repository_id(phrase, catalog)
 
     async def _list_catalog(
         self,

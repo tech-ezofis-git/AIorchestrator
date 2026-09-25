@@ -3,6 +3,7 @@ from app.chatbot.search_plan import plan_from_model_json, plan_from_rules, tools
 from app.chatbot.search_plan import (
     SearchPlan,
     lookup_override_plan,
+    match_repository_id,
     pending_lookup_from_history,
     repository_choice_phrase,
 )
@@ -85,6 +86,24 @@ def test_model_plan_keeps_apex_and_drops_filler():
 def test_search_my_documents_has_no_lookup_value():
     assert classify_search_scope("Search my documents") == "repository"
     assert search_text_for_scope("Search my documents", "repository") == ""
+
+
+def test_repository_name_match_allows_case_and_catalog_list():
+    repo_id = "11111111-1111-1111-1111-111111111111"
+    hits = [
+        {
+            "entity_id": repo_id,
+            "entity_name": "ACCOUNTS PAYABLE",
+            "id": {"repositoryId": repo_id, "repositoryName": "ACCOUNTS PAYABLE"},
+        },
+        {
+            "entity_id": "22222222-2222-2222-2222-222222222222",
+            "entity_name": "Legal",
+            "id": {"repositoryId": "22222222-2222-2222-2222-222222222222", "repositoryName": "Legal"},
+        },
+    ]
+    assert match_repository_id("Accounts Payable", hits) == repo_id
+    assert match_repository_id("Legal", hits) == "22222222-2222-2222-2222-222222222222"
 
 
 def test_document_phrase_keeps_the_lookup_when_the_model_asks_for_a_repository():
@@ -434,6 +453,66 @@ def test_repository_follow_up_searches_the_earlier_number(client, monkeypatch):
     assert second.status_code == 200, second.text
     body = second.json()
     assert "which repository" not in body["reply"].lower()
+    assert body["chatbot_result"]["query"] == "6001"
+    assert body["chatbot_result"]["specificId"] == repo_id
+    assert ("search_repo_metadata", "6001", repo_id) in called
+
+
+def test_repository_follow_up_uses_catalog_when_name_search_misses(client, monkeypatch):
+    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
+    dispatcher = client.app.state.dispatcher
+    called = []
+    repo_id = "11111111-1111-1111-1111-111111111111"
+
+    async def fake_chat(messages, **kwargs):
+        return {"content": '{"target":"ask_repository","query":""}', "usage": {}}
+
+    monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
+
+    async def fake_repos(**kwargs):
+        called.append(("search_repositories", kwargs.get("query")))
+        if kwargs.get("query"):
+            return []
+        return [
+            SearchHit(
+                type="repository",
+                entity_type="repository",
+                entity_id=repo_id,
+                entity_name="ACCOUNTS PAYABLE",
+                name="ACCOUNTS PAYABLE",
+                id={"repositoryId": repo_id, "repositoryName": "ACCOUNTS PAYABLE"},
+            ).model_dump()
+        ]
+
+    async def fake_meta(**kwargs):
+        called.append(("search_repo_metadata", kwargs.get("query"), kwargs.get("specific_id") or ""))
+        return []
+
+    dispatcher._implementations["search_repositories"] = fake_repos
+    dispatcher._implementations["search_repo_metadata"] = fake_meta
+    for name in ("search_repo_rag", "search_workflows", "search_forms", "search_comments", "search_tickets"):
+        dispatcher._implementations[name] = await_handler(name, called)
+
+    client.post(
+        "/chat",
+        json={
+            "session_id": "s-cb-repo-catalog",
+            "intent": "chatbot",
+            "message": "documents in 6001",
+            "payload": {"tenantId": TENANT},
+        },
+    )
+    second = client.post(
+        "/chat",
+        json={
+            "session_id": "s-cb-repo-catalog",
+            "intent": "chatbot",
+            "message": "check at Accounts Payable",
+            "payload": {"tenantId": TENANT},
+        },
+    )
+    assert second.status_code == 200, second.text
+    body = second.json()
     assert body["chatbot_result"]["query"] == "6001"
     assert body["chatbot_result"]["specificId"] == repo_id
     assert ("search_repo_metadata", "6001", repo_id) in called

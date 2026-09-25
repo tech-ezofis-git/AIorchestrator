@@ -152,6 +152,50 @@ def repository_choice_phrase(message: str) -> str:
     return phrase
 
 
+def match_repository_id(phrase: str, hits: list[Any]) -> str:
+    """Pick one repository id for a user phrase such as 'Accounts Payable'."""
+    phrase_key = (phrase or "").strip().casefold()
+    if not phrase_key:
+        return ""
+    tokens = [part for part in phrase_key.split() if part]
+    scored: list[tuple[int, int, str]] = []
+    for item in hits or []:
+        if isinstance(item, dict):
+            id_obj = item.get("id") if isinstance(item.get("id"), dict) else {}
+            name = str(
+                id_obj.get("repositoryName") or item.get("entity_name") or item.get("name") or ""
+            ).strip()
+            repo_id = str(id_obj.get("repositoryId") or item.get("entity_id") or "").strip()
+        else:
+            id_obj = item.id if isinstance(getattr(item, "id", None), dict) else {}
+            name = str(
+                id_obj.get("repositoryName") or getattr(item, "entity_name", "") or getattr(item, "name", "") or ""
+            ).strip()
+            repo_id = str(id_obj.get("repositoryId") or getattr(item, "entity_id", "") or "").strip()
+        if not repo_id or not name:
+            continue
+        key = name.casefold()
+        if key == phrase_key:
+            score = 100
+        elif key.startswith(phrase_key) or phrase_key.startswith(key):
+            score = 80
+        elif phrase_key in key or key in phrase_key:
+            score = 60
+        elif tokens and all(token in key for token in tokens):
+            score = 50
+        else:
+            continue
+        scored.append((score, len(key), repo_id))
+    if not scored:
+        return ""
+    scored.sort(key=lambda row: (-row[0], row[1], row[2]))
+    best_score, _best_len, best_id = scored[0]
+    tied = [row for row in scored if row[0] == best_score and row[2] != best_id]
+    if tied and best_score < 100:
+        return ""
+    return best_id
+
+
 def pending_lookup_from_history(history: Optional[list[dict[str, str]]]) -> Optional[SearchPlan]:
     """Last user lookup in this chat, skipping repository-choice turns."""
     for item in reversed(history or []):
