@@ -19,9 +19,13 @@ from app.chatbot.query_rewrite import (
     detect_catalog_list,
 )
 from app.chatbot.search_plan import (
+    SearchPlan,
     friendly_search_reply,
+    lookup_override_plan,
     merge_usage,
+    pending_lookup_from_history,
     plan_document_ticket_search,
+    repository_choice_phrase,
     tools_for_plan,
 )
 from app.core.dispatcher import Dispatcher, ToolExecutionError, ToolNotFoundError
@@ -170,6 +174,26 @@ class ChatbotAgent:
             specific_id=specific_id,
             history=history,
         )
+        choice = repository_choice_phrase(user_text) if not specific_id else ""
+        if choice:
+            repo_id = await self._match_repository_name(choice, tenant_id)
+            if repo_id:
+                pending = pending_lookup_from_history(history)
+                if pending is None:
+                    return self._ask_document_suggestion(
+                        user_text=user_text,
+                        tenant_id=tenant_id,
+                        specific_id=repo_id,
+                    )
+                specific_id = repo_id
+                plan = SearchPlan(
+                    target=pending.target,
+                    query=pending.query,
+                    source="history",
+                    usage=plan.usage,
+                )
+            else:
+                plan = lookup_override_plan(plan, user_text, specific_id)
         logger.info(
             "chatbot_search_plan",
             extra={
@@ -294,6 +318,36 @@ class ChatbotAgent:
             action_to="Repository",
             action_context={"repositoryId": specific_id, "workspaceId": "", "itemId": ""},
         )
+
+    async def _match_repository_name(self, phrase: str, tenant_id: str) -> str:
+        """Return a repository id when the phrase is exactly one repository name."""
+        try:
+            raw = await self._dispatcher.dispatch(
+                "search_repositories",
+                {"query": phrase, "tenant_id": tenant_id, "limit": self._limit},
+            )
+        except (ToolExecutionError, ToolNotFoundError):
+            logger.warning("chatbot_repository_choice_failed")
+            return ""
+        phrase_key = phrase.casefold()
+        matched: list[str] = []
+        if isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, SearchHit):
+                    hit = item
+                elif isinstance(item, dict):
+                    hit = SearchHit.model_validate(item)
+                else:
+                    continue
+                id_obj = hit.id if isinstance(hit.id, dict) else {}
+                name = str(id_obj.get("repositoryName") or hit.entity_name or hit.name or "").strip()
+                repo_id = str(id_obj.get("repositoryId") or hit.entity_id or "").strip()
+                if repo_id and name.casefold() == phrase_key:
+                    matched.append(repo_id)
+        unique = list(dict.fromkeys(matched))
+        if len(unique) == 1:
+            return unique[0]
+        return ""
 
     async def _list_catalog(
         self,
