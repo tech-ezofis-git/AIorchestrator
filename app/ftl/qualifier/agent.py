@@ -119,6 +119,12 @@ _SEARCH_PRICELIST_TOOL = {
     },
 }
 
+_AI_INSIGHT_DESCRIPTION = (
+    "2-4 sentences for the FTL sales team: how attractive this opportunity is for FTL, the main "
+    "risk or open question to clarify with the customer, and the recommended next step. Do not "
+    "repeat the matched/excluded item lists or the reasoning."
+)
+
 _SUBMIT_DECISION_TOOL = {
     "type": "function",
     "function": {
@@ -156,8 +162,9 @@ _SUBMIT_DECISION_TOOL = {
                 "project_name": {"type": "string"},
                 "reasoning": {"type": "string"},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                "ai_insight": {"type": "string", "description": _AI_INSIGHT_DESCRIPTION},
             },
-            "required": ["qualify", "project_type", "matched_items", "excluded_items", "flags", "reasoning", "confidence"],
+            "required": ["qualify", "project_type", "matched_items", "excluded_items", "flags", "reasoning", "confidence", "ai_insight"],
         },
     },
 }
@@ -208,8 +215,10 @@ def build_system_prompt(skill: Dict[str, Any], is_json_mode: bool = False) -> st
             '  "deadline": "..." | null,\n'
             '  "project_name": "...",\n'
             '  "reasoning": "...",\n'
-            '  "confidence": 0.0 to 1.0\n'
+            '  "confidence": 0.0 to 1.0,\n'
+            '  "ai_insight": "..."\n'
             '}}\n\n'
+            f"ai_insight: {_AI_INSIGHT_DESCRIPTION}\n\n"
             "You will receive candidate text extracted from an RFQ. Use search_pricelist to verify catalog items before deciding. When complete, output your decision JSON."
         )
     else:
@@ -301,6 +310,7 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
             decision.setdefault("project_name", "")
             decision.setdefault("reasoning", "")
             decision.setdefault("confidence", 0.8)
+            decision.setdefault("ai_insight", "")
             return decision, total_tokens
 
         if action == "search_pricelist":

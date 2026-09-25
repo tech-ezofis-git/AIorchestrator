@@ -15,6 +15,8 @@ from app.ftl.page_text import (
     ocr_image_file,
     prefer_spec_attachment,
 )
+from app.ftl.key_format import snake_keys, title_keys
+from app.ftl.qualifier.output_format import to_internal as qualifier_to_internal
 from app.ftl.quote_estimator import (
     extract,
     quotes_store,
@@ -29,6 +31,7 @@ logger = logging.getLogger("orchestrator.ftl_quote_estimator_agent")
 
 def render_qualifier_decision_for_quote(decision: Dict[str, Any]) -> str:
     """Turn an edited qualifier decision into the text the quote model already prices."""
+    decision = qualifier_to_internal(decision)
     lines = [
         "This quote request is an edited FTL qualifier decision, not a raw spec file.",
         "Price every item under Matched items. Do not add a line item for anything under Excluded items.",
@@ -92,6 +95,7 @@ def quote_pdf_filename(estimate_number: str, template_type: Optional[str]) -> st
 
 def render_pdf_from_quote(quote: Dict[str, Any], template_type: Optional[str] = "inflow") -> Dict[str, Any]:
     """Render an (edited) estimator quote_result to a PDF without calling the model."""
+    quote = snake_keys(quote)
     estimate_number = str(quote.get("estimate_number") or "ESTIMATE").strip() or "ESTIMATE"
     template_type = template_type or "inflow"
     pdf_bytes = generate_quote_pdf(quote, estimate_number, template_type=template_type)
@@ -340,7 +344,7 @@ class FtlQuoteEstimatorAgent:
             return {
                 "reply": f"PDF generated for {res['estimate_number']} ({template_type}).",
                 "usage": None,
-                "quote_result": res["quote_result"],
+                "quote_result": title_keys(res["quote_result"]),
                 "estimate_number": res["estimate_number"],
                 "pdf_base64": res["pdf_base64"],
                 "pdf_filename": res["pdf_filename"],
@@ -364,7 +368,7 @@ class FtlQuoteEstimatorAgent:
             return {
                 "reply": reply_md,
                 "usage": {"total_tokens": res["total_tokens"]},
-                "quote_result": quote,
+                "quote_result": title_keys(quote),
                 "estimate_number": est_num,
                 "rendered_html": res["rendered_html"],
                 "pdf_download_url": res["pdf_download_url"],

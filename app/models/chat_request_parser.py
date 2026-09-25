@@ -46,8 +46,16 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     filepath = _form_str(form.get("filepath"))
     pageno = _form_str(form.get("pageno"))
     ocr_text = _form_str(form.get("ocr_text"))
-    candidate_text = _form_str(form.get("candidate_text")) or _form_str(form.get("candidateText"))
-    qualifier_result_raw = _form_str(form.get("qualifier_result")) or _form_str(form.get("qualifierResult"))
+    candidate_text = (
+        _form_str(form.get("candidate_text"))
+        or _form_str(form.get("candidateText"))
+        or _form_str(form.get("Candidate Text"))
+    )
+    qualifier_result_raw = (
+        _form_str(form.get("qualifier_result"))
+        or _form_str(form.get("qualifierResult"))
+        or _form_str(form.get("Qualifier Result"))
+    )
     qualifier_result = None
     if qualifier_result_raw:
         try:
@@ -56,7 +64,11 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             parsed_qualifier = None
         if isinstance(parsed_qualifier, dict):
             qualifier_result = parsed_qualifier
-    quote_result_raw = _form_str(form.get("quote_result")) or _form_str(form.get("quoteResult"))
+    quote_result_raw = (
+        _form_str(form.get("quote_result"))
+        or _form_str(form.get("quoteResult"))
+        or _form_str(form.get("Quote Result"))
+    )
     quote_result = None
     if quote_result_raw:
         try:
@@ -68,6 +80,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     template_type = (
         _form_str(form.get("template_type"))
         or _form_str(form.get("templateType"))
+        or _form_str(form.get("Template Type"))
         or _form_str(form.get("quote_template_type"))
     )
     model = _form_str(form.get("model"))

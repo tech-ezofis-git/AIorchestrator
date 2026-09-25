@@ -18,6 +18,8 @@ from app.ftl.qualifier import (
     runs_store as qualifier_runs_store,
     skill_store as qualifier_skill_store,
 )
+from app.ftl.key_format import snake_key, snake_keys, title_keys
+from app.ftl.qualifier.output_format import to_public as qualifier_to_public
 from app.ftl.quote_estimator import (
     pricelist_store as quote_pricelist_store,
     quote_pdf as quote_pdf_module,
@@ -40,6 +42,10 @@ def _qualifier_result_from(value: Any) -> Optional[dict[str, Any]]:
             return None
         return parsed if isinstance(parsed, dict) and parsed else None
     return None
+
+
+def _form_fields(form: Any) -> dict[str, Any]:
+    return {snake_key(k): v for k, v in form.multi_items()}
 
 
 def _request_llm_overrides(request: Request, model: Optional[str]) -> dict[str, Any] | None:
@@ -66,7 +72,7 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
     m_override: Optional[str] = None
 
     if "multipart/form-data" in content_type:
-        form = await request.form()
+        form = _form_fields(await request.form())
         uploaded_file = form.get("file")
         if isinstance(uploaded_file, UploadFile):
             file_b = await uploaded_file.read()
@@ -82,12 +88,13 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
         except Exception:
             body = {}
         if isinstance(body, dict):
+            body = snake_keys(body)
             f_name = body.get("filename")
             f_path = body.get("filepath")
-            cand_text = body.get("candidate_text") or body.get("candidateText")
-            r_text = body.get("raw_text") or body.get("rawText") or body.get("message")
+            cand_text = body.get("candidate_text")
+            r_text = body.get("raw_text") or body.get("message")
             m_override = body.get("model")
-            b64_bytes = body.get("file_bytes") or body.get("fileBytes")
+            b64_bytes = body.get("file_bytes")
             if b64_bytes and isinstance(b64_bytes, str):
                 import base64
 
@@ -108,7 +115,7 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
         )
         return {
             "status": "success",
-            "decision": res["decision"],
+            "decision": qualifier_to_public(res["decision"]),
             "run_id": res["run_record"].get("id"),
             "run_record": res["run_record"],
             "total_tokens": res["total_tokens"],
@@ -181,7 +188,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
     m_override: Optional[str] = None
 
     if "multipart/form-data" in content_type:
-        form = await request.form()
+        form = _form_fields(await request.form())
         uploaded_file = form.get("file")
         if isinstance(uploaded_file, UploadFile):
             file_b = await uploaded_file.read()
@@ -190,8 +197,8 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
         f_path = form.get("filepath") if isinstance(form.get("filepath"), str) else None
         cand_text = form.get("candidate_text") if isinstance(form.get("candidate_text"), str) else None
         r_text = form.get("raw_text") if isinstance(form.get("raw_text"), str) else None
-        qualifier_result = _qualifier_result_from(form.get("qualifier_result") or form.get("qualifierResult"))
-        tpl_val = form.get("template_type") or form.get("templateType")
+        qualifier_result = _qualifier_result_from(form.get("qualifier_result"))
+        tpl_val = form.get("template_type")
         if isinstance(tpl_val, str) and tpl_val.strip():
             tpl_type = tpl_val.strip()
         m_override = form.get("model") if isinstance(form.get("model"), str) else None
@@ -201,14 +208,15 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
         except Exception:
             body = {}
         if isinstance(body, dict):
+            body = snake_keys(body)
             f_name = body.get("filename")
             f_path = body.get("filepath")
-            cand_text = body.get("candidate_text") or body.get("candidateText")
-            r_text = body.get("raw_text") or body.get("rawText") or body.get("message")
-            qualifier_result = _qualifier_result_from(body.get("qualifier_result") or body.get("qualifierResult"))
-            tpl_type = body.get("template_type") or body.get("templateType") or tpl_type
+            cand_text = body.get("candidate_text")
+            r_text = body.get("raw_text") or body.get("message")
+            qualifier_result = _qualifier_result_from(body.get("qualifier_result"))
+            tpl_type = body.get("template_type") or tpl_type
             m_override = body.get("model")
-            b64_bytes = body.get("file_bytes") or body.get("fileBytes")
+            b64_bytes = body.get("file_bytes")
             if b64_bytes and isinstance(b64_bytes, str):
                 import base64
 
@@ -232,7 +240,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
         return {
             "status": "success",
             "estimate_number": res["estimate_number"],
-            "quote_result": res["quote_result"],
+            "quote_result": title_keys(res["quote_result"]),
             "rendered_html": res["rendered_html"],
             "pdf_download_url": res["pdf_download_url"],
             "total_tokens": res["total_tokens"],
@@ -247,7 +255,8 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
 @router.post("/api/ftl/base64-to-pdf")
 async def base64_to_pdf(payload: dict[str, Any] = Body(...)) -> Response:
     """Turn a pdf_base64 string (e.g. from the /chat estimator reply) into a viewable / downloadable PDF."""
-    raw = str(payload.get("pdf_base64") or payload.get("pdfBase64") or "").strip()
+    payload = snake_keys(payload)
+    raw = str(payload.get("pdf_base64") or "").strip()
     if raw.startswith("data:"):
         raw = raw.split(",", 1)[-1]
     raw = "".join(raw.split())
@@ -275,16 +284,17 @@ async def base64_to_pdf(payload: dict[str, Any] = Body(...)) -> Response:
 @router.post("/api/ftl/quote/pdf")
 async def render_quote_pdf(payload: dict[str, Any] = Body(...)) -> Response:
     """Build a PDF from an estimator JSON (e.g. an edited quote_result), without re-running the model."""
-    quote = payload.get("quote_result") or payload.get("quoteResult")
+    payload = snake_keys(payload)
+    quote = payload.get("quote_result")
     if isinstance(quote, str) and quote.strip():
         try:
-            quote = json.loads(quote)
+            quote = snake_keys(json.loads(quote))
         except json.JSONDecodeError:
             quote = None
     if not isinstance(quote, dict) or not quote:
-        raise HTTPException(status_code=400, detail="quote_result JSON is required.")
+        raise HTTPException(status_code=400, detail="Quote Result JSON is required.")
 
-    template_type = str(payload.get("template_type") or payload.get("templateType") or "inflow").strip() or "inflow"
+    template_type = str(payload.get("template_type") or "inflow").strip() or "inflow"
     estimate_number = str(quote.get("estimate_number") or payload.get("estimate_number") or "ESTIMATE").strip()
 
     try:
