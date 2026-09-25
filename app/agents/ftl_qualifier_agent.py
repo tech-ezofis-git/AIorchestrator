@@ -16,6 +16,7 @@ from app.ftl.page_text import (
 )
 from app.ftl.qualifier import extract, runs_store, skill_store
 from app.ftl.qualifier import agent as qualifier_agent
+from app.ftl.qualifier.output_format import to_public
 
 logger = logging.getLogger("orchestrator.ftl_qualifier_agent")
 
@@ -49,6 +50,9 @@ def format_decision_markdown(run: Dict[str, Any]) -> str:
     if reasoning:
         lines.append("")
         lines.append(f"**Reasoning:** {reasoning}")
+    ai_insight = result.get("ai_insight")
+    if ai_insight:
+        lines.append(f"**AI insight:** {ai_insight}")
     matched = result.get("matched_items") or []
     if matched:
         lines.append("")
@@ -213,7 +217,7 @@ class FtlQualifierAgent:
             return {
                 "reply": reply_md,
                 "usage": {"total_tokens": res["total_tokens"]},
-                "qualifier_result": res["decision"],
+                "qualifier_result": to_public(res["decision"]),
                 "run_id": run_rec.get("id"),
                 "run_record": run_rec,
             }

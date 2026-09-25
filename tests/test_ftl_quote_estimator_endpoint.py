@@ -83,7 +83,7 @@ def test_quote_direct_endpoint_and_pdf(client, monkeypatch):
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "success"
-    assert body["quote_result"]["project_name"] == "120 Bloor St E"
+    assert body["quote_result"]["Project Name"] == "120 Bloor St E"
     assert "rendered_html" in body and ("<div" in body["rendered_html"].lower() or "<html" in body["rendered_html"].lower())
     estimate_number = body["estimate_number"]
     assert estimate_number is not None
@@ -136,7 +136,7 @@ def test_chat_ftl_quote_estimator_intent(client, monkeypatch):
     body = res.json()
     assert body["session_id"] == "session-ftl-quote-1"
     assert "quote_result" in body and body["quote_result"] is not None
-    assert body["quote_result"]["project_name"] == "77 King St W"
+    assert body["quote_result"]["Project Name"] == "77 King St W"
     assert "rendered_html" in body and body["rendered_html"] is not None
     assert "pdf_download_url" in body and body["pdf_download_url"].startswith("/api/ftl/quote/pdf/")
     assert "Sales Estimate" in body["reply"]
@@ -183,6 +183,24 @@ def test_base64_to_pdf(client):
     assert res.headers["content-type"] == "application/pdf"
     assert res.headers["content-disposition"] == 'attachment; filename="EST-1.pdf"'
     assert res.content == pdf_bytes
+
+
+def test_title_case_keys_for_pdf_and_base64(client):
+    quote = {
+        "Estimate Number": "EST-2",
+        "Line Items": [{"Product Code": "A", "Category": "Door Operator", "Qty": 2, "Unit Price": 5}],
+    }
+    pdf_res = client.post("/api/ftl/quote/pdf", json={"Quote Result": quote})
+    assert pdf_res.status_code == 200, pdf_res.text
+    assert pdf_res.content.startswith(b"%PDF")
+
+    encoded = base64.b64encode(pdf_res.content).decode("ascii")
+    res = client.post(
+        "/api/ftl/base64-to-pdf",
+        json={"Pdf Base64": encoded, "Filename": "EST-2", "Download": True},
+    )
+    assert res.status_code == 200, res.text
+    assert res.headers["content-disposition"] == 'attachment; filename="EST-2.pdf"'
 
 
 def test_base64_to_pdf_rejects_bad_input(client):
@@ -253,12 +271,39 @@ def test_chat_quote_from_edited_qualifier_json(client, monkeypatch):
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["quote_result"]["project_name"] == "285-295 Coventry - Modernization"
+    assert body["quote_result"]["Project Name"] == "285-295 Coventry - Modernization"
     text = seen["text"]
     assert "clutch assembly" in text
     assert "sliding guide" in text
     assert "do not price" in text.lower()
     assert base64.b64decode(body["pdf_base64"]).startswith(b"%PDF")
+
+
+def test_quote_accepts_public_qualifier_keys():
+    from app.agents.ftl_quote_estimator_agent import render_qualifier_decision_for_quote
+
+    text = render_qualifier_decision_for_quote(
+        {
+            "Qualify": "Needs Review",
+            "Project Type": "Modernization",
+            "Project Name": "Bloor Street Modernization",
+            "Deadline": "2026-10-15",
+            "Matched Items": [
+                {"Item": "center opening door operator 42 inch", "Category": "Door Operator", "Match": "Exact"}
+            ],
+            "Excluded Items": [{"Item": "sliding guide", "Reason": "Not in the Wittur pricelist"}],
+            "Flags": [],
+            "Reasoning": "In-scope door equipment matches the catalog.",
+            "Confidence": 90,
+            "Ai Insight": "Strong door-package opportunity.",
+        }
+    )
+    assert "Project name: Bloor Street Modernization" in text
+    assert "Qualify decision: needs_review" in text
+    assert "Project type: modernization" in text
+    assert "category: door_operator" in text
+    assert "center opening door operator 42 inch" in text
+    assert "sliding guide" in text
 
 
 def test_chat_pdf_base64_from_edited_quote_json(client, monkeypatch):
@@ -296,7 +341,7 @@ def test_chat_pdf_base64_from_edited_quote_json(client, monkeypatch):
     body = res.json()
     assert body["pdf_filename"] == "EST-900061_internal_review.pdf"
     assert base64.b64decode(body["pdf_base64"]).startswith(b"%PDF")
-    assert body["quote_result"]["subtotal"] == 200.0
+    assert body["quote_result"]["Subtotal"] == 200.0
 
 
 def test_chat_pdf_base64_from_quote_json_multipart(client):

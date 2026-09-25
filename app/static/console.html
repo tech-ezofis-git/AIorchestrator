@@ -5561,8 +5561,29 @@ function renderReportPlanResult(result, request) {
   return { html, resultJson, curlText };
 }
 
-function renderQualifierResult(qual, request) {
-  if (!qual) return { html: '', resultJson: {}, curlText: '' };
+const FTL_CODE_VALUE_KEYS = new Set(['qualify', 'project_type', 'match', 'category', 'flags']);
+
+function snakeFtlValue(value) {
+  if (Array.isArray(value)) return value.map(snakeFtlValue);
+  return typeof value === 'string' ? value.trim().toLowerCase().replace(/[\s_]+/g, '_') : value;
+}
+
+function normalizeFtlKeys(value) {
+  if (Array.isArray(value)) return value.map(normalizeFtlKeys);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  Object.keys(value).forEach(k => {
+    const key = String(k).trim().toLowerCase().replace(/\s+/g, '_');
+    out[key] = FTL_CODE_VALUE_KEYS.has(key) ? snakeFtlValue(value[k]) : normalizeFtlKeys(value[k]);
+  });
+  return out;
+}
+
+const normalizeQualifierResult = normalizeFtlKeys;
+
+function renderQualifierResult(rawQual, request) {
+  if (!rawQual) return { html: '', resultJson: {}, curlText: '' };
+  const qual = normalizeQualifierResult(rawQual);
   const decision = (qual.qualify || 'needs_review').toLowerCase();
   const decisionBadgeClass = decision === 'qualify' ? 'ftl-badge-qualify' : decision === 'disqualify' ? 'ftl-badge-disqualify' : 'ftl-badge-review';
   const decisionIcon = decision === 'qualify'
@@ -5612,7 +5633,7 @@ function renderQualifierResult(qual, request) {
     flagBadges = flags.map(f => `<span class="ftl-flag-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;display:inline-block;vertical-align:-1px;margin-right:4px;"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>${escapeHtml(String(f))}</span>`).join('');
   }
 
-  const resultJson = JSON.stringify(qual, null, 2);
+  const resultJson = JSON.stringify(rawQual, null, 2);
   const curlText = buildChatCurl(request && { ...request, intent: request.intent || 'ftl_qualifier' }, 'ftl_qualifier');
 
   let html = `
@@ -5644,6 +5665,10 @@ function renderQualifierResult(qual, request) {
         ${qual.reasoning ? `
         <div class="summary-section-label">Qualification Analysis</div>
         <div class="summary-prose" style="font-size:13.5px;line-height:1.6;">${renderHighlightedText(qual.reasoning)}</div>` : ''}
+
+        ${qual.ai_insight ? `
+        <div class="summary-section-label" style="margin-top:16px;">AI Insight</div>
+        <div class="summary-prose" style="font-size:13.5px;line-height:1.6;">${renderHighlightedText(qual.ai_insight)}</div>` : ''}
 
         ${matchedItems.length ? `
         <div class="summary-section-label" style="margin-top:16px;">Matched Wittur Scope</div>
@@ -5698,8 +5723,9 @@ function renderQualifierResult(qual, request) {
   return { html, resultJson, curlText };
 }
 
-function renderQuoteResult(quote, request, body) {
-  if (!quote) return { html: '', resultJson: {}, curlText: '' };
+function renderQuoteResult(rawQuote, request, body) {
+  if (!rawQuote) return { html: '', resultJson: {}, curlText: '' };
+  const quote = normalizeFtlKeys(rawQuote);
   const estNumber = (body && body.estimate_number) || quote.estimate_number || 'EST-DRAFT';
   const projectName = quote.project_name || 'Elevator Modernization Project';
   const customerName = quote.customer_name || 'Standard Customer';
@@ -5748,7 +5774,7 @@ function renderQuoteResult(quote, request, body) {
   const renderedHtml = (body && body.rendered_html) || quote.rendered_html || '';
   const htmlPreviewId = 'quote-preview-' + Math.random().toString(16).slice(2);
 
-  const resultJson = JSON.stringify({ estimate_number: estNumber, quote_result: quote }, null, 2);
+  const resultJson = JSON.stringify({ estimate_number: estNumber, quote_result: rawQuote }, null, 2);
   const curlText = buildChatCurl(request && { ...request, intent: request.intent || 'ftl_quote_estimator' }, 'ftl_quote_estimator');
 
   let html = `
@@ -6000,13 +6026,13 @@ function renderQuoteResult(quote, request, body) {
     bubbleText = body.reply || 'Report plan and live data ready.';
   }
   if (body.qualifier_result) {
-    const qual = body.qualifier_result;
+    const qual = normalizeQualifierResult(body.qualifier_result);
     const status = (qual.qualify || '').toLowerCase();
     const statusLabel = status === 'qualify' ? 'QUALIFIED' : status === 'disqualify' ? 'DISQUALIFIED' : 'NEEDS REVIEW';
     bubbleText = body.reply || `FTL Qualification: ${statusLabel} · ${(qual.matched_items || []).length} matched item(s).`;
   }
   if (body.quote_result) {
-    const q = body.quote_result;
+    const q = normalizeFtlKeys(body.quote_result);
     const est = body.estimate_number || q.estimate_number || 'EST';
     bubbleText = body.reply || `Sales Estimate ${est} ready · ${(q.line_items || []).length} item(s) · Total: $${(q.total || 0).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} CAD.`;
   }

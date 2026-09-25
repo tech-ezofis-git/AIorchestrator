@@ -173,12 +173,12 @@ class DocumentPayload(BaseModel):
     )
     candidate_text: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("candidate_text", "candidateText", "rfq_text", "spec_text"),
+        validation_alias=AliasChoices("candidate_text", "candidateText", "Candidate Text", "rfq_text", "spec_text"),
         description="Pre-extracted candidate text for FTL qualifier / quote estimator.",
     )
     qualifier_result: Optional[dict[str, Any]] = Field(
         default=None,
-        validation_alias=AliasChoices("qualifier_result", "qualifierResult"),
+        validation_alias=AliasChoices("qualifier_result", "qualifierResult", "Qualifier Result"),
         description=(
             "Edited FTL qualifier decision. When set on intent=ftl_quote_estimator, "
             "this is priced instead of a file. matched_items are quoted; excluded_items are not."
@@ -186,7 +186,7 @@ class DocumentPayload(BaseModel):
     )
     quote_result: Optional[dict[str, Any]] = Field(
         default=None,
-        validation_alias=AliasChoices("quote_result", "quoteResult"),
+        validation_alias=AliasChoices("quote_result", "quoteResult", "Quote Result"),
         description=(
             "Edited FTL estimator output. When set on intent=ftl_quote_estimator, no model call is made; "
             "the quote PDF is rendered from these line items and returned as pdf_base64."
@@ -210,7 +210,7 @@ class DocumentPayload(BaseModel):
         return None
     template_type: Optional[str] = Field(
         default=None,
-        validation_alias=AliasChoices("template_type", "templateType", "quote_template_type", "quoteTemplateType"),
+        validation_alias=AliasChoices("template_type", "templateType", "Template Type", "quote_template_type", "quoteTemplateType"),
         description="Quote template style (inflow or internal_review) for FTL quote estimator.",
     )
     parameters: list[str] = Field(default_factory=list)

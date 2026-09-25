@@ -74,8 +74,15 @@ def test_qualifier_direct_endpoint(client, monkeypatch):
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "success"
-    assert body["decision"]["qualify"] == "qualify"
-    assert body["decision"]["project_name"] == "Bloor St Modernization"
+    assert body["decision"]["Qualify"] == "Qualify"
+    assert body["decision"]["Project Name"] == "Bloor St Modernization"
+    assert body["decision"]["Project Type"] == "Modernization"
+    assert body["decision"]["Confidence"] == 95
+    assert "Ai Insight" in body["decision"]
+    item = body["decision"]["Matched Items"][0]
+    assert item["Category"] == "Door Operator"
+    assert item["Match"] == "Exact"
+    assert item["Catalog Ref"] == "HYDRA-PLUS-CO-42"
     assert body["total_tokens"] == 1250
     assert "run_id" in body
 
@@ -114,5 +121,6 @@ def test_chat_ftl_qualifier_intent(client, monkeypatch):
     body = res.json()
     assert body["session_id"] == "session-ftl-qual-1"
     assert "qualifier_result" in body and body["qualifier_result"] is not None
-    assert body["qualifier_result"]["qualify"] == "needs_review"
+    assert body["qualifier_result"]["Qualify"] == "Needs Review"
+    assert body["qualifier_result"]["Confidence"] == 75
     assert "NEEDS REVIEW" in body["reply"]
