@@ -21,6 +21,8 @@ def test_detect_does_not_list_when_topic_keywords_present():
 def test_rewrite_strips_filler_keeps_keywords():
     assert rewrite_search_query("What are repo available ?") == "repo"
     assert rewrite_search_query("find invoices for ACME") == "invoices ACME"
+    assert rewrite_search_query("Search a Text of APEX") == "APEX"
+    assert rewrite_search_query("Search a word of APEX") == "APEX"
 
 
 def test_chatbot_lists_repositories(client):

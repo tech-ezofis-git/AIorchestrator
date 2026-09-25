@@ -18,10 +18,11 @@ from app.chatbot.query_rewrite import (
     catalog_tool_name,
     detect_catalog_list,
 )
-from app.chatbot.search_scope import (
-    classify_search_scope,
-    search_text_for_scope,
-    tools_for_scope,
+from app.chatbot.search_plan import (
+    friendly_search_reply,
+    merge_usage,
+    plan_document_ticket_search,
+    tools_for_plan,
 )
 from app.core.dispatcher import Dispatcher, ToolExecutionError, ToolNotFoundError
 from app.core.pending_actions import PendingActionStore
@@ -161,29 +162,37 @@ class ChatbotAgent:
                 workspace_id=workspace_id,
             )
 
-        # Scope words choose where to look. Remaining words are what to find.
-        # "documents from 6001" → repository documents containing 6001.
-        # "Search my documents" has no lookup value: pick a repo, or ask what to find.
-        scope = classify_search_scope(user_text)
-        query = search_text_for_scope(user_text, scope)
-        if scope == "repository" and not query:
+        # Model picks documents, tickets, or both and the lookup text.
+        # Tools stay in code. Keyword rules run when the model is unavailable.
+        plan = await plan_document_ticket_search(
+            self._llm,
+            message=user_text,
+            specific_id=specific_id,
+            history=history,
+        )
+        logger.info(
+            "chatbot_search_plan",
+            extra={
+                "target": plan.target,
+                "source": plan.source,
+                "tenant_id": tenant_id,
+            },
+        )
+        if plan.target == "ask_repository":
+            return await self._prompt_repository_choice(
+                user_text=user_text,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
+        if plan.target == "ask_term":
             if specific_id:
                 return self._ask_document_suggestion(
                     user_text=user_text,
                     tenant_id=tenant_id,
                     specific_id=specific_id,
                 )
-            return await self._prompt_repository_choice(
-                user_text=user_text,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-            )
-        if not query:
-            query = normalize_query(user_text)
-        logger.info(
-            "chatbot_search_scope",
-            extra={"scope": scope, "tenant_id": tenant_id},
-        )
+            return self._ask_lookup_suggestion(user_text=user_text, tenant_id=tenant_id)
+        query = plan.query or normalize_query(user_text)
         result = await run_global_search(
             self._dispatcher,
             query=query,
@@ -191,23 +200,33 @@ class ChatbotAgent:
             specific_id=specific_id,
             limit=self._limit,
             rag_limit=self._rag_limit,
-            tools=tools_for_scope(scope),
+            tools=tools_for_plan(plan),
         )
         formatted = format_search_blocks(
             result,
             workspace_id=workspace_id,
             specific_id=specific_id,
         )
+        reply, reply_usage = await friendly_search_reply(
+            self._llm,
+            query=query,
+            hits=formatted["hits"],
+            fallback=formatted["reply"],
+        )
+        blocks = formatted["text"]["blocks"]
+        if reply != formatted["reply"] and blocks and blocks[0].get("type") == "paragraph":
+            blocks[0]["text"] = reply
         return self._pack(
             user_text=query,
-            reply=formatted["reply"],
-            blocks=formatted["text"]["blocks"],
+            reply=reply,
+            blocks=blocks,
             hits=formatted["hits"],
             tenant_id=tenant_id,
             specific_id=specific_id or None,
             action=formatted.get("action"),
             action_to=formatted.get("actionTo"),
             action_context=formatted.get("actionContext"),
+            usage=merge_usage(plan.usage, reply_usage),
         )
 
     async def _prompt_repository_choice(
@@ -233,6 +252,24 @@ class ChatbotAgent:
             "what to look for in the documents (a file name, number, or keyword)."
         )
         return _replace_reply(packed, reply)
+
+    def _ask_lookup_suggestion(self, *, user_text: str, tenant_id: str) -> dict:
+        """No lookup value yet, and no repository is selected."""
+        reply = (
+            "What should I look for? Give me a file name, ticket number, or keyword "
+            "such as APEX or 6001."
+        )
+        return self._pack(
+            user_text=normalize_query(user_text),
+            reply=reply,
+            blocks=[{"type": "paragraph", "text": reply}],
+            hits=[],
+            tenant_id=tenant_id,
+            specific_id=None,
+            action=None,
+            action_to=None,
+            action_context=None,
+        )
 
     def _ask_document_suggestion(
         self,

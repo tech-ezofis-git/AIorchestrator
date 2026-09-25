@@ -1,4 +1,5 @@
 """Chatbot keyword scope: repository, workflow, both, or other."""
+from app.chatbot.search_plan import plan_from_model_json, plan_from_rules, tools_for_plan
 from app.chatbot.search_scope import (
     classify_search_scope,
     search_text_for_scope,
@@ -38,6 +39,41 @@ def test_classify_invoice_po_and_document_number_search_both():
     assert "search_workflows" in tools
     assert "search_forms" not in tools
     assert "search_repositories" not in tools
+
+
+def test_rules_plan_documents_tickets_and_bare_document_ask():
+    docs = plan_from_rules("documents from 6001")
+    assert docs.target == "documents"
+    assert docs.query == "6001"
+    assert tools_for_plan(docs) == ("search_repo_metadata", "search_repo_rag")
+
+    text = plan_from_rules("Search a Text of APEX")
+    assert text.target == "both"
+    assert text.query == "APEX"
+
+    ticket = plan_from_rules("find ticket REQ-12")
+    assert ticket.target == "tickets"
+    assert ticket.query == "REQ-12"
+    assert "search_workflows" not in tools_for_plan(ticket)
+    assert "search_tickets" in tools_for_plan(ticket)
+
+    bare = plan_from_rules("Search my documents")
+    assert bare.target == "ask_repository"
+    assert bare.query == ""
+    locked = plan_from_rules("Search my documents", specific_id="repo-1")
+    assert locked.target == "ask_term"
+
+
+def test_model_plan_keeps_apex_and_drops_filler():
+    plan = plan_from_model_json(
+        {"target": "documents", "query": "Text APEX"},
+        message="Search a Text of APEX",
+        specific_id="",
+    )
+    assert plan is not None
+    assert plan.target == "documents"
+    assert plan.query == "APEX"
+    assert plan.source == "model"
 
 
 def test_search_my_documents_has_no_lookup_value():
@@ -202,3 +238,76 @@ def test_search_my_documents_with_repo_asks_for_a_term(client):
     assert "suggestion" in body["reply"].lower()
     assert "6001" in body["reply"]
     assert body["chatbot_result"]["specificId"] == "FE663435-B5E1-4EA5-A710-071C9E5DA5F2"
+
+
+def test_model_routes_text_search_and_writes_the_reply(client, monkeypatch):
+    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
+    dispatcher = client.app.state.dispatcher
+    called = []
+
+    async def fake_chat(messages, **kwargs):
+        system = messages[0]["content"]
+        if "route an EZOFIS search" in system:
+            return {
+                "content": '{"target":"documents","query":"APEX"}',
+                "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+            }
+        return {
+            "content": "I found the document HR_01.pdf for APEX.",
+            "usage": {"prompt_tokens": 4, "completion_tokens": 6, "total_tokens": 10},
+        }
+
+    monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
+
+    async def fake_meta(**kwargs):
+        called.append(("search_repo_metadata", kwargs.get("query")))
+        return [
+            SearchHit(
+                type="document",
+                entity_type="document",
+                entity_id="65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
+                entity_name="HR_01.pdf",
+                ifileName="HR_01.pdf",
+                name="HR_01.pdf",
+                id={"itemId": "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C"},
+            ).model_dump()
+        ]
+
+    dispatcher._implementations["search_repo_metadata"] = fake_meta
+    for name in (
+        "search_repo_rag",
+        "search_repositories",
+        "search_workflows",
+        "search_forms",
+        "search_comments",
+        "search_tickets",
+    ):
+        dispatcher._implementations[name] = await_handler(name, called)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-cb-model-apex",
+            "intent": "chatbot",
+            "message": "Search a Text of APEX",
+            "payload": {"tenantId": TENANT},
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["reply"] == "I found the document HR_01.pdf for APEX."
+    assert body["chatbot_result"]["query"] == "APEX"
+    assert body["token_usage"]["total_tokens"] == 15
+    assert ("search_repo_metadata", "APEX") in called
+    assert ("search_repo_rag", "APEX") in called
+    assert not any(name == "search_tickets" for name, _query in called)
+    cards = next(b for b in body["chatbot_result"]["text"]["blocks"] if b["type"] == "cards")
+    assert cards["items"][0]["title"] == "HR_01.pdf"
+
+
+def await_handler(name, called):
+    async def handler(**kwargs):
+        called.append((name, kwargs.get("query")))
+        return []
+
+    return handler

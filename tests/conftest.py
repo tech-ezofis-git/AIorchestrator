@@ -54,6 +54,8 @@ def client(monkeypatch):
     monkeypatch.setenv("EZOFIS_ENV", "trial")
     # Existing AP tests assert pre-Catalog behavior; enable flag in dedicated tests.
     monkeypatch.setenv("AP_PIPELINE_FROM_DB", "false")
+    # Chatbot search tests stay on keyword rules unless a test turns this on.
+    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "false")
     from app.config import get_settings
 
     get_settings.cache_clear()
