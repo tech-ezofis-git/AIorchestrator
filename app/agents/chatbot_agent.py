@@ -20,15 +20,10 @@ from app.chatbot.query_rewrite import (
 )
 from app.chatbot.search_plan import (
     SearchPlan,
+    continue_from_history,
     friendly_search_reply,
-    lookup_override_plan,
     merge_usage,
-    pending_lookup_from_history,
     plan_document_ticket_search,
-    repository_phrase_from_history,
-    searches_anywhere,
-    match_repository_id,
-    repository_choice_phrase,
     tools_for_plan,
 )
 from app.core.dispatcher import Dispatcher, ToolExecutionError, ToolNotFoundError
@@ -40,21 +35,6 @@ from app.global_search.types import SearchHit
 from app.llm.adapter import LLMAdapter
 
 logger = logging.getLogger("orchestrator.chatbot_agent")
-
-
-def _replace_reply(packed: dict, reply: str) -> dict:
-    packed["reply"] = reply
-    result = packed.get("chatbot_result")
-    if isinstance(result, dict):
-        blocks = (result.get("text") or {}).get("blocks") or []
-        if blocks and blocks[0].get("type") == "paragraph":
-            blocks[0]["text"] = reply
-        else:
-            blocks.insert(0, {"type": "paragraph", "text": reply})
-        conversation = result.get("conversation") or []
-        if conversation and conversation[-1].get("role") == "assistant":
-            conversation[-1]["content"] = reply
-    return packed
 
 
 class ChatbotAgent:
@@ -169,61 +149,17 @@ class ChatbotAgent:
                 workspace_id=workspace_id,
             )
 
-        # Model picks documents, tickets, or both and the lookup text.
-        # Tools stay in code. Keyword rules run when the model is unavailable.
+        # Search uses this message, tenantId, and earlier messages.
+        # A payload repository id does not lock the search.
         plan = await plan_document_ticket_search(
             self._llm,
             message=user_text,
-            specific_id=specific_id,
+            specific_id="",
             history=history,
         )
-        if searches_anywhere(user_text):
-            pending = pending_lookup_from_history(history)
-            if pending is not None and pending.query:
-                specific_id = ""
-                plan = SearchPlan(
-                    target=pending.target,
-                    query=pending.query,
-                    source="history",
-                    usage=plan.usage,
-                )
-            else:
-                plan = SearchPlan(target="ask_term", query="", source="rules", usage=plan.usage)
-        choice = "" if specific_id or searches_anywhere(user_text) else repository_choice_phrase(user_text)
-        if choice:
-            repo_id = await self._match_repository_name(
-                choice, tenant_id, recent_hits=recent_hits
-            )
-            if repo_id:
-                pending = pending_lookup_from_history(history)
-                if pending is None:
-                    return self._ask_document_suggestion(
-                        user_text=user_text,
-                        tenant_id=tenant_id,
-                        specific_id=repo_id,
-                    )
-                specific_id = repo_id
-                plan = SearchPlan(
-                    target=pending.target,
-                    query=pending.query,
-                    source="history",
-                    usage=plan.usage,
-                )
-            else:
-                plan = lookup_override_plan(plan, user_text, specific_id)
-        elif (
-            not specific_id
-            and not searches_anywhere(user_text)
-            and plan.target in {"documents", "tickets", "both"}
-            and plan.query
-        ):
-            prior_repo = repository_phrase_from_history(history)
-            if prior_repo:
-                repo_id = await self._match_repository_name(
-                    prior_repo, tenant_id, recent_hits=recent_hits
-                )
-                if repo_id:
-                    specific_id = repo_id
+        plan = continue_from_history(plan, user_text, history)
+        if plan.target == "ask_repository":
+            plan = SearchPlan(target="ask_term", query="", source=plan.source, usage=plan.usage)
         logger.info(
             "chatbot_search_plan",
             extra={
@@ -232,26 +168,14 @@ class ChatbotAgent:
                 "tenant_id": tenant_id,
             },
         )
-        if plan.target == "ask_repository":
-            return await self._prompt_repository_choice(
-                user_text=user_text,
-                tenant_id=tenant_id,
-                workspace_id=workspace_id,
-            )
-        if plan.target == "ask_term":
-            if specific_id:
-                return self._ask_document_suggestion(
-                    user_text=user_text,
-                    tenant_id=tenant_id,
-                    specific_id=specific_id,
-                )
+        if plan.target == "ask_term" or not plan.query:
             return self._ask_lookup_suggestion(user_text=user_text, tenant_id=tenant_id)
         query = plan.query or normalize_query(user_text)
         result = await run_global_search(
             self._dispatcher,
             query=query,
             tenant_id=tenant_id,
-            specific_id=specific_id,
+            specific_id="",
             limit=self._limit,
             rag_limit=self._rag_limit,
             tools=tools_for_plan(plan),
@@ -259,7 +183,7 @@ class ChatbotAgent:
         formatted = format_search_blocks(
             result,
             workspace_id=workspace_id,
-            specific_id=specific_id,
+            specific_id="",
         )
         reply, reply_usage = await friendly_search_reply(
             self._llm,
@@ -276,36 +200,12 @@ class ChatbotAgent:
             blocks=blocks,
             hits=formatted["hits"],
             tenant_id=tenant_id,
-            specific_id=specific_id or None,
+            specific_id=None,
             action=formatted.get("action"),
             action_to=formatted.get("actionTo"),
             action_context=formatted.get("actionContext"),
             usage=merge_usage(plan.usage, reply_usage),
         )
-
-    async def _prompt_repository_choice(
-        self,
-        *,
-        user_text: str,
-        tenant_id: str,
-        workspace_id: str,
-    ) -> dict:
-        """No repository selected yet: list repos and ask which one to search."""
-        packed = await self._list_catalog(
-            user_text=user_text,
-            kind="repositories",
-            tenant_id=tenant_id,
-            specific_id="",
-            workspace_id=workspace_id,
-        )
-        hits = packed.get("chatbot_result", {}).get("hits") or []
-        if not hits:
-            return packed
-        reply = (
-            "Which repository should I search? Choose one below, then tell me "
-            "what to look for in the documents (a file name, number, or keyword)."
-        )
-        return _replace_reply(packed, reply)
 
     def _ask_lookup_suggestion(self, *, user_text: str, tenant_id: str) -> dict:
         """No lookup value yet, and no repository is selected."""
@@ -324,60 +224,6 @@ class ChatbotAgent:
             action_to=None,
             action_context=None,
         )
-
-    def _ask_document_suggestion(
-        self,
-        *,
-        user_text: str,
-        tenant_id: str,
-        specific_id: str,
-    ) -> dict:
-        """Repository is already selected: ask what to search for inside it."""
-        reply = (
-            "This repository is selected. Give me a suggestion to search the documents — "
-            "a file name, number, or keyword such as 6001."
-        )
-        return self._pack(
-            user_text=normalize_query(user_text),
-            reply=reply,
-            blocks=[{"type": "paragraph", "text": reply}],
-            hits=[],
-            tenant_id=tenant_id,
-            specific_id=specific_id,
-            action=None,
-            action_to="Repository",
-            action_context={"repositoryId": specific_id, "workspaceId": "", "itemId": ""},
-        )
-
-    async def _repository_hits(self, query: str, tenant_id: str) -> list[Any]:
-        try:
-            raw = await self._dispatcher.dispatch(
-                "search_repositories",
-                {"query": query, "tenant_id": tenant_id, "limit": self._limit},
-            )
-        except (ToolExecutionError, ToolNotFoundError):
-            logger.warning("chatbot_repository_choice_failed")
-            return []
-        return raw if isinstance(raw, list) else []
-
-    async def _match_repository_name(
-        self,
-        phrase: str,
-        tenant_id: str,
-        *,
-        recent_hits: Optional[list[dict]] = None,
-    ) -> str:
-        """Resolve a typed repository name to one repository id."""
-        found = match_repository_id(phrase, recent_hits or [])
-        if found:
-            return found
-        named = await self._repository_hits(phrase, tenant_id)
-        found = match_repository_id(phrase, named)
-        if found:
-            return found
-        # The name list uses an empty query. Match against that same catalog.
-        catalog = await self._repository_hits("", tenant_id)
-        return match_repository_id(phrase, catalog)
 
     async def _list_catalog(
         self,

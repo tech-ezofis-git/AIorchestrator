@@ -2,6 +2,7 @@
 from app.chatbot.search_plan import plan_from_model_json, plan_from_rules, tools_for_plan
 from app.chatbot.search_plan import (
     SearchPlan,
+    continue_from_history,
     lookup_override_plan,
     match_repository_id,
     pending_lookup_from_history,
@@ -67,10 +68,16 @@ def test_rules_plan_documents_tickets_and_bare_document_ask():
     assert "search_tickets" in tools_for_plan(ticket)
 
     bare = plan_from_rules("Search my documents")
-    assert bare.target == "ask_repository"
+    assert bare.target == "ask_term"
     assert bare.query == ""
     locked = plan_from_rules("Search my documents", specific_id="repo-1")
     assert locked.target == "ask_term"
+    apex = plan_from_rules("need document from APEX")
+    assert apex.target == "documents"
+    assert apex.query == "APEX"
+    request = plan_from_rules("find request REQ-12")
+    assert request.target == "tickets"
+    assert request.query == "REQ-12"
 
 
 def test_model_plan_keeps_apex_and_drops_filler():
@@ -144,6 +151,24 @@ def test_document_phrase_keeps_the_lookup_when_the_model_asks_for_a_repository()
     ).query == "6001"
 
 
+def test_history_keeps_apex_and_switches_a_request_to_workflows():
+    history = [
+        {"role": "user", "content": "need document from APEX"},
+        {"role": "assistant", "content": "I found 2 documents."},
+    ]
+    documents = continue_from_history(
+        plan_from_rules("need document from APEX"),
+        "need document from APEX",
+        [],
+    )
+    assert documents.target == "documents"
+    assert documents.query == "APEX"
+    follow = continue_from_history(plan_from_rules("search the request"), "search the request", history)
+    assert follow.target == "tickets"
+    assert follow.query == "APEX"
+    assert follow.source == "history"
+
+
 def test_document_phrase_searches_the_value_not_the_word_documents():
     assert classify_search_scope("documents from 6001") == "repository"
     assert search_text_for_scope("documents from 6001", "repository") == "6001"
@@ -207,7 +232,7 @@ def test_chatbot_document_query_does_not_call_workflow_or_forms(client):
     assert response.json()["chatbot_result"]["query"] == "6001"
 
 
-def test_search_my_documents_lists_repositories(client):
+def test_search_my_documents_asks_for_a_term(client):
     dispatcher = client.app.state.dispatcher
     called = []
 
@@ -256,11 +281,11 @@ def test_search_my_documents_lists_repositories(client):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert "which repository" in body["reply"].lower()
-    assert called == [("search_repositories", "")]
-    blocks = body["chatbot_result"]["text"]["blocks"]
-    picker = next(b for b in blocks if b["type"] == "repo_picker")
-    assert picker["items"][0]["name"] == "Accounts Payable"
+    assert "which repository" not in body["reply"].lower()
+    assert "what should i look for" in body["reply"].lower()
+    assert called == []
+    assert body["chatbot_result"]["hits"] == []
+    assert not any(b.get("type") == "repo_picker" for b in body["chatbot_result"]["text"]["blocks"])
 
 
 def test_search_my_documents_with_repo_asks_for_a_term(client):
@@ -298,9 +323,8 @@ def test_search_my_documents_with_repo_asks_for_a_term(client):
     body = response.json()
     assert called == []
     assert body["chatbot_result"]["hits"] == []
-    assert "suggestion" in body["reply"].lower()
-    assert "6001" in body["reply"]
-    assert body["chatbot_result"]["specificId"] == "FE663435-B5E1-4EA5-A710-071C9E5DA5F2"
+    assert "what should i look for" in body["reply"].lower()
+    assert body["chatbot_result"]["specificId"] in (None, "")
 
 
 def test_model_routes_text_search_and_writes_the_reply(client, monkeypatch):
@@ -413,170 +437,108 @@ def test_documents_in_6001_searches_when_the_model_asks_for_a_repository(client,
     ) in called
 
 
-def test_repository_follow_up_searches_the_earlier_number(client, monkeypatch):
+def test_need_document_from_apex_searches_every_repository(client, monkeypatch):
     monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
     dispatcher = client.app.state.dispatcher
     called = []
-    repo_id = "11111111-1111-1111-1111-111111111111"
-
-    async def fake_chat(messages, **kwargs):
-        return {"content": '{"target":"ask_repository","query":""}', "usage": {}}
-
-    monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
-
-    async def fake_repos(**kwargs):
-        called.append(("search_repositories", kwargs.get("query")))
-        return [
-            SearchHit(
-                type="repository",
-                entity_type="repository",
-                entity_id=repo_id,
-                entity_name="Accounts Payable",
-                name="Accounts Payable",
-                id={"repositoryId": repo_id, "repositoryName": "Accounts Payable"},
-            ).model_dump()
-        ]
-
-    async def fake_meta(**kwargs):
-        called.append(
-            ("search_repo_metadata", kwargs.get("query"), kwargs.get("specific_id") or "")
-        )
-        return []
-
-    dispatcher._implementations["search_repositories"] = fake_repos
-    dispatcher._implementations["search_repo_metadata"] = fake_meta
-    for name in (
-        "search_repo_rag",
-        "search_workflows",
-        "search_forms",
-        "search_comments",
-        "search_tickets",
-    ):
-        dispatcher._implementations[name] = await_handler(name, called)
-
-    first = client.post(
-        "/chat",
-        json={
-            "session_id": "s-cb-repo-follow",
-            "intent": "chatbot",
-            "message": "documents in 6001",
-            "payload": {"tenantId": TENANT},
-        },
-    )
-    assert first.status_code == 200, first.text
-    second = client.post(
-        "/chat",
-        json={
-            "session_id": "s-cb-repo-follow",
-            "intent": "chatbot",
-            "message": "check at Accounts Payable",
-            "payload": {"tenantId": TENANT},
-        },
-    )
-    assert second.status_code == 200, second.text
-    body = second.json()
-    assert "which repository" not in body["reply"].lower()
-    assert body["chatbot_result"]["query"] == "6001"
-    assert body["chatbot_result"]["specificId"] == repo_id
-    assert ("search_repo_metadata", "6001", repo_id) in called
-
-
-def test_repository_follow_up_uses_catalog_when_name_search_misses(client, monkeypatch):
-    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
-    dispatcher = client.app.state.dispatcher
-    called = []
-    repo_id = "11111111-1111-1111-1111-111111111111"
-
-    async def fake_chat(messages, **kwargs):
-        return {"content": '{"target":"ask_repository","query":""}', "usage": {}}
-
-    monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
-
-    async def fake_repos(**kwargs):
-        called.append(("search_repositories", kwargs.get("query")))
-        if kwargs.get("query"):
-            return []
-        return [
-            SearchHit(
-                type="repository",
-                entity_type="repository",
-                entity_id=repo_id,
-                entity_name="ACCOUNTS PAYABLE",
-                name="ACCOUNTS PAYABLE",
-                id={"repositoryId": repo_id, "repositoryName": "ACCOUNTS PAYABLE"},
-            ).model_dump()
-        ]
-
-    async def fake_meta(**kwargs):
-        called.append(("search_repo_metadata", kwargs.get("query"), kwargs.get("specific_id") or ""))
-        return []
-
-    dispatcher._implementations["search_repositories"] = fake_repos
-    dispatcher._implementations["search_repo_metadata"] = fake_meta
-    for name in ("search_repo_rag", "search_workflows", "search_forms", "search_comments", "search_tickets"):
-        dispatcher._implementations[name] = await_handler(name, called)
-
-    client.post(
-        "/chat",
-        json={
-            "session_id": "s-cb-repo-catalog",
-            "intent": "chatbot",
-            "message": "documents in 6001",
-            "payload": {"tenantId": TENANT},
-        },
-    )
-    second = client.post(
-        "/chat",
-        json={
-            "session_id": "s-cb-repo-catalog",
-            "intent": "chatbot",
-            "message": "check at Accounts Payable",
-            "payload": {"tenantId": TENANT},
-        },
-    )
-    assert second.status_code == 200, second.text
-    body = second.json()
-    assert body["chatbot_result"]["query"] == "6001"
-    assert body["chatbot_result"]["specificId"] == repo_id
-    assert ("search_repo_metadata", "6001", repo_id) in called
-
-
-def test_apex_content_then_repository_then_anywhere(client, monkeypatch):
-    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
-    dispatcher = client.app.state.dispatcher
-    called = []
-    repo_id = "11111111-1111-1111-1111-111111111111"
+    repo_id = "a6169a5c-1468-4fb5-90a8-aaaaaaaaaaaa"
 
     async def fake_chat(messages, **kwargs):
         system = messages[0]["content"]
         if "route an EZOFIS search" in system:
             return {"content": '{"target":"ask_repository","query":""}', "usage": {}}
-        return {"content": "No documents found.", "usage": {}}
+        return {"content": "I found documents for APEX.", "usage": {}}
 
     monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
 
-    async def fake_repos(**kwargs):
+    async def fake_meta(**kwargs):
+        called.append(("search_repo_metadata", kwargs.get("query"), kwargs.get("specific_id") or ""))
         return [
             SearchHit(
-                type="repository",
-                entity_type="repository",
-                entity_id=repo_id,
-                entity_name="Accounts Payable",
-                name="Accounts Payable",
-                id={"repositoryId": repo_id, "repositoryName": "Accounts Payable"},
+                type="document",
+                entity_type="document",
+                entity_id="65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
+                entity_name="APEX.pdf",
+                ifileName="APEX.pdf",
+                name="APEX.pdf",
+                id={
+                    "itemId": "65BA76B0-11B8-4CA2-BE18-40BA6FDC871C",
+                    "repositoryId": repo_id,
+                    "repositoryName": "Domestic Supplier",
+                },
             ).model_dump()
         ]
+
+    async def fake_tickets(**kwargs):
+        called.append(("search_tickets", kwargs.get("query"), kwargs.get("specific_id") or ""))
+        return []
+
+    dispatcher._implementations["search_repo_metadata"] = fake_meta
+    dispatcher._implementations["search_tickets"] = fake_tickets
+    for name in (
+        "search_repo_rag",
+        "search_repositories",
+        "search_workflows",
+        "search_forms",
+        "search_comments",
+    ):
+        dispatcher._implementations[name] = await_handler(name, called)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-cb-apex-all-repos",
+            "intent": "chatbot",
+            "message": "need document from APEX",
+            "payload": {"tenantId": TENANT, "specificId": repo_id},
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["chatbot_result"]["query"] == "APEX"
+    assert body["chatbot_result"]["specificId"] in (None, "")
+    assert "which repository" not in body["reply"].lower()
+    assert ("search_repo_metadata", "APEX", "") in called
+    assert not any(name == "search_repositories" for name, *_rest in called)
+    assert not any(name == "search_tickets" for name, *_rest in called)
+    cards = next(b for b in body["chatbot_result"]["text"]["blocks"] if b["type"] == "cards")
+    assert cards["items"][0]["title"] == "APEX.pdf"
+    assert repo_id not in str(next(b for b in body["chatbot_result"]["text"]["blocks"] if "Filter" in str(b.get("title"))))
+
+
+def test_request_follow_up_searches_workflows_with_the_earlier_value(client, monkeypatch):
+    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
+    dispatcher = client.app.state.dispatcher
+    called = []
+
+    async def fake_chat(messages, **kwargs):
+        system = messages[0]["content"]
+        if "route an EZOFIS search" in system:
+            return {"content": '{"target":"ask_repository","query":""}', "usage": {}}
+        return {"content": "No matches.", "usage": {}}
+
+    monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
 
     async def fake_meta(**kwargs):
         called.append(("search_repo_metadata", kwargs.get("query"), kwargs.get("specific_id") or ""))
         return []
 
-    dispatcher._implementations["search_repositories"] = fake_repos
+    async def fake_tickets(**kwargs):
+        called.append(("search_tickets", kwargs.get("query"), kwargs.get("specific_id") or ""))
+        return []
+
     dispatcher._implementations["search_repo_metadata"] = fake_meta
-    for name in ("search_repo_rag", "search_workflows", "search_forms", "search_comments", "search_tickets"):
+    dispatcher._implementations["search_tickets"] = fake_tickets
+    for name in (
+        "search_repo_rag",
+        "search_repositories",
+        "search_workflows",
+        "search_forms",
+        "search_comments",
+    ):
         dispatcher._implementations[name] = await_handler(name, called)
 
-    session = "s-cb-apex-content"
+    session = "s-cb-apex-then-request"
     payload = {"tenantId": TENANT}
 
     def post(message):
@@ -585,28 +547,21 @@ def test_apex_content_then_repository_then_anywhere(client, monkeypatch):
             json={"session_id": session, "intent": "chatbot", "message": message, "payload": payload},
         )
 
-    first = post("find the content of APEX")
+    first = post("need document from APEX")
     assert first.status_code == 200, first.text
     assert first.json()["chatbot_result"]["query"] == "APEX"
-    assert "which repository" not in first.json()["reply"].lower()
-
-    second = post("at Accounts Payable")
-    assert second.status_code == 200, second.text
-    assert second.json()["chatbot_result"]["query"] == "APEX"
-    assert second.json()["chatbot_result"]["specificId"] == repo_id
-    assert "suggestion" not in second.json()["reply"].lower()
-
-    third = post("APEX")
-    assert third.status_code == 200, third.text
-    assert third.json()["chatbot_result"]["query"] == "APEX"
-    assert third.json()["chatbot_result"]["specificId"] == repo_id
+    assert ("search_repo_metadata", "APEX", "") in called
 
     called.clear()
-    fourth = post("Search anywhere")
-    assert fourth.status_code == 200, fourth.text
-    assert fourth.json()["chatbot_result"]["query"] == "APEX"
-    assert fourth.json()["chatbot_result"]["specificId"] in (None, "")
-    assert ("search_repo_metadata", "APEX", "") in called
+    second = post("search the request")
+    assert second.status_code == 200, second.text
+    body = second.json()
+    assert "which repository" not in body["reply"].lower()
+    assert body["chatbot_result"]["query"] == "APEX"
+    assert body["chatbot_result"]["specificId"] in (None, "")
+    assert ("search_tickets", "APEX", "") in called
+    assert not any(name == "search_repo_metadata" for name, *_rest in called)
+    assert not any(name == "search_repositories" for name, *_rest in called)
 
 
 def await_handler(name, called):

@@ -123,7 +123,7 @@ def search_text_for_scope(message: str, scope: SearchScope) -> str:
     """Search the remaining keywords. 'documents from 6001' → '6001'.
 
     Scope-only phrases such as 'Search my documents' return an empty string
-    so the caller can ask which repository to use, or what to search for.
+    so the caller can ask what to search for, or reuse the previous message.
     """
     rewritten = rewrite_search_query(message)
     if not rewritten or scope == "other":

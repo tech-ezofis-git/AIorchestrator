@@ -1,9 +1,19 @@
 """Format Global Search hits as CHATBOT.md-style text.blocks + optional browse."""
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from app.global_search.types import GlobalSearchResult, SearchHit
+
+_GUID_RE = re.compile(
+    r"^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_guid(value: str) -> bool:
+    return bool(_GUID_RE.match((value or "").strip()))
 
 
 def _hit_title(hit: SearchHit) -> str:
@@ -91,8 +101,8 @@ def _human_field_label(field: str) -> str:
 def _build_filter_items(
     *,
     query: str,
-    specific_id: str,
     hits: list[SearchHit],
+    repository_name: str = "",
 ) -> list[dict[str, str]]:
     """CHATBOT.md-style Filters Applied / Filters Tried (from hits, not LLM terms)."""
     items: list[dict[str, str]] = []
@@ -112,16 +122,16 @@ def _build_filter_items(
     if query.strip():
         add("Search", query.strip())
 
-    if specific_id.strip():
-        add("Repository", specific_id.strip())
-
-    repo_names: set[str] = set()
+    repo_names: list[str] = []
+    locked_name = (repository_name or "").strip()
+    if locked_name and not _looks_like_guid(locked_name):
+        repo_names.append(locked_name)
     for hit in hits:
         id_obj = hit.id if isinstance(hit.id, dict) else {}
         rname = str(id_obj.get("repositoryName") or "").strip()
-        if rname:
-            repo_names.add(rname)
-    for name in sorted(repo_names)[:3]:
+        if rname and not _looks_like_guid(rname) and rname not in repo_names:
+            repo_names.append(rname)
+    for name in repo_names[:3]:
         add("Repository", name)
 
     # Document field matches → semantic filter rows (like Supplier / FILFREE in CHATBOT.md).
@@ -156,8 +166,8 @@ def _filter_by_from_items(items: list[dict[str, str]], query: str) -> dict[str, 
         if label.lower() in {"search", "query"}:
             out["search"] = value
             continue
-        if label.lower() == "repository" and len(value) > 36:
-            continue  # skip raw GUID; repositoryId is on browse_request
+        if label.lower() == "repository" and _looks_like_guid(value):
+            continue
         key = label.lower().replace(" ", "_")
         out[key] = value
     if query.strip() and "search" not in out:
@@ -208,13 +218,17 @@ def format_search_blocks(
     workspace_id: str = "",
     specific_id: str = "",
     catalog_list: Optional[str] = None,
+    repository_name: str = "",
 ) -> dict[str, Any]:
     """Build chatbot_result fields from a GlobalSearchResult."""
     hits = list(result.hits)
     query = result.query
     total = len(hits)
-    filter_items = _build_filter_items(query=query, specific_id=specific_id, hits=hits)
-
+    filter_items = _build_filter_items(
+        query=query,
+        hits=hits,
+        repository_name=repository_name,
+    )
     if total == 0:
         if catalog_list:
             label = catalog_list

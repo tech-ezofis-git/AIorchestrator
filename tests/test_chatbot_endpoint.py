@@ -233,10 +233,61 @@ def test_chatbot_query_alias_and_specific_id(client):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["chatbot_result"]["query"] == "EMP10245"
-    assert body["chatbot_result"]["specificId"] == "FE663435-B5E1-4EA5-A710-071C9E5DA5F2"
+    assert body["chatbot_result"]["specificId"] in (None, "")
     assert body["chatbot_result"]["hits"] == []
     assert "No matches" in body["reply"]
-    assert seen.get("specific_id") == "FE663435-B5E1-4EA5-A710-071C9E5DA5F2"
+    assert seen.get("specific_id") in (None, "")
+
+
+def test_chatbot_filter_shows_repository_name_not_id(client):
+    dispatcher = client.app.state.dispatcher
+    repo_id = "a6169a5c-1468-4fb5-90a8-aaaaaaaaaaaa"
+
+    async def empty(**kwargs):
+        return []
+
+    async def fake_repos(**kwargs):
+        return [
+            SearchHit(
+                type="repository",
+                entity_type="repository",
+                entity_id=repo_id,
+                entity_name="Domestic Supplier",
+                name="Domestic Supplier",
+                id={"repositoryId": repo_id, "repositoryName": "Domestic Supplier"},
+            ).model_dump()
+        ]
+
+    for name in (
+        "search_workflows",
+        "search_repo_metadata",
+        "search_repo_rag",
+        "search_forms",
+        "search_comments",
+        "search_tickets",
+    ):
+        dispatcher._implementations[name] = empty
+    dispatcher._implementations["search_repositories"] = fake_repos
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-cb-repo-name",
+            "intent": "chatbot",
+            "message": "domestic supplier US 1",
+            "payload": {
+                "tenantId": "3EE0E334-CCB9-4DFF-968A-9BAAE71A5231",
+                "specificId": repo_id,
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    blocks = response.json()["chatbot_result"]["text"]["blocks"]
+    filters = next(b for b in blocks if b.get("title") == "Filters Tried")
+    labels = {item["label"]: item["value"] for item in filters["items"]}
+    assert "Repository" not in labels
+    assert repo_id not in str(filters)
+    assert response.json()["chatbot_result"]["specificId"] in (None, "")
 
 
 def test_chatbot_search_includes_comments_and_tickets(client):

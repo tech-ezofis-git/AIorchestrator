@@ -33,22 +33,19 @@ _TARGET_TOOLS = {
 _PLAN_SYSTEM = (
     "You route an EZOFIS search over documents and tickets. "
     "Reply with ONLY JSON, no markdown: "
-    '{"target":"documents|tickets|both|ask_repository|ask_term","query":""}. '
-    "documents = files, text, words, pdfs, attachments inside repositories. "
-    "tickets = requests and tickets. "
+    '{"target":"documents|tickets|both|ask_term","query":""}. '
+    "documents = files, text, words, pdfs, and attachments. Search every repository. "
+    "tickets = requests and tickets in workflows. "
     "both = invoice, PO, document number, or a bare keyword that could be in a file or a ticket. "
-    "query is only the value to find. Drop words such as search, text, word, document, of, from. "
-    'Examples: "Search a Text of APEX" → {"target":"documents","query":"APEX"}. '
-    '"Search a word of APEX" → {"target":"documents","query":"APEX"}. '
+    "query is only the value to find. Drop words such as search, text, word, document, of, from, need. "
+    'Examples: "need document from APEX" → {"target":"documents","query":"APEX"}. '
+    '"Search a Text of APEX" → {"target":"documents","query":"APEX"}. '
     '"documents from 6001" → {"target":"documents","query":"6001"}. '
-    '"documents in 6001" → {"target":"documents","query":"6001"}. '
     '"find the content of APEX" → {"target":"documents","query":"APEX"}. '
-    '"find ticket REQ-12" → {"target":"tickets","query":"REQ-12"}. '
+    '"find request REQ-12" → {"target":"tickets","query":"REQ-12"}. '
     '"invoice 6001" → {"target":"both","query":"6001"}. '
-    "If the user wants documents but gives no value: "
-    "has_repository false → ask_repository and query empty; "
-    "has_repository true → ask_term and query empty. "
-    "Do not invent ids. Do not name tools."
+    "If the message has no value to find, use ask_term and an empty query. "
+    "Never ask the user to choose a repository. Do not invent ids. Do not name tools."
 )
 
 _REPLY_SYSTEM = (
@@ -266,12 +263,15 @@ def lookup_override_plan(plan: SearchPlan, message: str, specific_id: str = "") 
 
 
 def plan_from_rules(message: str, *, specific_id: str = "") -> SearchPlan:
-    """Keyword fallback matching the pre-model document and ticket routes."""
+    """Keyword fallback matching the pre-model document and ticket routes.
+
+    specific_id is ignored. Document search covers every repository.
+    """
+    _ = specific_id
     scope = classify_search_scope(message)
     query = search_text_for_scope(message, scope)
-    if scope == "repository" and not query:
-        target = "ask_term" if (specific_id or "").strip() else "ask_repository"
-        return SearchPlan(target=target, query="", source="rules")
+    if not query and scope in {"repository", "workflow", "both"}:
+        return SearchPlan(target="ask_term", query="", source="rules")
     if not query:
         query = normalize_query(message)
     target = {
@@ -317,19 +317,48 @@ def plan_from_model_json(
     if not target:
         return None
     query = _clean_query(str(data.get("query") or ""))
-    has_repo = bool((specific_id or "").strip())
-    if target == "ask_repository" and has_repo:
+    _ = specific_id
+    if target == "ask_repository":
         target = "ask_term"
     if target in {"documents", "tickets", "both"} and not query:
-        if target == "documents" and not has_repo:
-            target = "ask_repository"
-        else:
-            target = "ask_term"
+        target = "ask_term"
     if target in {"ask_repository", "ask_term"}:
         query = ""
     if target in {"documents", "tickets", "both"} and not query:
         query = _clean_query(message)
     return SearchPlan(target=target, query=query, source="model", usage=usage)
+
+
+def continue_from_history(
+    plan: SearchPlan,
+    message: str,
+    history: Optional[list[dict[str, str]]],
+) -> SearchPlan:
+    """Reuse the previous lookup when this message names a scope but no value.
+
+    'need document from APEX' then 'search the request' keeps APEX and
+    switches to workflow tickets. A message that already has a value is unchanged.
+    """
+    if plan.target in {"documents", "tickets", "both"} and plan.query:
+        return plan
+    pending = pending_lookup_from_history(history)
+    if pending is None or not pending.query:
+        if plan.target == "ask_repository":
+            return SearchPlan(target="ask_term", query="", source=plan.source, usage=plan.usage)
+        return plan
+    scope = classify_search_scope(message)
+    target = {
+        "repository": "documents",
+        "workflow": "tickets",
+        "both": "both",
+        "other": pending.target if pending.target in {"documents", "tickets", "both"} else "both",
+    }[scope]
+    return SearchPlan(
+        target=target,
+        query=pending.query,
+        source="history",
+        usage=plan.usage,
+    )
 
 
 def _history_snippet(history: list[dict[str, str]]) -> list[dict[str, str]]:
