@@ -17,8 +17,12 @@ from app.chatbot.query_rewrite import rewrite_search_query
 from app.chatbot.search_scope import classify_search_scope, search_text_for_scope
 from app.global_search.sql_search import normalize_query
 from app.llm.adapter import LLMAdapter
+from app.llm.model_presets import resolve_preset_overrides
 
 logger = logging.getLogger("orchestrator.chatbot.search_plan")
+
+# Keyword extraction uses this preset even when the console default is another model.
+KEYWORD_PRESET_ID = os.getenv("CHATBOT_KEYWORD_PRESET", "gpt-5-nano").strip() or "gpt-5-nano"
 
 SearchTarget = str
 
@@ -34,11 +38,15 @@ _PLAN_SYSTEM = (
     "You route an EZOFIS search over documents and tickets. "
     "Reply with ONLY JSON, no markdown: "
     '{"target":"documents|tickets|both|ask_term","query":""}. '
-    "documents = files, text, words, pdfs, and attachments. Search every repository. "
+    "The word documents, document, file, or pdf selects repositories. It is not the file keyword. "
+    "query is only the file keyword, such as APEX. Search every repository for that keyword. "
     "tickets = requests and tickets in workflows. "
     "both = invoice, PO, document number, or a bare keyword that could be in a file or a ticket. "
-    "query is only the value to find. Drop words such as search, text, word, document, of, from, need. "
-    'Examples: "need document from APEX" → {"target":"documents","query":"APEX"}. '
+    "Drop words such as search, text, word, document, documents, of, from, form, need. "
+    "form typed instead of from is not a keyword. "
+    'Examples: "Find the documents from APEX" → {"target":"documents","query":"APEX"}. '
+    '"Find the documents form APEX" → {"target":"documents","query":"APEX"}. '
+    '"Search my documents" → {"target":"ask_term","query":""}. '
     '"Search a Text of APEX" → {"target":"documents","query":"APEX"}. '
     '"documents from 6001" → {"target":"documents","query":"6001"}. '
     '"find the content of APEX" → {"target":"documents","query":"APEX"}. '
@@ -239,27 +247,38 @@ def pending_lookup_from_history(history: Optional[list[dict[str, str]]]) -> Opti
     return None
 
 
-def lookup_override_plan(plan: SearchPlan, message: str, specific_id: str = "") -> SearchPlan:
-    """Keep a lookup the keyword rules already found.
+def model_file_keyword(query: str) -> str:
+    """File keyword from a GPT-5 nano query. 'documents' is removed."""
+    return search_text_for_scope(query, "other")
 
-    The model sometimes answers ask_repository for 'documents in 6001'
-    and drops 6001. The number is still in the message, so search it.
+
+def lookup_override_plan(plan: SearchPlan, message: str, specific_id: str = "") -> SearchPlan:
+    """Use the model file keyword. Fall back to rules when it is empty.
+
+    'documents' selects repositories and is never the file keyword.
+    'Find the documents from APEX' searches APEX.
     """
-    if repository_choice_phrase(message):
-        return plan
     rules = plan_from_rules(message, specific_id=specific_id)
-    if (
-        plan.target in {"ask_repository", "ask_term"}
-        and rules.query
-        and rules.target in {"documents", "tickets", "both"}
-    ):
-        return SearchPlan(
-            target=rules.target,
-            query=rules.query,
-            source="rules",
-            usage=plan.usage,
-        )
-    return plan
+    found = model_file_keyword(plan.query) if plan.source == "model" else ""
+    if found and found.casefold() in (message or "").casefold():
+        scope = classify_search_scope(message)
+        if scope in {"repository", "workflow", "both"}:
+            target = rules.target if rules.target in {"documents", "tickets", "both"} else "documents"
+        elif plan.target in {"documents", "tickets", "both"}:
+            target = plan.target
+        else:
+            target = rules.target if rules.target in {"documents", "tickets", "both"} else "both"
+        return SearchPlan(target=target, query=found, source="model", usage=plan.usage)
+    if rules.target == "ask_term" or not rules.query:
+        return SearchPlan(target="ask_term", query="", source="rules", usage=plan.usage)
+    if rules.target not in {"documents", "tickets", "both"}:
+        return plan
+    return SearchPlan(
+        target=rules.target,
+        query=rules.query,
+        source="rules",
+        usage=plan.usage,
+    )
 
 
 def plan_from_rules(message: str, *, specific_id: str = "") -> SearchPlan:
@@ -380,21 +399,26 @@ async def plan_document_ticket_search(
     specific_id: str = "",
     history: Optional[list[dict[str, str]]] = None,
 ) -> SearchPlan:
-    """Ask the chat model where to search. Fall back to keyword rules."""
+    """Ask GPT-5 nano for the file keyword. Fall back to keyword rules."""
     rules = plan_from_rules(message, specific_id=specific_id)
     if not search_llm_enabled():
         return lookup_override_plan(rules, message, specific_id)
     payload = {
         "message": message,
-        "has_repository": bool((specific_id or "").strip()),
         "history": _history_snippet(history or []),
     }
+    overrides = resolve_preset_overrides(KEYWORD_PRESET_ID) or {}
+    logger.info(
+        "chatbot_keyword_model",
+        extra={"preset_id": KEYWORD_PRESET_ID, "model": overrides.get("model") or ""},
+    )
     try:
         result = await llm.chat_completion(
             [
                 {"role": "system", "content": _PLAN_SYSTEM},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ]
+            ],
+            **overrides,
         )
     except Exception:
         logger.warning("chatbot_search_plan_failed")

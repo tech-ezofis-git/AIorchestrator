@@ -18,6 +18,7 @@ from app.chatbot.query_rewrite import (
     catalog_tool_name,
     detect_catalog_list,
 )
+from app.chatbot.search_scope import classify_search_scope
 from app.chatbot.search_plan import (
     SearchPlan,
     continue_from_history,
@@ -169,7 +170,11 @@ class ChatbotAgent:
             },
         )
         if plan.target == "ask_term" or not plan.query:
-            return self._ask_lookup_suggestion(user_text=user_text, tenant_id=tenant_id)
+            return self._ask_lookup_suggestion(
+                user_text=user_text,
+                tenant_id=tenant_id,
+                documents=classify_search_scope(user_text) == "repository",
+            )
         query = plan.query or normalize_query(user_text)
         result = await run_global_search(
             self._dispatcher,
@@ -185,12 +190,15 @@ class ChatbotAgent:
             workspace_id=workspace_id,
             specific_id="",
         )
-        reply, reply_usage = await friendly_search_reply(
-            self._llm,
-            query=query,
-            hits=formatted["hits"],
-            fallback=formatted["reply"],
-        )
+        if formatted["hits"]:
+            reply, reply_usage = await friendly_search_reply(
+                self._llm,
+                query=query,
+                hits=formatted["hits"],
+                fallback=formatted["reply"],
+            )
+        else:
+            reply, reply_usage = formatted["reply"], None
         blocks = formatted["text"]["blocks"]
         if reply != formatted["reply"] and blocks and blocks[0].get("type") == "paragraph":
             blocks[0]["text"] = reply
@@ -207,12 +215,20 @@ class ChatbotAgent:
             usage=merge_usage(plan.usage, reply_usage),
         )
 
-    def _ask_lookup_suggestion(self, *, user_text: str, tenant_id: str) -> dict:
-        """No lookup value yet, and no repository is selected."""
-        reply = (
-            "What should I look for? Give me a file name, ticket number, or keyword "
-            "such as APEX or 6001."
-        )
+    def _ask_lookup_suggestion(
+        self, *, user_text: str, tenant_id: str, documents: bool = False
+    ) -> dict:
+        """No file or ticket keyword yet."""
+        if documents:
+            reply = (
+                "Documents searches every repository. "
+                "What file keyword should I look for? For example, APEX."
+            )
+        else:
+            reply = (
+                "What should I look for? Give me a file name, ticket number, or keyword "
+                "such as APEX or 6001."
+            )
         return self._pack(
             user_text=normalize_query(user_text),
             reply=reply,

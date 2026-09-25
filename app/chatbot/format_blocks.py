@@ -245,11 +245,11 @@ def format_search_blocks(
                     }
                 )
         else:
-            reply = "No matches."
+            reply = f'No matches found for "{query}".' if query.strip() else "No matches."
             blocks = [
                 {
                     "type": "paragraph",
-                    "text": f'No matches found for "{query}".',
+                    "text": reply,
                 }
             ]
             if filter_items:

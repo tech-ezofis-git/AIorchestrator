@@ -136,6 +136,27 @@ def test_content_of_apex_is_a_document_lookup_not_a_repository_choice():
     ).query == "APEX"
 
 
+def test_rules_query_wins_when_the_model_searches_the_whole_sentence():
+    invented = SearchPlan(target="documents", query="documents", source="model")
+    bare = lookup_override_plan(invented, "Search my documents")
+    assert bare.target == "ask_term"
+    assert bare.query == ""
+
+    sentence = SearchPlan(target="documents", query="Find the documents from APEX", source="model")
+    apex = lookup_override_plan(sentence, "Find the documents from APEX")
+    assert apex.target == "documents"
+    assert apex.query == "APEX"
+    form_typo = plan_from_rules("Find the documents form APEX")
+    assert form_typo.target == "documents"
+    assert form_typo.query == "APEX"
+    of_apex = plan_from_rules("Find the documents of APEX")
+    assert of_apex.target == "documents"
+    assert of_apex.query == "APEX"
+    pex = plan_from_rules("Can you check PEX")
+    assert pex.target == "both"
+    assert pex.query == "PEX"
+
+
 def test_document_phrase_keeps_the_lookup_when_the_model_asks_for_a_repository():
     assert repository_choice_phrase("documents in 6001") == ""
     assert repository_choice_phrase("check at Accounts Payable") == "Accounts Payable"
@@ -282,7 +303,7 @@ def test_search_my_documents_asks_for_a_term(client):
     assert response.status_code == 200, response.text
     body = response.json()
     assert "which repository" not in body["reply"].lower()
-    assert "what should i look for" in body["reply"].lower()
+    assert "file keyword" in body["reply"].lower()
     assert called == []
     assert body["chatbot_result"]["hits"] == []
     assert not any(b.get("type") == "repo_picker" for b in body["chatbot_result"]["text"]["blocks"])
@@ -323,7 +344,7 @@ def test_search_my_documents_with_repo_asks_for_a_term(client):
     body = response.json()
     assert called == []
     assert body["chatbot_result"]["hits"] == []
-    assert "what should i look for" in body["reply"].lower()
+    assert "file keyword" in body["reply"].lower()
     assert body["chatbot_result"]["specificId"] in (None, "")
 
 
@@ -435,6 +456,116 @@ def test_documents_in_6001_searches_when_the_model_asks_for_a_repository(client,
         "6001",
         None,
     ) in called
+
+
+def test_keyword_extraction_uses_gpt5_nano(client, monkeypatch):
+    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
+    dispatcher = client.app.state.dispatcher
+    seen = {}
+
+    async def fake_chat(messages, **kwargs):
+        seen["model"] = kwargs.get("model")
+        return {"content": '{"target":"documents","query":"documents APEX"}', "usage": {}}
+
+    monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
+    monkeypatch.setattr(
+        "app.chatbot.search_plan.resolve_preset_overrides",
+        lambda preset_id: {
+            "model": "azure/gpt-5-nano",
+            "api_base": "https://example.openai.azure.com",
+            "api_key": "test-key",
+            "api_version": "2025-01-01-preview",
+        }
+        if preset_id == "gpt-5-nano"
+        else None,
+    )
+
+    async def empty(**kwargs):
+        return []
+
+    for name in (
+        "search_repositories",
+        "search_workflows",
+        "search_repo_metadata",
+        "search_repo_rag",
+        "search_forms",
+        "search_comments",
+        "search_tickets",
+    ):
+        dispatcher._implementations[name] = empty
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-cb-gpt5-keyword",
+            "intent": "chatbot",
+            "message": "Find the documents from APEX",
+            "payload": {"tenantId": TENANT},
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert seen["model"] == "azure/gpt-5-nano"
+    assert response.json()["chatbot_result"]["query"] == "APEX"
+
+
+def test_model_cannot_search_the_word_documents_or_the_whole_sentence(client, monkeypatch):
+    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
+    dispatcher = client.app.state.dispatcher
+    called = []
+
+    async def fake_chat(messages, **kwargs):
+        system = messages[0]["content"]
+        user = messages[-1]["content"]
+        if "route an EZOFIS search" in system and "Search my documents" in user:
+            return {"content": '{"target":"documents","query":"documents"}', "usage": {}}
+        if "route an EZOFIS search" in system:
+            return {
+                "content": '{"target":"documents","query":"Find the documents from APEX"}',
+                "usage": {},
+            }
+        return {
+            "content": "I couldn't find any matching documents or records for your query.",
+            "usage": {},
+        }
+
+    monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
+
+    async def fake_meta(**kwargs):
+        called.append(("search_repo_metadata", kwargs.get("query"), kwargs.get("specific_id") or ""))
+        return []
+
+    dispatcher._implementations["search_repo_metadata"] = fake_meta
+    for name in (
+        "search_repo_rag",
+        "search_repositories",
+        "search_workflows",
+        "search_forms",
+        "search_comments",
+        "search_tickets",
+    ):
+        dispatcher._implementations[name] = await_handler(name, called)
+
+    session = "s-cb-apex-sentence"
+    payload = {"tenantId": TENANT}
+
+    def post(message):
+        return client.post(
+            "/chat",
+            json={"session_id": session, "intent": "chatbot", "message": message, "payload": payload},
+        )
+
+    first = post("Search my documents")
+    assert first.status_code == 200, first.text
+    assert "file keyword" in first.json()["reply"].lower()
+    assert called == []
+
+    second = post("Find the documents from APEX")
+    assert second.status_code == 200, second.text
+    body = second.json()
+    assert body["chatbot_result"]["query"] == "APEX"
+    assert ("search_repo_metadata", "APEX", "") in called
+    assert "couldn't find any matching documents or records" not in body["reply"].lower()
+    assert "APEX" in body["reply"]
 
 
 def test_need_document_from_apex_searches_every_repository(client, monkeypatch):

@@ -2,7 +2,8 @@
 
 Edit the keyword lists below to change the routing:
 
-1. Document words (document, file, pdf, ...) → repository documents only.
+1. Document words (document, file, pdf, ...) select repositories. They are not the file keyword.
+   The other word, such as APEX, is the file keyword.
 2. Request / ticket words → workflows (definitions, tickets, and comments).
 3. Invoice, PO, or a document number → repository documents and workflows.
 4. Anything else → repository documents, comments, and tickets.
@@ -120,15 +121,16 @@ _SCOPE_QUERY_WORDS: dict[SearchScope, frozenset[str]] = {
 
 
 def search_text_for_scope(message: str, scope: SearchScope) -> str:
-    """Search the remaining keywords. 'documents from 6001' → '6001'.
+    """File or ticket keyword after scope words are removed.
 
-    Scope-only phrases such as 'Search my documents' return an empty string
-    so the caller can ask what to search for, or reuse the previous message.
+    'documents' selects repositories. 'Find the documents from APEX' → 'APEX'.
+    'Search my documents' has no file keyword and returns an empty string.
     """
     rewritten = rewrite_search_query(message)
-    if not rewritten or scope == "other":
-        return rewritten
-    drop = _SCOPE_QUERY_WORDS[scope]
+    if not rewritten:
+        return ""
+    # 'documents' is never the file keyword, including when the scope is other.
+    drop = _SCOPE_QUERY_WORDS[scope] | _DOCUMENT_QUERY_WORDS
     kept: list[str] = []
     for token in rewritten.split():
         cleaned = token.strip("?.!,;:\"'()[]{}").lower()
