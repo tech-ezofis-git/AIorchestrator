@@ -41,6 +41,7 @@ _PLAN_SYSTEM = (
     'Examples: "Search a Text of APEX" → {"target":"documents","query":"APEX"}. '
     '"Search a word of APEX" → {"target":"documents","query":"APEX"}. '
     '"documents from 6001" → {"target":"documents","query":"6001"}. '
+    '"documents in 6001" → {"target":"documents","query":"6001"}. '
     '"find ticket REQ-12" → {"target":"tickets","query":"REQ-12"}. '
     '"invoice 6001" → {"target":"both","query":"6001"}. '
     "If the user wants documents but gives no value: "
@@ -92,6 +93,102 @@ def search_llm_enabled() -> bool:
 
 def tools_for_plan(plan: SearchPlan) -> tuple[str, ...]:
     return _TARGET_TOOLS.get(plan.target, _TARGET_TOOLS["both"])
+
+
+# Words used to point at a repository. They are not the repository name.
+_CHOICE_FILLER = frozenset(
+    {
+        "check",
+        "choose",
+        "doc",
+        "docs",
+        "document",
+        "documents",
+        "file",
+        "files",
+        "go",
+        "inside",
+        "look",
+        "looking",
+        "open",
+        "pdf",
+        "pdfs",
+        "please",
+        "repo",
+        "repos",
+        "repositories",
+        "repository",
+        "search",
+        "select",
+        "use",
+        "using",
+        "within",
+    }
+)
+
+
+def repository_choice_phrase(message: str) -> str:
+    """Name left when the user is picking a repository.
+
+    'check at Accounts Payable' → 'Accounts Payable'.
+    'documents in 6001' is a lookup, so this returns empty.
+    """
+    rules = plan_from_rules(message)
+    scope = classify_search_scope(message)
+    if scope in {"repository", "workflow", "both"} and rules.query:
+        return ""
+    rewritten = rewrite_search_query(message)
+    kept: list[str] = []
+    for token in rewritten.split():
+        cleaned = token.strip("?.!,;:\"'()[]{}").lower()
+        if not cleaned or cleaned in _CHOICE_FILLER:
+            continue
+        kept.append(token.strip("?.!,;:\"'()[]{}"))
+    phrase = normalize_query(" ".join(kept))
+    if not phrase or any(ch.isdigit() for ch in phrase):
+        return ""
+    if len(phrase.split()) > 4:
+        return ""
+    return phrase
+
+
+def pending_lookup_from_history(history: Optional[list[dict[str, str]]]) -> Optional[SearchPlan]:
+    """Last user lookup in this chat, skipping repository-choice turns."""
+    for item in reversed(history or []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("role") or "").strip().lower() != "user":
+            continue
+        content = str(item.get("content") or "").strip()
+        if not content or repository_choice_phrase(content):
+            continue
+        rules = plan_from_rules(content)
+        if rules.query and rules.target in {"documents", "tickets", "both"}:
+            return rules
+    return None
+
+
+def lookup_override_plan(plan: SearchPlan, message: str, specific_id: str = "") -> SearchPlan:
+    """Keep a lookup the keyword rules already found.
+
+    The model sometimes answers ask_repository for 'documents in 6001'
+    and drops 6001. The number is still in the message, so search it.
+    """
+    if repository_choice_phrase(message):
+        return plan
+    rules = plan_from_rules(message, specific_id=specific_id)
+    if (
+        plan.target in {"ask_repository", "ask_term"}
+        and rules.query
+        and rules.target in {"documents", "tickets", "both"}
+    ):
+        return SearchPlan(
+            target=rules.target,
+            query=rules.query,
+            source="rules",
+            usage=plan.usage,
+        )
+    return plan
 
 
 def plan_from_rules(message: str, *, specific_id: str = "") -> SearchPlan:
@@ -183,7 +280,7 @@ async def plan_document_ticket_search(
     """Ask the chat model where to search. Fall back to keyword rules."""
     rules = plan_from_rules(message, specific_id=specific_id)
     if not search_llm_enabled():
-        return rules
+        return lookup_override_plan(rules, message, specific_id)
     payload = {
         "message": message,
         "has_repository": bool((specific_id or "").strip()),
@@ -209,7 +306,7 @@ async def plan_document_ticket_search(
         specific_id=specific_id,
         usage=result.get("usage") if isinstance(result.get("usage"), dict) else None,
     )
-    return plan or rules
+    return lookup_override_plan(plan or rules, message, specific_id)
 
 
 def _compact_hits(hits: list[dict[str, Any]], *, limit: int = 8) -> list[dict[str, str]]:
