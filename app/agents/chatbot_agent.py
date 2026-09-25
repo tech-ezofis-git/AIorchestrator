@@ -17,7 +17,11 @@ from app.chatbot.query_rewrite import (
     catalog_label,
     catalog_tool_name,
     detect_catalog_list,
-    rewrite_search_query,
+)
+from app.chatbot.search_scope import (
+    classify_search_scope,
+    search_text_for_scope,
+    tools_for_scope,
 )
 from app.core.dispatcher import Dispatcher, ToolExecutionError, ToolNotFoundError
 from app.core.pending_actions import PendingActionStore
@@ -28,6 +32,21 @@ from app.global_search.types import SearchHit
 from app.llm.adapter import LLMAdapter
 
 logger = logging.getLogger("orchestrator.chatbot_agent")
+
+
+def _replace_reply(packed: dict, reply: str) -> dict:
+    packed["reply"] = reply
+    result = packed.get("chatbot_result")
+    if isinstance(result, dict):
+        blocks = (result.get("text") or {}).get("blocks") or []
+        if blocks and blocks[0].get("type") == "paragraph":
+            blocks[0]["text"] = reply
+        else:
+            blocks.insert(0, {"type": "paragraph", "text": reply})
+        conversation = result.get("conversation") or []
+        if conversation and conversation[-1].get("role") == "assistant":
+            conversation[-1]["content"] = reply
+    return packed
 
 
 class ChatbotAgent:
@@ -142,8 +161,29 @@ class ChatbotAgent:
                 workspace_id=workspace_id,
             )
 
-        # NL questions → keyword tokens so "what invoices for ACME" still searches.
-        query = rewrite_search_query(user_text) or normalize_query(user_text)
+        # Scope words choose where to look. Remaining words are what to find.
+        # "documents from 6001" → repository documents containing 6001.
+        # "Search my documents" has no lookup value: pick a repo, or ask what to find.
+        scope = classify_search_scope(user_text)
+        query = search_text_for_scope(user_text, scope)
+        if scope == "repository" and not query:
+            if specific_id:
+                return self._ask_document_suggestion(
+                    user_text=user_text,
+                    tenant_id=tenant_id,
+                    specific_id=specific_id,
+                )
+            return await self._prompt_repository_choice(
+                user_text=user_text,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+            )
+        if not query:
+            query = normalize_query(user_text)
+        logger.info(
+            "chatbot_search_scope",
+            extra={"scope": scope, "tenant_id": tenant_id},
+        )
         result = await run_global_search(
             self._dispatcher,
             query=query,
@@ -151,7 +191,7 @@ class ChatbotAgent:
             specific_id=specific_id,
             limit=self._limit,
             rag_limit=self._rag_limit,
-            include_comments_tickets=True,
+            tools=tools_for_scope(scope),
         )
         formatted = format_search_blocks(
             result,
@@ -168,6 +208,54 @@ class ChatbotAgent:
             action=formatted.get("action"),
             action_to=formatted.get("actionTo"),
             action_context=formatted.get("actionContext"),
+        )
+
+    async def _prompt_repository_choice(
+        self,
+        *,
+        user_text: str,
+        tenant_id: str,
+        workspace_id: str,
+    ) -> dict:
+        """No repository selected yet: list repos and ask which one to search."""
+        packed = await self._list_catalog(
+            user_text=user_text,
+            kind="repositories",
+            tenant_id=tenant_id,
+            specific_id="",
+            workspace_id=workspace_id,
+        )
+        hits = packed.get("chatbot_result", {}).get("hits") or []
+        if not hits:
+            return packed
+        reply = (
+            "Which repository should I search? Choose one below, then tell me "
+            "what to look for in the documents (a file name, number, or keyword)."
+        )
+        return _replace_reply(packed, reply)
+
+    def _ask_document_suggestion(
+        self,
+        *,
+        user_text: str,
+        tenant_id: str,
+        specific_id: str,
+    ) -> dict:
+        """Repository is already selected: ask what to search for inside it."""
+        reply = (
+            "This repository is selected. Give me a suggestion to search the documents — "
+            "a file name, number, or keyword such as 6001."
+        )
+        return self._pack(
+            user_text=normalize_query(user_text),
+            reply=reply,
+            blocks=[{"type": "paragraph", "text": reply}],
+            hits=[],
+            tenant_id=tenant_id,
+            specific_id=specific_id,
+            action=None,
+            action_to="Repository",
+            action_context={"repositoryId": specific_id, "workspaceId": "", "itemId": ""},
         )
 
     async def _list_catalog(

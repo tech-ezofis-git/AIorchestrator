@@ -167,14 +167,14 @@ def test_global_search_flat_hits_and_field_wins_over_rag(client):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["reply"] == "Found 3 matches."
+    assert body["reply"] == "Found 1 match."
     hits = body["global_search_result"]["hits"]
     assert "groups" not in body["global_search_result"]
     by_type = {}
     for hit in hits:
         by_type.setdefault(hit["type"], []).append(hit)
-    assert len(by_type["repository"]) == 1
-    assert len(by_type["workflow"]) == 1
+    assert "repository" not in by_type
+    assert "workflow" not in by_type
     assert len(by_type["document"]) == 1
     doc = by_type["document"][0]
     assert doc["matchSource"] == "field"
@@ -187,7 +187,7 @@ def test_global_search_flat_hits_and_field_wins_over_rag(client):
     assert "instanceId" in doc["id"]
 
 
-def test_global_search_specific_id_still_searches_all_tools(client):
+def test_global_search_specific_id_skips_repo_and_workflow_lists(client):
     dispatcher = client.app.state.dispatcher
     called = []
 
@@ -234,10 +234,53 @@ def test_global_search_specific_id_still_searches_all_tools(client):
     assert set(called) == {
         "search_repo_metadata",
         "search_repo_rag",
-        "search_repositories",
-        "search_workflows",
         "search_forms",
     }
+
+
+def test_global_search_drops_master_forms_keeps_workflow_forms(client):
+    dispatcher = client.app.state.dispatcher
+
+    async def empty(**kwargs):
+        return []
+
+    async def forms(**kwargs):
+        return [
+            SearchHit(
+                type="form",
+                entity_type="form",
+                entity_id="master-1",
+                entity_name="Vendor Master",
+                formKind="master",
+            ).model_dump(),
+            SearchHit(
+                type="form",
+                entity_type="form",
+                entity_id="wf-1",
+                entity_name="Invoice Form",
+                formKind="workflow",
+            ).model_dump(),
+        ]
+
+    for name in ("search_repositories", "search_workflows", "search_repo_metadata", "search_repo_rag"):
+        dispatcher._implementations[name] = empty
+    dispatcher._implementations["search_forms"] = forms
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-gs-forms",
+            "intent": "global_search",
+            "payload": {
+                "query": "invoice",
+                "tenantId": "3EE0E334-CCB9-4DFF-968A-9BAAE71A5231",
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    hits = response.json()["global_search_result"]["hits"]
+    assert [hit["entity_id"] for hit in hits] == ["wf-1"]
+    assert hits[0]["formKind"] == "workflow"
 
 
 def test_rag_search_intent_still_wins_generic_search(client, monkeypatch):

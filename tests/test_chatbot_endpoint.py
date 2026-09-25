@@ -176,16 +176,16 @@ def test_chatbot_search_blocks_and_hits(client):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["reply"] == "Found 3 matches."
+    assert body["reply"] == "Found 1 document."
     result = body["chatbot_result"]
-    assert len(result["hits"]) == 3
+    assert len(result["hits"]) == 1
     types = {h["type"] for h in result["hits"]}
-    assert types == {"document", "repository", "workflow"}
+    assert types == {"document"}
     blocks = result["text"]["blocks"]
     assert blocks[0]["type"] == "paragraph"
     assert any(b["type"] == "bullets" for b in blocks)
     cards = next(b for b in blocks if b["type"] == "cards")
-    assert len(cards["items"]) == 3
+    assert len(cards["items"]) == 1
     assert result["action"]["browse_request"]["repositoryId"]
     assert result["actionTo"] == "Repository"
     assert result["actionContext"]["repositoryId"]
