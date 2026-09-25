@@ -42,6 +42,7 @@ _PLAN_SYSTEM = (
     '"Search a word of APEX" → {"target":"documents","query":"APEX"}. '
     '"documents from 6001" → {"target":"documents","query":"6001"}. '
     '"documents in 6001" → {"target":"documents","query":"6001"}. '
+    '"find the content of APEX" → {"target":"documents","query":"APEX"}. '
     '"find ticket REQ-12" → {"target":"tickets","query":"REQ-12"}. '
     '"invoice 6001" → {"target":"both","query":"6001"}. '
     "If the user wants documents but gives no value: "
@@ -95,6 +96,21 @@ def tools_for_plan(plan: SearchPlan) -> tuple[str, ...]:
     return _TARGET_TOOLS.get(plan.target, _TARGET_TOOLS["both"])
 
 
+_LOCATOR_RE = re.compile(
+    r"\b(?:at|in|inside|within|check|choose|select|use|using)\b",
+    re.IGNORECASE,
+)
+_ANYWHERE_RE = re.compile(
+    r"\b(?:anywhere|everywhere|any\s+repository|all\s+repositor(?:y|ies))\b",
+    re.IGNORECASE,
+)
+
+
+def searches_anywhere(message: str) -> bool:
+    """True when the user wants the lookup with no repository lock."""
+    return bool(_ANYWHERE_RE.search(message or ""))
+
+
 # Words used to point at a repository. They are not the repository name.
 _CHOICE_FILLER = frozenset(
     {
@@ -130,12 +146,13 @@ _CHOICE_FILLER = frozenset(
 def repository_choice_phrase(message: str) -> str:
     """Name left when the user is picking a repository.
 
-    'check at Accounts Payable' → 'Accounts Payable'.
-    'documents in 6001' is a lookup, so this returns empty.
+    'at Accounts Payable' → 'Accounts Payable'.
+    'find the content of APEX' and 'APEX' are lookups, so this returns empty.
     """
+    if not _LOCATOR_RE.search(message or ""):
+        return ""
     rules = plan_from_rules(message)
-    scope = classify_search_scope(message)
-    if scope in {"repository", "workflow", "both"} and rules.query:
+    if rules.query and any(ch.isdigit() for ch in rules.query):
         return ""
     rewritten = rewrite_search_query(message)
     kept: list[str] = []
@@ -194,6 +211,19 @@ def match_repository_id(phrase: str, hits: list[Any]) -> str:
     if tied and best_score < 100:
         return ""
     return best_id
+
+
+def repository_phrase_from_history(history: Optional[list[dict[str, str]]]) -> str:
+    """Latest repository the user named, such as 'Accounts Payable'."""
+    for item in reversed(history or []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("role") or "").strip().lower() != "user":
+            continue
+        phrase = repository_choice_phrase(str(item.get("content") or ""))
+        if phrase:
+            return phrase
+    return ""
 
 
 def pending_lookup_from_history(history: Optional[list[dict[str, str]]]) -> Optional[SearchPlan]:

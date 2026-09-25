@@ -30,7 +30,7 @@ _BOTH_RE = re.compile(
 
 # Rule 1 — look inside repositories (item metadata + RAG), not the name catalog.
 _DOCUMENT_RE = re.compile(
-    r"\b(?:documents?|docs?|files?|pdfs?|attachments?)\b",
+    r"\b(?:documents?|docs?|files?|pdfs?|attachments?|contents?)\b",
     re.IGNORECASE,
 )
 
@@ -90,7 +90,20 @@ def tools_for_scope(scope: SearchScope) -> tuple[str, ...]:
 
 # Words that choose a scope. They are not the value to look up.
 _DOCUMENT_QUERY_WORDS = frozenset(
-    {"document", "documents", "doc", "docs", "file", "files", "pdf", "pdfs", "attachment", "attachments"}
+    {
+        "document",
+        "documents",
+        "doc",
+        "docs",
+        "file",
+        "files",
+        "pdf",
+        "pdfs",
+        "attachment",
+        "attachments",
+        "content",
+        "contents",
+    }
 )
 _WORKFLOW_QUERY_WORDS = frozenset(
     {"request", "requests", "ticket", "tickets", "workflow", "workflows"}

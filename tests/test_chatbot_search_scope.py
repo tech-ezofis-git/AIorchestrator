@@ -6,6 +6,8 @@ from app.chatbot.search_plan import (
     match_repository_id,
     pending_lookup_from_history,
     repository_choice_phrase,
+    repository_phrase_from_history,
+    searches_anywhere,
 )
 from app.chatbot.search_scope import (
     classify_search_scope,
@@ -104,6 +106,27 @@ def test_repository_name_match_allows_case_and_catalog_list():
     ]
     assert match_repository_id("Accounts Payable", hits) == repo_id
     assert match_repository_id("Legal", hits) == "22222222-2222-2222-2222-222222222222"
+
+
+def test_content_of_apex_is_a_document_lookup_not_a_repository_choice():
+    assert repository_choice_phrase("find the content of APEX") == ""
+    assert repository_choice_phrase("APEX") == ""
+    assert repository_choice_phrase("at Accounts Payable") == "Accounts Payable"
+    assert searches_anywhere("Search anywhere")
+    plan = plan_from_rules("find the content of APEX")
+    assert plan.target == "documents"
+    assert plan.query == "APEX"
+    history = [
+        {"role": "user", "content": "find the content of APEX"},
+        {"role": "assistant", "content": "Which repository should I search?"},
+        {"role": "user", "content": "at Accounts Payable"},
+        {"role": "assistant", "content": "This repository is selected."},
+    ]
+    assert pending_lookup_from_history(history).query == "APEX"
+    assert repository_phrase_from_history(history) == "Accounts Payable"
+    assert pending_lookup_from_history(
+        history + [{"role": "user", "content": "APEX"}]
+    ).query == "APEX"
 
 
 def test_document_phrase_keeps_the_lookup_when_the_model_asks_for_a_repository():
@@ -516,6 +539,74 @@ def test_repository_follow_up_uses_catalog_when_name_search_misses(client, monke
     assert body["chatbot_result"]["query"] == "6001"
     assert body["chatbot_result"]["specificId"] == repo_id
     assert ("search_repo_metadata", "6001", repo_id) in called
+
+
+def test_apex_content_then_repository_then_anywhere(client, monkeypatch):
+    monkeypatch.setenv("CHATBOT_SEARCH_LLM", "true")
+    dispatcher = client.app.state.dispatcher
+    called = []
+    repo_id = "11111111-1111-1111-1111-111111111111"
+
+    async def fake_chat(messages, **kwargs):
+        system = messages[0]["content"]
+        if "route an EZOFIS search" in system:
+            return {"content": '{"target":"ask_repository","query":""}', "usage": {}}
+        return {"content": "No documents found.", "usage": {}}
+
+    monkeypatch.setattr(client.app.state.llm_adapter, "chat_completion", fake_chat)
+
+    async def fake_repos(**kwargs):
+        return [
+            SearchHit(
+                type="repository",
+                entity_type="repository",
+                entity_id=repo_id,
+                entity_name="Accounts Payable",
+                name="Accounts Payable",
+                id={"repositoryId": repo_id, "repositoryName": "Accounts Payable"},
+            ).model_dump()
+        ]
+
+    async def fake_meta(**kwargs):
+        called.append(("search_repo_metadata", kwargs.get("query"), kwargs.get("specific_id") or ""))
+        return []
+
+    dispatcher._implementations["search_repositories"] = fake_repos
+    dispatcher._implementations["search_repo_metadata"] = fake_meta
+    for name in ("search_repo_rag", "search_workflows", "search_forms", "search_comments", "search_tickets"):
+        dispatcher._implementations[name] = await_handler(name, called)
+
+    session = "s-cb-apex-content"
+    payload = {"tenantId": TENANT}
+
+    def post(message):
+        return client.post(
+            "/chat",
+            json={"session_id": session, "intent": "chatbot", "message": message, "payload": payload},
+        )
+
+    first = post("find the content of APEX")
+    assert first.status_code == 200, first.text
+    assert first.json()["chatbot_result"]["query"] == "APEX"
+    assert "which repository" not in first.json()["reply"].lower()
+
+    second = post("at Accounts Payable")
+    assert second.status_code == 200, second.text
+    assert second.json()["chatbot_result"]["query"] == "APEX"
+    assert second.json()["chatbot_result"]["specificId"] == repo_id
+    assert "suggestion" not in second.json()["reply"].lower()
+
+    third = post("APEX")
+    assert third.status_code == 200, third.text
+    assert third.json()["chatbot_result"]["query"] == "APEX"
+    assert third.json()["chatbot_result"]["specificId"] == repo_id
+
+    called.clear()
+    fourth = post("Search anywhere")
+    assert fourth.status_code == 200, fourth.text
+    assert fourth.json()["chatbot_result"]["query"] == "APEX"
+    assert fourth.json()["chatbot_result"]["specificId"] in (None, "")
+    assert ("search_repo_metadata", "APEX", "") in called
 
 
 def await_handler(name, called):

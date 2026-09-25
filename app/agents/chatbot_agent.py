@@ -25,6 +25,8 @@ from app.chatbot.search_plan import (
     merge_usage,
     pending_lookup_from_history,
     plan_document_ticket_search,
+    repository_phrase_from_history,
+    searches_anywhere,
     match_repository_id,
     repository_choice_phrase,
     tools_for_plan,
@@ -175,7 +177,19 @@ class ChatbotAgent:
             specific_id=specific_id,
             history=history,
         )
-        choice = repository_choice_phrase(user_text) if not specific_id else ""
+        if searches_anywhere(user_text):
+            pending = pending_lookup_from_history(history)
+            if pending is not None and pending.query:
+                specific_id = ""
+                plan = SearchPlan(
+                    target=pending.target,
+                    query=pending.query,
+                    source="history",
+                    usage=plan.usage,
+                )
+            else:
+                plan = SearchPlan(target="ask_term", query="", source="rules", usage=plan.usage)
+        choice = "" if specific_id or searches_anywhere(user_text) else repository_choice_phrase(user_text)
         if choice:
             repo_id = await self._match_repository_name(
                 choice, tenant_id, recent_hits=recent_hits
@@ -197,6 +211,19 @@ class ChatbotAgent:
                 )
             else:
                 plan = lookup_override_plan(plan, user_text, specific_id)
+        elif (
+            not specific_id
+            and not searches_anywhere(user_text)
+            and plan.target in {"documents", "tickets", "both"}
+            and plan.query
+        ):
+            prior_repo = repository_phrase_from_history(history)
+            if prior_repo:
+                repo_id = await self._match_repository_name(
+                    prior_repo, tenant_id, recent_hits=recent_hits
+                )
+                if repo_id:
+                    specific_id = repo_id
         logger.info(
             "chatbot_search_plan",
             extra={
