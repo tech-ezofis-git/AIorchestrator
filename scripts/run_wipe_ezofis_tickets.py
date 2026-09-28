@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Stand-alone wipe for EZOFIS AP tickets on postgrev6southinddb.
+"""Stand-alone wipe for EZOFIS workflow tickets on postgrev6southinddb.
 
 Prompts for DB password (does not use stale .env password unless you pass it).
 
-Preview:
-  py -3 scripts/run_wipe_ezofis_tickets.py
+One workflow (FTL Agent or any other). Preview, then execute:
+  py -3 scripts/run_wipe_ezofis_tickets.py --tenant-id <tenant-guid> --workflow-id <workflow-guid>
+  py -3 scripts/run_wipe_ezofis_tickets.py --tenant-id <tenant-guid> --workflow-id <workflow-guid> --execute
 
-Execute:
+Whole AP tenant (original wipe, every workflow table):
+  py -3 scripts/run_wipe_ezofis_tickets.py
   py -3 scripts/run_wipe_ezofis_tickets.py --execute
 
 Optional env:
@@ -107,6 +109,23 @@ async def table_exists(conn: asyncpg.Connection, schema: str, name: str) -> bool
     return bool(row)
 
 
+def compact_guid(value: str) -> str:
+    return "".join(ch for ch in (value or "").lower() if ch in "0123456789abcdef")
+
+
+def workflow_suffixes(workflow_id: str) -> tuple[str, str]:
+    """Per-workflow tables use the first 8 hex chars, sometimes the full guid."""
+    compact = compact_guid(workflow_id)
+    if len(compact) < 8:
+        raise SystemExit(f"workflow id is not a guid: {workflow_id!r}")
+    return compact[:8], compact
+
+
+def table_matches_workflow(table_name: str, short: str, full: str) -> bool:
+    name = (table_name or "").lower()
+    return name.endswith("_" + short) or name.endswith("_" + full)
+
+
 async def list_wipe_tables(conn: asyncpg.Connection) -> list[tuple[str, str]]:
     rows = await conn.fetch(
         f"""
@@ -124,8 +143,10 @@ async def truncate(conn: asyncpg.Connection, schema: str, name: str) -> None:
     print(f"  truncated {schema}.{name}")
 
 
-async def resolve_app_database(catalog: asyncpg.Connection, host: str) -> str:
-    """Prefer catalog.Tenants.ConnectionString database; fallback to AP tenant DB name."""
+async def resolve_app_database(
+    catalog: asyncpg.Connection, host: str, tenant_id: str, fallback_db: str
+) -> str:
+    """Prefer catalog.Tenants.ConnectionString database; fallback when the catalog row is missing."""
     row = await catalog.fetchrow(
         """
         SELECT "ConnectionString" AS cs
@@ -133,11 +154,11 @@ async def resolve_app_database(catalog: asyncpg.Connection, host: str) -> str:
         WHERE replace(lower("Id"::text), '-', '') = replace(lower($1::text), '-', '')
         LIMIT 1
         """,
-        TENANT,
+        tenant_id,
     )
     if not row or not row["cs"]:
-        print(f"  WARN: no ConnectionString; using {AP_TENANT_DB}")
-        return AP_TENANT_DB
+        print(f"  WARN: no ConnectionString; using {fallback_db}")
+        return fallback_db
     cs = rewrite_host(str(row["cs"]), host)
     # ADO.NET: Database=... or Initial Catalog=...
     lower = cs.lower()
@@ -156,8 +177,84 @@ async def resolve_app_database(catalog: asyncpg.Connection, host: str) -> str:
         if db:
             print(f"  tenant app DB from URI: {db}")
             return db
-    print(f"  WARN: could not parse ConnectionString; using {AP_TENANT_DB}")
-    return AP_TENANT_DB
+    print(f"  WARN: could not parse ConnectionString; using {fallback_db}")
+    return fallback_db
+
+
+async def list_workflow_tables(
+    conn: asyncpg.Connection, workflow_id: str
+) -> list[tuple[str, str]]:
+    short, full = workflow_suffixes(workflow_id)
+    tables = await list_wipe_tables(conn)
+    return [(schema, name) for schema, name in tables if table_matches_workflow(name, short, full)]
+
+
+async def _workflow_id_column(conn: asyncpg.Connection, schema: str, name: str) -> str | None:
+    row = await conn.fetchrow(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = $2
+          AND lower(column_name) IN ('workflowid', 'workflow_id', 'wworkflowid')
+        ORDER BY column_name
+        LIMIT 1
+        """,
+        schema,
+        name,
+    )
+    return str(row["column_name"]) if row else None
+
+
+async def preview_one_workflow(conn: asyncpg.Connection, workflow_id: str) -> list[tuple[str, str]]:
+    db = await conn.fetchval("SELECT current_database()")
+    short, _full = workflow_suffixes(workflow_id)
+    print(f"\n=== PREVIEW workflow {workflow_id} (suffix {short}) on {db} ===")
+    tables = await list_workflow_tables(conn, workflow_id)
+    if not tables:
+        print("  no per-workflow tables matched this workflow id")
+    for schema, name in tables:
+        count = await conn.fetchval(f'SELECT count(*) FROM "{schema}"."{name}"')
+        print(f"  {schema}.{name} rows={count}")
+    for name in ("WorkflowInstanceLookup", "WorkflowApprovals", "ApAgentJobProgress", "jiraCreateIssue"):
+        if not await table_exists(conn, "workflow", name):
+            continue
+        col = await _workflow_id_column(conn, "workflow", name)
+        if not col:
+            print(f"  workflow.{name} has no workflow id column; left untouched")
+            continue
+        count = await conn.fetchval(
+            f'SELECT count(*) FROM workflow."{name}" '
+            f"""WHERE replace(lower("{col}"::text), '-', '') = $1""",
+            compact_guid(workflow_id),
+        )
+        print(f"  workflow.{name}.{col} matching rows={count}")
+    return tables
+
+
+async def wipe_one_workflow(conn: asyncpg.Connection, workflow_id: str) -> None:
+    db = await conn.fetchval("SELECT current_database()")
+    tables = await list_workflow_tables(conn, workflow_id)
+    if not tables:
+        raise SystemExit(
+            f"No workflow tables matched {workflow_id} on {db}. Nothing deleted."
+        )
+    print(f"\n=== Wiping workflow {workflow_id} on {db} ===")
+    compact = compact_guid(workflow_id)
+    async with conn.transaction():
+        for schema, name in tables:
+            await truncate(conn, schema, name)
+        for name in ("WorkflowInstanceLookup", "WorkflowApprovals", "ApAgentJobProgress", "jiraCreateIssue"):
+            if not await table_exists(conn, "workflow", name):
+                continue
+            col = await _workflow_id_column(conn, "workflow", name)
+            if not col:
+                continue
+            result = await conn.execute(
+                f'DELETE FROM workflow."{name}" '
+                f"""WHERE replace(lower("{col}"::text), '-', '') = $1""",
+                compact,
+            )
+            print(f"  {result} workflow.{name}")
 
 
 async def wipe_app_db(conn: asyncpg.Connection) -> None:
@@ -251,35 +348,60 @@ async def preview(conn: asyncpg.Connection, label: str) -> None:
 
 
 async def main() -> int:
-    parser = argparse.ArgumentParser(description="Wipe EZOFIS AP tickets on live Postgres")
+    parser = argparse.ArgumentParser(description="Wipe EZOFIS workflow tickets on live Postgres")
     parser.add_argument("--execute", action="store_true", help="Actually truncate (default is preview)")
     parser.add_argument("--host", default=os.environ.get("PGHOST", DEFAULT_HOST))
     parser.add_argument("--user", default=os.environ.get("PGUSER", DEFAULT_USER))
     parser.add_argument("--password", default=os.environ.get("PGPASSWORD", ""))
+    parser.add_argument("--tenant-id", default="", help="Tenant guid. With --workflow-id, only that workflow is cleared.")
+    parser.add_argument("--workflow-id", default="", help="Workflow guid. Clears only that workflow's ticket tables.")
     args = parser.parse_args()
 
     password = args.password
     if not password:
         password = getpass.getpass(f"Postgres password for {args.user}@{args.host}: ")
 
+    tenant_id = (args.tenant_id or TENANT).strip()
+    workflow_id = (args.workflow_id or "").strip()
+    one_workflow = bool(workflow_id)
+    if one_workflow and not args.tenant_id.strip():
+        raise SystemExit("--tenant-id is required with --workflow-id")
+
     print(f"host={args.host}")
     print(f"user={args.user}")
+    print(f"tenant={tenant_id}")
+    if one_workflow:
+        print(f"workflow={workflow_id}")
     print(f"mode={'EXECUTE' if args.execute else 'PREVIEW'}")
 
+    fallback_db = AP_TENANT_DB if tenant_id == TENANT else ""
     catalog = await connect(args.host, args.user, password, CATALOG_DB)
     try:
-        app_db = await resolve_app_database(catalog, args.host)
-        await preview(catalog, "catalog (for reference only)")
+        app_db = await resolve_app_database(catalog, args.host, tenant_id, fallback_db or AP_TENANT_DB)
+        if not one_workflow:
+            await preview(catalog, "catalog (for reference only)")
     finally:
         await catalog.close()
 
+    if one_workflow and app_db == AP_TENANT_DB and tenant_id != TENANT:
+        raise SystemExit("Could not resolve this tenant's database from catalog. Nothing deleted.")
+
     app = await connect(args.host, args.user, password, app_db)
     try:
-        await preview(app, "APP")
-        if args.execute:
-            await wipe_app_db(app)
+        if one_workflow:
+            await preview_one_workflow(app, workflow_id)
+            if args.execute:
+                await wipe_one_workflow(app, workflow_id)
+        else:
+            await preview(app, "APP")
+            if args.execute:
+                await wipe_app_db(app)
     finally:
         await app.close()
+
+    if one_workflow:
+        print("\nDone." if args.execute else "\nPreview only. Re-run with --execute to wipe this workflow.")
+        return 0
 
     # AP artifact DB (may be same as app_db)
     if app_db != AP_TENANT_DB:

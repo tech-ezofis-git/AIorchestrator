@@ -11,7 +11,9 @@
 
 param(
     [switch]$Force,
-    [switch]$PreviewOnly
+    [switch]$PreviewOnly,
+    [string]$TenantId,
+    [string]$WorkflowId
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,6 +40,8 @@ $pyArgs = @(
     "--user", $env:PGUSER,
     "--password", $env:PGPASSWORD
 )
+if ($TenantId) { $pyArgs += @("--tenant-id", $TenantId) }
+if ($WorkflowId) { $pyArgs += @("--workflow-id", $WorkflowId) }
 
 Write-Host "Host=$($env:PGHOST)  User=$($env:PGUSER)" -ForegroundColor DarkGray
 Write-Host "1) Preview tables..." -ForegroundColor Cyan
@@ -50,7 +54,8 @@ if ($PreviewOnly) {
 }
 
 if (-not $Force) {
-    $confirm = Read-Host "Type WIPE to truncate all ticket tables"
+    $target = if ($WorkflowId) { "workflow $WorkflowId" } else { "all ticket tables" }
+    $confirm = Read-Host "Type WIPE to truncate $target"
     if ($confirm -ne "WIPE") {
         Write-Host "Cancelled."
         exit 0
