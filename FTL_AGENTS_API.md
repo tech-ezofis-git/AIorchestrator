@@ -499,9 +499,11 @@ Output:
 How the data is applied:
 
 - Each template field with a `dataKey` takes the `formData` value with the same name (case and spaces are ignored). Internal names work too: `customer_name` fills `Company Name`, `estimate_number` fills `Order Number`, `line_items` fills `Line Item`, and so on.
-- Fields missing from `formData` are left blank; the template's sample `content` is never printed.
+- Text and table fields missing from `formData` are left blank; their sample `content` is never printed.
+- Image fields keep the image embedded in the template (`data:image/png;base64,...` or plain base64), so a logo prints even when it has a `dataKey`. A `formData` value with the same name replaces it.
 - Table rows are matched to the table's `head` columns by name. Values are printed as sent; totals are not recalculated.
-- Fields with no `dataKey` (or `readOnly: true`) are fixed labels and print as designed.
+- Fields with no `dataKey` (or `readOnly: true`) are fixed labels and print as designed. `{{key}}` placeholders inside them are filled from `formData` (e.g. `{{estimate_number}}`); placeholders with no value are dropped.
+- A `container` field draws its `backgroundColor` box and stacks its `key_value` children as equal-height rows: `label` on the left, the `formData` value for `dataKey` on the right. Rows take `textColor`, `fontSize`, `fontName` and `backgroundColor`; `hideIfZero: true` skips a row whose value is blank or 0.
 - When a single-page template's table overflows, rows continue on extra pages. Everything above the table repeats on each page, the footer (bottom 25 mm) repeats on each page, the block below the table (notes, totals) appears only on the last page, and `Page X of N` is added. Multi-page templates render each page as designed.
 - `Order Number` names the file (`EST-3040-WONDERLAND.pdf`); it defaults to `ESTIMATE.pdf`.
 
