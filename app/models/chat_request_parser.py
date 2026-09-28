@@ -8,7 +8,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request, UploadFile
 from pydantic import ValidationError
 
-from app.models.chat import ChatRequest, DocumentPayload
+from app.models.chat import ChatRequest, DocumentPayload, decode_template_json
 
 
 @dataclass
@@ -157,7 +157,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     key_facts_count = _parse_optional_int(_form_str(form.get("key_facts_count")), field="key_facts_count")
     insights_count = _parse_optional_int(_form_str(form.get("insights_count")), field="insights_count")
     insight_area = _form_str(form.get("insight_area"))
-    pdf_json = _parse_optional_json_object_or_list(_form_str(form.get("pdf_json")), field="pdf_json")
+    pdf_json = _parse_optional_json_object_or_list(
+        _form_str(form.get("pdf_json")) or _form_str(form.get("formData")) or _form_str(form.get("form_data")),
+        field="pdf_json",
+    )
     template_name = _form_str(
         form.get("template_name")
         or form.get("templateName")
@@ -165,7 +168,12 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or form.get("templateId")
         or form.get("template")
     )
-    template_json = _parse_optional_json_object(_form_str(form.get("template_json")), field="template_json")
+    try:
+        template_json = decode_template_json(
+            _form_str(form.get("template_json")) or _form_str(form.get("templateJson"))
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     pdf_title = _form_str(form.get("pdf_title"))
     pdf_theme = _form_str(form.get("pdf_theme"))
     query = _form_str(form.get("query"))

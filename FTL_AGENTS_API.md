@@ -38,7 +38,8 @@ Use a new `session_id` for each fresh test run so an earlier session doesn't mix
 | 1 | `POST /chat`, `intent=ftl_qualifier` | RFQ file or text | `qualifier_result` |
 | 2 | `POST /chat`, `intent=ftl_quote_estimator` | `Qualifier Result` from step 1 | `quote_result` + `pdf_base64` |
 | 3 | `POST /chat`, `intent=ftl_quote_estimator` | Edited `Quote Result` + `Template Type` | New `pdf_base64` (no model call) |
-| 4 | `POST /api/ftl/base64-to-pdf` | `Pdf Base64` from step 2 or 3 | The PDF file |
+| 3b | `POST /chat`, `intent=ftl_quote_estimator` | `formData` + base64 `templateJson` | `pdf_base64` from your own template (no model call) |
+| 4 | `POST /api/ftl/base64-to-pdf` | `Pdf Base64` from step 2, 3 or 3b | The PDF file |
 
 ---
 
@@ -452,6 +453,62 @@ Output:
 
 ---
 
+## 3b. Estimate data + your own template to PDF base64
+
+Send the estimate data as `formData` and a [pdfme](https://pdfme.com) template as `templateJson`. The template is filled with the data and returned as `pdf_base64`. The model is not called.
+
+`POST /chat`, raw JSON:
+
+```json
+{
+  "session_id": "3040-wonderland-pdf-001",
+  "intent": "ftl_quote_estimator",
+  "payload": {
+    "formData": {
+      "Invoice Type": "Quotation",
+      "Order Number": "EST-3040-WONDERLAND",
+      "Company Name": "ATTA Elevators",
+      "Shipping Address": "3040 Wonderland Rd S",
+      "Line Item": [
+        {"Product": "SGV2 Door Operator", "Qty": 1, "Price": "3,450.00", "Subtotal": "3,450.00"}
+      ],
+      "Subtotal": "3,450.00",
+      "Total": "3,898.50"
+    },
+    "templateJson": "eyJiYXNlUGRmIjp7IndpZHRoIjoyMTAsImhlaWdodCI6Mjk3...fV1dfQ=="
+  }
+}
+```
+
+Output:
+
+```json
+{
+  "reply": "PDF generated for EST-3040-WONDERLAND (1 page(s)).",
+  "estimate_number": "EST-3040-WONDERLAND",
+  "pdf_base64": "JVBERi0xLjQKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYg...JSVFT0YK",
+  "pdf_filename": "EST-3040-WONDERLAND.pdf"
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `templateJson` | yes | pdfme template (`basePdf` + `schemas`) as base64-encoded JSON. A `data:application/json;base64,` prefix or a plain JSON object also work. `template_json` is accepted too. |
+| `formData` | yes | Any subset of the estimate fields. `form_data` is accepted too. |
+
+How the data is applied:
+
+- Each template field with a `dataKey` takes the `formData` value with the same name (case and spaces are ignored). Internal names work too: `customer_name` fills `Company Name`, `estimate_number` fills `Order Number`, `line_items` fills `Line Item`, and so on.
+- Fields missing from `formData` are left blank; the template's sample `content` is never printed.
+- Table rows are matched to the table's `head` columns by name. Values are printed as sent; totals are not recalculated.
+- Fields with no `dataKey` (or `readOnly: true`) are fixed labels and print as designed.
+- When a single-page template's table overflows, rows continue on extra pages. Everything above the table repeats on each page, the footer (bottom 25 mm) repeats on each page, the block below the table (notes, totals) appears only on the last page, and `Page X of N` is added. Multi-page templates render each page as designed.
+- `Order Number` names the file (`EST-3040-WONDERLAND.pdf`); it defaults to `ESTIMATE.pdf`.
+
+Form-data (multipart) works too: send `formData` as a JSON string and `templateJson` as the base64 string.
+
+---
+
 ## 4. Base64 to PDF
 
 Turns the `pdf_base64` from step 2 or 3 into the PDF file. Works for both formats; the format is already inside the base64.
@@ -512,3 +569,5 @@ window.open(url);
 - **Empty `Line Item` from a qualifier result**: the estimator only prices real FTL catalog products. If every matched item has `Catalog Ref: null`, or the items aren't in the Wittur catalog, nothing can be priced; send the RFQ file instead, or edit the matched items to real products.
 - **Estimator output doesn't match your qualifier result**: use a new `session_id` for each fresh test run.
 - **Base64 to PDF returns 400**: the `Pdf Base64` value is incomplete; copy the whole string.
+- **`templateJson is not valid base64` / `does not decode to valid JSON` (422)**: re-encode the whole template JSON, e.g. `btoa(JSON.stringify(template))` in JavaScript.
+- **"templateJson ... is required with formData"**: `formData` was sent without a template; add `templateJson`.

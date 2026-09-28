@@ -1,9 +1,36 @@
 """Pydantic models for the /chat endpoint."""
+import base64
+import binascii
 import json
 import re
 from typing import Any, Optional
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_serializer, model_validator
+
+
+def decode_template_json(value: Any) -> Optional[dict[str, Any]]:
+    """templateJson as a JSON object, a JSON string, or base64 of the JSON (optionally a data: URL)."""
+    if value is None or isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        raise ValueError("templateJson must be a JSON object or a base64-encoded JSON string.")
+    text = value.strip()
+    if not text:
+        return None
+    if not text.startswith("{"):
+        if text.startswith("data:"):
+            text = text.split(",", 1)[-1]
+        try:
+            text = base64.b64decode("".join(text.split()), validate=True).decode("utf-8-sig")
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("templateJson is not valid base64.") from exc
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("templateJson does not decode to valid JSON.") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("templateJson must decode to a JSON object.")
+    return parsed
 
 
 def unwrap_dashboard_json(value: Any) -> Any:
@@ -161,8 +188,16 @@ class DocumentPayload(BaseModel):
     template_json: Optional[dict[str, Any]] = Field(
         default=None,
         validation_alias=AliasChoices("template_json", "templateJson", "pdf_schema", "pdfSchema", "schema_json", "schemaJson", "schema", "pdfTemplate", "pdf_template"),
-        description="Optional schema template JSON for intent=pdf.",
+        description=(
+            "Optional schema template JSON for intent=pdf, or for intent=ftl_quote_estimator together with "
+            "formData. Accepts a JSON object or a base64-encoded JSON string."
+        ),
     )
+
+    @field_validator("template_json", mode="before")
+    @classmethod
+    def _decode_template_json(cls, value: Any) -> Any:
+        return decode_template_json(value)
     pdf_title: Optional[str] = Field(
         default=None,
         description="Optional document title for intent=pdf.",
