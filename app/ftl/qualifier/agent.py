@@ -8,13 +8,12 @@ DB-free: search_pricelist reads pricelist_store.py's local JSON index instead of
 from __future__ import annotations
 
 import json
-import os
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from openai import OpenAI, AzureOpenAI
+from openai import OpenAI
 
 try:
     from app.ftl.qualifier.pricelist_store import search_pricelist
@@ -22,73 +21,6 @@ except ImportError:
     from pricelist_store import search_pricelist
 
 MAX_LOOKUP_ROUNDS = 4
-QUALIFIER_CHAT_MODEL = (
-    os.getenv("QUALIFIER_CHAT_MODEL") or os.getenv("LLM_MODEL") or "qwen3.5-9b"
-).strip()
-
-
-def get_client() -> Union[OpenAI, AzureOpenAI]:
-    model_name = (
-        os.getenv("QUALIFIER_CHAT_MODEL") or os.getenv("LLM_MODEL") or "qwen3.5-9b"
-    ).strip().lower()
-
-    qwen_ep = (
-        os.getenv("QWEN_API_BASE")
-        or os.getenv("OPENAI_BASE_URL")
-        or os.getenv("OPENAI_API_BASE")
-        or "http://ezinferencebox.southindia.azurecontainer.io:8080/v1"
-    )
-    qwen_key = (
-        os.getenv("QWEN_API_KEY")
-        or os.getenv("QWEN_MAC_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or "a6d7e1c198975ca5d73af08f4a82df52d9a55b044e78e348dfea9d1535cced0c"
-    )
-
-    if model_name.startswith("qwen") or "qwen" in model_name:
-        return OpenAI(
-            base_url=qwen_ep,
-            api_key=qwen_key,
-        )
-
-    azure_ep = (
-        os.getenv("AZURE_OPENAI_ENDPOINT")
-        or (
-            os.getenv("AZURE_EAST_US_API_BASE", "https://api-4omin-ez.openai.azure.com")
-            if "4o" in model_name
-            else (os.getenv("AZURE_SOUTH_INDIA_API_BASE") or "https://ezazopenai.openai.azure.com/")
-        )
-    )
-    azure_key = (
-        os.getenv("AZURE_OPENAI_API_KEY")
-        or (
-            os.getenv("AZURE_EAST_US_API_KEY")
-            if "4o" in model_name
-            else (os.getenv("AZURE_SOUTH_INDIA_API_KEY") or os.getenv("AZURE_EAST_US_API_KEY"))
-        )
-    )
-    openai_key = os.getenv("OPENAI_API_KEY")
-
-    if openai_key and openai_key.startswith("sk-"):
-        return OpenAI(api_key=openai_key)
-    elif azure_ep and (azure_key or (openai_key and not openai_key.startswith("sk-"))):
-        api_ver = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
-        return AzureOpenAI(
-            azure_endpoint=azure_ep,
-            api_key=azure_key or openai_key,
-            api_version=api_ver,
-        )
-    elif openai_key:
-        return OpenAI(api_key=openai_key)
-    elif azure_key:
-        api_ver = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
-        return AzureOpenAI(
-            azure_endpoint=azure_ep,
-            api_key=azure_key,
-            api_version=api_ver,
-        )
-    else:
-        return OpenAI()
 
 # Cosine-similarity floor below which search_pricelist's top result is treated as "nothing real
 # matched" rather than a genuine catalog hit — see the warning built in _run_tool_call. This is a
@@ -412,7 +344,7 @@ def run_qualification(
     """Runs the bounded agentic loop and returns (decision_dict, total_tokens).
 
     Model and API key come from the same preset overrides other agents use
-    (catalog / tenant selection, or the process default such as gpt-5-nano).
+    (catalog / tenant selection, or the process default ezofis-gpu-box).
     """
     from app.ftl.llm import open_client, prefers_json_mode, resolve_llm_config
 

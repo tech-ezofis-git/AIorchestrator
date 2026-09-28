@@ -145,7 +145,7 @@ def test_ocr_uses_tenant_catalog_default_model(client, monkeypatch):
     assert captured == ["azure/gpt-4.1-nano"]
     # The shared adapter's own process-wide default was never mutated by
     # this tenant-scoped request — the console default is unaffected.
-    assert client.get("/console/llm-config").json()["preset_id"] == "gpt-5-nano"
+    assert client.get("/console/llm-config").json()["preset_id"] == "ezofis-gpu-box"
 
 
 def test_ocr_fail_returns_null_fields_no_hallucination(client, monkeypatch):

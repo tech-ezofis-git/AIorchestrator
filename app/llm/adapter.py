@@ -28,6 +28,7 @@ from typing import Optional
 import litellm
 
 from app.config import Settings, get_settings
+from app.llm.model_presets import preset_call_overrides
 
 logger = logging.getLogger("orchestrator.llm")
 
@@ -138,9 +139,19 @@ class LLMAdapter:
         keyless/base-less for this call even if the adapter default has one
         set (e.g. an Azure preset with no api_version).
 
+        A `model` that is a Console/Catalog preset id (e.g. "ezofis-gpu-box")
+        means that whole preset: its own model, api_base, api_key and
+        api_version replace everything else for this call.
+
         Returns {"content": str, "usage": dict | None}.
         Raises LLMAdapterError on any provider failure.
         """
+        preset = preset_call_overrides(model)
+        if preset:
+            model = preset["model"]
+            api_base = preset["api_base"]
+            api_key = preset["api_key"]
+            api_version = preset["api_version"]
         resolved_model = model if model is not None and model != "" else self._model
         resolved_api_base = api_base if api_base is not None else self._api_base
         resolved_api_key = api_key if api_key is not None else self._api_key

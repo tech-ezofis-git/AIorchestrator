@@ -1534,10 +1534,10 @@ def test_ap_tenant_model_selection_does_not_mutate_shared_adapter(client, monkey
     assert response.status_code == 200, response.text
     assert captured_kwargs_model == ["azure/gpt-4.1-nano"]
     # The shared adapter's own ambient preset was never touched — still
-    # whatever the process-wide console default was (gpt-5-nano), not the
+    # whatever the process-wide console default was (ezofis-gpu-box), not the
     # tenant's resolved preset.
-    assert captured_ambient_preset_id == ["gpt-5-nano"]
-    assert client.get("/console/llm-config").json()["preset_id"] == "gpt-5-nano"
+    assert captured_ambient_preset_id == ["ezofis-gpu-box"]
+    assert client.get("/console/llm-config").json()["preset_id"] == "ezofis-gpu-box"
 
 
 def test_empty_extraction_reports_completed_low_confidence(client, monkeypatch):

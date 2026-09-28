@@ -7670,6 +7670,7 @@ async function sendFtlQualifyJob() {
       form.append('file', file, file.name);
       if (candidateText) form.append('candidate_text', candidateText);
       if (model) form.append('model', model);
+      if (consoleTenantId()) form.append('tenant_id', consoleTenantId());
       request = { intent: 'ftl_qualifier', kind: 'file', session_id: sessionId, filename: file.name };
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
@@ -7734,6 +7735,7 @@ async function sendFtlQuoteJob() {
       form.append('template_type', templateType);
       if (candidateText) form.append('candidate_text', candidateText);
       if (model) form.append('model', model);
+      if (consoleTenantId()) form.append('tenant_id', consoleTenantId());
       request = { intent: 'ftl_quote_estimator', kind: 'file', session_id: sessionId, filename: file.name };
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {

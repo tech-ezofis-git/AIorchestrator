@@ -13,6 +13,7 @@ from openai import AzureOpenAI, OpenAI
 
 from app.llm.model_presets import (
     DEFAULT_PRESET_ID,
+    preset_call_overrides,
     resolve_default_preset_id,
     resolve_preset_overrides,
 )
@@ -26,10 +27,14 @@ _MISSING_KEY = (
 def resolve_llm_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Prefer a frozen chat override (tenant preset or adapter snapshot).
 
-    A model-only override keeps the default preset's key and endpoint, matching
-    LLMAdapter.chat_completion when only `model` is passed.
+    A `model` that is a preset id ("ezofis-gpu-box") uses that preset's own key and
+    endpoint. Any other model-only override keeps the default preset's key and
+    endpoint, matching LLMAdapter.chat_completion when only `model` is passed.
     """
     ov = {k: v for k, v in (overrides or {}).items() if v not in (None, "")}
+    chosen_preset = preset_call_overrides(ov.get("model"))
+    if chosen_preset:
+        return chosen_preset
     if ov.get("api_key") and ov.get("model"):
         return {
             "model": str(ov["model"]),

@@ -180,6 +180,7 @@ from app.llm.model_presets import (
     apply_preset,
     get_preset,
     list_presets_public,
+    preset_call_overrides,
     preset_has_api_key,
     resolve_default_preset_id,
     set_runtime_presets,
@@ -405,12 +406,6 @@ async def lifespan(app: FastAPI):
     # in Redis so hosting restarts keep the last manual Save.
     runtime_models = RuntimeModelSelection(default_preset_id=DEFAULT_PRESET_ID)
     loaded_selection = await runtime_models.load_from_redis(redis_client)
-    if runtime_models.default_preset_id == "ezofis-gpu-box":
-        runtime_models.default_preset_id = DEFAULT_PRESET_ID
-        try:
-            await runtime_models.save_to_redis(redis_client)
-        except Exception:
-            logger.warning("runtime_models_default_migrate_failed", extra={"error_type": "redis"})
     if not loaded_selection and runtime_models.fallback_preset_id is None:
         env_fallback = (settings.ocr_fallback_model or "").strip()
         if env_fallback and get_preset(env_fallback):
@@ -2727,7 +2722,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     llm_fallback_overrides: Optional[dict] = None
     catalog_fallback_preset: Optional[str] = None
     if explicit_model.strip():
-        llm_overrides = {"model": explicit_model.strip()}
+        llm_overrides = preset_call_overrides(explicit_model) or {"model": explicit_model.strip()}
     elif tenant_id and catalog_store is not None:
         resolved_tenant_llm = await apply_tenant_agent_llm(catalog_store, tenant_id, agent_slug)
         llm_overrides = resolved_tenant_llm["overrides"]
