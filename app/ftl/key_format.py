@@ -5,7 +5,9 @@ Short code values (decision, project type, match, category, flags) get the same 
 "needs_review" <-> "Needs Review", "door_operator" <-> "Door Operator". Free text, product codes
 and numbers are left untouched.
 
-snake_key accepts Title Case, snake_case and camelCase, so every older input shape keeps working.
+A few keys have a public name that isn't the Title Case of the internal key (PUBLIC_KEY_NAMES,
+e.g. customer_name -> "Company Name"). On input both the public name and the older Title Case name
+are accepted, so every older input shape keeps working.
 """
 
 from __future__ import annotations
@@ -16,14 +18,44 @@ from typing import Any
 _CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])([A-Z])")
 CODE_VALUE_KEYS = frozenset({"qualify", "project_type", "match", "category", "flags"})
 
+PUBLIC_KEY_NAMES = {
+    "project_type": "Project type",
+    "project_name": "Project",
+    "matched_items": "Matched items",
+    "excluded_items": "Excluded items",
+    "customer_name": "Company Name",
+    "contact_name": "Contact",
+    "contact_phone": "Phone Number",
+    "estimate_number": "Order Number",
+    "quote_date": "Date",
+    "line_items": "Line Item",
+    "product_code": "Product",
+    "unit_price": "Price",
+}
+
 
 def snake_key(key: Any) -> str:
     text = _CAMEL_BOUNDARY_RE.sub(r"_\1", str(key).strip())
     return re.sub(r"[\s_]+", "_", text).lower()
 
 
+_INTERNAL_KEY_ALIASES = {
+    snake_key(public): internal
+    for internal, public in PUBLIC_KEY_NAMES.items()
+    if snake_key(public) != internal
+}
+
+
+def internal_key(key: Any) -> str:
+    snake = snake_key(key)
+    return _INTERNAL_KEY_ALIASES.get(snake, snake)
+
+
 def title_key(key: Any) -> str:
-    return " ".join(word.capitalize() for word in snake_key(key).split("_") if word)
+    internal = internal_key(key)
+    if internal in PUBLIC_KEY_NAMES:
+        return PUBLIC_KEY_NAMES[internal]
+    return " ".join(word.capitalize() for word in internal.split("_") if word)
 
 
 def title_value(value: Any) -> Any:
@@ -46,7 +78,7 @@ def snake_keys(value: Any) -> Any:
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
-            key = snake_key(k)
+            key = internal_key(k)
             out[key] = snake_value(v) if key in CODE_VALUE_KEYS else snake_keys(v)
         return out
     if isinstance(value, list):
@@ -58,7 +90,7 @@ def title_keys(value: Any) -> Any:
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
-            out[title_key(k)] = title_value(v) if snake_key(k) in CODE_VALUE_KEYS else title_keys(v)
+            out[title_key(k)] = title_value(v) if internal_key(k) in CODE_VALUE_KEYS else title_keys(v)
         return out
     if isinstance(value, list):
         return [title_keys(v) for v in value]

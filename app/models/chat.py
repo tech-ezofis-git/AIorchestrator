@@ -829,10 +829,6 @@ class ChatResponse(BaseModel):
         default=None,
         description="FTL Quote Estimator output — line items, quantities, pricing, totals, and notes.",
     )
-    rendered_html: Optional[str] = Field(
-        default=None,
-        description="Rendered HTML quote document for FTL quote estimator.",
-    )
     pdf_download_url: Optional[str] = Field(
         default=None,
         description="Download URL for the generated quote PDF.",

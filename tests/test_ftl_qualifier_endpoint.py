@@ -80,11 +80,13 @@ def test_qualifier_direct_endpoint(client, monkeypatch):
     body = res.json()
     assert body["status"] == "success"
     assert body["decision"]["Qualify"] == "Qualify"
-    assert body["decision"]["Project Name"] == "Bloor St Modernization"
-    assert body["decision"]["Project Type"] == "Modernization"
+    assert body["decision"]["Project"] == "Bloor St Modernization"
+    assert body["decision"]["Project type"] == "Modernization"
+    assert "Company Name" in body["decision"]
     assert body["decision"]["Confidence"] == 95
     assert "Ai Insight" in body["decision"]
-    item = body["decision"]["Matched Items"][0]
+    assert "Excluded items" in body["decision"]
+    item = body["decision"]["Matched items"][0]
     assert item["Category"] == "Door Operator"
     assert item["Match"] == "Exact"
     assert item["Catalog Ref"] == "HYDRA-PLUS-CO-42"

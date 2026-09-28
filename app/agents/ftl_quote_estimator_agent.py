@@ -36,6 +36,7 @@ def render_qualifier_decision_for_quote(decision: Dict[str, Any]) -> str:
         "This quote request is an edited FTL qualifier decision, not a raw spec file.",
         "Price every item under Matched items. Do not add a line item for anything under Excluded items.",
         f"Project name: {decision.get('project_name') or ''}",
+        f"Company name: {decision.get('customer_name') or ''}",
         f"Project type: {decision.get('project_type') or ''}",
         f"Deadline: {decision.get('deadline') or ''}",
         f"Qualify decision: {decision.get('qualify') or ''}",
@@ -119,8 +120,9 @@ def render_pdf_from_quote(quote: Dict[str, Any], template_type: Optional[str] = 
 def format_quote_markdown(quote: Dict[str, Any], estimate_number: str) -> str:
     lines = [
         f"### 📋 Sales Estimate: {estimate_number}",
+        f"**Invoice Type:** {quote.get('invoice_type') or 'N/A'}",
         f"**Project:** {quote.get('project_name') or 'N/A'}",
-        f"**Customer:** {quote.get('customer_name') or 'N/A'}",
+        f"**Company:** {quote.get('customer_name') or 'N/A'}",
     ]
     if quote.get("elevator_id"):
         lines.append(f"**Elevator / Car ID:** {quote['elevator_id']}")
@@ -370,7 +372,6 @@ class FtlQuoteEstimatorAgent:
                 "usage": {"total_tokens": res["total_tokens"]},
                 "quote_result": title_keys(quote),
                 "estimate_number": est_num,
-                "rendered_html": res["rendered_html"],
                 "pdf_download_url": res["pdf_download_url"],
                 "pdf_base64": res.get("pdf_base64"),
                 "pdf_filename": res.get("pdf_filename"),
