@@ -72,13 +72,13 @@ def _enforce_new_construction_disqualify(decision: Dict[str, Any], candidate_tex
 # their own when unpaired — plus POWER_SUPPLY, which Step 3 says is a pure derivative of an unpaired
 # detector and can never count as an independent category either.
 _ITEM_CATEGORY_KEYWORDS = {
-    "ROLLER_GUIDE": ("roller guide",),
-    "GOVERNOR": ("governor",),
+    "ROLLER_GUIDE": ("roller guide", "roller guides"),
+    "GOVERNOR": ("governor", "governors"),
     "CAR_SAFETY": ("car safety", "car safeties", "unidirectional", "safeties", "safety"),
-    "CLUTCH": ("clutch",),
+    "CLUTCH": ("clutch", "interlock"),
     "PANEL_ADAPTOR": ("panel adaptor", "panel adapter", "car door panel", "door panel"),
-    "DOOR_OPERATOR": ("door operator", "operator"),
-    "DETECTOR": ("detector", "protective device"),
+    "DOOR_OPERATOR": ("door operator", "door operators", "operator", "operators", "sgv", "supra"),
+    "DETECTOR": ("detector", "detectors", "protective device", "light curtain", "curtain"),
     "POWER_SUPPLY": ("power supply",),
 }
 # Categories Step 4 says count independently, even on an "ambiguous" match, toward "a single
@@ -421,6 +421,46 @@ def _run_tool_call(name: str, arguments: Dict[str, Any]) -> str:
     return json.dumps({"error": f"Unknown tool: {name}"}, default=str)
 
 
+def _normalize_decision_dict(decision: Dict[str, Any]) -> Dict[str, Any]:
+    decision = dict(decision or {})
+    ai_insight = (
+        decision.get("ai_insight")
+        or decision.get("AI_insight")
+        or decision.get("aiInsight")
+        or decision.get("AiInsight")
+        or decision.get("a_i_insight")
+        or ""
+    )
+    decision["ai_insight"] = ai_insight
+
+    customer_name = (
+        decision.get("customer_name")
+        or decision.get("Company Name")
+        or decision.get("company_name")
+        or decision.get("customer")
+        or ""
+    )
+    decision["customer_name"] = customer_name
+
+    project_name = (
+        decision.get("project_name")
+        or decision.get("Project")
+        or decision.get("project")
+        or ""
+    )
+    decision["project_name"] = project_name
+
+    decision.setdefault("qualify", "needs_review")
+    decision.setdefault("project_type", "unknown")
+    decision.setdefault("matched_items", [])
+    decision.setdefault("excluded_items", [])
+    decision.setdefault("flags", [])
+    decision.setdefault("deadline", None)
+    decision.setdefault("reasoning", "")
+    decision.setdefault("confidence", 0.8)
+    return decision
+
+
 def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[str, Any], candidate_text: str) -> Tuple[Dict[str, Any], int]:
     system_prompt = build_system_prompt(skill, is_json_mode=True)
     messages: List[Dict[str, Any]] = [
@@ -463,19 +503,8 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
         # Check if decision was returned directly or via action
         if action == "submit_qualification_decision" or "qualify" in data or (isinstance(data.get("decision"), dict) and "qualify" in data["decision"]):
             decision = data.get("decision") if (isinstance(data.get("decision"), dict) and "qualify" in data["decision"]) else data
-            # Fill default values if missing
+            decision = _normalize_decision_dict(decision)
             decision = _apply_policy_overrides(decision, candidate_text)
-            decision.setdefault("qualify", "needs_review")
-            decision.setdefault("project_type", "unknown")
-            decision.setdefault("matched_items", [])
-            decision.setdefault("excluded_items", [])
-            decision.setdefault("flags", [])
-            decision.setdefault("deadline", None)
-            decision.setdefault("project_name", "")
-            decision.setdefault("customer_name", "")
-            decision.setdefault("reasoning", "")
-            decision.setdefault("confidence", 0.8)
-            decision.setdefault("ai_insight", "")
             return decision, total_tokens
 
         if action == "search_pricelist":
@@ -556,6 +585,7 @@ def _run_qualification_native_tools(client: Any, model_name: str, skill: Dict[st
                 decision = json.loads(decision_call.function.arguments)
             except json.JSONDecodeError as e:
                 raise RuntimeError(f"Model returned invalid JSON for its decision: {e}") from e
+            decision = _normalize_decision_dict(decision)
             decision = _apply_policy_overrides(decision, candidate_text)
             return decision, total_tokens
 

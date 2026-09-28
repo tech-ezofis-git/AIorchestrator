@@ -472,12 +472,15 @@ def test_quote_estimator_applies_git_consistency_checks():
     bundled = _enforce_door_restrictor_bundling(
         {
             "line_items": [
-                {"product_code": "SGV2_DOOR_OP_1S42_LH", "category": "door_operator", "qty": 2, "unit_price": 10}
+                {"product_code": "SGV2_DOOR_OP_1S42_LH", "category": "door_operator", "qty": 2, "unit_price": 10},
+                {"product_code": "SGV2_CAR_DOOR_RESTRICTOR", "category": "other", "qty": 2, "unit_price": 0}
             ]
         }
     )
     restrictors = [it for it in bundled["line_items"] if it["product_code"] == "SGV2_CAR_DOOR_RESTRICTOR"]
-    assert len(restrictors) == 1 and restrictors[0]["qty"] == 2 and restrictors[0]["unit_price"] == 0
+    assert len(restrictors) == 0
+    assert any("restrictor" in str(it.get("note", "")).lower() for it in bundled["line_items"] if it["category"] == "door_operator")
+    assert any("restrictor" in str(a).lower() for a in bundled.get("assumptions", []))
 
     exclusive = _enforce_panel_vs_adaptor_exclusivity(
         {

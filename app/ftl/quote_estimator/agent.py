@@ -528,25 +528,6 @@ def _check_door_package_completeness(quote: Dict[str, Any], candidate_text: str)
                     f"quote's {label} line(s) sum to {actual_total}. Please verify before releasing "
                     "this quote."
                 )
-        # The door restrictor is its own line (category "other", $0 bundled) rather than its own
-        # enum category, so it can't be matched by category name alone — a real test run correctly
-        # got clutch/detector/panels/operators all complete and STILL dropped the restrictor line
-        # entirely (its own notes flagged the omission, but only as one line buried among many —
-        # easy to miss). Matched by keyword within the "other" category specifically, so this never
-        # fires against an unrelated "other" line.
-        actual_restrictor_total = sum(
-            (item.get("qty") or 0)
-            for item in line_items
-            if item.get("category") == "other"
-            and "restrict" in f"{item.get('product_code') or ''} {item.get('description') or ''}".lower()
-        )
-        if actual_restrictor_total != expected_total:
-            missing_notes.append(
-                f"⚠ AUTO-CHECK: the computed door package breakdown expects {expected_total} total "
-                f"openings, so the car door restrictor quantity should sum to {expected_total}, but "
-                f"this quote's restrictor line(s) sum to {actual_restrictor_total} (or the line is "
-                "missing entirely). Please verify before releasing this quote."
-            )
 
     if not missing_notes:
         return quote
@@ -2536,50 +2517,45 @@ _RESTRICTOR_CODE_RE = re.compile(r"restrictor", re.IGNORECASE)
 
 
 def _enforce_door_restrictor_bundling(quote: Dict[str, Any]) -> Dict[str, Any]:
-    """Every SGV2 door operator MOD kit install includes a car door restrictor, bundled at no extra
-    charge — the spec itself always lists it alongside the operator ("install all new related
-    equipment such as restrictor clutches, restrictor, linkages, belts...") and it has no separate
-    priced Product Master SKU (see _WHITELIST_KNOWN_EXTRAS above: SGV2_CAR_DOOR_RESTRICTOR is a
-    known bundled code, not a pricelist line). Before this function existed, whether this $0 line
-    showed up at all was left entirely to the model — confirmed live on three identical back-to-
-    back runs of the same RFQ (2211 Brant St): two of three omitted it completely, one included it
-    but under a near-miss code ("SGV2_DOOR_RESTRICTOR", missing "CAR"). This makes the bundled line
-    unconditional and deterministic: exactly one restrictor line, at the canonical code, quantity
-    always matching the total door_operator quantity on the estimate — added if missing, quantity-
-    corrected if present but wrong, code-normalized if a near-miss spelling was submitted."""
+    """Every SGV2 door operator MOD kit install includes an integrated car door restrictor hardware
+    bundled at no extra charge. Rather than emitting an unpriced $0.00 standalone line item on the
+    estimate (which appears as a blank/zero item on customer PDFs and consoles), this function
+    ensures door operators are clearly annotated with the bundled restrictor and the $0 bundled
+    status is explicitly documented in quote assumptions."""
     line_items = quote.get("line_items") or []
-    op_qty = sum(float(it.get("qty") or 0) for it in line_items if it.get("category") == "door_operator")
-    if op_qty <= 0:
-        return quote
-
-    existing = [it for it in line_items if _RESTRICTOR_CODE_RE.search(str(it.get("product_code") or ""))]
-    already_correct = (
-        len(existing) == 1
-        and existing[0].get("product_code") == _RESTRICTOR_CANONICAL_CODE
-        and float(existing[0].get("qty") or 0) == op_qty
-    )
-    if already_correct:
+    op_items = [it for it in line_items if it.get("category") == "door_operator"]
+    if not op_items:
         return quote
 
     quote = dict(quote)
-    working_items = [it for it in line_items if it not in existing]
-    working_items.append(
-        {
-            "product_code": _RESTRICTOR_CANONICAL_CODE,
-            "description": "Car door restrictor (bundled with SGV2 door operator MOD kit)",
-            "category": "other",
-            "qty": op_qty,
-            "unit_price": 0,
-            "subtotal_override": 0,
-            "needs_engineering_review": False,
-            "note": (
-                "ℹ AUTO-ADDED/CORRECTED — every SGV2 door operator on this estimate bundles a "
-                "car door restrictor at no extra charge (qty set to match the door_operator qty); "
-                "not a separately priced Product Master SKU."
-            ),
-        }
-    )
+    # Filter out any standalone zero-dollar restrictor line items so they do not show as $0.00 in the line items table
+    working_items = [
+        it for it in line_items
+        if not (
+            it.get("product_code") == _RESTRICTOR_CANONICAL_CODE
+            or (_RESTRICTOR_CODE_RE.search(str(it.get("product_code") or "")) and float(it.get("unit_price") or 0) == 0)
+        )
+    ]
+
+    # Annotate door operators so that the contractor knows restrictors are included
+    for it in working_items:
+        if it.get("category") == "door_operator":
+            note = str(it.get("note") or "").strip()
+            if "restrictor" not in note.lower():
+                bundled_note = "Includes bundled car door restrictor hardware with the SGV2 MOD kit."
+                it["note"] = f"{note} ({bundled_note})" if note else bundled_note
+
     quote["line_items"] = working_items
+
+    # Document in assumptions
+    assumptions = list(quote.get("assumptions") or [])
+    restrictor_assumption = (
+        "Car door restrictor hardware is bundled and included with the SGV2 door operator package at no extra charge."
+    )
+    if not any("restrictor" in str(a).lower() for a in assumptions):
+        assumptions.append(restrictor_assumption)
+    quote["assumptions"] = assumptions
+
     return quote
 
 

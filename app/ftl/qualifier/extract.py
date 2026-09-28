@@ -248,11 +248,11 @@ FALLBACK_KEYWORDS = [
     "car door",
 ]
 
-_HEADING_RE = re.compile(r"^\s*\d+\.\d+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80})\s*$", re.MULTILINE)
+_HEADING_RE = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80})\s*$", re.MULTILINE)
 
 # Some PDFs split "44.1 Governor and Idler" across lines, so the number sits alone.
 # Eight or more distinct markers still count as a modernization spec.
-_STANDALONE_SUBSECTION_NUM_RE = re.compile(r"^\s*\d{2}\.\d\s*$", re.MULTILINE)
+_STANDALONE_SUBSECTION_NUM_RE = re.compile(r"^\s*\d{1,2}(?:\.\d+)+\s*$", re.MULTILINE)
 
 
 def detect_structure_signal(full_text: str, subsection_hit_count: int = 0) -> str:

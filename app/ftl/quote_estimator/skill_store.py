@@ -425,18 +425,8 @@ unsure, include the item flagged `needs_engineering_review` rather than silently
 Some accessories are conventionally included at $0 subtotal when purchased alongside their parent
 kit in the same order — e.g. a panel adaptor or door-programming tool bundled with a door operator
 purchase, or a car door restrictor bundled with the operator MOD kit. When you're quoting the
-parent item in the same estimate, set the accessory's `subtotal_override` to 0 and note it as
-included; if you're quoting the accessory on its own (parent not part of this estimate), price it
-normally. **Whenever you quote a door operator (any SGV2_DOOR_OP_* line, any door type), also add a
-`SGV2_CAR_DOOR_RESTRICTOR` line at $0.00 subtotal, qty matching the door operator** — it's bundled
-with every real MOD kit purchase and isn't its own priced pricelist SKU, so search_pricelist won't
-find it. (An earlier version of this rule excluded 1S doors, reasoning from one real 1S order that
-had no restrictor line — but a real 1S spec was later found to explicitly call for a "Car
-Restrictor" as its own numbered new-equipment scope item, undermining that exclusion; since it's a
-$0 bundled line either way, the safer default is to always include it, flagged `needs_engineering_
-review` if you want a human to confirm the door-operator kit actually satisfies whatever specific
-restrictor product the spec names, e.g. "Unitec Uni-Lock or equivalent" — FTL's SGV2 kit may or may
-not be treated as meeting that "or equivalent" language.)
+parent item in the same estimate, document it in the line notes and assumptions as included with the parent kit.
+**Car door restrictors are bundled with every SGV2 door operator package at no extra charge** — their inclusion is automatically noted on the door operator line and in quote assumptions, without generating a separate zero-dollar line item.
 
 **Not every accessory is one-per-car — check before multiplying by car count:**
 - `SGV2_DOOR_TOOLS` (the door-programming tool) is ONE PER PROJECT, not one per car, even on a
@@ -538,12 +528,14 @@ almost every RFQ FTL receives, not a sign the information is missing."""
         {
             "title": "Product-line / OEM compatibility guide",
             "content": (
-                "Door operators (Wittur SGV2): types 2T (2-speed side opening), 2C (center "
+                "Door operators (Wittur SGV2 / SGV / Supra Linear): types 2T (2-speed side opening), 2C (center "
                 "opening/bi-parting), 1S (single-speed side opening); door hand LH/RH; widths "
                 "36\"/42\"/48\"; OEM panel-adaptor compatibility covers Otis, Westinghouse, GAL, "
                 "MAC, Dover — clutch is OEM-specific (Otis, Westinghouse \"WEST\", GAL \"G.M.D.\") "
                 "and priced separately; a door operator estimate should include a matching clutch "
-                "c/w car door interlock.\n\n"
+                "c/w car door interlock. Note: Specifications frequently refer to Wittur door operators as "
+                "'Wittur SGV', 'Wittur SGV Supra', 'Wittur SGV Supra Linear', 'Wittur SGV2', or 'Wittur Linear Operator' "
+                "— all of these are in-scope and supported under Wittur's SGV2/Supra family.\n\n"
                 "Roller guides: frame sizes RG80/RG100/RG125/RG150/RG200/RG300, priced PER PIECE "
                 "despite the pricelist description reading \"(4x /SET)\" — a full set is 4 pieces "
                 "= one car or one counterweight, so quantity = 4 x number of cars needing that "

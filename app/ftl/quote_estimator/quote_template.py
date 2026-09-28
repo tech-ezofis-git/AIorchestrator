@@ -212,6 +212,13 @@ def render_inflow_quote_html(quote: Dict[str, Any], estimate_number: str, date_s
           <span style="color:#ffffff !important;font-weight:600;">{_esc(_money(totals['freight_estimate']))}</span>
         </div>"""
 
+    cust_name = _esc(totals.get("customer_name") or "Standard Customer")
+    billing_addr = _esc(totals.get("billing_address") or "To be confirmed upon order")
+    shipping_addr = _esc(totals.get("shipping_address") or (totals.get("project_name") or "Jobsite delivery"))
+    contact_name = _esc(totals.get("contact_name") or "Estimating / Purchasing")
+    contact_phone = _esc(totals.get("contact_phone") or "")
+    bdm_name = _esc(totals.get("bdm") or "FTL Sales Team")
+
     return f"""
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#222222;max-width:850px;margin:0 auto;background:#ffffff;padding:36px;border:1px solid #e0e0e0;box-shadow:0 2px 8px rgba(0,0,0,0.04);box-sizing:border-box;">
   
@@ -239,22 +246,22 @@ def render_inflow_quote_html(quote: Dict[str, Any], estimate_number: str, date_s
   <div style="display:grid;grid-template-columns:1.1fr 1.1fr 0.9fr 0.9fr;gap:16px;margin-bottom:28px;font-size:12.5px;color:#333333;line-height:1.45;">
     <div>
       <div style="font-weight:700;color:#000000 !important;margin-bottom:4px;font-size:13px;">Billing Address</div>
-      <div style="color:#222222 !important;">{_esc(totals["customer_name"])}</div>
-      <div style="white-space:pre-line;color:#222222 !important;">{_esc(totals["billing_address"])}</div>
+      <div style="color:#222222 !important;">{cust_name}</div>
+      <div style="white-space:pre-line;color:#222222 !important;">{billing_addr}</div>
     </div>
     <div>
       <div style="font-weight:700;color:#000000 !important;margin-bottom:4px;font-size:13px;">Shipping Address</div>
-      <div style="color:#222222 !important;">{_esc(totals["customer_name"])}</div>
-      <div style="white-space:pre-line;color:#222222 !important;">{_esc(totals["shipping_address"])}</div>
+      <div style="color:#222222 !important;">{cust_name}</div>
+      <div style="white-space:pre-line;color:#222222 !important;">{shipping_addr}</div>
     </div>
     <div>
       <div style="font-weight:700;color:#000000 !important;margin-bottom:4px;font-size:13px;">Contact</div>
-      <div style="color:#222222 !important;">{_esc(totals["contact_name"])}</div>
-      {f'<div style="color:#222222 !important;">{_esc(totals["contact_phone"])}</div>' if totals["contact_phone"] else ''}
+      <div style="color:#222222 !important;">{contact_name}</div>
+      {f'<div style="color:#222222 !important;">{contact_phone}</div>' if contact_phone else ''}
     </div>
     <div>
       <div style="font-weight:700;color:#000000 !important;margin-bottom:4px;font-size:13px;">FTL Executive</div>
-      <div style="color:#222222 !important;">{_esc(totals["bdm"])}</div>
+      <div style="color:#222222 !important;">{bdm_name}</div>
     </div>
   </div>
 
@@ -359,6 +366,13 @@ def render_internal_quote_html(quote: Dict[str, Any], estimate_number: str, date
         else ""
     )
 
+    cust_name = _esc(totals["customer_name"] or "Standard Customer")
+    billing_addr = _esc(totals["billing_address"] or "To be confirmed upon order")
+    shipping_addr = _esc(totals["shipping_address"] or "Jobsite delivery (Address to follow)")
+    contact_name = _esc(totals["contact_name"] or "Estimating / Purchasing Dept")
+    contact_phone = _esc(totals["contact_phone"] or "")
+    bdm_name = _esc(totals["bdm"] or "FTL Sales Team")
+
     return f"""
 <div style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:900px;margin:0 auto;background:#fff;padding:28px;border:1px solid #ddd;">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1f3a5f;padding-bottom:14px;margin-bottom:18px;">
@@ -378,20 +392,20 @@ def render_internal_quote_html(quote: Dict[str, Any], estimate_number: str, date
   <div style="display:flex;gap:24px;margin-bottom:18px;font-size:12.5px;flex-wrap:wrap;">
     <div style="flex:1;min-width:180px;">
       <div style="font-weight:700;color:#1f3a5f;margin-bottom:4px;">Billing Address</div>
-      <div>{_esc(totals["customer_name"])}</div>
-      <div style="white-space:pre-line;">{_esc(totals["billing_address"])}</div>
+      <div>{cust_name}</div>
+      <div style="white-space:pre-line;">{billing_addr}</div>
     </div>
     <div style="flex:1;min-width:180px;">
       <div style="font-weight:700;color:#1f3a5f;margin-bottom:4px;">Shipping Address</div>
-      <div>{_esc(totals["customer_name"])}</div>
-      <div style="white-space:pre-line;">{_esc(totals["shipping_address"])}</div>
+      <div>{cust_name}</div>
+      <div style="white-space:pre-line;">{shipping_addr}</div>
     </div>
     <div style="flex:1;min-width:160px;">
       <div style="font-weight:700;color:#1f3a5f;margin-bottom:4px;">Contact</div>
-      <div>{_esc(totals["contact_name"])}</div>
-      <div>{_esc(totals["contact_phone"])}</div>
+      <div>{contact_name}</div>
+      {f'<div>{contact_phone}</div>' if contact_phone else ''}
       <div style="font-weight:700;color:#1f3a5f;margin-top:8px;margin-bottom:4px;">FTL BDM</div>
-      <div>{_esc(totals["bdm"])}</div>
+      <div>{bdm_name}</div>
     </div>
     {(
         '<div style="flex:1;min-width:200px;">'
