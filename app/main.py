@@ -2536,6 +2536,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "raw_text": p.ocr_text if p else None,
             "qualifier_result": p.qualifier_result if p else None,
             "quote_result": p.quote_result if p else None,
+            "form_data": p.pdf_json if p else None,
+            "template_json": p.template_json if p else None,
             "template_type": (p.template_type if p else None) or "inflow",
             "model": p.model if p else None,
             "tenant_id": p.tenant_id if p else None,

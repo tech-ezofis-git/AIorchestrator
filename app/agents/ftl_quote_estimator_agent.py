@@ -25,6 +25,7 @@ from app.ftl.quote_estimator import (
 )
 from app.ftl.quote_estimator.quote_pdf import generate_quote_pdf
 from app.ftl.quote_estimator.quote_template import compute_totals, render_quote_html
+from app.ftl.quote_estimator.template_pdf import render_template_pdf
 
 logger = logging.getLogger("orchestrator.ftl_quote_estimator_agent")
 
@@ -114,6 +115,20 @@ def render_pdf_from_quote(quote: Dict[str, Any], template_type: Optional[str] = 
         "estimate_number": estimate_number,
         "pdf_base64": base64.b64encode(pdf_bytes).decode("ascii"),
         "pdf_filename": quote_pdf_filename(estimate_number, template_type),
+    }
+
+
+def render_pdf_from_template(template: Dict[str, Any], form_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill a caller-supplied pdfme template with estimator formData."""
+    internal = snake_keys(form_data)
+    estimate_number = str(internal.get("estimate_number") or "ESTIMATE").strip() or "ESTIMATE"
+    doc_type = str(internal.get("invoice_type") or "Quote").strip()
+    pdf_bytes, page_count = render_template_pdf(template, form_data, title=f"{doc_type} {estimate_number}")
+    return {
+        "estimate_number": estimate_number,
+        "pdf_base64": base64.b64encode(pdf_bytes).decode("ascii"),
+        "pdf_filename": quote_pdf_filename(estimate_number, "inflow"),
+        "page_count": page_count,
     }
 
 
@@ -332,6 +347,34 @@ class FtlQuoteEstimatorAgent:
         template_type = job.get("template_type") or job.get("quote_template_type") or "inflow"
         model = job.get("model")
         quote_input = job.get("quote_result")
+        form_data = job.get("form_data")
+        template_json = job.get("template_json")
+
+        if template_json or (form_data and not (quote_input or file_bytes or filepath or candidate_text or qualifier_result)):
+            if not isinstance(template_json, dict) or not template_json:
+                error = "templateJson (a base64-encoded pdfme template) is required with formData."
+            elif not isinstance(form_data, dict) or not form_data:
+                error = "formData (a JSON object with the estimate data) is required with templateJson."
+            else:
+                error = None
+            if error:
+                return {"reply": f"### ⚠️ Quote PDF Failed\n\n{error}", "usage": None, "error": error}
+            try:
+                res = await asyncio.to_thread(render_pdf_from_template, template_json, form_data)
+            except Exception as exc:
+                logger.exception("ftl_template_pdf_render_error")
+                return {
+                    "reply": f"### ⚠️ Quote PDF Failed\n\n{str(exc)}",
+                    "usage": None,
+                    "error": str(exc),
+                }
+            return {
+                "reply": f"PDF generated for {res['estimate_number']} ({res['page_count']} page(s)).",
+                "usage": None,
+                "estimate_number": res["estimate_number"],
+                "pdf_base64": res["pdf_base64"],
+                "pdf_filename": res["pdf_filename"],
+            }
 
         if isinstance(quote_input, dict) and quote_input:
             try:
