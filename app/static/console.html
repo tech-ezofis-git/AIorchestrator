@@ -5611,7 +5611,13 @@ function renderQualifierResult(rawQual, request) {
   const confidence = Number(qual.confidence);
   const hasConfidence = Number.isFinite(confidence);
   const confScorePercent = hasConfidence ? Math.round(confidence <= 1 ? confidence * 100 : confidence) : null;
-  const confClass = confScorePercent >= 80 ? '' : confScorePercent >= 50 ? 'mid' : 'low';
+  // This number is how sure the agent is of the decision, not a catalog-fit score.
+  // Color it from the decision so a confident disqualify does not render as a green "good" score.
+  const confClass = decision === 'disqualify'
+    ? 'low'
+    : decision === 'needs_review'
+    ? 'mid'
+    : (confScorePercent >= 80 ? '' : confScorePercent >= 50 ? 'mid' : 'low');
 
   const matchedItems = Array.isArray(qual.matched_items) ? qual.matched_items : [];
   const excludedItems = Array.isArray(qual.excluded_items) ? qual.excluded_items : [];
@@ -5668,7 +5674,7 @@ function renderQualifierResult(rawQual, request) {
         </div>
         ${hasConfidence ? `
         <div class="summary-conf" style="margin-top:12px;">
-          <span class="summary-conf-label">Catalog Fit Confidence</span>
+          <span class="summary-conf-label" title="How sure the agent is of this decision. A high number can still be a disqualify.">Decision confidence</span>
           <div class="summary-conf-bar ${confClass}"><span style="width:${confScorePercent}%"></span></div>
           <span class="summary-conf-score">${confScorePercent}%</span>
         </div>` : ''}

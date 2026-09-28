@@ -249,7 +249,9 @@ guidance gives a specific, stated reason to pursue this particular one anyway.
 ## Step 6 — output
 Always call submit_qualification_decision with your full structured decision — matched items,
 excluded items, flags, the stated deadline if any, your reasoning tying back to these rules, and a
-confidence score. Reasoning should be specific enough that a human reviewing your call can see
+confidence score from 0 to 1 for how sure you are of this qualify / disqualify / needs_review
+call. That number is not a catalog-fit percentage, and it is not the policy line about not quoting
+95% of the time — do not copy 95 into confidence. Reasoning should be specific enough that a human reviewing your call can see
 exactly which items and which signals drove it, including which candidate items you excluded under
 Step 1's grounding/product-type/OEM checks and why."""
 

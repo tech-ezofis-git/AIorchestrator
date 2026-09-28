@@ -30,8 +30,20 @@ def format_decision_markdown(run: Dict[str, Any]) -> str:
     result = run.get("result") or run
     decision = run.get("decision") or result.get("qualify") or "unknown"
     emoji = DECISION_EMOJI.get(decision, "❓")
-    confidence = run.get("confidence") or result.get("confidence")
-    conf_str = f"  ·  **Confidence:** {round(float(confidence) * 100)}%" if confidence is not None else ""
+    confidence = run.get("confidence")
+    if confidence is None:
+        confidence = result.get("confidence")
+    conf_str = ""
+    if confidence is not None:
+        try:
+            number = float(confidence)
+        except (TypeError, ValueError):
+            number = None
+        if number is not None:
+            if number <= 1:
+                number *= 100
+            percent = int(round(max(0.0, min(100.0, number))))
+            conf_str = f"  ·  **Decision confidence:** {percent}%"
 
     lines = [
         f"### {emoji} {decision.replace('_', ' ').upper()}",
