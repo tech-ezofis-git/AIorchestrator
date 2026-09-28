@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.agents.ocr_helpers import parse_parameter_entries
+from app.llm.adapter import LLMAdapterError
 from app.ocr_skills import rules
 
 SKILL_ID = "extract_fields"
@@ -74,6 +75,10 @@ async def run(
         ],
         **overrides,
     )
+    if not str(result.get("content") or "").strip():
+        # Some self-hosted models stop immediately on certain documents; an
+        # empty reply must fail so the OCR agent retries on its fallback model.
+        raise LLMAdapterError("The language model returned an empty reply.")
 
     fields, table_result = _parse_ocr_json_content(
         result["content"],

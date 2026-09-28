@@ -256,7 +256,10 @@ This differs from Summary/Insight, where `reply` is a short human status line.
 
 ### QR codes (`qr_codes`)
 
-For PDF and image documents, OCR text extraction and OpenCV QR detection run **at the same time**
+**Currently disabled by default** — set `OCR_QR_ENABLED=true` to turn it on. While disabled,
+`qr_codes` is always `[]` and OCR works as before.
+
+When enabled, for PDF and image documents, OCR text extraction and OpenCV QR detection run **at the same time**
 on the same pages (`pageno` selection — e.g. `"-1"` scans pages 1–5 for both). Each QR found becomes:
 
 | Key | Type | Description |
@@ -276,7 +279,7 @@ Known payloads:
 QR data is also given to field structuring together with `ocr_text`, so requested `parameters`
 (e.g. `Seller GSTIN`, `IRN`) can be filled from the QR when the printed text lacks them. `ocr_text`
 itself stays the raw page text. QR scanning never fails the request: on any error `qr_codes` is `[]`.
-Other file types (txt, docx, xlsx, ...) are not scanned. Disable with `OCR_QR_ENABLED=false`;
+Other file types (txt, docx, xlsx, ...) are not scanned. Toggle with `OCR_QR_ENABLED` (default `false`);
 render resolution is `OCR_QR_DPI` (default 200; pages with no QR hit are retried at double resolution).
 
 ---
