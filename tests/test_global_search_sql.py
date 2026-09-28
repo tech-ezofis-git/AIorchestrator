@@ -16,6 +16,7 @@ def test_pick_text_columns_includes_custom_varchar_fields():
     by_lower = {
         "itemid": "ItemId",
         "ifilename": "IFileName",
+        "file_path": "FilePath",
         "ponumber": "PONumber",
         "isdeleted": "IsDeleted",
         "createdat": "CreatedAt",
@@ -23,13 +24,15 @@ def test_pick_text_columns_includes_custom_varchar_fields():
     types = {
         "itemid": "uuid",
         "ifilename": "character varying",
+        "file_path": "character varying",
         "ponumber": "character varying",
         "isdeleted": "boolean",
         "createdat": "timestamp without time zone",
     }
     cols = pick_text_columns(by_lower, types_by_lower=types)
     assert "PONumber" in cols
-    assert "IFileName" in cols
+    assert "IFileName" not in cols
+    assert "FilePath" not in cols
     assert "ItemId" not in cols
     assert "IsDeleted" not in cols
 

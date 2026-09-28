@@ -425,14 +425,13 @@ class ChatbotAgent:
             {"role": "user", "content": user_text},
             {"role": "assistant", "content": reply},
         ]
+        _ = action_context
         result: dict[str, Any] = {
             "conversation": conversation,
             "text": {"blocks": blocks},
             "hits": hits,
             "action": action,
             "actionTo": action_to,
-            "actionContext": action_context,
-            "query": user_text,
             "tenantId": tenant_id,
             "specificId": specific_id,
         }

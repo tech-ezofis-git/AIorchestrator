@@ -62,7 +62,7 @@ def test_chatbot_help_gate(client):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["chatbot_result"]["query"] == "help"
+    assert "query" not in body["chatbot_result"]
     assert body["chatbot_result"]["hits"] == []
     blocks = body["chatbot_result"]["text"]["blocks"]
     assert blocks[0]["type"] == "paragraph"
@@ -188,7 +188,8 @@ def test_chatbot_search_blocks_and_hits(client):
     assert len(cards["items"]) == 1
     assert result["action"]["browse_request"]["repositoryId"]
     assert result["actionTo"] == "Repository"
-    assert result["actionContext"]["repositoryId"]
+    assert "actionContext" not in result
+    assert "query" not in result
     doc = next(h for h in result["hits"] if h["type"] == "document")
     assert doc["id"]["requestNo"] == "REQ-9"
     assert doc["ifileName"] == "HR_01.pdf"
@@ -196,7 +197,13 @@ def test_chatbot_search_blocks_and_hits(client):
     labels = {i["label"] for i in filters["items"]}
     assert "Search" in labels
     assert "Description" in labels
-    assert result["action"]["browse_request"]["filterBy"].get("search") == "ABC"
+    cards_item = cards["items"][0]
+    assert cards_item["subtitle"] == "Description · Field Hit"
+    filter_by = result["action"]["browse_request"]["filterBy"]
+    assert "search" not in filter_by
+    assert "query" not in filter_by
+    assert "repository" not in filter_by
+    assert "ocr_text" not in filter_by
 
 
 def test_chatbot_query_alias_and_specific_id(client):
@@ -232,7 +239,8 @@ def test_chatbot_query_alias_and_specific_id(client):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["chatbot_result"]["query"] == "EMP10245"
+    assert "EMP10245" in body["reply"]
+    assert "query" not in body["chatbot_result"]
     assert body["chatbot_result"]["specificId"] in (None, "")
     assert body["chatbot_result"]["hits"] == []
     assert "No matches" in body["reply"]

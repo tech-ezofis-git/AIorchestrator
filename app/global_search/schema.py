@@ -57,6 +57,16 @@ _SKIP_SEARCH_COLS = frozenset(
         "embedding",
         "password",
         "token",
+        # File identity columns are not searched with the user's keyword.
+        "ifilename",
+        "ifile_name",
+        "filename",
+        "file_name",
+        "filepath",
+        "file_path",
+        "ifilepath",
+        "blobpath",
+        "blob_path",
     }
 )
 _TEXT_TYPES = frozenset(
@@ -109,9 +119,6 @@ def pick_text_columns(
         "title",
         "description",
         "code",
-        "ifilename",
-        "filename",
-        "file_name",
         "displayname",
         "ponumber",
         "po_number",
@@ -129,20 +136,22 @@ def pick_text_columns(
     seen: set[str] = set()
     out: list[str] = []
 
-    def _add(actual: Optional[str]) -> None:
+    def _add(key: str, actual: Optional[str]) -> None:
+        if key in _SKIP_SEARCH_COLS:
+            return
         if actual and actual not in seen:
             seen.add(actual)
             out.append(actual)
 
     for key in preferred:
-        _add(by_lower.get(key))
+        _add(key, by_lower.get(key))
     if types_by_lower:
         for key, actual in by_lower.items():
             if key in _SKIP_SEARCH_COLS:
                 continue
             dtype = (types_by_lower.get(key) or "").lower()
             if dtype in _TEXT_TYPES or dtype.startswith("character"):
-                _add(actual)
+                _add(key, actual)
     return out[:80]
 
 

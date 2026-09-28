@@ -28,35 +28,56 @@ def _hit_title(hit: SearchHit) -> str:
     )
 
 
+def _norm_field(field: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (field or "").lower())
+
+
+# Application columns. OCR is shown as "Inside Doc", not the column name.
+_DEEP_FIELDS = frozenset(
+    {"ocrtext", "ocr", "content", "fulltext", "searchtext"}
+)
+# Never show these column names to the user.
+_HIDDEN_FILE_FIELDS = frozenset(
+    {"filepath", "filename", "ifilename", "formdata"}
+)
+
+
+def _is_deep_hit(hit: SearchHit) -> bool:
+    if (hit.matchSource or "").strip().lower() == "content":
+        return True
+    if (hit.matched_field or "").strip().lower() == "inside doc":
+        return True
+    return _norm_field(hit.matched_field) in _DEEP_FIELDS
+
+
+def _is_hidden_file_field(field: str) -> bool:
+    return _norm_field(field) in _HIDDEN_FILE_FIELDS
+
+
+def _public_matched_field(hit: SearchHit) -> str:
+    """OCR matches are 'Inside Doc'. File path and file name stay off the label."""
+    if _is_deep_hit(hit):
+        return "Inside Doc"
+    if _is_hidden_file_field(hit.matched_field):
+        return ""
+    return str(hit.matched_field or "").strip()
+
+
+def _present_hit(hit: SearchHit) -> SearchHit:
+    field = _public_matched_field(hit)
+    if field == (hit.matched_field or ""):
+        return hit
+    return hit.model_copy(update={"matched_field": field})
+
+
 def _hit_subtitle(hit: SearchHit) -> str:
-    bits: list[str] = []
-    typ = (hit.type or hit.entity_type or "").strip()
-    if typ:
-        bits.append(typ)
-    if hit.matchSource:
-        bits.append(str(hit.matchSource))
-    if hit.formKind:
-        bits.append(str(hit.formKind))
-    if hit.matched_field:
-        bits.append(str(hit.matched_field))
-    id_obj = hit.id if isinstance(hit.id, dict) else {}
-    repo = id_obj.get("repositoryName") or id_obj.get("repositoryId")
-    if repo and str(repo) not in bits:
-        bits.append(f"repo: {repo}")
-    wf = id_obj.get("workflowName") or id_obj.get("workflowId")
-    if wf not in (None, "", 0, "0"):
-        bits.append(f"wf: {wf}")
-    req = id_obj.get("requestNo") or hit.requestNo
-    if req:
-        bits.append(f"req: {req}")
-    stage = id_obj.get("stage") or (hit.metadata or {}).get("stage")
-    if stage:
-        bits.append(f"stage: {stage}")
-    if id_obj.get("commentId"):
-        bits.append(f"comment: {id_obj.get('commentId')}")
-    if id_obj.get("instanceId") and (hit.type or "") in {"ticket", "comment"}:
-        bits.append(f"instance: {id_obj.get('instanceId')}")
-    return " · ".join(str(b) for b in bits if b)
+    """Preferred pair: 'Invoice Number · Field Hit' or 'Document · Deep Hit'."""
+    if _is_deep_hit(hit):
+        return "Document · Deep Hit"
+    field = str(hit.matched_field or "").strip()
+    if not field or _is_hidden_file_field(field):
+        return "Document · Field Hit"
+    return f"{_human_field_label(field)} · Field Hit"
 
 
 def _card_from_hit(hit: SearchHit) -> dict[str, Any]:
@@ -82,8 +103,10 @@ _FIELD_LABELS = {
     "filename": "File name",
     "supplier": "Supplier",
     "vendor": "Vendor",
-    "invoiceno": "Invoice No",
-    "invoice_no": "Invoice No",
+    "invoiceno": "Invoice Number",
+    "invoice_no": "Invoice Number",
+    "invoicenumber": "Invoice Number",
+    "invoice_number": "Invoice Number",
     "referencenumber": "Reference",
     "reference_number": "Reference",
 }
@@ -140,7 +163,7 @@ def _build_filter_items(
             continue
         field = str(hit.matched_field or "").strip()
         value = str(hit.matched_value or hit.description or "").strip()
-        if field and value:
+        if field and value and not _is_deep_hit(hit) and not _is_hidden_file_field(field):
             add(_human_field_label(field), value[:120])
 
     for hit in hits:
@@ -149,7 +172,7 @@ def _build_filter_items(
             continue
         field = str(hit.matched_field or "Name").strip()
         value = str(hit.matched_value or hit.entity_name or "").strip()
-        if value:
+        if value and not _is_hidden_file_field(field) and _norm_field(field) not in _DEEP_FIELDS:
             add(_human_field_label(field), value[:120])
 
     return items[:12]
@@ -163,15 +186,12 @@ def _filter_by_from_items(items: list[dict[str, str]], query: str) -> dict[str, 
         value = str(item.get("value") or "").strip()
         if not label or not value:
             continue
-        if label.lower() in {"search", "query"}:
-            out["search"] = value
-            continue
-        if label.lower() == "repository" and _looks_like_guid(value):
-            continue
         key = label.lower().replace(" ", "_")
+        if key in {"search", "query", "repository"}:
+            continue
+        if _norm_field(key) in _DEEP_FIELDS or _norm_field(key) in _HIDDEN_FILE_FIELDS:
+            continue
         out[key] = value
-    if query.strip() and "search" not in out:
-        out["search"] = query.strip()
     return out
 
 
@@ -221,7 +241,7 @@ def format_search_blocks(
     repository_name: str = "",
 ) -> dict[str, Any]:
     """Build chatbot_result fields from a GlobalSearchResult."""
-    hits = list(result.hits)
+    hits = [_present_hit(hit) for hit in result.hits]
     query = result.query
     total = len(hits)
     filter_items = _build_filter_items(

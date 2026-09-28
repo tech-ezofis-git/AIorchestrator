@@ -136,6 +136,61 @@ def test_content_of_apex_is_a_document_lookup_not_a_repository_choice():
     ).query == "APEX"
 
 
+def test_ocr_match_is_inside_doc_and_subtitle_is_a_pair():
+    from app.chatbot.format_blocks import format_search_blocks
+    from app.global_search.types import GlobalSearchResult
+
+    ocr = SearchHit(
+        type="document",
+        entity_type="document",
+        entity_id="1",
+        entity_name="APEX.pdf",
+        ifileName="APEX.pdf",
+        matched_field="ocr_text",
+        matched_value="APEX clause",
+        matchSource="content",
+        id={"repositoryId": "r1", "repositoryName": "Accounts Payable", "requestNo": "REQ-3"},
+    )
+    invoice = SearchHit(
+        type="document",
+        entity_type="document",
+        entity_id="2",
+        entity_name="INV.pdf",
+        ifileName="INV.pdf",
+        matched_field="invoice_number",
+        matched_value="INV-9",
+        matchSource="field",
+        id={"repositoryId": "r1", "repositoryName": "Accounts Payable"},
+    )
+    path = SearchHit(
+        type="document",
+        entity_type="document",
+        entity_id="3",
+        entity_name="scan.pdf",
+        ifileName="scan.pdf",
+        matched_field="file_path",
+        matched_value="/files/scan.pdf",
+        matchSource="field",
+        id={"repositoryId": "r1"},
+    )
+    formatted = format_search_blocks(
+        GlobalSearchResult(query="APEX", hits=[ocr, invoice, path])
+    )
+    hits = {hit["entity_id"]: hit for hit in formatted["hits"]}
+    assert hits["1"]["matched_field"] == "Inside Doc"
+    cards = {item["title"]: item["subtitle"] for item in formatted["text"]["blocks"][2]["items"]}
+    assert cards["APEX.pdf"] == "Document · Deep Hit"
+    assert cards["INV.pdf"] == "Invoice Number · Field Hit"
+    assert "file_path" not in cards["scan.pdf"]
+    assert "ocr_text" not in cards["APEX.pdf"]
+    filter_by = formatted["action"]["browse_request"]["filterBy"]
+    assert "repository" not in filter_by
+    assert "query" not in filter_by
+    assert "ocr_text" not in filter_by
+    assert "file_path" not in filter_by
+    assert "form_data" not in filter_by
+
+
 def test_rules_query_wins_when_the_model_searches_the_whole_sentence():
     invented = SearchPlan(target="documents", query="documents", source="model")
     bare = lookup_override_plan(invented, "Search my documents")
@@ -250,7 +305,7 @@ def test_chatbot_document_query_does_not_call_workflow_or_forms(client):
     assert response.status_code == 200, response.text
     assert set(called) == {"search_repo_metadata", "search_repo_rag"}
     assert seen_query["query"] == "6001"
-    assert response.json()["chatbot_result"]["query"] == "6001"
+    assert "6001" in response.json()["reply"]
 
 
 def test_search_my_documents_asks_for_a_term(client):
@@ -404,7 +459,7 @@ def test_model_routes_text_search_and_writes_the_reply(client, monkeypatch):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["reply"] == "I found the document HR_01.pdf for APEX."
-    assert body["chatbot_result"]["query"] == "APEX"
+    assert "APEX" in body["reply"]
     assert body["token_usage"]["total_tokens"] == 15
     assert ("search_repo_metadata", "APEX") in called
     assert ("search_repo_rag", "APEX") in called
@@ -450,7 +505,7 @@ def test_documents_in_6001_searches_when_the_model_asks_for_a_repository(client,
     assert response.status_code == 200, response.text
     body = response.json()
     assert "which repository" not in body["reply"].lower()
-    assert body["chatbot_result"]["query"] == "6001"
+    assert "6001" in body["reply"]
     assert ("search_repo_metadata", "6001", "") in called or (
         "search_repo_metadata",
         "6001",
@@ -505,7 +560,7 @@ def test_keyword_extraction_uses_gpt5_nano(client, monkeypatch):
     )
     assert response.status_code == 200, response.text
     assert seen["model"] == "azure/gpt-5-nano"
-    assert response.json()["chatbot_result"]["query"] == "APEX"
+    assert "APEX" in response.json()["reply"]
 
 
 def test_model_cannot_search_the_word_documents_or_the_whole_sentence(client, monkeypatch):
@@ -562,7 +617,7 @@ def test_model_cannot_search_the_word_documents_or_the_whole_sentence(client, mo
     second = post("Find the documents from APEX")
     assert second.status_code == 200, second.text
     body = second.json()
-    assert body["chatbot_result"]["query"] == "APEX"
+    assert "APEX" in body["reply"]
     assert ("search_repo_metadata", "APEX", "") in called
     assert "couldn't find any matching documents or records" not in body["reply"].lower()
     assert "APEX" in body["reply"]
@@ -626,7 +681,7 @@ def test_need_document_from_apex_searches_every_repository(client, monkeypatch):
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["chatbot_result"]["query"] == "APEX"
+    assert "APEX" in body["reply"]
     assert body["chatbot_result"]["specificId"] in (None, "")
     assert "which repository" not in body["reply"].lower()
     assert ("search_repo_metadata", "APEX", "") in called
@@ -680,7 +735,7 @@ def test_request_follow_up_searches_workflows_with_the_earlier_value(client, mon
 
     first = post("need document from APEX")
     assert first.status_code == 200, first.text
-    assert first.json()["chatbot_result"]["query"] == "APEX"
+    assert "APEX" in first.json()["reply"]
     assert ("search_repo_metadata", "APEX", "") in called
 
     called.clear()
@@ -688,7 +743,7 @@ def test_request_follow_up_searches_workflows_with_the_earlier_value(client, mon
     assert second.status_code == 200, second.text
     body = second.json()
     assert "which repository" not in body["reply"].lower()
-    assert body["chatbot_result"]["query"] == "APEX"
+    assert "APEX" in body["reply"]
     assert body["chatbot_result"]["specificId"] in (None, "")
     assert ("search_tickets", "APEX", "") in called
     assert not any(name == "search_repo_metadata" for name, *_rest in called)

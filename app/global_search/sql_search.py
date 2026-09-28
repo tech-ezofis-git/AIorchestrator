@@ -1160,7 +1160,7 @@ async def search_document_metadata(
             query=query,
             entity_type="document",
             limit=remaining,
-            extra_text=("ifilename", "filename", "description", "ocr_text", "ocrtext"),
+            extra_text=("description", "ocr_text", "ocrtext"),
             specific_id=specific_id,
             specific_id_keys=(
                 ()
