@@ -125,7 +125,7 @@ class OcrAgent:
         except (ToolExecutionError, OcrEngineError, Exception) as exc:
             logger.warning(
                 "ocr_document_extract_failed",
-                extra={"error_type": type(exc).__name__},
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
             )
             ocr_status = "fallback"
             ocr_text = ""

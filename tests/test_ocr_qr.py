@@ -138,3 +138,70 @@ def test_ocr_multipart_merges_qr_codes_into_result(client, monkeypatch):
     assert body["ocr_result"]["qr_codes"] == reply["qr_codes"]
     assert "Invoice No: INV-9" in reply["ocr_text"]
     assert any("QR (page 2)" in prompt for prompt in seen_prompts)
+
+
+def test_ocr_keeps_qr_codes_when_text_extraction_fails(client, monkeypatch):
+    from app.integrations.ocr_engine import OcrEngineClient, OcrEngineError
+
+    async def failing_extract(self, **_kwargs):
+        raise OcrEngineError("OCR extract_text request failed.")
+
+    async def fake_completion(self, messages, **_kwargs):
+        assert "QR (page 2)" in json.dumps(messages)
+        return {
+            "content": json.dumps(
+                {"ocrResult": [{"name": "UPI ID", "value": "acme@okbank", "type": "SHORT_TEXT"}]}
+            ),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr(OcrEngineClient, "_extract_text", failing_extract)
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+
+    response = client.post(
+        "/chat",
+        data={
+            "session_id": "s-qr-fail",
+            "intent": "ocr",
+            "pageno": "-1",
+            "parameters": json.dumps(["UPI ID,SHORT_TEXT"]),
+            "tableparameters": "[]",
+        },
+        files={"file": ("scan.pdf", _pdf_with_qr("upi://pay?pa=acme@okbank&am=1180.00"), "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["ocr_result"]
+    assert result["ocr_status"] == "fallback"
+    assert result["ocr_text"] == ""
+    assert result["qr_codes"][0]["decoded"]["pa"] == "acme@okbank"
+    assert result["ocrResult"][0]["value"] == "acme@okbank"
+
+
+def test_ocr_text_failure_without_qr_still_falls_back(client, monkeypatch):
+    from app.integrations.ocr_engine import OcrEngineClient, OcrEngineError
+
+    async def failing_extract(self, **_kwargs):
+        raise OcrEngineError("OCR extract_text request failed.")
+
+    monkeypatch.setattr(OcrEngineClient, "_extract_text", failing_extract)
+
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 72), "no qr here")
+    response = client.post(
+        "/chat",
+        data={
+            "session_id": "s-noqr-fail",
+            "intent": "ocr",
+            "pageno": "1",
+            "parameters": json.dumps(["Invoice No,SHORT_TEXT"]),
+            "tableparameters": "[]",
+        },
+        files={"file": ("scan.pdf", doc.tobytes(), "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["ocr_result"]
+    assert result["ocr_status"] == "fallback"
+    assert result["qr_codes"] == []
+    assert result["ocrResult"] == [{"name": "Invoice No", "value": None, "type": "SHORT_TEXT"}]

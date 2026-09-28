@@ -124,6 +124,24 @@ class OcrEngineClient:
             result = await self._extract_text(
                 data=data, name=name, ctype=ctype, pages=pages, source=source, extract_url=extract_url
             )
+        except OcrEngineError as exc:
+            if qr_task is None:
+                raise
+            qr_codes = await qr_task
+            if not qr_codes:
+                raise
+            # Text extraction failed but QR codes were decoded: return them instead of failing.
+            logger.warning("ocr_text_failed_qr_kept", extra={"error": str(exc)[:200]})
+            return {
+                "source_reference": source,
+                "text": "",
+                "confidence": None,
+                "mock": False,
+                "filename": name,
+                "pages": pages.label(),
+                "qr_codes": qr_codes,
+                "text_error": str(exc),
+            }
         except BaseException:
             if qr_task is not None:
                 qr_task.cancel()
