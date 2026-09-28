@@ -526,8 +526,20 @@ def _labeled_value_is_evidence(key: str, value: str) -> bool:
     return False
 
 
+def _non_chrome_alnum_count(text: str) -> int:
+    """Letters and digits left after form-label / status / ticket lines are removed."""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    kept = [ln for ln in lines if not _line_is_form_chrome(ln)]
+    return sum(ch.isalnum() for ch in " ".join(kept))
+
+
 def embedded_pdf_text_is_usable(text: str) -> bool:
-    """Skip label-only / form-overlay / scanned PDFs so paddle OCR can run."""
+    """Skip label-only / form-overlay / scanned PDFs so paddle OCR can run.
+
+    A branded invoice often has no INV-/PO- token and no ``Label: value``
+    lines. That text is still the document. Only a layer that is nothing
+    but field labels, status words, and ticket ids is rejected.
+    """
     raw = (text or "").strip()
     if len(raw) < 40:
         return False
@@ -540,7 +552,7 @@ def embedded_pdf_text_is_usable(text: str) -> bool:
         key, value = line.split(":", 1)
         if _labeled_value_is_evidence(key, value):
             return True
-    return False
+    return _non_chrome_alnum_count(raw) >= 40
 
 
 def _extract_pdf_text(data: bytes, *, page_selection: PageSelection) -> Optional[str]:

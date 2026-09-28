@@ -1,9 +1,15 @@
 """OCR document-job tests: intent routing, pageno, locked JSON, multipart, blob paths."""
+import base64
 import json
 
 import pytest
 
 from app.agents.ocr_helpers import parse_parameter_entries
+
+# 1x1 PNG. Branded invoices ship with a logo, which used to discard the text layer.
+_TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
 
 
 def test_parse_parameter_entries_splits_concatenated_chain():
@@ -268,6 +274,81 @@ def test_filepath_alone_without_ocr_intent_does_not_force_ocr(client, monkeypatc
     body = response.json()
     assert body["reply"] == "hello from chat"
     assert body["ocr_result"] is None
+
+
+def test_brand_invoice_pdf_fills_ocr_result_from_embedded_text(client, monkeypatch):
+    fitz = pytest.importorskip("fitz")
+    from app.integrations.ocr_engine import OcrEngineClient, OcrEngineError
+
+    async def remote_must_not_run(self, **_kwargs):
+        raise OcrEngineError("remote OCR should not run when the PDF text layer is usable")
+
+    async def fake_completion(self, messages, **_kwargs):
+        prompt = json.dumps(messages)
+        assert "Northwind Studio" in prompt
+        return {
+            "content": json.dumps(
+                {
+                    "ocrResult": [
+                        {"name": "CustomerID", "value": "Northwind Studio", "type": "SHORT_TEXT"},
+                        {"name": "DocumentDate", "value": "2026-09-24", "type": "DATE"},
+                    ],
+                    "tableResult": [],
+                }
+            ),
+            "usage": {"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+        }
+
+    monkeypatch.setattr(OcrEngineClient, "_call_extract_text", remote_must_not_run)
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_image(fitz.Rect(400, 40, 440, 80), stream=_TINY_PNG)
+    y = 72
+    for line in (
+        "INVOICE",
+        "Billed to",
+        "Northwind Studio",
+        "123 Market Street",
+        "New York",
+        "Invoice number",
+        "BW-1042",
+        "Date",
+        "September 24, 2026",
+        "Description",
+        "Brand identity design",
+        "Amount",
+        "250",
+        "Total due",
+        "250",
+    ):
+        page.insert_text((72, y), line)
+        y += 16
+    pdf = doc.tobytes()
+    doc.close()
+
+    response = client.post(
+        "/chat",
+        data={
+            "session_id": "ocr-brand-invoice",
+            "intent": "ocr",
+            "pageno": "1",
+            "parameters": json.dumps(["CustomerID,SHORT_TEXT", "DocumentDate,DATE"]),
+            "tableparameters": "[]",
+        },
+        files={"file": ("Black White Minimalist Brand Invoice.pdf", pdf, "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()["ocr_result"]
+    assert result["ocr_status"] == "success"
+    assert "Northwind Studio" in result["ocr_text"]
+    assert result["ocrResult"] == [
+        {"name": "CustomerID", "value": "Northwind Studio", "type": "SHORT_TEXT"},
+        {"name": "DocumentDate", "value": "2026-09-24", "type": "DATE"},
+    ]
+    assert all(isinstance(field["value"], str) and field["value"] for field in result["ocrResult"])
 
 
 def test_resolve_pageno_helpers():
