@@ -70,14 +70,22 @@ def _present_hit(hit: SearchHit) -> SearchHit:
     return hit.model_copy(update={"matched_field": field})
 
 
-def _hit_subtitle(hit: SearchHit) -> str:
-    """Preferred pair: 'Invoice Number · Field Hit' or 'Document · Deep Hit'."""
-    if _is_deep_hit(hit):
-        return "Document · Deep Hit"
+def _field_hit_label(hit: SearchHit) -> str:
     field = str(hit.matched_field or "").strip()
-    if not field or _is_hidden_file_field(field):
+    if not field or _is_hidden_file_field(field) or _is_deep_hit(hit):
         return "Document · Field Hit"
     return f"{_human_field_label(field)} · Field Hit"
+
+
+def _hit_subtitle(hit: SearchHit) -> str:
+    """One pair, or both when the file matched a field and the text inside it."""
+    also_deep = bool((hit.metadata or {}).get("alsoDeepHit"))
+    if _is_deep_hit(hit) and not also_deep:
+        return "Document · Deep Hit"
+    parts = [_field_hit_label(hit)]
+    if also_deep:
+        parts.append("Document · Deep Hit")
+    return " · ".join(parts)
 
 
 def _card_from_hit(hit: SearchHit) -> dict[str, Any]:

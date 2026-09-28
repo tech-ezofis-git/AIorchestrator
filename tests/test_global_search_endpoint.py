@@ -337,6 +337,50 @@ def test_merge_field_wins_over_content():
     merged = merge_document_hits(field, rag)
     assert merged[0].matchSource == "field"
     assert len(merged) == 2
+
+    same_file = merge_document_hits(
+        [
+            SearchHit(
+                type="document",
+                entity_id="item-1",
+                entity_name="INV-2026-3101.pdf",
+                ifileName="INV-2026-3101.pdf",
+                matchSource="field",
+                matched_field="Supplier",
+                id={"itemId": "item-1", "repositoryId": "repo-1"},
+            )
+        ],
+        [
+            SearchHit(
+                type="document",
+                entity_id="chunk-a",
+                entity_name="INV-2026-3101.pdf",
+                ifileName="INV-2026-3101.pdf",
+                matchSource="content",
+                matched_field="ocr_text",
+                id={"itemId": "chunk-a", "repositoryId": "repo-1"},
+            ),
+            SearchHit(
+                type="document",
+                entity_id="chunk-b",
+                entity_name="INV-2026-3101.pdf",
+                ifileName="INV-2026-3101.pdf",
+                matchSource="content",
+                matched_field="content",
+                id={"itemId": "chunk-b", "repositoryId": "repo-1"},
+            ),
+        ],
+    )
+    assert len(same_file) == 1
+    assert same_file[0].matchSource == "field"
+    assert same_file[0].matched_field == "Supplier"
+    assert same_file[0].metadata.get("alsoDeepHit") is True
+    from app.chatbot.format_blocks import format_search_blocks
+    from app.global_search.types import GlobalSearchResult
+
+    formatted = format_search_blocks(GlobalSearchResult(query="Nexus", hits=same_file))
+    cards = next(block for block in formatted["text"]["blocks"] if block["type"] == "cards")
+    assert cards["items"][0]["subtitle"] == "Supplier · Field Hit · Document · Deep Hit"
     assert merged[1].matchSource == "content"
     result = build_result("ABC", merged)
     assert status_reply(result) == "Found 2 matches."

@@ -62,6 +62,135 @@ def normalize_query(raw: str) -> str:
     return _WS.sub(" ", (raw or "").strip())
 
 
+def _compact(text: str) -> str:
+    return _WS.sub("", text)
+
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        key = item.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def _fuzzy_token(text: str) -> str:
+    """Single alphabetic word, spaces ignored. Empty when fuzzy matching does not apply."""
+    token = _compact(normalize_query(text))
+    if token.isalpha() and 4 <= len(token) <= 12:
+        return token
+    return ""
+
+
+def query_variants(query: str) -> list[str]:
+    """Original keyword plus adjacent letter swaps. 'Apxe' also searches 'Apex'."""
+    text = normalize_query(query)
+    if not text:
+        return []
+    variants = [text]
+    token = _fuzzy_token(text)
+    if not token:
+        return variants
+    chars = list(token)
+    for index in range(len(chars) - 1):
+        swapped = chars.copy()
+        swapped[index], swapped[index + 1] = swapped[index + 1], swapped[index]
+        word = "".join(swapped)
+        if word.casefold() != token.casefold() and word not in variants:
+            variants.append(word)
+    return variants
+
+
+def like_patterns(query: str) -> tuple[list[str], list[str]]:
+    """Raw ILIKE bodies, then space-stripped bodies. '_' is one extra stored character."""
+    text = normalize_query(query)
+    if not text:
+        return [], []
+    raw = [_escape_like(text)]
+    compact = _compact(text)
+    stripped: list[str] = []
+    if compact.casefold() != text.casefold():
+        stripped.append(_escape_like(compact))
+    token = _fuzzy_token(text)
+    if token:
+        chars = list(token)
+        for index in range(len(chars) - 1):
+            swapped = chars.copy()
+            swapped[index], swapped[index + 1] = swapped[index + 1], swapped[index]
+            word = "".join(swapped)
+            if word.casefold() == token.casefold():
+                continue
+            escaped = _escape_like(word)
+            if " " in text:
+                stripped.append(escaped)
+            else:
+                raw.append(escaped)
+        for index in range(len(token) + 1):
+            stripped.append(_escape_like(token[:index]) + "_" + _escape_like(token[index:]))
+    return _dedupe(raw), _dedupe(stripped)
+
+
+def _one_extra_char(needle: str, window: str) -> bool:
+    if len(window) != len(needle) + 1:
+        return False
+    left = right = 0
+    skipped = False
+    while left < len(needle) and right < len(window):
+        if needle[left] == window[right]:
+            left += 1
+            right += 1
+        elif not skipped:
+            skipped = True
+            right += 1
+        else:
+            return False
+    if left == len(needle) and right == len(window):
+        return skipped
+    return left == len(needle) and not skipped and right == len(window) - 1
+
+
+def text_matches_query(value: str, query: str) -> bool:
+    """True when value contains the keyword, ignoring spaces, one swap, or one missing letter."""
+    folded = _str(value).casefold()
+    if not folded:
+        return False
+    text = normalize_query(query).casefold()
+    if not text:
+        return False
+    if text in folded:
+        return True
+    compact_value = _compact(folded)
+    compact = _compact(text)
+    if compact and compact in compact_value:
+        return True
+    token = _fuzzy_token(text)
+    if not token:
+        return False
+    token = token.casefold()
+    chars = list(token)
+    for index in range(len(chars) - 1):
+        swapped = chars.copy()
+        swapped[index], swapped[index + 1] = swapped[index + 1], swapped[index]
+        word = "".join(swapped)
+        if word != token and word in compact_value:
+            return True
+    width = len(token) + 1
+    if len(compact_value) < width:
+        return False
+    for start in range(0, len(compact_value) - len(token)):
+        if _one_extra_char(token, compact_value[start : start + width]):
+            return True
+    return False
+
+
 def _str(value: Any) -> str:
     if value is None:
         return ""
@@ -734,10 +863,35 @@ async def _search_table(
         by_lower, "stage", "stage_name", "stagename", "stage_type", "stagetype", "current_stage"
     )
 
-    like_param = f"%{query}%"
-    clauses = [f"CAST({quote_ident(col)} AS text) ILIKE $1" for col in text_cols]
-    where = "(" + " OR ".join(clauses) + ")"
-    args: list[Any] = [like_param]
+    raw_patterns, stripped_patterns = like_patterns(query)
+    if not raw_patterns and not stripped_patterns:
+        raw_patterns = [_escape_like(query or "")]
+    raw_params = [f"%{pattern}%" for pattern in raw_patterns]
+    stripped_params = [f"%{pattern}%" for pattern in stripped_patterns]
+    like_params = raw_params + stripped_params
+    col_clauses: list[str] = []
+    for col in text_cols:
+        qcol = quote_ident(col)
+        parts: list[str] = []
+        if raw_params:
+            parts.append(
+                " OR ".join(
+                    f"CAST({qcol} AS text) ILIKE ${index}"
+                    for index in range(1, len(raw_params) + 1)
+                )
+            )
+        if stripped_params:
+            base = len(raw_params)
+            folded = f"regexp_replace(CAST({qcol} AS text), '[[:space:]]+', '', 'g')"
+            parts.append(
+                " OR ".join(
+                    f"{folded} ILIKE ${base + index}"
+                    for index in range(1, len(stripped_params) + 1)
+                )
+            )
+        col_clauses.append("(" + " OR ".join(parts) + ")")
+    where = "(" + " OR ".join(col_clauses) + ")"
+    args: list[Any] = list(like_params)
     if deleted:
         qdel = quote_ident(deleted)
         where += (
@@ -800,7 +954,6 @@ async def _search_table(
     link_tables: Optional[list[tuple[str, str]]] = None
     instance_meta_cache: dict[str, dict[str, str]] = {}
     hits: list[SearchHit] = []
-    q_lower = query.lower()
     for row in rows or []:
         entity_id = _str(row_get(row, "entity_id"))
         entity_name = _str(row_get(row, "entity_name")) or entity_id
@@ -810,7 +963,7 @@ async def _search_table(
         matched_value = entity_name
         for i, col in enumerate(text_cols):
             value = _str(row_get(row, f"m{i}"))
-            if value and q_lower in value.lower():
+            if value and text_matches_query(value, query):
                 matched_field = col
                 matched_value = value
                 break

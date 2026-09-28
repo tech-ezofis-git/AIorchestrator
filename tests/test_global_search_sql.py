@@ -3,6 +3,8 @@ import asyncio
 
 from app.global_search.schema import pick_id_column, pick_text_columns
 from app.global_search.sql_search import (
+    query_variants,
+    text_matches_query,
     search_comments,
     search_document_metadata,
     search_forms,
@@ -37,6 +39,29 @@ def test_pick_text_columns_includes_custom_varchar_fields():
     assert "IsDeleted" not in cols
 
 
+def test_apxe_also_searches_apex():
+    words = {word.casefold() for word in query_variants("Apxe")}
+    assert "apxe" in words
+    assert "apex" in words
+    assert query_variants("6001") == ["6001"]
+    db = _FakeTenantDb()
+    asyncio.run(search_repositories(db, "Apxe"))
+    assert "ILIKE $1" in db.last_sql
+    assert "ILIKE $2" in db.last_sql
+
+
+def test_wrong_space_and_missing_letter_find_nexus_start():
+    assert text_matches_query("Nexus start", "nex usstart")
+    assert text_matches_query("Nexus start", "nexusstrt")
+    assert not text_matches_query("Nexus start", "6001")
+    db = _FakeTenantDb()
+    asyncio.run(search_repositories(db, "nex usstart"))
+    assert "regexp_replace" in db.last_sql.lower()
+    assert any("nexusstart" in str(arg).casefold() for arg in db.last_args)
+    asyncio.run(search_repositories(db, "nexusstrt"))
+    assert any("_" in str(arg) for arg in db.last_args)
+
+
 def test_pick_id_column_prefers_itemid():
     assert pick_id_column({"itemid": "ItemId", "id": "Id"}) == "ItemId"
 
@@ -45,6 +70,7 @@ class _FakeTenantDb:
     def __init__(self):
         self.sqls: list[str] = []
         self.last_sql = ""
+        self.last_args: tuple = ()
         self.tables = [
             {"table_schema": "dbo", "table_name": "wrepository"},
             {"table_schema": "dbo", "table_name": "wworkflow"},
@@ -142,6 +168,7 @@ class _FakeTenantDb:
     async def fetch(self, sql: str, *args):
         compact = " ".join(sql.split()).lower()
         self.last_sql = sql
+        self.last_args = args
         self.sqls.append(sql)
         if "from information_schema.tables" in compact:
             prefix_filters = (
