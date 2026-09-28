@@ -11,6 +11,21 @@ from app.agents.ocr_helpers import resolve_pageno  # noqa: E402
 from app.integrations.qr_scan import decode_qr_payload, scan_document_qr  # noqa: E402
 
 
+@pytest.fixture
+def qr_flag():
+    return "true"
+
+
+@pytest.fixture(autouse=True)
+def _qr_enabled(monkeypatch, qr_flag):
+    from app.config import get_settings
+
+    monkeypatch.setenv("OCR_QR_ENABLED", qr_flag)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 def _qr_png(text: str) -> bytes:
     # cv2.QRCodeEncoder emits undecodable codes from QR version 7 up; keep payloads under ~100 chars.
     image = cv2.QRCodeEncoder.create().encode(text)
@@ -138,6 +153,32 @@ def test_ocr_multipart_merges_qr_codes_into_result(client, monkeypatch):
     assert body["ocr_result"]["qr_codes"] == reply["qr_codes"]
     assert "Invoice No: INV-9" in reply["ocr_text"]
     assert any("QR (page 2)" in prompt for prompt in seen_prompts)
+
+
+@pytest.mark.parametrize("qr_flag", ["false"])
+def test_qr_scan_off_when_disabled(client, monkeypatch):
+    async def fake_completion(self, messages, **_kwargs):
+        return {
+            "content": json.dumps({"ocrResult": [{"name": "Invoice No", "value": "INV-9", "type": "SHORT_TEXT"}]}),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+
+    response = client.post(
+        "/chat",
+        data={
+            "session_id": "s-qr-off",
+            "intent": "ocr",
+            "pageno": "-1",
+            "parameters": json.dumps(["Invoice No,SHORT_TEXT"]),
+            "tableparameters": "[]",
+        },
+        files={"file": ("inv.pdf", _pdf_with_qr("hello-qr"), "application/pdf")},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["ocr_result"]["qr_codes"] == []
 
 
 def test_ocr_keeps_qr_codes_when_text_extraction_fails(client, monkeypatch):
