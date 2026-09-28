@@ -312,7 +312,7 @@ FALLBACK_KEYWORDS = [
     "car door",
 ]
 
-_HEADING_RE = re.compile(r"^\s*\d+\.\d+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80})\s*$", re.MULTILINE)
+_HEADING_RE = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80})\s*$", re.MULTILINE)
 
 
 def detect_structure_signal(full_text: str, subsection_hit_count: int = 0) -> str:
@@ -840,11 +840,11 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
         lines.append(
             "## COMPUTED door package breakdown (derived directly from the per-car table above by "
             "code, not by the model) — AUTHORITATIVE. Use these exact groupings and quantities for "
-            "door_operator, clutch, door_protective_device, and the door restrictor ('other' "
-            "category) line items — do not recompute or re-derive these from the raw table, and do "
+            "door_operator, clutch, and door_protective_device "
+            "line items — do not recompute or re-derive these from the raw table, and do "
             "not omit any group below even if it's a small one. Every group listed here needs its "
-            "own door_operator, clutch, door_protective_device, and restrictor line at the quantity "
-            "shown (clutch/detector/restrictor each match the door_operator qty 1:1); car_door_panel "
+            "own door_operator, clutch, and door_protective_device line at the quantity "
+            "shown (clutch/detector each match the door_operator qty 1:1; car door restrictors are bundled with the SGV2 operator package); car_door_panel "
             "quantities are listed separately below since panels don't always use the opening count "
             "directly (a center-opening/2C group is 2 panels per opening)."
         )
@@ -852,7 +852,7 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
         lines.extend(f"- {l}" for l in breakdown["per_car_lines"])
         lines.append("")
         lines.append(
-            f"Door operator / clutch / detector / restrictor groups (total openings = "
+            f"Door operator / clutch / detector groups (total openings = "
             f"{breakdown['total_openings']}):"
         )
         lines.extend(f"- {l}" for l in breakdown["door_operator_lines"])

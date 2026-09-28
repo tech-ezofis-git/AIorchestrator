@@ -149,7 +149,11 @@ async def reindex_qualifier_pricelist(file: UploadFile = File(...)) -> dict[str,
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded pricelist file is empty.")
     try:
-        return qualifier_pricelist_store.reindex_pricelist(content, file.filename or "pricelist.pdf")
+        from app.ftl.qualifier.extract import extract_pdf_pages
+        pages = extract_pdf_pages(content)
+        if not pages:
+            pages = [content.decode("utf-8", errors="replace")]
+        return qualifier_pricelist_store.reindex_pricelist(pages, file.filename or "pricelist.pdf")
     except Exception as exc:
         logger.exception("ftl_qualifier_reindex_failed")
         raise HTTPException(status_code=500, detail=f"Reindex failed: {str(exc)}") from exc
@@ -365,7 +369,11 @@ async def reindex_quote_pricelist(file: UploadFile = File(...)) -> dict[str, Any
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded pricelist file is empty.")
     try:
-        return quote_pricelist_store.reindex_pricelist(content, file.filename or "pricelist.pdf")
+        from app.ftl.quote_estimator.extract import extract_pdf_pages
+        pages = extract_pdf_pages(content)
+        if not pages:
+            pages = [content.decode("utf-8", errors="replace")]
+        return quote_pricelist_store.reindex_pricelist(pages, file.filename or "pricelist.pdf")
     except Exception as exc:
         logger.exception("ftl_quote_reindex_failed")
         raise HTTPException(status_code=500, detail=f"Reindex failed: {str(exc)}") from exc

@@ -191,10 +191,17 @@ def generate_inflow_pdf(quote: Dict[str, Any], estimate_number: str, date_str: s
                 res.append(_p(line, _inflow_val))
         return res
 
-    billing_lines = [totals["customer_name"]] + [l.strip() for l in totals["billing_address"].split("\n") if l.strip()]
-    shipping_lines = [totals["customer_name"]] + [l.strip() for l in totals["shipping_address"].split("\n") if l.strip()]
-    contact_lines = [totals["contact_name"]] + ([totals["contact_phone"]] if totals["contact_phone"] else [])
-    exec_lines = [totals["bdm"]] if totals["bdm"] else []
+    cust_name = totals.get("customer_name") or "Standard Customer"
+    billing_addr = totals.get("billing_address") or "To be confirmed upon order"
+    shipping_addr = totals.get("shipping_address") or (totals.get("project_name") or "Jobsite delivery")
+    contact_name = totals.get("contact_name") or "Estimating / Purchasing"
+    contact_phone = totals.get("contact_phone") or ""
+    bdm_name = totals.get("bdm") or "FTL Sales Team"
+
+    billing_lines = [cust_name] + [l.strip() for l in billing_addr.split("\n") if l.strip()]
+    shipping_lines = [cust_name] + [l.strip() for l in shipping_addr.split("\n") if l.strip()]
+    contact_lines = [contact_name] + ([contact_phone] if contact_phone else [])
+    exec_lines = [bdm_name] if bdm_name else ["FTL Sales Team"]
 
     addr_table = Table(
         [
@@ -366,12 +373,19 @@ def generate_internal_pdf(quote: Dict[str, Any], estimate_number: str, date_str:
     def _block(label: str, lines: list[Paragraph]) -> list[Paragraph]:
         return [_p(label, _internal_label)] + lines
 
+    cust_name = totals.get("customer_name") or "Standard Customer"
+    billing_addr = totals.get("billing_address") or "To be confirmed upon order"
+    shipping_addr = totals.get("shipping_address") or (totals.get("project_name") or "Jobsite delivery")
+    contact_name = totals.get("contact_name") or "Estimating / Purchasing"
+    contact_phone = totals.get("contact_phone") or ""
+    bdm_name = totals.get("bdm") or "FTL Sales Team"
+
     addr_table = Table(
         [
             [
-                _block("Billing Address", [_p(totals["customer_name"], _internal_value), _p(totals["billing_address"], _internal_value)]),
-                _block("Shipping Address", [_p(totals["customer_name"], _internal_value), _p(totals["shipping_address"], _internal_value)]),
-                _block("Contact", [_p(totals["contact_name"], _internal_value), _p(totals["contact_phone"], _internal_value), Spacer(1, 4), _p("FTL BDM", _internal_label), _p(totals["bdm"], _internal_value)]),
+                _block("Billing Address", [_p(cust_name, _internal_value), _p(billing_addr, _internal_value)]),
+                _block("Shipping Address", [_p(cust_name, _internal_value), _p(shipping_addr, _internal_value)]),
+                _block("Contact", [_p(contact_name, _internal_value)] + ([_p(contact_phone, _internal_value)] if contact_phone else []) + [Spacer(1, 4), _p("FTL BDM", _internal_label), _p(bdm_name, _internal_value)]),
                 _block("Payment Terms", [_p(totals["payment_terms"] or "—", _internal_value)]),
             ]
         ],
