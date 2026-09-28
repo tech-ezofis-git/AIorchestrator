@@ -199,6 +199,22 @@ Empty upload → HTTP **400** `"Uploaded file is empty."`
       {"name": "Total Amount", "value": "1770.00", "type": "AMOUNT"}
     ],
     "tableResult": [],
+    "qr_codes": [
+      {
+        "page": 3,
+        "data": "eyJhbGciOiJSUzI1NiIs...",
+        "decoded": {
+          "type": "gst_einvoice",
+          "issuer": "NIC",
+          "SellerGstin": "29AAACA1234A1Z5",
+          "BuyerGstin": "33BBBCB5678B1Z2",
+          "DocNo": "INV/26-27/002140",
+          "DocDt": "20/04/2026",
+          "TotInvVal": 1770.0,
+          "Irn": "9f2b..."
+        }
+      }
+    ],
     "ocr_text": "<raw extracted text from the document>",
     "source_reference": "invoices/2026/INV26-27002140.pdf",
     "ocr_status": "success"
@@ -221,6 +237,7 @@ Empty upload → HTTP **400** `"Uploaded file is empty."`
 |-----|------|-------------|
 | `ocrResult` | object[] | `{ "name", "value", "type" }` — `value` may be `null` |
 | `tableResult` | array | Table extractions, or `[]` |
+| `qr_codes` | object[] | QR codes found on the scanned pages, or `[]` — see below |
 | `ocr_text` | string | Raw extracted text |
 | `source_reference` | string | filepath / filename / `"upload"` |
 | `ocr_status` | string | `"success"` or `"fallback"` |
@@ -231,17 +248,43 @@ Empty upload → HTTP **400** `"Uploaded file is empty."`
 | | `reply` | `ocr_result` |
 |--|---------|--------------|
 | Type | **string** (JSON text) | object |
-| Contains | `ocrResult`, `tableResult`, `ocr_text` | same + `source_reference`, `ocr_status` |
+| Contains | `ocrResult`, `tableResult`, `qr_codes`, `ocr_text` | same + `source_reference`, `ocr_status` |
 
 Clients should prefer parsing **`ocr_result`**. If reading `reply`, `JSON.parse(reply)` first.
 
 This differs from Summary/Insight, where `reply` is a short human status line.
 
+### QR codes (`qr_codes`)
+
+For PDF and image documents, OCR text extraction and OpenCV QR detection run **at the same time**
+on the same pages (`pageno` selection — e.g. `"-1"` scans pages 1–5 for both). Each QR found becomes:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `page` | int | 1-based page number the QR was found on |
+| `data` | string | Raw decoded QR text |
+| `decoded` | object | Optional; present for known payloads |
+
+Known payloads:
+
+- **GST e-invoice QR** (NIC-signed JWT): `decoded.type = "gst_einvoice"`, `issuer`, plus the invoice
+  summary claims (`SellerGstin`, `BuyerGstin`, `DocNo`, `DocTyp`, `DocDt`, `TotInvVal`, `ItemCnt`,
+  `MainHsnCode`, `Irn`, `IrnDt`). The JWT signature is **not** verified.
+- **UPI payment QR** (`upi://pay?...`): `decoded.type = "upi"` plus query params (`pa`, `pn`, `am`, `cu`, ...).
+- Other JWTs: `decoded.type = "jwt"` plus claims. Plain text / URLs: no `decoded`.
+
+QR data is also given to field structuring together with `ocr_text`, so requested `parameters`
+(e.g. `Seller GSTIN`, `IRN`) can be filled from the QR when the printed text lacks them. `ocr_text`
+itself stays the raw page text. QR scanning never fails the request: on any error `qr_codes` is `[]`.
+Other file types (txt, docx, xlsx, ...) are not scanned. Disable with `OCR_QR_ENABLED=false`;
+render resolution is `OCR_QR_DPI` (default 200; pages with no QR hit are retried at double resolution).
+
 ---
 
 ## 10. Fail-closed (no usable text)
 
-HTTP **200** (not 502) when extract fails or text is empty:
+HTTP **200** (not 502) when extract fails or text is empty and no QR code was decoded
+(if a QR was decoded, fields are still structured from the QR data):
 
 - `ocr_result.ocr_text`: `""`
 - Each requested `parameters` entry: `value: null`
@@ -293,6 +336,7 @@ Body: `{ "detail": "…" }`
 
 - Agent: `app/agents/ocr_agent.py`
 - Engine: `app/integrations/ocr_engine.py`
+- QR scan: `app/integrations/qr_scan.py` (OpenCV, `opencv-python-headless`)
 - Skills pack: `skills/ocr/`
 - Chat models: `app/models/chat.py`
-- Key env: `OCR_EXTRACT_URL`, `OCR_MAX_PAGES`, `OCR_MAX_RECOMMENDED_FIELDS`, `OCR_MAX_FILE_BYTES`, `AZURE_STORAGE_CONNECTION_STRING`
+- Key env: `OCR_EXTRACT_URL`, `OCR_MAX_PAGES`, `OCR_MAX_RECOMMENDED_FIELDS`, `OCR_MAX_FILE_BYTES`, `OCR_QR_ENABLED`, `OCR_QR_DPI`, `AZURE_STORAGE_CONNECTION_STRING`

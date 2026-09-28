@@ -100,6 +100,7 @@ class OcrAgent:
         ocr_status = "success"
         ocr_text = ""
         ocr_tool: dict[str, Any] = {}
+        qr_codes: list[dict[str, Any]] = []
 
         try:
             ocr_tool = await self._dispatcher.dispatch(
@@ -114,9 +115,11 @@ class OcrAgent:
                     "page_start": pages.start,
                     "page_end": pages.end,
                     "page_raw": pages.raw,
+                    "scan_qr": True,
                 },
             )
             ocr_text = (ocr_tool.get("text") or "").strip()
+            qr_codes = list(ocr_tool.get("qr_codes") or [])
             if not ocr_text:
                 ocr_status = "fallback"
         except (ToolExecutionError, OcrEngineError, Exception) as exc:
@@ -127,8 +130,10 @@ class OcrAgent:
             ocr_status = "fallback"
             ocr_text = ""
 
-        # No OCR text → do not hallucinate; null out requested fields.
-        if not ocr_text:
+        model_text = _with_qr_text(ocr_text, qr_codes)
+
+        # No OCR text or QR data → do not hallucinate; null out requested fields.
+        if not model_text:
             ocr_result_fields = [
                 {"name": name, "value": None, "type": typ}
                 for name, typ in parse_parameter_entries(parameters)
@@ -136,6 +141,7 @@ class OcrAgent:
             body = _locked_body(
                 ocr_result=ocr_result_fields,
                 ocr_text="",
+                qr_codes=qr_codes,
             )
             body["source_reference"] = source
             body["ocr_status"] = ocr_status
@@ -161,7 +167,7 @@ class OcrAgent:
             synthesized = await extract_fields_skill(
                 llm=self._llm_for_skill(),
                 instruction=instruction,
-                ocr_text=ocr_text,
+                ocr_text=model_text,
                 parameters=parameters,
                 tableparameters=tableparameters,
                 page_label=pages.label(),
@@ -175,7 +181,7 @@ class OcrAgent:
             )
             synthesized = await self._structure_with_fallback(
                 instruction=instruction,
-                ocr_text=ocr_text,
+                ocr_text=model_text,
                 parameters=parameters,
                 tableparameters=tableparameters,
                 page_label=pages.label(),
@@ -192,6 +198,7 @@ class OcrAgent:
             ocr_result=fields,
             ocr_text=ocr_text,
             table_result=table_result,
+            qr_codes=qr_codes,
         )
         body["source_reference"] = source
         body["ocr_status"] = ocr_status
@@ -273,16 +280,31 @@ class OcrAgent:
         raise error
 
 
+def _with_qr_text(ocr_text: str, qr_codes: list[dict[str, Any]]) -> str:
+    """OCR text plus a QR section, so field structuring sees both sources."""
+    if not qr_codes:
+        return ocr_text
+    lines = ["--- QR codes found in the document ---"]
+    for qr in qr_codes:
+        content = qr.get("decoded") or qr.get("data")
+        if isinstance(content, dict):
+            content = json.dumps(content, ensure_ascii=False)
+        lines.append(f"QR (page {qr.get('page')}): {content}")
+    return "\n\n".join(part for part in (ocr_text, "\n".join(lines)) if part)
+
+
 def _locked_body(
     *,
     ocr_result: list[dict[str, Any]],
     ocr_text: str,
     table_result: Any = None,
+    qr_codes: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
-    """Single OCR payload node: fields + tables + text (no nested duplicates)."""
+    """Single OCR payload node: fields + tables + QR codes + text (no nested duplicates)."""
     return {
         "ocrResult": ocr_result,
         "tableResult": table_result if table_result is not None else [],
+        "qr_codes": qr_codes or [],
         "ocr_text": ocr_text,
     }
 
@@ -291,5 +313,6 @@ def _reply_payload(body: dict[str, Any]) -> dict[str, Any]:
     return {
         "ocrResult": body.get("ocrResult") or [],
         "tableResult": body.get("tableResult") or [],
+        "qr_codes": body.get("qr_codes") or [],
         "ocr_text": body.get("ocr_text") or "",
     }
