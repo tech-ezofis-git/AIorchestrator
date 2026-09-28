@@ -360,3 +360,107 @@ def test_chat_pdf_base64_from_quote_json_multipart(client):
     )
     assert res.status_code == 200, res.text
     assert base64.b64decode(res.json()["pdf_base64"]).startswith(b"%PDF")
+
+
+def test_quote_estimator_applies_git_consistency_checks():
+    from app.ftl.quote_estimator.agent import (
+        _enforce_door_restrictor_bundling,
+        _enforce_governor_scope_gate,
+        _enforce_line_item_qty_matches_car_count,
+        _enforce_panel_vs_adaptor_exclusivity,
+        _enforce_two_speed_door_type,
+        _enforce_wrg_gating,
+        _normalize_door_tools_code,
+    )
+    from app.ftl.quote_estimator.extract import build_candidate_text
+
+    two_speed = _enforce_two_speed_door_type(
+        {
+            "line_items": [
+                {
+                    "product_code": "SGV2_DOOR_OP_2C42_LH",
+                    "category": "door_operator",
+                    "qty": 1,
+                    "unit_price": 1,
+                    "description": "2C",
+                }
+            ]
+        },
+        "Door Configuration: Two-speed",
+    )
+    assert two_speed["line_items"][0]["product_code"] == "SGV2_DOOR_OP_2T42_LH"
+
+    inventory = (
+        "Existing Equipment Information\nCar 1\nCab Configuration: Single entrance\n"
+    )
+    qty = _enforce_line_item_qty_matches_car_count(
+        {
+            "line_items": [
+                {"product_code": "SGV2_DOOR_OP_1S42_LH", "category": "door_operator", "qty": 2, "unit_price": 1}
+            ],
+            "assumptions": [],
+        },
+        inventory,
+    )
+    assert qty["line_items"][0]["qty"] == 1
+
+    gated = _enforce_governor_scope_gate(
+        {
+            "line_items": [
+                {"product_code": "WG_OL35_GOVERNOR", "category": "governor", "qty": 1, "unit_price": 100}
+            ],
+            "assumptions": [],
+        },
+        "New equipment such as machines, safeties, governors as required with a 10% margin.",
+    )
+    assert gated["line_items"] == []
+
+    bundled = _enforce_door_restrictor_bundling(
+        {
+            "line_items": [
+                {"product_code": "SGV2_DOOR_OP_1S42_LH", "category": "door_operator", "qty": 2, "unit_price": 10}
+            ]
+        }
+    )
+    restrictors = [it for it in bundled["line_items"] if it["product_code"] == "SGV2_CAR_DOOR_RESTRICTOR"]
+    assert len(restrictors) == 1 and restrictors[0]["qty"] == 2 and restrictors[0]["unit_price"] == 0
+
+    exclusive = _enforce_panel_vs_adaptor_exclusivity(
+        {
+            "line_items": [
+                {"product_code": "PANEL", "category": "car_door_panel", "qty": 1, "unit_price": 1},
+                {"product_code": "ADAPTOR", "category": "panel_adaptor", "qty": 1, "unit_price": 1},
+            ],
+            "assumptions": [],
+        }
+    )
+    assert [it["category"] for it in exclusive["line_items"]] == ["car_door_panel"]
+
+    stripped = _enforce_wrg_gating(
+        {
+            "line_items": [
+                {"product_code": "WRG_MOTION_GEAR150", "category": "roller_guide", "qty": 4, "unit_price": 1, "description": "car"}
+            ],
+            "assumptions": [],
+        },
+        "Cab interior renovation only.",
+    )
+    assert stripped["line_items"] == []
+
+    tools = _normalize_door_tools_code(
+        {
+            "line_items": [
+                {
+                    "product_code": "ALL WITTUR PROGRAMING TOOL",
+                    "category": "door_tools",
+                    "qty": 1,
+                    "unit_price": 0,
+                    "description": "tool",
+                }
+            ]
+        }
+    )
+    assert tools["line_items"][0]["product_code"] == "SGV2_DOOR_TOOLS"
+
+    shaw = "2.01 Existing Equipment Information\nCar 1\nDoor Configuration: Two-speed\n"
+    assert "Existing Equipment Information" in build_candidate_text(shaw)["subsections"]

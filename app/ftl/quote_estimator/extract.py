@@ -246,7 +246,31 @@ TARGET_SUBSECTION_TITLES = [
     "Car Safeties",
     "Description of Existing Equipment",
     "Schedule of Existing Equipment",
+    # A third, real heading variant (F.SHAW MANAGEMENT & CONSULTING INC.'s template, confirmed on
+    # the "1579 Main St W" RFQ) — a short key/value block (Car N, Type, Capacity, Speed, Door
+    # Configuration, Cab Configuration) rather than the wide per-car column table the other two
+    # titles above capture. Before this was added, neither TARGET_SUBSECTION_TITLES nor the
+    # _EQUIPMENT_INVENTORY_ANCHORS anchor grab (below) recognized this heading text at all, so the
+    # whole block silently fell through to the generic ~400-char keyword-window fallback — which
+    # kept "Hydraulic" (a FALLBACK_KEYWORDS-adjacent hit) but dropped "Door Configuration: Single
+    # panel" and "Cab Configuration: Single entrance" entirely, even though those two lines are
+    # exactly what would have let the estimator confidently set door-operator/detector quantities
+    # (car count x openings) instead of excluding both line items as "car/opening count not
+    # provided" — a real quote gap that only surfaced because the model itself had no way to see
+    # facts that were fully present in the source PDF.
+    "Existing Equipment Information",
     "New Equipment",
+    # A fourth heading variant (PERRY ELEVATOR CONSULTANTS' "PEC" template, confirmed on the "5770
+    # Hurontario St" RFQ) — a numbered ".1"/".2"/... checklist under "2.01 Existing Equipment
+    # Description" whose ".14 Openings - Front N (per elevator)" / ".15 Openings – Rear N" lines are
+    # the ONLY place car count and single-vs-multi-entrance configuration are stated at all. Before
+    # this was added, this section fell through to the generic fallback window (which doesn't even
+    # reliably hit "Openings" — it isn't in FALLBACK_KEYWORDS), so the model never saw this data and
+    # had no way to know whether each car has 1 or 2 door sets — confirmed live: repeated runs on
+    # this exact RFQ hallucinated door_operator (and every category derived from it: clutch,
+    # detector, restrictor) qty as 4 OR 8 on a 4-elevator, single-entrance (rear=0) job, when the
+    # correct answer (stated plainly in this section) is 4.
+    "Existing Equipment Description",
 ]
 
 # Word budget per targeted subsection, overriding DEFAULT_SUBSECTION_WORD_BUDGET below. The
@@ -256,10 +280,18 @@ TARGET_SUBSECTION_TITLES = [
 SUBSECTION_WORD_BUDGET = {
     "Description of Existing Equipment": 1100,
     "Schedule of Existing Equipment": 1100,
+    # Short key/value block (see TARGET_SUBSECTION_TITLES comment above) — a few dozen words per
+    # car is normal; this budget is generous headroom for a multi-car version of the same template,
+    # not an expectation that it needs 1100 words like the wide per-car tables above.
+    "Existing Equipment Information": 500,
     # A numbered checklist (~35 short items), not prose — the default 600-word cap is already
     # generous for it, but give it a bit more room since it's a hard, complete signal for which
     # categories are actually in scope (see skill_store.py's "New Equipment checklist" guidance).
     "New Equipment": 400,
+    # PEC template's ".1"..".25" existing-equipment checklist (see TARGET_SUBSECTION_TITLES
+    # comment above) — a couple dozen short lines, comfortably under the default budget, but given
+    # its own explicit entry so a future edit to the default doesn't accidentally starve it.
+    "Existing Equipment Description": 400,
 }
 DEFAULT_SUBSECTION_WORD_BUDGET = 600
 

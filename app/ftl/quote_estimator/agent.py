@@ -1136,12 +1136,17 @@ def _enforce_safety_gear_block(quote: Dict[str, Any]) -> Dict[str, Any]:
 _WRG_HT_RAIL_RE = re.compile(r"roll[- ]?formed\s+HT\s+rail|lubricated\s+rail", re.IGNORECASE)
 _WRG_NONPASSENGER_RE = re.compile(r"non[- ]?passenger|freight\s+elevator|unbalanced\s+car", re.IGNORECASE)
 _WRG_CWT_DESC_RE = re.compile(r"counterweight|\bCWT\b", re.IGNORECASE)
+# Opt-in: Product Master marks every WRG row CONDITIONAL ("quote only when scope calls").
+# Plain "guide shoe" is not a match — F.SHAW specs use that for sliding shoes, not WRG rollers.
+_WRG_EXPLICIT_SCOPE_RE = re.compile(r"roller\s+guide|isolated\s+roller\s+guide|\bWRG\d", re.IGNORECASE)
 
 
 def _enforce_wrg_gating(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
-    """RT-011 / RT-012 / RT-013 and Training Example T-006 (WRG roller guides) — three independent,
+    """RT-011 / RT-012 / RT-013 and Training Example T-006 (WRG roller guides) — four independent,
     code-verifiable guards, each mapping to one review trigger from the Stage 2 rulebook:
 
+    0. Product Master's own "quote only when scope calls" rule — strips roller_guide lines unless
+       the spec text itself names roller guides (see _WRG_EXPLICIT_SCOPE_RE).
     1. RT-013 — reject entirely on a roll-formed HT rail, a lubricated rail, or a non-passenger/
        unbalanced-car application; WRG's standard range is invalid there per its own technical
        catalogue. Strips any roller_guide line(s) rather than pricing something the manufacturer's
@@ -1158,6 +1163,18 @@ def _enforce_wrg_gating(quote: Dict[str, Any], candidate_text: str) -> Dict[str,
         return quote
     quote = dict(quote)
     assumptions = list(quote.get("assumptions") or [])
+
+    if not _WRG_EXPLICIT_SCOPE_RE.search(candidate_text or ""):
+        quote["line_items"] = [it for it in line_items if it.get("category") != "roller_guide"]
+        assumptions.append(
+            "\U0001F6D1 BLOCK — removed roller_guide line(s): the spec text never explicitly calls "
+            "for roller/car guide replacement (Product Master's own rule for every WRG line is "
+            "\"quote only when scope calls\" — opt-in, not opt-out). Add these back manually once "
+            "the full spec/survey confirms guide replacement is actually in scope, with the correct "
+            "frame size and car-vs-counterweight split."
+        )
+        quote["assumptions"] = assumptions
+        return quote
 
     if _WRG_HT_RAIL_RE.search(candidate_text or "") or _WRG_NONPASSENGER_RE.search(candidate_text or ""):
         quote["line_items"] = [it for it in line_items if it.get("category") != "roller_guide"]
@@ -2133,6 +2150,672 @@ def _validate_quote_payload(quote: Any) -> Dict[str, Any]:
     return quote
 
 
+# Root cause confirmed live: running the SAME "1579 Main St W" RFQ (a ONE-car job — the spec's own
+# "Existing Equipment Information" table lists only "Car 1", single-entrance) three times, one run
+# (of three) hallucinated qty=2 across door_operator, clutch, car_door_panel, door_protective_device
+# and the restrictor — silently doubling five line-item subtotals on a one-elevator quote — while the
+# other two runs correctly used qty=1. This is a pure model-sampling error on the qty FIELD itself
+# (not a category presence/absence question like the WRG/governor gates above), caught by
+# cross-checking against the one piece of the spec that states car count in a clean, literal,
+# extractable form: the "Existing Equipment Information" table's own asset-number header row (e.g.
+# "Car 1 - 86503 Car 2 - 86488" => 2 cars on 2211 Brant St; "Car 1 82159" => 1 car on 1579 Main St).
+_EXISTING_EQUIPMENT_INFO_HEADING_RE = re.compile(r"Existing Equipment Information", re.IGNORECASE)
+_CAR_HEADER_ROW_RE = re.compile(r"\bCar\s+(\d+)\b", re.IGNORECASE)
+_MULTI_ENTRANCE_RE = re.compile(r"(double|front\s+and\s+rear|two)\s+entrance", re.IGNORECASE)
+_SINGLE_ENTRANCE_RE = re.compile(r"single\s+entrance", re.IGNORECASE)
+_PER_CAR_QTY_CATEGORIES = {"door_operator", "clutch", "car_door_panel", "door_protective_device"}
+# Same pattern the sanitize pass's own local _2C2T_PANEL_RE uses (kept in sync deliberately) — a
+# 2C/2T-coded car_door_panel line is priced and counted per PANEL, not per set, so it needs double
+# the flat car_count target.
+_2C2T_PANEL_CODE_RE = re.compile(r"^2[CT]_UNIVERSAL_CAR_DOOR", re.IGNORECASE)
+
+# PEC ("PERRY ELEVATOR CONSULTANTS") template — confirmed on '5770 Hurontario St' — states car
+# count and entrance configuration in a completely different form: a numbered ".1"/".2"/...
+# checklist under "Existing Equipment Description" (see extract.py's TARGET_SUBSECTION_TITLES
+# comment). e.g. ".1 5770 Hurontario Street 4 Elevators" => 4 cars; ".14 Openings - Front 12 (per
+# elevator)" / ".15 Openings – Rear 0" => single entrance (0 rear openings). Confirmed live: before
+# extract.py recognized this heading at all, the model never saw this section, and repeated runs on
+# this exact RFQ hallucinated door_operator (and everything derived from it — clutch, detector,
+# restrictor) qty as 4 OR 8 on this 4-elevator, single-entrance job — correct answer is 4.
+_EXISTING_EQUIPMENT_DESC_HEADING_RE = re.compile(r"Existing Equipment Description", re.IGNORECASE)
+_PEC_ELEVATOR_COUNT_RE = re.compile(r"\b(\d+)\s+Elevators?\b", re.IGNORECASE)
+_PEC_REAR_OPENINGS_RE = re.compile(r"Openings\s*[-–—]\s*Rear\s+(\d+)", re.IGNORECASE)
+
+
+def _detect_car_count_and_single_entrance(candidate_text: str) -> Optional[Tuple[int, bool]]:
+    """Tries each known template's own literal car-count/entrance-config statement, in turn,
+    returning (car_count, single_entrance_confirmed) from the first one that matches, or None if
+    none of them do. Extending this — rather than guessing from line_items — is exactly the
+    difference between a correction and a fabrication: every path here is a direct read of text the
+    spec itself states, never an inference from the model's own (already-suspect) output."""
+    text = candidate_text or ""
+
+    heading_match = _EXISTING_EQUIPMENT_INFO_HEADING_RE.search(text)
+    if heading_match:
+        window = text[heading_match.end(): heading_match.end() + 600]
+        car_numbers = {int(n) for n in _CAR_HEADER_ROW_RE.findall(window)}
+        if car_numbers:
+            car_count = len(car_numbers)
+            single_entrance = bool(_SINGLE_ENTRANCE_RE.search(window)) and not _MULTI_ENTRANCE_RE.search(window)
+            return car_count, single_entrance
+
+    heading_match = _EXISTING_EQUIPMENT_DESC_HEADING_RE.search(text)
+    if heading_match:
+        window = text[heading_match.end(): heading_match.end() + 800]
+        car_count_match = _PEC_ELEVATOR_COUNT_RE.search(window)
+        rear_match = _PEC_REAR_OPENINGS_RE.search(window)
+        if car_count_match and rear_match:
+            car_count = int(car_count_match.group(1))
+            single_entrance = int(rear_match.group(1)) == 0
+            return car_count, single_entrance
+
+    return None
+
+
+# Confirmed live on '171 Guelph St' (3 identical live-API runs): the spec's own "Existing Equipment
+# Information" table says only "Door Configuration: Two-speed" — no mention anywhere of centre vs
+# side opening. FTL's own pricelist DESCRIPTION text is the only tiebreaker available: 2T's row
+# reads "SGV2 – 2/SPEED DOOR" (explicitly a SPEED variant), while 2C's reads "SGV2 – C/OPEN DOOR"
+# (an OPENING STYLE, not a speed statement) — so "Two-speed" alone, with no centre-opening mention,
+# points to 2T. Repeated identical runs nonetheless flip-flopped between 2T and 2C. This does not
+# resolve the ambiguity with certainty (the spec truly never states opening style) — it makes the
+# estimator's answer deterministic and flags it clearly, rather than leaving it to model sampling.
+_TWO_SPEED_CONFIG_RE = re.compile(r"\btwo[- ]speed\b|\b2[- ]speed\b", re.IGNORECASE)
+_CENTRE_OPENING_RE = re.compile(r"cent(er|re)\s*[- ]?\s*open", re.IGNORECASE)
+_DOOR_OP_2C_CODE_RE = re.compile(r"^(SGV2_DOOR_OP_)2C(\d+)_(LH|RH)$", re.IGNORECASE)
+
+
+def _enforce_two_speed_door_type(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Normalizes a 2C-coded door_operator/car_door_panel line to 2T when the spec's own text
+    states a "Two-speed" door configuration with no centre/center-opening qualifier anywhere —
+    see the module comment above for why 2T, not 2C, is the more defensible read of "Two-speed"
+    alone. Backs off entirely (does nothing) if the spec ever mentions centre/center opening
+    anywhere, since that specifically points toward 2C instead. Never touches 1S or already-2T
+    lines — only resolves the literal 2C/2T ambiguity this exact phrase creates."""
+    text = candidate_text or ""
+    if not _TWO_SPEED_CONFIG_RE.search(text):
+        return quote
+    if _CENTRE_OPENING_RE.search(text):
+        return quote
+
+    line_items = quote.get("line_items") or []
+    try:
+        panel_rows = {(p["door_type"], p["width"]): p for p in car_door_panel_prices()}
+    except Exception:
+        panel_rows = {}
+
+    new_items = list(line_items)
+    changed = False
+    for idx, it in enumerate(new_items):
+        code = str(it.get("product_code") or "")
+        if it.get("category") == "door_operator":
+            m = _DOOR_OP_2C_CODE_RE.match(code)
+            if not m:
+                continue
+            new_code = f"{m.group(1)}2T{m.group(2)}_{m.group(3)}"
+            row = _lookup_product_master(new_code)
+            if not row:
+                continue
+            item = dict(it)
+            item["product_code"] = new_code
+            item["description"] = row.get("description") or new_code
+            if row.get("price_cad") is not None:
+                item["unit_price"] = row["price_cad"]
+            item["needs_engineering_review"] = True
+            item["note"] = (
+                f"⚠ AUTO-CORRECTED — product_code was {code!r} (2C = center-opening), but the spec "
+                "only states \"Two-speed\" with no mention of centre/center opening anywhere; "
+                "FTL's own pricelist describes 2T as the speed variant (\"2/SPEED DOOR\") and 2C as "
+                "an opening-style variant (\"C/OPEN DOOR\"), so this was normalized to 2T. The spec "
+                "genuinely doesn't state opening style — confirm 2T vs 2C against the real door "
+                "before release."
+                + (" " + it.get("note") if it.get("note") else "")
+            )
+            new_items[idx] = item
+            changed = True
+        elif it.get("category") == _CAR_DOOR_PANEL_CATEGORY and _2C2T_PANEL_CODE_RE.match(code) and code.upper().startswith("2C_"):
+            m2 = re.match(r"^2C_UNIVERSAL_CAR_DOOR_PANEL - (\d+) X", code, re.IGNORECASE)
+            if not m2:
+                continue
+            row = panel_rows.get(("2T", m2.group(1)))
+            if not row:
+                continue
+            item = dict(it)
+            old_code = item.get("product_code")
+            item["product_code"] = row["code"]
+            item["description"] = row["code"]
+            item["unit_price"] = row["unit_price"]
+            item["needs_engineering_review"] = True
+            item["note"] = (
+                f"⚠ AUTO-CORRECTED — product_code was {old_code!r} (2C = center-opening), but the "
+                "spec only states \"Two-speed\" with no mention of centre/center opening anywhere; "
+                "normalized to the matching 2T panel to stay consistent with the door_operator "
+                "line's own type. The spec genuinely doesn't state opening style — confirm 2T vs 2C "
+                "against the real door before release."
+                + (" " + it.get("note") if it.get("note") else "")
+            )
+            new_items[idx] = item
+            changed = True
+
+    if not changed:
+        return quote
+    quote = dict(quote)
+    quote["line_items"] = new_items
+    return quote
+
+
+def _enforce_line_item_qty_matches_car_count(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Corrects a per-car category's line-item qty against the car count literally stated in the
+    spec's own equipment-inventory section — see _detect_car_count_and_single_entrance for the
+    per-template detection. Deliberately conservative in two ways: (1) only fires when the spec
+    confirms every car is single-entrance — a multi-entrance car legitimately needs more than one
+    set per car and this function has no reliable way to know the right multiplier, so it backs off
+    entirely rather than guess; (2) only corrects a category with EXACTLY ONE line item whose qty is
+    an exact multiple of car_count (and isn't already equal to it) — a category already split across
+    several lines (e.g. two different door widths, one per car) is left untouched since dividing any
+    one of those lines down would be a guess, not a correction. Placed first in the pipeline, before
+    every other enforcement function, since _enforce_car_door_panel_presence and
+    _enforce_door_restrictor_bundling both derive their own qty from door_operator's qty — they need
+    the corrected number, not the hallucinated one.
+
+    car_door_panel gets one adjustment on top of the flat car_count target: a 2C/2T panel code is
+    priced and counted PER PANEL, not per set, and a center/2-speed opening has two physical panels
+    — car_door_panel_prices()/_enforce_car_door_panel_presence both already double qty for a 2C/2T
+    default line for exactly this reason. Confirmed live on '5770 Hurontario St' (4 cars, 2C/42"
+    doors): forcing a 2C panel line down to the flat car_count (4) instead of car_count*2 (8) would
+    have UNDONE that doubling and silently halved the panel line."""
+    detected = _detect_car_count_and_single_entrance(candidate_text)
+    if not detected:
+        return quote
+    car_count, single_entrance = detected
+    if car_count <= 0 or not single_entrance:
+        return quote
+
+    line_items = quote.get("line_items") or []
+    by_category: Dict[str, List[int]] = {}
+    for idx, it in enumerate(line_items):
+        cat = it.get("category")
+        if cat in _PER_CAR_QTY_CATEGORIES:
+            by_category.setdefault(cat, []).append(idx)
+
+    new_items = list(line_items)
+    assumptions = list(quote.get("assumptions") or [])
+    changed = False
+    for cat, idxs in by_category.items():
+        if len(idxs) != 1:
+            continue
+        idx = idxs[0]
+        item = dict(new_items[idx])
+        try:
+            qty = float(item.get("qty") or 0)
+        except (TypeError, ValueError):
+            continue
+        expected = car_count
+        if cat == _CAR_DOOR_PANEL_CATEGORY and _2C2T_PANEL_CODE_RE.match(str(item.get("product_code") or "")):
+            expected = car_count * 2
+        if qty and qty != expected and qty % expected == 0:
+            item["qty"] = expected
+            new_items[idx] = item
+            changed = True
+            assumptions.append(
+                f"⚠ CORRECTED — {cat} qty was {int(qty)}, but the spec's own equipment-inventory "
+                f"section lists exactly {car_count} car(s) (all single-entrance), so qty was "
+                f"corrected to {expected}"
+                + (" (2 panels per center-opening door)" if expected != car_count else "")
+                + ". Caught directly against live run-to-run inconsistency on single-entrance jobs "
+                "(e.g. qty 1 vs 2 on a one-car job; qty 4 vs 8 on a 4-car job)."
+            )
+    if not changed:
+        return quote
+    quote = dict(quote)
+    quote["line_items"] = new_items
+    quote["assumptions"] = assumptions
+    return quote
+
+
+# Product Master's own automation_status for every WG_OL35/OL100 governor row is CONDITIONAL —
+# same "quote only when scope calls" opt-in rule as the WRG roller guide rows (see
+# _WRG_EXPLICIT_SCOPE_RE above). Confirmed live: on two different RFQs (2211 Brant St, 1579 Main
+# St), whose specs only ever mention governors inside a generic weight-margin boilerplate clause
+# ("New Elevator equipment such as machines, beams, safeties, governors... as required... ordered
+# with an additional 10% margin of safety") that never names THIS car's governor as new equipment,
+# repeated identical runs sometimes included a full priced OL35-RC governor + mandatory tension
+# companion (adding ~$7,900 to a 2-car estimate) and sometimes didn't — a coin flip on a five-figure
+# line. Deliberately does NOT match the generic "safeties, governors... as required" listing, or the
+# unrelated "governor and idler sheaves" (painting section) / "governor shall be labelled" (data-tag
+# section) boilerplate mentions confirmed present in both real samples — those describe EXISTING
+# equipment, not a call for new governor work.
+_GOVERNOR_EXPLICIT_SCOPE_RE = re.compile(
+    r"(install|provide|replace)\s+(a\s+|the\s+|one\s+|two\s+)*(new\s+)?"
+    r"(remote[- ]control\s+|manual[- ]trip\s+|encoder\s+)?governor\b|governor\s+replacement|new\s+governor\b"
+    # "governor\s+new\b" covers the flat "device_name status" list convention seen in some specs
+    # (e.g. "...Emergency Brake New Governor New Car Door Restrictor New..."), where each item is its
+    # own name-then-status pair. Verified this does NOT false-positive on either F.SHAW document
+    # (2211 Brant St, 1579 Main St W) before adding it.
+    r"|governor\s+new\b",
+    re.IGNORECASE,
+)
+
+
+def _enforce_governor_scope_gate(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Opt-in gate for governor lines, mirroring _enforce_wrg_gating's roller-guide logic (see its
+    docstring for the general "CONDITIONAL means opt-in" reasoning). Two independent ways a governor
+    can be confirmed in scope, either of which keeps existing governor line(s): (1) the Equipment
+    scope table itself says "Governor: New" (_scope_table_confirms_new — the SAME positive signal
+    _enforce_governor_presence above uses to ADD a line; never undoes that function's own work), or
+    (2) the spec text explicitly calls for new/replacement governor work (_GOVERNOR_EXPLICIT_SCOPE_RE
+    above). Absent both, every governor-category line is removed — placed before
+    _enforce_governor_tension_companions in the pipeline so a stripped governor never leaves an
+    orphaned tension/swingarm companion line behind."""
+    line_items = quote.get("line_items") or []
+    governor_items = [it for it in line_items if it.get("category") == "governor"]
+    if not governor_items:
+        return quote
+    if _scope_table_confirms_new(candidate_text, _GOVERNOR_SCOPE_ROW_KEYWORDS) or _GOVERNOR_EXPLICIT_SCOPE_RE.search(
+        candidate_text or ""
+    ):
+        return quote
+
+    quote = dict(quote)
+    quote["line_items"] = [it for it in line_items if it.get("category") != "governor"]
+    assumptions = list(quote.get("assumptions") or [])
+    assumptions.append(
+        "\U0001F6D1 BLOCK — removed governor line(s): the spec text never explicitly calls for new "
+        "or replacement governor equipment for this car (Product Master's own rule for every WG "
+        "governor row is \"quote only when scope calls\" — opt-in, not opt-out; a generic "
+        "\"safeties, governors... as required\" weight-margin clause elsewhere in the spec doesn't "
+        "count). Add these back manually once the full spec/survey confirms governor replacement is "
+        "actually in scope, with the correct variant per car."
+    )
+    quote["assumptions"] = assumptions
+    return quote
+
+
+def _enforce_roller_guide_presence(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Confirmed live on '5770 Hurontario St' (4 identical runs): the spec explicitly calls for
+    roller guide replacement on BOTH car and counterweight in the same sentence twice over ("Roller
+    Guides - if existing replace the rollers on the car and counterweight..."; "Adjust, refurbish or
+    replace the car and counterweight roller guides as required...") — this isn't a case _enforce_
+    wrg_gating's opt-in check should ever strip. Yet one of four runs omitted the roller_guide
+    category ENTIRELY (citing uncertainty about the exact rail/roller diameter, which the spec truly
+    doesn't state), silently dropping ~$20,000 from a 4-elevator estimate, while the other three
+    included a car set (WRG150) and a counterweight set (WRG80).
+
+    Mirrors _enforce_car_door_panel_presence's own reasoning: an honest "I don't know the exact
+    diameter" is real uncertainty about SPECIFICS, not about whether the category belongs on the
+    estimate at all — Product Master's own CONDITIONAL rule is "quote only when scope calls", and
+    scope clearly does call here. Only fires when roller_guide is COMPLETELY empty (an existing,
+    even partial, roller_guide line is left alone — this never second-guesses a size the model
+    already committed to) and only when _WRG_EXPLICIT_SCOPE_RE confirms scope, the same gate
+    _enforce_wrg_gating already trusts. Defaults to WRG150 (car) / WRG80 (counterweight) — the same
+    frame sizes the three consistent runs on this exact RFQ converged on — flagged for engineering
+    confirmation of the actual rail/roller diameter rather than presented as a confirmed selection."""
+    line_items = quote.get("line_items") or []
+    if any(it.get("category") == "roller_guide" for it in line_items):
+        return quote
+    door_ops = [it for it in line_items if it.get("category") == "door_operator"]
+    if not door_ops:
+        return quote
+    if not _WRG_EXPLICIT_SCOPE_RE.search(candidate_text or ""):
+        return quote
+
+    car_count = sum(float(it.get("qty") or 0) for it in door_ops)
+    if car_count <= 0:
+        return quote
+
+    car_row = _lookup_product_master("WRG_MOTION_GEAR150")
+    cwt_row = _lookup_product_master("WRG_MOTION_GEAR80")
+    if not car_row or not cwt_row:
+        return quote
+
+    quote = dict(quote)
+    working_items = list(line_items)
+    note = (
+        "⚠ AUTO-ADDED — the spec explicitly calls for roller guide replacement on car AND "
+        "counterweight, but this estimate had no roller_guide line at all; added a default 4-piece "
+        f"set per car ({car_count:g} car(s) x 4 = {car_count * 4:g} pieces). Frame size (WRG150 "
+        "car / WRG80 CWT) is a placeholder matching this RFQ's own prior consistent runs, NOT a "
+        "confirmed selection — the spec doesn't state rail/roller diameter or car/CWT speed rating; "
+        "verify against Product Master's speed thresholds before release."
+    )
+    working_items.append(
+        {
+            "product_code": car_row["ftl_product_code"],
+            "description": car_row.get("description") or car_row["ftl_product_code"],
+            "category": "roller_guide",
+            "qty": car_count * 4,
+            "unit_price": car_row.get("price_cad") or 0,
+            "needs_engineering_review": True,
+            "note": note,
+        }
+    )
+    working_items.append(
+        {
+            "product_code": cwt_row["ftl_product_code"],
+            "description": cwt_row.get("description") or cwt_row["ftl_product_code"],
+            "category": "roller_guide",
+            "qty": car_count * 4,
+            "unit_price": cwt_row.get("price_cad") or 0,
+            "needs_engineering_review": True,
+            "note": note,
+        }
+    )
+    quote["line_items"] = working_items
+    return quote
+
+
+_RESTRICTOR_CANONICAL_CODE = "SGV2_CAR_DOOR_RESTRICTOR"
+_RESTRICTOR_CODE_RE = re.compile(r"restrictor", re.IGNORECASE)
+
+
+def _enforce_door_restrictor_bundling(quote: Dict[str, Any]) -> Dict[str, Any]:
+    """Every SGV2 door operator MOD kit install includes a car door restrictor, bundled at no extra
+    charge — the spec itself always lists it alongside the operator ("install all new related
+    equipment such as restrictor clutches, restrictor, linkages, belts...") and it has no separate
+    priced Product Master SKU (see _WHITELIST_KNOWN_EXTRAS above: SGV2_CAR_DOOR_RESTRICTOR is a
+    known bundled code, not a pricelist line). Before this function existed, whether this $0 line
+    showed up at all was left entirely to the model — confirmed live on three identical back-to-
+    back runs of the same RFQ (2211 Brant St): two of three omitted it completely, one included it
+    but under a near-miss code ("SGV2_DOOR_RESTRICTOR", missing "CAR"). This makes the bundled line
+    unconditional and deterministic: exactly one restrictor line, at the canonical code, quantity
+    always matching the total door_operator quantity on the estimate — added if missing, quantity-
+    corrected if present but wrong, code-normalized if a near-miss spelling was submitted."""
+    line_items = quote.get("line_items") or []
+    op_qty = sum(float(it.get("qty") or 0) for it in line_items if it.get("category") == "door_operator")
+    if op_qty <= 0:
+        return quote
+
+    existing = [it for it in line_items if _RESTRICTOR_CODE_RE.search(str(it.get("product_code") or ""))]
+    already_correct = (
+        len(existing) == 1
+        and existing[0].get("product_code") == _RESTRICTOR_CANONICAL_CODE
+        and float(existing[0].get("qty") or 0) == op_qty
+    )
+    if already_correct:
+        return quote
+
+    quote = dict(quote)
+    working_items = [it for it in line_items if it not in existing]
+    working_items.append(
+        {
+            "product_code": _RESTRICTOR_CANONICAL_CODE,
+            "description": "Car door restrictor (bundled with SGV2 door operator MOD kit)",
+            "category": "other",
+            "qty": op_qty,
+            "unit_price": 0,
+            "subtotal_override": 0,
+            "needs_engineering_review": False,
+            "note": (
+                "ℹ AUTO-ADDED/CORRECTED — every SGV2 door operator on this estimate bundles a "
+                "car door restrictor at no extra charge (qty set to match the door_operator qty); "
+                "not a separately priced Product Master SKU."
+            ),
+        }
+    )
+    quote["line_items"] = working_items
+    return quote
+
+
+_PANEL_ADAPTOR_CATEGORY = "panel_adaptor"
+_CAR_DOOR_PANEL_CATEGORY = "car_door_panel"
+
+
+def _enforce_panel_vs_adaptor_exclusivity(quote: Dict[str, Any]) -> Dict[str, Any]:
+    """A brand-new universal car door panel and a panel ADAPTOR are mutually exclusive options for
+    the same opening — an adaptor exists specifically to mount a new SGV2 operator onto an EXISTING
+    (retained) car door panel, so it is never purchased alongside a full new replacement panel for
+    that same opening. The spec text in this business's real RFQs consistently does not state
+    whether car door panels are retained or replaced, so the model has to pick a working default —
+    but confirmed live on the same RFQ run three times back to back, one run picked BOTH lines
+    simultaneously (a full new car_door_panel line AND a panel_adaptor line), which is not a
+    plausible real order and would double-bill this portion of the estimate if released as-is. Since
+    car_door_panel (new panels) was the consistent choice across all three runs whenever only one
+    was picked, it's kept as the single default here; the redundant panel_adaptor line is removed
+    with a review note rather than silently keeping whichever one happened to be listed first."""
+    line_items = quote.get("line_items") or []
+    has_new_panel = any(it.get("category") == _CAR_DOOR_PANEL_CATEGORY for it in line_items)
+    adaptor_items = [it for it in line_items if it.get("category") == _PANEL_ADAPTOR_CATEGORY]
+    if not (has_new_panel and adaptor_items):
+        return quote
+
+    quote = dict(quote)
+    quote["line_items"] = [it for it in line_items if it.get("category") != _PANEL_ADAPTOR_CATEGORY]
+    assumptions = list(quote.get("assumptions") or [])
+    assumptions.append(
+        "⚠ REVIEW — removed panel_adaptor line(s): this estimate had BOTH a new car_door_panel "
+        "line and a panel_adaptor line for the same scope, which is contradictory (an adaptor is "
+        "only used to mount a new operator on a RETAINED existing panel, never alongside a brand-new "
+        "replacement panel). Kept the new-panel pricing as the default; if this project's car door "
+        "panels are actually being retained, remove the car_door_panel line and re-add the "
+        "panel_adaptor line instead — confirm panel retention-vs-replacement before release."
+    )
+    quote["assumptions"] = assumptions
+    return quote
+
+
+_DOOR_OP_TYPE_WIDTH_RE = re.compile(r"SGV2_DOOR_OP_(1S|2C|2T)(\d+)", re.IGNORECASE)
+
+
+def _enforce_car_door_panel_presence(quote: Dict[str, Any]) -> Dict[str, Any]:
+    """Every SGV2 door operator MOD kit needs EITHER a new universal car door panel OR a panel
+    adaptor for a retained panel — never neither, since the operator has to physically interface
+    with some car door panel. Confirmed live on the same RFQ (2211 Brant St) across three identical
+    runs: one run omitted this line entirely (silently leaving roughly $3,270 out of a 2-car
+    estimate, with only a text assumption noting the gap — the actual line_items total still varied
+    run to run), while the other two included a new panel line.
+
+    Adds a default NEW panel line only when the door_operator line(s) already on this estimate carry
+    a door type + width this catalogue has a real panel row for (car_door_panel_prices(), the same
+    live-pricelist lookup _autocorrect_panel_prices already trusts elsewhere in this file) — reusing
+    whatever type/width the operator line ALREADY committed to, never an independent fresh guess.
+    2C panels are doubled per opening (2 panels/set), matching compute_door_package_breakdown's own
+    doubling convention elsewhere. If neither category is present and no matching panel row can be
+    found (unrecognized type/width), this adds nothing rather than invent a price.
+
+    Also normalizes a car_door_panel line that's already present but whose product_code isn't one
+    of car_door_panel_prices()'s own canonical codes — confirmed live on '1579 Main St W': two of
+    three identical runs produced a car_door_panel line reading "SGV UNIVERAL CAR PANELS (NEW CAR
+    DOORS - MOD) - INTERFACE WITH SGV2 DOOR OPERATORS KITS / INCLUDES CUSTOM PANEL ADAPTORS" with
+    unit_price null — not a real Product Master or pricelist code, and _reconcile_against_product_
+    master deliberately skips car_door_panel (see its own docstring), so this bogus, unpriced line
+    was otherwise shipping untouched. Rewritten to the same canonical code+price the "add a default
+    line" branch above would have used, derived the same way (from the door_operator's own type/
+    width) — never touched if the existing code already matches a canonical row, and never touched
+    when a panel_adaptor line is present instead (that legitimately satisfies the requirement without
+    a car_door_panel line at all).
+
+    Also normalizes a car_door_panel line whose code IS a real canonical code but for the WRONG
+    door type/width — confirmed live on '5770 Hurontario St': one of four identical runs produced a
+    1S/42" panel line (1S_T1_UNIVERSAL_CAR_DOOR_PANEL...) alongside a 2C/42" door_operator line
+    (SGV2_DOOR_OP_2C42_LH) — a real code, but for a door style that doesn't match the operator
+    actually on this estimate, since the spec's own "Doors Centre Opening" field means every door
+    here is 2C, not 1S. Same fix, same trigger condition (exactly one panel line, exactly one
+    door_operator type/width in scope) — just keyed on a type/width MISMATCH rather than an
+    unrecognized code."""
+    line_items = quote.get("line_items") or []
+    door_ops = [it for it in line_items if it.get("category") == "door_operator"]
+    if not door_ops:
+        return quote
+    has_adaptor = any(it.get("category") == _PANEL_ADAPTOR_CATEGORY for it in line_items)
+    panel_idxs = [i for i, it in enumerate(line_items) if it.get("category") == _CAR_DOOR_PANEL_CATEGORY]
+
+    type_width_qty: Dict[Tuple[str, str], float] = {}
+    for it in door_ops:
+        m = _DOOR_OP_TYPE_WIDTH_RE.search(str(it.get("product_code") or ""))
+        if not m:
+            continue
+        key = (m.group(1).upper(), m.group(2))
+        try:
+            qty = float(it.get("qty") or 0)
+        except (TypeError, ValueError):
+            qty = 0
+        type_width_qty[key] = type_width_qty.get(key, 0) + qty
+
+    try:
+        panel_rows = {(p["door_type"], p["width"]): p for p in car_door_panel_prices()}
+    except Exception:
+        panel_rows = {}
+    canonical_codes = {row["code"] for row in panel_rows.values()}
+    code_to_type_width = {row["code"]: key for key, row in panel_rows.items()}
+
+    if panel_idxs:
+        if has_adaptor or not panel_rows:
+            return quote
+        working_items = list(line_items)
+        changed = False
+        # Only normalize when there's exactly one car_door_panel line and exactly one door type/
+        # width in scope — with more than one of either, which line pairs with which door_operator
+        # config is ambiguous, so this backs off rather than guess.
+        if len(panel_idxs) == 1 and len(type_width_qty) == 1:
+            idx = panel_idxs[0]
+            existing = working_items[idx]
+            existing_code = existing.get("product_code")
+            (door_type, width), op_qty = next(iter(type_width_qty.items()))
+            is_unrecognized = existing_code not in canonical_codes
+            is_mismatched = (
+                not is_unrecognized and code_to_type_width.get(existing_code) != (door_type, width)
+            )
+            if is_unrecognized or is_mismatched:
+                row = panel_rows.get((door_type, width))
+                if row and op_qty > 0:
+                    panel_qty = op_qty * 2 if row.get("is_set") else op_qty
+                    item = dict(existing)
+                    old_code = item.get("product_code")
+                    item["product_code"] = row["code"]
+                    item["description"] = row["code"]
+                    item["qty"] = panel_qty
+                    item["unit_price"] = row["unit_price"]
+                    item["needs_engineering_review"] = True
+                    if is_unrecognized:
+                        item["note"] = (
+                            f"⚠ AUTO-CORRECTED — product_code {old_code!r} isn't a recognized "
+                            "Product Master/pricelist car_door_panel code (and had no resolvable "
+                            f"price); replaced with the canonical panel matching the door operator's "
+                            f"own {door_type}/{width}\" configuration already on this estimate."
+                        )
+                    else:
+                        item["note"] = (
+                            f"⚠ AUTO-CORRECTED — product_code {old_code!r} is a real code, but for a "
+                            f"different door type/width than the door_operator line(s) on this "
+                            f"estimate use ({door_type}/{width}\"); replaced with the matching "
+                            f"{door_type}/{width}\" canonical panel."
+                        )
+                    working_items[idx] = item
+                    changed = True
+            else:
+                # Code is already the right canonical type/width — but confirmed live on '171
+                # Guelph St' (2T/42"): a correctly-coded 2-DOOR/SET panel line can still carry the
+                # WRONG qty (matching door_operator qty 1:1 instead of the mandatory 2 panels per
+                # center/two-speed opening). Correct qty alone, in isolation from the code/price
+                # normalization above, whenever it doesn't match this panel's own doubling rule.
+                row = panel_rows.get((door_type, width))
+                if row and op_qty > 0:
+                    expected_qty = op_qty * 2 if row.get("is_set") else op_qty
+                    try:
+                        existing_qty = float(existing.get("qty") or 0)
+                    except (TypeError, ValueError):
+                        existing_qty = None
+                    if existing_qty is not None and existing_qty != expected_qty:
+                        item = dict(existing)
+                        old_qty = item.get("qty")
+                        item["qty"] = expected_qty
+                        item["needs_engineering_review"] = True
+                        item["note"] = (
+                            f"⚠ AUTO-CORRECTED — qty was {old_qty!r}, but a {door_type}/{width}\" "
+                            "panel is a 2-panel set per opening (per the pricelist's own "
+                            "(2-DOOR/SET) marker) — corrected to "
+                            f"{expected_qty:g} to match {op_qty:g} door operator(s)."
+                            + (" " + item.get("note") if item.get("note") else "")
+                        )
+                        working_items[idx] = item
+                        changed = True
+        if changed:
+            quote = dict(quote)
+            quote["line_items"] = working_items
+        return quote
+
+    if has_adaptor:
+        return quote
+    if not type_width_qty or not panel_rows:
+        return quote
+
+    quote = dict(quote)
+    working_items = list(line_items)
+    added_any = False
+    for (door_type, width), op_qty in type_width_qty.items():
+        if op_qty <= 0:
+            continue
+        row = panel_rows.get((door_type, width))
+        if not row:
+            continue
+        # 2C AND 2T are both "(2-DOOR/SET)" catalogue rows (row["is_set"]) — 1S never is. Keyed off
+        # the row's own is_set flag rather than hardcoding "2C", since 2T needs the same doubling
+        # and was previously missed (confirmed live on '171 Guelph St': a 2T/42" panel line at qty
+        # matching the door_operator's own qty instead of double it).
+        panel_qty = op_qty * 2 if row.get("is_set") else op_qty
+        working_items.append(
+            {
+                "product_code": row["code"],
+                "description": row["code"],
+                "category": "car_door_panel",
+                "qty": panel_qty,
+                "unit_price": row["unit_price"],
+                "needs_engineering_review": True,
+                "note": (
+                    "⚠ AUTO-ADDED — every SGV2 door operator needs a matching car door panel or "
+                    "panel adaptor and this estimate had neither; added a NEW universal panel "
+                    f"matching the door operator's own {door_type}/{width}\" configuration already "
+                    "on this estimate. If the existing car door panels are being retained instead of "
+                    "replaced, remove this line and add the matching panel adaptor instead."
+                ),
+            }
+        )
+        added_any = True
+    if added_any:
+        quote["line_items"] = working_items
+    return quote
+
+
+_DOOR_TOOLS_CANONICAL_CODE = "SGV2_DOOR_TOOLS"
+
+
+def _normalize_door_tools_code(quote: Dict[str, Any]) -> Dict[str, Any]:
+    """Same "wrong pricelist column" failure _normalize_detector_lines already fixes for
+    door_protective_device, confirmed live on '1579 Main St W' (1 of 3 identical live-API runs):
+    the pricelist's own PRODUCT NAME row for this SKU is "ALL ALL SGV2_DOOR_TOOLS ALL WITTUR
+    PROGRAMING TOOL ALL $598.50" — TYPE / O.E.M. / PRODUCT NAME / DOOR HAND / DESCRIPTION / PRICE
+    columns in that order — and one run submitted "ALL WITTUR PROGRAMING TOOL" (the DESCRIPTION
+    column, with a stray leading "ALL" from the HAND column) as the product_code instead of the
+    real PRODUCT NAME column value (SGV2_DOOR_TOOLS). There is only ever one canonical door_tools
+    code, so any door_tools line not already using it gets corrected and re-priced from Product
+    Master rather than left with a copied-description code on a customer-facing estimate."""
+    line_items = quote.get("line_items") or []
+    tool_items = [it for it in line_items if it.get("category") == "door_tools"]
+    if not tool_items:
+        return quote
+    canonical = _lookup_product_master(_DOOR_TOOLS_CANONICAL_CODE)
+    changed = False
+    for it in tool_items:
+        if it.get("product_code") != _DOOR_TOOLS_CANONICAL_CODE:
+            old_code = it.get("product_code")
+            it["product_code"] = _DOOR_TOOLS_CANONICAL_CODE
+            if canonical and canonical.get("price_cad") is not None:
+                it["unit_price"] = canonical["price_cad"]
+            it["needs_engineering_review"] = True
+            it["note"] = (
+                f"⚠ AUTO-CORRECTED — product_code was {old_code!r}, which looks like it was "
+                "copied from the pricelist's DESCRIPTION column rather than the real product code; "
+                f"corrected to the canonical code ({_DOOR_TOOLS_CANONICAL_CODE})."
+                + (" " + it.get("note") if it.get("note") else "")
+            )
+            changed = True
+    if not changed:
+        return quote
+    quote = dict(quote)
+    quote["line_items"] = line_items
+    return quote
+
+
 def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
     quote = _validate_quote_payload(quote)
     quote = _enforce_scope_table(quote, candidate_text)
@@ -2143,11 +2826,19 @@ def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any
     quote = _check_governor_variant_differentiation(quote, candidate_text)
     # --- FTL Stage 2 rulebook enforcement (received Sep 2026) — see rules_engine.py ---
     quote = _reconcile_against_product_master(quote)
+    quote = _enforce_two_speed_door_type(quote, candidate_text)
+    quote = _enforce_line_item_qty_matches_car_count(quote, candidate_text)
+    quote = _enforce_governor_scope_gate(quote, candidate_text)
     quote = _enforce_governor_tension_companions(quote)
     quote = _enforce_safety_gear_block(quote)
     quote = _enforce_wrg_gating(quote, candidate_text)
+    quote = _enforce_roller_guide_presence(quote, candidate_text)
     quote = _normalize_detector_lines(quote)
+    quote = _normalize_door_tools_code(quote)
     quote = _apply_universal_door_panel_conflict_notes(quote)
+    quote = _enforce_panel_vs_adaptor_exclusivity(quote)
+    quote = _enforce_car_door_panel_presence(quote)
+    quote = _enforce_door_restrictor_bundling(quote)
     # --- end Stage 2 rulebook enforcement ---
     quote = _check_door_tools_presence(quote)
     quote = _apply_temporary_flat_freight(quote)
