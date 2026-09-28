@@ -8,6 +8,7 @@ DB-free: search_pricelist reads pricelist_store.py's local JSON index instead of
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
@@ -21,6 +22,231 @@ except ImportError:
     from pricelist_store import search_pricelist
 
 MAX_LOOKUP_ROUNDS = 4
+
+
+# extract.py's render_candidate_text_for_model always opens with this line — a hard, deterministic
+# signal computed in code from PART 1/PART 2/PART 3 heading detection, independent of anything the
+# model reasons about.
+_STRUCTURE_SIGNAL_RE = re.compile(r"^## Detected structure signal:\s*(\S+)", re.MULTILINE)
+
+
+def _enforce_new_construction_disqualify(decision: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """A deterministic backstop for Step 5's project-type override: repeated live testing showed
+    the model, even when it correctly names the "new_construction defaults to disqualify" policy in
+    its own reasoning, keeps talking itself out of applying it whenever Step 1 also found several
+    grounded in-scope items — landing on `qualify` (or a wavering `needs_review`) instead. Since
+    extract.py's structure_signal is already a hard, code-computed value (not a model judgment) and
+    the skill's own policy is unconditional ("default to disqualify even when in-scope items are
+    technically requested"), this enforces that policy in code rather than leaving it to a nano-tier
+    model to keep re-deriving reliably. Deliberately narrow: only fires when the code-level signal
+    positively identifies new_construction_single_spec (a confident, low-false-positive detection —
+    PART 1/2/3 heading structure) — it never touches a genuinely uncertain ("unknown") case, which
+    should still be free to land on needs_review or qualify per the model's own judgment."""
+    m = _STRUCTURE_SIGNAL_RE.search(candidate_text or "")
+    if not m or m.group(1) != "new_construction_single_spec":
+        return decision
+    if decision.get("qualify") == "disqualify":
+        return decision
+    decision = dict(decision)
+    original_call = decision.get("qualify")
+    decision["qualify"] = "disqualify"
+    decision["project_type"] = "new_construction"
+    decision["reasoning"] = (
+        f"(Auto-overridden from '{original_call}' to 'disqualify': extract.py's code-level structure "
+        "detection confidently identified this as a new-construction, single-spec tender (PART 1/"
+        "PART 2/PART 3 structure), and FTL's stated policy is to default to disqualify for this "
+        "tender type even when in-scope items are technically requested — see Step 5. This override "
+        "is enforced deterministically because repeated live testing showed the model correctly "
+        "naming this policy in its own reasoning but then not applying it when several in-scope "
+        "items were also found.)\n\n" + (decision.get("reasoning") or "")
+    )
+    decision["flags"] = list(decision.get("flags") or []) + [
+        "auto_overridden_new_construction_disqualify"
+    ]
+    return decision
+
+
+# Keyword tags for the categories Step 4 explicitly says count toward the qualify threshold even
+# when only "ambiguous" (ROLLER_GUIDE/GOVERNOR/CAR_SAFETY/CLUTCH/PANEL_ADAPTOR), versus the two
+# door-package tags (DOOR_OPERATOR/DETECTOR) that Step 3/Step 4 say can NEVER carry the decision on
+# their own when unpaired — plus POWER_SUPPLY, which Step 3 says is a pure derivative of an unpaired
+# detector and can never count as an independent category either.
+_ITEM_CATEGORY_KEYWORDS = {
+    "ROLLER_GUIDE": ("roller guide",),
+    "GOVERNOR": ("governor",),
+    "CAR_SAFETY": ("car safety", "car safeties", "unidirectional", "safeties", "safety"),
+    "CLUTCH": ("clutch",),
+    "PANEL_ADAPTOR": ("panel adaptor", "panel adapter", "car door panel", "door panel"),
+    "DOOR_OPERATOR": ("door operator", "operator"),
+    "DETECTOR": ("detector", "protective device"),
+    "POWER_SUPPLY": ("power supply",),
+}
+# Categories Step 4 says count independently, even on an "ambiguous" match, toward "a single
+# grounded item is enough to qualify."
+_INDEPENDENT_CATEGORIES = {"ROLLER_GUIDE", "GOVERNOR", "CAR_SAFETY", "CLUTCH", "PANEL_ADAPTOR"}
+
+
+def _tags_for_item(entry: Dict[str, Any]) -> set:
+    text = " ".join(
+        str(entry.get(k) or "") for k in ("item", "category", "note")
+    ).lower()
+    tags = set()
+    for tag, keywords in _ITEM_CATEGORY_KEYWORDS.items():
+        if any(kw in text for kw in keywords):
+            tags.add(tag)
+    return tags
+
+
+def _has_qualifying_grounded_item(matched_items: Any) -> bool:
+    """Shared by both backstops below: does this matched_items array contain at least one item that
+    Step 4 says counts toward "a single grounded item is enough to qualify" — i.e. anything besides
+    the lone, unpaired door-operator-or-detector (and its derivative power-supply) Step 3 excludes
+    from counting alone? A cleanly-matched operator+detector PAIR counts too (Step 4 explicitly
+    allows "a door operator/detector pairing that IS cleanly matched together"); it's only the LONE,
+    unpaired one of the two that's excluded. Used to distinguish a real "zero independently-grounded
+    items" case (which Step 4 says is a confident disqualify) from a case that merely has nothing
+    BUT the excluded door-pairing item(s) — the latter is functionally the same "zero" case for this
+    purpose, which is exactly the distinction a real test run got wrong (see
+    _enforce_unknown_project_type_needs_review)."""
+    if not isinstance(matched_items, list):
+        return False
+    independent_hit = False
+    has_operator = False
+    has_detector = False
+    for entry in matched_items:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("match") not in ("exact", "ambiguous"):
+            continue
+        tags = _tags_for_item(entry)
+        if tags & _INDEPENDENT_CATEGORIES:
+            independent_hit = True
+            break
+        if "DOOR_OPERATOR" in tags:
+            has_operator = True
+        if "DETECTOR" in tags:
+            has_detector = True
+    if not independent_hit and has_operator and has_detector:
+        independent_hit = True
+    return independent_hit
+
+
+def _enforce_unknown_project_type_needs_review(decision: Dict[str, Any]) -> Dict[str, Any]:
+    """A deterministic backstop for Step 5's "unknown means needs_review, full stop" rule:
+    repeated live testing (this exact case confirmed live, plus two earlier confirmed instances)
+    showed the model writing down project_type: "unknown", correctly stating in its own reasoning
+    that this means needs_review — and then, in the same breath, computing a verdict via
+    item-matching anyway ("Step 1/4 indicate insufficient confidently countable items... overall
+    recommendation is disqualify") and landing on `disqualify` (or, in principle, `qualify`)
+    instead. Step 5 is explicit and unconditional here: once project_type is "unknown", qualify is
+    needs_review, with exactly one carve-out — Step 4's "zero grounded items" case, where zero-items
+    wins and the call is `disqualify` instead. Uses the same door-pairing-aware
+    _has_qualifying_grounded_item check as _enforce_ambiguous_item_qualify_threshold below (NOT a
+    naive "any matched_items entries" check) — a lone detector/power-supply-only matched_items array
+    is functionally "zero grounded items" for this purpose, per Step 3/Step 4, and must still resolve
+    to disqualify, not needs_review; an earlier version of this function got exactly this case wrong
+    on a live sample where the model's own reasoning was already the CORRECT disqualify (lone
+    detector, no other grounded categories) and this override wrongly bumped it to needs_review.
+    Only acts when project_type is exactly "unknown" — a confidently-classified new_construction has
+    already been handled (and project_type overwritten away from "unknown") by
+    _enforce_new_construction_disqualify above, so this never fights that rule; a confidently-
+    classified modernization is untouched here and is left to
+    _enforce_ambiguous_item_qualify_threshold below."""
+    if decision.get("project_type") != "unknown":
+        return decision
+    matched_items = decision.get("matched_items") or []
+    has_items = _has_qualifying_grounded_item(matched_items)
+    target = "needs_review" if has_items else "disqualify"
+    if decision.get("qualify") == target:
+        return decision
+    decision = dict(decision)
+    original_call = decision.get("qualify")
+    decision["qualify"] = target
+    # NOTE: the model's own original reasoning text (appended below, unedited) almost always ends
+    # on ITS OWN concluding sentence — e.g. "Therefore: disqualify based on..." — because that's
+    # the verdict the model computed via item-matching before this override ran. Left as the very
+    # last thing in the field, that stale conclusion reads as if it were the final word, directly
+    # contradicting the override note above it and the actual enforced `qualify` value. A live
+    # sample confirmed exactly this: qualify == "needs_review" while reasoning's last sentence still
+    # said "Therefore: disqualify...". So a short closing correction is appended AFTER the model's
+    # original text too, not just prepended before it — whoever reads reasoning top-to-bottom or
+    # jumps straight to its last paragraph both land on the correct, enforced verdict.
+    original_reasoning = decision.get("reasoning") or ""
+    decision["reasoning"] = (
+        f"(Auto-overridden from '{original_call}' to '{target}': project_type is 'unknown', and "
+        "Step 5's policy is that this settles the qualify verdict on its own — needs_review when "
+        "at least one independently-grounded item is present (which item-matching cannot override "
+        "back to disqualify or forward to qualify), or disqualify only in the zero-grounded-items "
+        "case per Step 4's mirror-case carve-out (a lone, unpaired door-operator/detector item counts "
+        "as zero for this purpose, same as Step 3 says for the qualify threshold itself). This "
+        "override is enforced deterministically because repeated live testing showed the model "
+        "naming this exact rule in its own reasoning and then computing a verdict via item-matching "
+        "anyway.)\n\n" + original_reasoning + (
+            f"\n\n(Note: the enforced, final verdict is '{target}' — any concluding sentence above "
+            f"this note that the model itself wrote (e.g. naming a different verdict) reflects its "
+            f"pre-override item-matching pass, superseded by the auto-override explained at the top "
+            f"of this field.)" if original_reasoning else ""
+        )
+    )
+    decision["flags"] = list(decision.get("flags") or []) + [
+        f"auto_overridden_unknown_project_type_{target}"
+    ]
+    return decision
+
+
+def _enforce_ambiguous_item_qualify_threshold(decision: Dict[str, Any]) -> Dict[str, Any]:
+    """A deterministic backstop for Step 4's qualify threshold: repeated live testing (at least
+    three separate confirmed instances, on three different real RFQs) showed the model naming
+    matched_items like a governor, roller guide assemblies, or car safeties as grounded and
+    in-scope-or-ambiguous per Step 1/Step 2 — then disqualifying (or hedging to needs_review)
+    anyway because none of those items had a fully-specified catalog variant ("no exact matchable
+    purchasable variant," "sizing clarity" not confirmed). Step 2 and Step 4 are explicit that an
+    ambiguous match — missing only its exact variant/size, not its category or its "was this
+    requested" grounding — still counts toward the qualify threshold; only Step 1's checks (was it
+    requested for this unit, right product type, supported OEM) can drop an item, and "we don't know
+    which variant" is not one of those checks. Since the model's own matched_items array is already
+    the record of what it itself decided was grounded, this only has to look at that array — it
+    never re-derives grounding itself — and only overrides when the model's own matched_items
+    already contain a category besides the door-operator/detector pairing Step 3 excludes from
+    counting alone. Deliberately skipped when project_type is new_construction (Step 5's override
+    is a different, higher-precedence dimension — see _enforce_new_construction_disqualify) or
+    unknown (Step 5's "unknown means needs_review, full stop" rule is not an item-counting question
+    either — see _enforce_unknown_project_type_needs_review) so this never fights either of those
+    rules."""
+    if decision.get("qualify") == "qualify":
+        return decision
+    project_type = decision.get("project_type")
+    if project_type in ("new_construction", "unknown"):
+        return decision
+    matched_items = decision.get("matched_items") or []
+    if not _has_qualifying_grounded_item(matched_items):
+        return decision
+
+    decision = dict(decision)
+    original_call = decision.get("qualify")
+    decision["qualify"] = "qualify"
+    decision["reasoning"] = (
+        f"(Auto-overridden from '{original_call}' to 'qualify': the model's own matched_items "
+        "already include a grounded, in-scope-or-ambiguous item outside the door-operator/detector "
+        "pairing Step 3 excludes from counting alone (e.g. roller guide, governor, car safety, "
+        "clutch, or panel adaptor) — Step 4 says a single such item, even an ambiguous one missing "
+        "only its exact catalog variant, is enough to qualify. This override is enforced "
+        "deterministically because repeated live testing showed the model naming these items as "
+        "grounded and then disqualifying/reviewing anyway for lacking full variant/sizing detail, "
+        "which Step 2 explicitly says is not a disqualifying gap.)\n\n" + (decision.get("reasoning") or "")
+    )
+    decision["flags"] = list(decision.get("flags") or []) + [
+        "auto_overridden_ambiguous_item_qualify_threshold"
+    ]
+    return decision
+
+
+def _apply_policy_overrides(decision: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Apply Git's deterministic qualify backstops without changing the live model client."""
+    decision = _enforce_new_construction_disqualify(decision, candidate_text)
+    decision = _enforce_unknown_project_type_needs_review(decision)
+    return _enforce_ambiguous_item_qualify_threshold(decision)
+
 
 # Cosine-similarity floor below which search_pricelist's top result is treated as "nothing real
 # matched" rather than a genuine catalog hit — see the warning built in _run_tool_call. This is a
@@ -233,6 +459,7 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
         if action == "submit_qualification_decision" or "qualify" in data or (isinstance(data.get("decision"), dict) and "qualify" in data["decision"]):
             decision = data.get("decision") if (isinstance(data.get("decision"), dict) and "qualify" in data["decision"]) else data
             # Fill default values if missing
+            decision = _apply_policy_overrides(decision, candidate_text)
             decision.setdefault("qualify", "needs_review")
             decision.setdefault("project_type", "unknown")
             decision.setdefault("matched_items", [])
@@ -323,6 +550,7 @@ def _run_qualification_native_tools(client: Any, model_name: str, skill: Dict[st
                 decision = json.loads(decision_call.function.arguments)
             except json.JSONDecodeError as e:
                 raise RuntimeError(f"Model returned invalid JSON for its decision: {e}") from e
+            decision = _apply_policy_overrides(decision, candidate_text)
             return decision, total_tokens
 
         for tc in tool_calls:

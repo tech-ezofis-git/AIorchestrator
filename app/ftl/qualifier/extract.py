@@ -205,7 +205,13 @@ TARGET_SUBSECTION_TITLES = [
     "Car Safeties",
     "Description of Existing Equipment",
     "Schedule of Existing Equipment",
+    # F.SHAW template ("1579 Main St W"): a short key/value block (Car, Type, Capacity,
+    # Speed, Door Configuration, Cab Configuration), not the wide per-car table above.
+    "Existing Equipment Information",
     "New Equipment",
+    # Perry Elevator Consultants ("5770 Hurontario St"): numbered checklist under
+    # "2.01 Existing Equipment Description". Car count and front/rear openings live here.
+    "Existing Equipment Description",
 ]
 
 # Word budget per targeted subsection, overriding DEFAULT_SUBSECTION_WORD_BUDGET below. The
@@ -219,7 +225,9 @@ TARGET_SUBSECTION_TITLES = [
 SUBSECTION_WORD_BUDGET = {
     "Description of Existing Equipment": 1100,
     "Schedule of Existing Equipment": 1100,
+    "Existing Equipment Information": 500,
     "New Equipment": 400,
+    "Existing Equipment Description": 400,
 }
 DEFAULT_SUBSECTION_WORD_BUDGET = 600
 
@@ -242,6 +250,10 @@ FALLBACK_KEYWORDS = [
 
 _HEADING_RE = re.compile(r"^\s*\d+\.\d+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80})\s*$", re.MULTILINE)
 
+# Some PDFs split "44.1 Governor and Idler" across lines, so the number sits alone.
+# Eight or more distinct markers still count as a modernization spec.
+_STANDALONE_SUBSECTION_NUM_RE = re.compile(r"^\s*\d{2}\.\d\s*$", re.MULTILINE)
+
 
 def detect_structure_signal(full_text: str, subsection_hit_count: int = 0) -> str:
     """'modernization_3section' | 'new_construction_single_spec' | 'unknown' — a hard, code-level
@@ -249,19 +261,20 @@ def detect_structure_signal(full_text: str, subsection_hit_count: int = 0) -> st
 
     Consultants number their modernization spec sections differently (Solucore's samples use
     14000/14100/14900; ATTA's use a single combined 14200) — so literal section-number matching
-    alone under-detects. The number of TARGET_SUBSECTION_TITLES actually found by heading (found
-    consistently regardless of numbering scheme, since that lookup is title-based) is the more
-    robust primary signal; the literal 14000/14100/14900 count is a secondary corroborating signal.
+    alone under-detects. Heading hits are the primary signal. Section numbers 14000/14100/14900
+    and standalone NN.N lines are secondary signals for specs whose headings were split by PDF
+    extraction.
     """
     mod_number_hits = len(re.findall(r"\b14000\b", full_text)) + len(re.findall(r"\b14100\b", full_text)) + len(
         re.findall(r"\b14900\b", full_text)
     )
+    distinct_subsection_numbers = len(set(m.strip() for m in _STANDALONE_SUBSECTION_NUM_RE.findall(full_text)))
     new_construction_hits = sum(
         1
         for pat in (r"PART\s*1\s*[-–]\s*GENERAL", r"PART\s*2\s*[-–]\s*PRODUCTS", r"PART\s*3\s*[-–]\s*EXECUTION")
         if re.search(pat, full_text, re.IGNORECASE)
     )
-    if subsection_hit_count >= 4 or mod_number_hits >= 6:
+    if subsection_hit_count >= 4 or mod_number_hits >= 6 or distinct_subsection_numbers >= 8:
         return "modernization_3section"
     if new_construction_hits >= 2:
         return "new_construction_single_spec"
@@ -381,6 +394,10 @@ def build_candidate_text(full_text: str) -> Dict[str, Any]:
         # nothing, and structure_signal already flags this as lower-confidence territory.
         used_fallback = True
         fallback_text = _fallback_keyword_windows(full_text)
+        if not fallback_text.strip() and len(full_text.split()) <= 1200:
+            # Short inquiries with none of the modernization keywords would otherwise
+            # reach the model as an empty excerpt.
+            fallback_text = full_text.strip()
     else:
         fallback_text = ""
 

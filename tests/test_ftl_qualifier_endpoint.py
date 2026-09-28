@@ -3,7 +3,12 @@ import pytest
 from unittest.mock import patch
 
 
-def test_qualifier_skill_endpoints(client):
+def test_qualifier_skill_endpoints(client, monkeypatch, tmp_path):
+    # Keep the live skill.json intact. This test used to write the stub
+    # "Updated test qualification instructions." into that file.
+    monkeypatch.setattr("app.ftl.qualifier.skill_store.DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("app.ftl.qualifier.skill_store.SKILL_PATH", str(tmp_path / "skill.json"))
+
     # GET skill
     res = client.get("/api/ftl/qualifier/skill")
     assert res.status_code == 200
@@ -124,3 +129,70 @@ def test_chat_ftl_qualifier_intent(client, monkeypatch):
     assert body["qualifier_result"]["Qualify"] == "Needs Review"
     assert body["qualifier_result"]["Confidence"] == 75
     assert "NEEDS REVIEW" in body["reply"]
+
+
+def test_policy_overrides_follow_git_backstops():
+    from app.ftl.qualifier.agent import _apply_policy_overrides
+
+    new_construction = _apply_policy_overrides(
+        {"qualify": "qualify", "project_type": "modernization", "matched_items": [], "reasoning": "items match", "flags": []},
+        "## Detected structure signal: new_construction_single_spec\n",
+    )
+    assert new_construction["qualify"] == "disqualify"
+    assert new_construction["project_type"] == "new_construction"
+
+    unknown_with_governor = _apply_policy_overrides(
+        {
+            "qualify": "disqualify",
+            "project_type": "unknown",
+            "matched_items": [{"item": "new governor", "category": "governor", "match": "ambiguous"}],
+            "reasoning": "Therefore: disqualify.",
+            "flags": [],
+        },
+        "",
+    )
+    assert unknown_with_governor["qualify"] == "needs_review"
+    assert unknown_with_governor["reasoning"].endswith("pre-override item-matching pass, superseded by the auto-override explained at the top of this field.)")
+
+    lone_detector = _apply_policy_overrides(
+        {
+            "qualify": "qualify",
+            "project_type": "unknown",
+            "matched_items": [
+                {"item": "infra-red detector", "category": "detector", "match": "exact"},
+                {"item": "Formula System Power Supply", "category": "power supply", "match": "exact"},
+            ],
+            "reasoning": "",
+            "flags": [],
+        },
+        "",
+    )
+    assert lone_detector["qualify"] == "disqualify"
+
+    ambiguous_governor = _apply_policy_overrides(
+        {
+            "qualify": "disqualify",
+            "project_type": "modernization",
+            "matched_items": [{"item": "new governor", "category": "governor", "match": "ambiguous"}],
+            "reasoning": "no exact variant",
+            "flags": [],
+        },
+        "",
+    )
+    assert ambiguous_governor["qualify"] == "qualify"
+
+
+def test_extract_keeps_short_text_and_split_section_numbers():
+    from app.ftl.qualifier.extract import build_candidate_text, detect_structure_signal
+
+    short = "Please quote the machine and any other components for this freight car."
+    candidate = build_candidate_text(short)
+    assert candidate["used_fallback"] is True
+    assert candidate["fallback_text"] == short
+
+    split_lines = "\n".join(f"{n}.1" for n in range(10, 20))
+    assert detect_structure_signal(split_lines, subsection_hit_count=0) == "modernization_3section"
+
+    shaw = "2.01 Existing Equipment Information\nType: Hydraulic\nDoor Configuration: single"
+    subsections = build_candidate_text(shaw)["subsections"]
+    assert "Existing Equipment Information" in subsections
