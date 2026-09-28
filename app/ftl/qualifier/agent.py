@@ -241,10 +241,90 @@ def _enforce_ambiguous_item_qualify_threshold(decision: Dict[str, Any]) -> Dict[
     return decision
 
 
+_WITTUR_ALLOWED_OPERATOR_RE = re.compile(
+    r"oem\s+or\s+wittur|wittur\s+or\s+oem|wittur\s+or\s+equal|\bor\s+wittur\b|wittur-compatible|wittur compatible",
+    re.IGNORECASE,
+)
+
+
+def _has_item_tag(items: Any, tag: str) -> bool:
+    if not isinstance(items, list):
+        return False
+    return any(isinstance(entry, dict) and tag in _tags_for_item(entry) for entry in items)
+
+
+def _enforce_wittur_allowed_operator_package(decision: Dict[str, Any]) -> Dict[str, Any]:
+    """A modernization that allows a new Wittur operator is a door package, not a lone detector.
+
+    Live Solucore / 285 Coventry run: the spec asked for a new operator as "OEM or Wittur" and a
+    new 2D/3D door protective device, on a modernization whose *existing* operators are KONE.
+    The model treated that installed KONE unit as the brand being purchased, excluded the operator
+    for not naming 2T/2C/1S, and disqualified on the lone-detector rule with an empty matched_items
+    list. Existing equipment is what is being replaced. "OEM or Wittur" is an in-scope operator;
+    a missing variant is ambiguous, not an exclusion. Restoring the operator+detector pair lets
+    Step 4's qualify threshold (applied next) accept the door package.
+    """
+    if decision.get("qualify") == "qualify":
+        return decision
+    if decision.get("project_type") in ("new_construction", "unknown"):
+        return decision
+    reasoning = decision.get("reasoning") or ""
+    if not _WITTUR_ALLOWED_OPERATOR_RE.search(reasoning):
+        return decision
+    lowered = reasoning.lower()
+    if not any(phrase in lowered for phrase in ("detector", "protective device", "infrared", "3d", "2d")):
+        return decision
+    if not any(phrase in lowered for phrase in (
+        "existing",
+        "not wittur",
+        "specific wittur model",
+        "unsupported",
+        "sole grounded",
+        "only grounded",
+        "lone",
+        "door-package",
+        "door package",
+        "cannot qualify",
+    )):
+        return decision
+
+    decision = dict(decision)
+    items = list(decision.get("matched_items") or [])
+    if not _has_item_tag(items, "DOOR_OPERATOR"):
+        items.append({
+            "item": "new door operator (OEM or Wittur)",
+            "category": "door_operator",
+            "match": "ambiguous",
+            "catalog_ref": None,
+            "note": (
+                "Spec allows a Wittur operator. The existing OEM is the installed unit, not the "
+                "brand being purchased. The exact 2T/2C/1S variant is unspecified, so the match is ambiguous."
+            ),
+        })
+    if not _has_item_tag(items, "DETECTOR"):
+        items.append({
+            "item": "new door protective device",
+            "category": "detector",
+            "match": "ambiguous",
+            "catalog_ref": None,
+            "note": "New door protective device requested together with a Wittur-allowed operator.",
+        })
+    decision["matched_items"] = items
+    decision["reasoning"] = (
+        "(Restored a Wittur-allowed door package: a new operator specified as OEM or Wittur is "
+        "in scope. The existing equipment brand is the unit being replaced, and a missing "
+        "2T/2C/1S variant is an ambiguous match, not an exclusion. That operator plus a requested "
+        "new detector is a door package, not a lone detector.)\n\n" + reasoning
+    )
+    decision["flags"] = list(decision.get("flags") or []) + ["restored_wittur_allowed_door_package"]
+    return decision
+
+
 def _apply_policy_overrides(decision: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
     """Apply Git's deterministic qualify backstops without changing the live model client."""
     decision = _enforce_new_construction_disqualify(decision, candidate_text)
     decision = _enforce_unknown_project_type_needs_review(decision)
+    decision = _enforce_wittur_allowed_operator_package(decision)
     return _enforce_ambiguous_item_qualify_threshold(decision)
 
 

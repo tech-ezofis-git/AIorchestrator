@@ -183,6 +183,39 @@ def test_policy_overrides_follow_git_backstops():
     )
     assert ambiguous_governor["qualify"] == "qualify"
 
+    coventry = _apply_policy_overrides(
+        {
+            "qualify": "disqualify",
+            "project_type": "modernization",
+            "matched_items": [],
+            "excluded_items": [],
+            "flags": [],
+            "reasoning": (
+                "Existing door operators are KONE AMDC1C-52, not Wittur SGV2. "
+                "The requested door operators are generic ('OEM or Wittur') but the spec does not name "
+                "a specific Wittur model (2T/2C/1S). The only grounded in-scope item is the 3D/2D infrared "
+                "door protective device. A lone detector cannot qualify the RFQ."
+            ),
+        },
+        "",
+    )
+    assert coventry["qualify"] == "qualify"
+    categories = {item["category"] for item in coventry["matched_items"]}
+    assert "door_operator" in categories
+    assert "detector" in categories
+
+    harmonic_only = _apply_policy_overrides(
+        {
+            "qualify": "disqualify",
+            "project_type": "modernization",
+            "matched_items": [{"item": "infra-red detector", "category": "detector", "match": "exact"}],
+            "reasoning": "Door operator row is new harmonic, an unsupported brand. Lone detector cannot qualify.",
+            "flags": [],
+        },
+        "",
+    )
+    assert harmonic_only["qualify"] == "disqualify"
+
 
 def test_extract_keeps_short_text_and_split_section_numbers():
     from app.ftl.qualifier.extract import build_candidate_text, detect_structure_signal

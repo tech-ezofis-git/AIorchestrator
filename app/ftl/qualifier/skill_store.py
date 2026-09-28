@@ -70,6 +70,14 @@ mean new equipment is being bought for this car. Do not repeat this:
   supported list for that category, treat the item as unmatchable — name the unsupported brand
   explicitly in your reasoning — rather than assuming a generic Wittur part is an acceptable
   substitute.
+- **The existing-equipment brand is not the brand being purchased.** A row such as "Door
+  Operators: KONE AMDC1C-52" in the existing-equipment table says what is installed today. It does
+  not lock the new operator to KONE, and it is not an unsupported-brand exclusion. A new call-out
+  of "OEM or Wittur", "Wittur or equal", "Wittur", or a generic new door operator — without an
+  exclusive unsupported brand such as "new harmonic" — is an in-scope Wittur operator. Not naming
+  2T/2C/1S, hand, or width makes that match `ambiguous`, not excluded. When that operator is
+  requested together with a new detector/protective device, it is a door package and it qualifies.
+  Do not disqualify that RFQ as a lone-detector case.
 
 ## Step 2 — triage every grounded item into one of three buckets
 - **Out of scope**: motors, machine brakes, controllers, solid-state drives, encoders, cab interior
