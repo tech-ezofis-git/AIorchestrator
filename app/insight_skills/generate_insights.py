@@ -38,46 +38,30 @@ async def run(
             "skill_id": SKILL_ID,
         }
 
-    previous = {
-        "model": getattr(llm, "_model", None),
-        "api_base": getattr(llm, "_api_base", None),
-        "api_key": getattr(llm, "_api_key", None),
-        "api_version": getattr(llm, "_api_version", None),
-        "preset_id": getattr(llm, "_preset_id", None),
-    }
-    switched = False
-    if model and model != previous["model"] and not (
-        previous["model"] and previous["model"].endswith("/" + model)
+    current_model = getattr(llm, "_model", None)
+    overrides: dict[str, Any] = {}
+    if model and model != current_model and not (
+        current_model and current_model.endswith("/" + model)
     ):
-        llm.configure(model=model)
-        switched = True
+        overrides["model"] = model
 
-    try:
-        result = await llm.chat_completion(
-            [
-                {"role": "system", "content": await rules.async_system_prompt()},
-                {
-                    "role": "user",
-                    "content": rules.build_user_prompt(
-                        source=source,
-                        content=body,
-                        content_kind=content_kind,
-                        instruction=instruction,
-                        insights_count=count,
-                        insight_area=area,
-                    ),
-                },
-            ]
-        )
-    finally:
-        if switched:
-            llm.configure(
-                model=previous["model"] or model,
-                api_base=previous["api_base"] if previous["api_base"] is not None else "",
-                api_key=previous["api_key"] if previous["api_key"] is not None else "",
-                api_version=previous["api_version"] if previous["api_version"] is not None else "",
-                preset_id=previous["preset_id"] if previous["preset_id"] is not None else "",
-            )
+    result = await llm.chat_completion(
+        [
+            {"role": "system", "content": await rules.async_system_prompt()},
+            {
+                "role": "user",
+                "content": rules.build_user_prompt(
+                    source=source,
+                    content=body,
+                    content_kind=content_kind,
+                    instruction=instruction,
+                    insights_count=count,
+                    insight_area=area,
+                ),
+            },
+        ],
+        **overrides,
+    )
 
     payload = parse_insight_json_content(
         result["content"],

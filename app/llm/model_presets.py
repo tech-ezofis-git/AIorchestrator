@@ -76,7 +76,7 @@ MODEL_PRESETS: list[dict[str, Any]] = [
     },
 ]
 
-DEFAULT_PRESET_ID = "gpt-5-nano"
+DEFAULT_PRESET_ID = "ezofis-gpu-box"
 
 # Populated from catalog_models at startup (and after Catalog UI edits).
 # None => use the hardcoded MODEL_PRESETS list.
@@ -201,6 +201,15 @@ def resolve_preset_overrides(preset_id: str) -> Optional[dict[str, Any]]:
         "api_key": resolve_api_key(preset) or "",
         "api_version": preset.get("api_version") if preset.get("api_version") is not None else "",
     }
+
+
+def preset_call_overrides(model: Optional[str]) -> Optional[dict[str, Any]]:
+    """Full overrides when `model` is a preset id (what the Console model
+    pickers send), else None so the value is treated as a plain model name."""
+    name = (model or "").strip()
+    if not name or get_preset(name) is None:
+        return None
+    return resolve_preset_overrides(name)
 
 
 def preset_has_api_key(preset_id: str) -> bool:

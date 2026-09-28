@@ -1025,4 +1025,4 @@ def test_summary_uses_tenant_catalog_default_model(client, monkeypatch):
     )
     assert response.status_code == 200, response.text
     assert captured == ["azure/gpt-4.1-nano"]
-    assert client.get("/console/llm-config").json()["preset_id"] == "gpt-5-nano"
+    assert client.get("/console/llm-config").json()["preset_id"] == "ezofis-gpu-box"

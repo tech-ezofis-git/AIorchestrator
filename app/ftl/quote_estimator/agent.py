@@ -10,14 +10,11 @@ quote_template.py so it can never be wrong or inconsistent from run to run.
 from __future__ import annotations
 
 import json
-import os
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
-
-from openai import OpenAI, AzureOpenAI
 
 try:
     from app.ftl.quote_estimator.pricelist_store import (
@@ -69,86 +66,6 @@ MAX_LOOKUP_ROUNDS = 8
 # breakdown) means the model needs far fewer rounds to get a correct quote in the first place, and
 # the force_final incomplete-quote guard below already turns a genuine truncation into a clean,
 # retryable error instead of a silently-bad quote — so the lower cap is the better tradeoff.
-QUOTE_CHAT_MODEL = (
-    os.getenv("QUOTE_CHAT_MODEL") or os.getenv("LLM_MODEL") or "qwen3.5-9b"
-).strip()
-
-
-def get_client() -> Union[OpenAI, AzureOpenAI]:
-    """Create the configured LLM client without embedded credentials.
-
-    Qwen-compatible endpoints use the OpenAI-compatible client. Other models use
-    OpenAI when an sk-* key is configured, otherwise Azure OpenAI when its
-    endpoint/key pair is present. Missing credentials fail closed.
-    """
-    model_name = (
-        os.getenv("QUOTE_CHAT_MODEL") or os.getenv("LLM_MODEL") or "qwen3.5-9b"
-    ).strip().lower()
-
-    qwen_ep = (
-        os.getenv("QWEN_API_BASE")
-        or os.getenv("OPENAI_BASE_URL")
-        or os.getenv("OPENAI_API_BASE")
-    )
-    qwen_key = (
-        os.getenv("QWEN_API_KEY")
-        or os.getenv("QWEN_MAC_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-    )
-
-    if "qwen" in model_name:
-        if not qwen_ep:
-            raise RuntimeError(
-                "Qwen model selected but no endpoint is configured. Set QWEN_API_BASE "
-                "or OPENAI_BASE_URL."
-            )
-        if not qwen_key:
-            raise RuntimeError(
-                "Qwen model selected but no API key is configured. Set QWEN_API_KEY "
-                "or QWEN_MAC_API_KEY."
-            )
-        return OpenAI(base_url=qwen_ep, api_key=qwen_key)
-
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if openai_key and openai_key.startswith("sk-"):
-        return OpenAI(api_key=openai_key)
-
-    azure_ep = (
-        os.getenv("AZURE_OPENAI_ENDPOINT")
-        or (
-            os.getenv("AZURE_EAST_US_API_BASE", "https://api-4omin-ez.openai.azure.com")
-            if "4o" in model_name
-            else (os.getenv("AZURE_SOUTH_INDIA_API_BASE") or "https://ezazopenai.openai.azure.com")
-        )
-    )
-    azure_key = (
-        os.getenv("AZURE_OPENAI_API_KEY")
-        or (
-            os.getenv("AZURE_EAST_US_API_KEY")
-            if "4o" in model_name
-            else (os.getenv("AZURE_SOUTH_INDIA_API_KEY") or os.getenv("AZURE_EAST_US_API_KEY"))
-        )
-    )
-    if azure_ep and azure_key:
-        return AzureOpenAI(
-            azure_endpoint=azure_ep,
-            api_key=azure_key,
-            api_version=os.getenv(
-                "AZURE_OPENAI_API_VERSION", "2025-01-01-preview"
-            ),
-        )
-
-    if openai_key:
-        # Support compatible gateways that use a non-sk-* key, but require an
-        # explicit base URL so the key is never sent to an unintended endpoint.
-        base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
-        if base_url:
-            return OpenAI(base_url=base_url, api_key=openai_key)
-
-    raise RuntimeError(
-        "No valid LLM configuration found. Configure QWEN_API_BASE + QWEN_API_KEY, "
-        "OPENAI_API_KEY, or AZURE_OPENAI_ENDPOINT + an Azure OpenAI API key."
-    )
 
 
 _SEARCH_PRICELIST_TOOL = {
