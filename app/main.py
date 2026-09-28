@@ -2865,7 +2865,6 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         html=result.get("html"),
         qualifier_result=result.get("qualifier_result"),
         quote_result=result.get("quote_result"),
-        rendered_html=result.get("rendered_html"),
         pdf_download_url=result.get("pdf_download_url"),
         pdf_base64=result.get("pdf_base64"),
         pdf_filename=result.get("pdf_filename"),

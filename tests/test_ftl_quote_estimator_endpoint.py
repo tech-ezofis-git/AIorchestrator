@@ -83,8 +83,8 @@ def test_quote_direct_endpoint_and_pdf(client, monkeypatch):
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "success"
-    assert body["quote_result"]["Project Name"] == "120 Bloor St E"
-    assert "rendered_html" in body and ("<div" in body["rendered_html"].lower() or "<html" in body["rendered_html"].lower())
+    assert body["quote_result"]["Project"] == "120 Bloor St E"
+    assert "rendered_html" not in body
     estimate_number = body["estimate_number"]
     assert estimate_number is not None
 
@@ -136,8 +136,8 @@ def test_chat_ftl_quote_estimator_intent(client, monkeypatch):
     body = res.json()
     assert body["session_id"] == "session-ftl-quote-1"
     assert "quote_result" in body and body["quote_result"] is not None
-    assert body["quote_result"]["Project Name"] == "77 King St W"
-    assert "rendered_html" in body and body["rendered_html"] is not None
+    assert body["quote_result"]["Project"] == "77 King St W"
+    assert "rendered_html" not in body
     assert "pdf_download_url" in body and body["pdf_download_url"].startswith("/api/ftl/quote/pdf/")
     assert "Sales Estimate" in body["reply"]
 
@@ -271,7 +271,10 @@ def test_chat_quote_from_edited_qualifier_json(client, monkeypatch):
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["quote_result"]["Project Name"] == "285-295 Coventry - Modernization"
+    assert body["quote_result"]["Project"] == "285-295 Coventry - Modernization"
+    assert body["quote_result"]["Company Name"] == "ATTA Elevators"
+    assert body["quote_result"]["Line Item"][0]["Product"] == "SGV2_CLUTCH_OTIS_LH"
+    assert body["quote_result"]["Line Item"][0]["Price"] == 1010.4
     text = seen["text"]
     assert "clutch assembly" in text
     assert "sliding guide" in text
@@ -304,6 +307,57 @@ def test_quote_accepts_public_qualifier_keys():
     assert "category: door_operator" in text
     assert "center opening door operator 42 inch" in text
     assert "sliding guide" in text
+
+
+def test_quote_accepts_renamed_qualifier_keys():
+    from app.agents.ftl_quote_estimator_agent import render_qualifier_decision_for_quote
+
+    text = render_qualifier_decision_for_quote(
+        {
+            "Qualify": "Qualify",
+            "Project type": "Modernization",
+            "Project": "3040 Wonderland Rd S",
+            "Company Name": "ACME Elevators",
+            "Matched items": [{"Item": "door detector", "Category": "Door Protective Device", "Match": "Exact"}],
+            "Excluded items": [{"Item": "spirator closers", "Reason": "Not in the Wittur pricelist"}],
+        }
+    )
+    assert "Project name: 3040 Wonderland Rd S" in text
+    assert "Company name: ACME Elevators" in text
+    assert "Project type: modernization" in text
+    assert "door detector" in text
+    assert "spirator closers" in text
+
+
+def test_invoice_type_is_normalized_to_known_values():
+    from app.ftl.quote_estimator.agent import _validate_quote_payload
+
+    assert _validate_quote_payload({"line_items": [], "invoice_type": "proforma invoice"})["invoice_type"] == "Proforma Invoice"
+    assert _validate_quote_payload({"line_items": [], "invoice_type": "Made Up"})["invoice_type"] == "Quotation"
+    assert _validate_quote_payload({"line_items": []})["invoice_type"] == "Quotation"
+
+
+def test_renamed_quote_keys_round_trip():
+    from app.ftl.key_format import snake_keys, title_keys
+
+    internal = {
+        "customer_name": "ACME",
+        "contact_name": "Jane",
+        "contact_phone": "555",
+        "estimate_number": "EST-1",
+        "quote_date": "2026-09-28",
+        "line_items": [{"product_code": "X_1", "qty": 1, "unit_price": 5.0, "subtotal": 5.0}],
+    }
+    public = title_keys(internal)
+    assert public == {
+        "Company Name": "ACME",
+        "Contact": "Jane",
+        "Phone Number": "555",
+        "Order Number": "EST-1",
+        "Date": "2026-09-28",
+        "Line Item": [{"Product": "X_1", "Qty": 1, "Price": 5.0, "Subtotal": 5.0}],
+    }
+    assert snake_keys(public) == internal
 
 
 def test_chat_pdf_base64_from_edited_quote_json(client, monkeypatch):

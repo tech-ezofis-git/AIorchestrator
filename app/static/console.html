@@ -5562,6 +5562,17 @@ function renderReportPlanResult(result, request) {
 }
 
 const FTL_CODE_VALUE_KEYS = new Set(['qualify', 'project_type', 'match', 'category', 'flags']);
+const FTL_KEY_ALIASES = {
+  project: 'project_name',
+  company_name: 'customer_name',
+  contact: 'contact_name',
+  phone_number: 'contact_phone',
+  order_number: 'estimate_number',
+  date: 'quote_date',
+  line_item: 'line_items',
+  product: 'product_code',
+  price: 'unit_price',
+};
 
 function snakeFtlValue(value) {
   if (Array.isArray(value)) return value.map(snakeFtlValue);
@@ -5573,7 +5584,8 @@ function normalizeFtlKeys(value) {
   if (!value || typeof value !== 'object') return value;
   const out = {};
   Object.keys(value).forEach(k => {
-    const key = String(k).trim().toLowerCase().replace(/\s+/g, '_');
+    const snake = String(k).trim().toLowerCase().replace(/\s+/g, '_');
+    const key = FTL_KEY_ALIASES[snake] || snake;
     out[key] = FTL_CODE_VALUE_KEYS.has(key) ? snakeFtlValue(value[k]) : normalizeFtlKeys(value[k]);
   });
   return out;

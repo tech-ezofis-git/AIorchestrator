@@ -9,13 +9,25 @@ Base URL (local): `http://localhost:8010`
 
 ## Key format
 
-Every FTL data object uses Title Case keys with spaces: only the first letter of each word is a capital and there are no underscores (`Project Name`, `Matched Items`, `Unit Price`, `Bdm`, `Hst`, `Ai Insight`, `Pdf Base64`).
+Every FTL data object uses keys with spaces and no underscores (`Bdm`, `Hst`, `Ai Insight`, `Pdf Base64`). These keys have their own names, the same in both agents:
 
-Short code values use the same format: `Needs Review`, `New Construction`, `Exact`, `Door Operator`. This covers `Qualify`, `Project Type`, `Match`, `Category` (qualifier items and estimator line items) and `Flags`. Free text (`Reasoning`, `Ai Insight`, `Description`, `Note`, `Remarks`, `Assumptions`), `Product Code`, `Estimate Number`, numbers and dates are returned as they are.
+| Key | Agent | Meaning |
+|---|---|---|
+| `Project` | both | Project or tender name |
+| `Project type` | qualifier | `Modernization`, `New Construction`, `Unknown` |
+| `Company Name` | both | Company that sent the RFQ |
+| `Matched items`, `Excluded items` | qualifier | In-scope and out-of-scope items |
+| `Invoice Type` | estimator | Kind of document the request calls for (see below) |
+| `Contact`, `Phone Number`, `Email` | estimator | Customer contact |
+| `Date` | estimator | Date of the RFQ/email, `YYYY-MM-DD` |
+| `Order Number` | estimator | Estimate number, e.g. `EST-900106` |
+| `Line Item` | estimator | The priced lines; each has `Product`, `Description`, `Category`, `Qty`, `Price`, `Subtotal` |
+
+Short code values are Title Case: `Needs Review`, `New Construction`, `Exact`, `Door Operator`. This covers `Qualify`, `Project type`, `Match`, `Category` (qualifier items and estimator line items) and `Flags`. Free text (`Reasoning`, `Ai Insight`, `Description`, `Note`, `Remarks`, `Assumptions`), `Product`, `Order Number`, numbers and dates are returned as they are.
 
 The `/chat` envelope keys are unchanged: `session_id`, `intent`, `payload`, `reply`, `qualifier_result`, `quote_result`, `estimate_number`, `pdf_base64`, `pdf_filename`.
 
-Inputs are case-insensitive: `Project Name`, `project_name` and `projectName` are all accepted as keys, and `Needs Review` or `needs_review`, `Door Operator` or `door_operator` as values.
+Inputs are case-insensitive, and the older key names still work: `Project`, `Project Name` and `project_name` are all accepted, as are `Line Item` / `Line Items`, `Product` / `Product Code`, `Price` / `Unit Price`, `Company Name` / `Customer Name`, `Order Number` / `Estimate Number`. Values accept `Needs Review` or `needs_review`, `Door Operator` or `door_operator`.
 
 Use a new `session_id` for each fresh test run so an earlier session doesn't mix into the result.
 
@@ -68,10 +80,11 @@ The standalone endpoint `POST /api/ftl/qualify` takes `{ "Filename": "rfq.txt", 
   "reply": "### ✅ QUALIFY\n\n**Project type:** modernization  ·  **Confidence:** 85% ...",
   "qualifier_result": {
     "Qualify": "Qualify",
-    "Project Type": "Modernization",
-    "Project Name": "285-295 Coventry - Modernization",
+    "Project type": "Modernization",
+    "Project": "285-295 Coventry - Modernization",
+    "Company Name": "ATTA Elevators",
     "Deadline": null,
-    "Matched Items": [
+    "Matched items": [
       {
         "Item": "linear operator that integrates with Kone doors",
         "Category": "Door Operator",
@@ -93,7 +106,7 @@ The standalone endpoint `POST /api/ftl/qualify` takes `{ "Filename": "rfq.txt", 
         "Note": "Wittur hall door interlock assemblies are supported and listed."
       }
     ],
-    "Excluded Items": [],
+    "Excluded items": [],
     "Flags": [],
     "Reasoning": "The RFQ requests Wittur linear door operator integration with Kone doors (ambiguous but plausible with adaptors) and multiple Wittur clutch and interlock assemblies which are directly supported by FTL's Wittur SGV2 catalog.",
     "Confidence": 85,
@@ -107,10 +120,11 @@ The standalone endpoint `POST /api/ftl/qualify` takes `{ "Filename": "rfq.txt", 
 | Field | Values |
 |---|---|
 | `Qualify` | `Qualify`, `Disqualify`, `Needs Review` |
-| `Project Type` | `Modernization`, `New Construction`, `Unknown` |
-| `Matched Items[].Match` | `Exact`, `Ambiguous` |
-| `Matched Items[].Catalog Ref` | Only present when the model found a pricelist reference. |
-| `Excluded Items[]` | `Item`, `Reason` |
+| `Project type` | `Modernization`, `New Construction`, `Unknown` |
+| `Company Name` | Company that sent the RFQ; empty if not stated. |
+| `Matched items[].Match` | `Exact`, `Ambiguous` |
+| `Matched items[].Catalog Ref` | Only present when the model found a pricelist reference. |
+| `Excluded items[]` | `Item`, `Reason` |
 | `Confidence` | `0` to `100` |
 | `Ai Insight` | Short sales-facing summary: how attractive the opportunity is, the main risk, and the recommended next step. |
 
@@ -120,7 +134,7 @@ The standalone endpoint `POST /api/ftl/qualify` takes `{ "Filename": "rfq.txt", 
 
 ### Input: qualifier result (recommended)
 
-Paste `qualifier_result` from step 1 into `Qualifier Result`, unchanged or edited. Only `Matched Items` are priced; anything in `Excluded Items` is never added as a line item. To hold back an uncertain item, move it to `Excluded Items` with a `Reason`.
+Paste `qualifier_result` from step 1 into `Qualifier Result`, unchanged or edited. Only `Matched items` are priced; anything in `Excluded items` is never added as a line item. To hold back an uncertain item, move it to `Excluded items` with a `Reason`.
 
 `POST /chat`, raw JSON:
 
@@ -132,10 +146,10 @@ Paste `qualifier_result` from step 1 into `Qualifier Result`, unchanged or edite
     "Template Type": "inflow",
     "Qualifier Result": {
       "Qualify": "Qualify",
-      "Project Type": "Modernization",
-      "Project Name": "285-295 Coventry - Modernization",
+      "Project type": "Modernization",
+      "Project": "285-295 Coventry - Modernization",
       "Deadline": null,
-      "Matched Items": [
+      "Matched items": [
         {
           "Item": "linear operator that integrates with Kone doors",
           "Category": "Door Operator",
@@ -154,7 +168,7 @@ Paste `qualifier_result` from step 1 into `Qualifier Result`, unchanged or edite
           "Match": "Exact"
         }
       ],
-      "Excluded Items": [],
+      "Excluded items": [],
       "Flags": [],
       "Reasoning": "Wittur door operator and clutch/interlock items match the SGV2 catalog.",
       "Confidence": 85,
@@ -175,42 +189,45 @@ You can also skip the qualifier and send the RFQ directly: `POST /chat`, `form-d
   "session_id": "test-coventry-2",
   "reply": "### 📋 Sales Estimate: EST-900106 ...",
   "quote_result": {
-    "Estimate Number": "EST-900106",
-    "Project Name": "285-295 Coventry - Modernization",
-    "Customer Name": "",
-    "Contact Name": "",
-    "Contact Phone": "",
+    "Order Number": "EST-900106",
+    "Invoice Type": "Quotation",
+    "Project": "285-295 Coventry - Modernization",
+    "Company Name": "",
+    "Contact": "",
+    "Phone Number": "",
+    "Email": "",
+    "Date": "",
     "Billing Address": "",
     "Shipping Address": "",
     "Bdm": "",
     "Payment Terms": "",
-    "Line Items": [
+    "Line Item": [
       {
-        "Product Code": "SGV2_DOOR_OP_1S42_RH",
+        "Product": "SGV2_DOOR_OP_1S42_RH",
         "Description": "SGV2 - 1/SPEED DOOR OPERATOR (42\") - Compatible with various OEMs, likely Kone via adaptor",
         "Category": "Door Operator",
         "Qty": 1.0,
-        "Unit Price": 4955.28,
+        "Price": 4955.28,
         "Subtotal": 4955.28,
         "Note": "Ambiguous compatibility with Kone - likely via adaptor; confirm before release",
         "Needs Engineering Review": true
       },
       {
-        "Product Code": "SGV2_CLUTCH_OTIS_RH",
+        "Product": "SGV2_CLUTCH_OTIS_RH",
         "Description": "CLUTCH + CAR DOOR LOCK ASSEMBLY (RIGHT HAND) compatible with Wittur SGV2 operators",
         "Category": "Clutch",
         "Qty": 1.0,
-        "Unit Price": 1010.4,
+        "Price": 1010.4,
         "Subtotal": 1010.4,
         "Note": "",
         "Needs Engineering Review": false
       },
       {
-        "Product Code": "SGV2_CLUTCH_HALL_DOOR_INTERLOCK",
+        "Product": "SGV2_CLUTCH_HALL_DOOR_INTERLOCK",
         "Description": "Wittur Hall Door Interlock Assembly for SGV2 system",
         "Category": "Clutch",
         "Qty": 1.0,
-        "Unit Price": 0.0,
+        "Price": 0.0,
         "Subtotal": 0.0,
         "Note": "Price included with clutch assembly; verify code before release",
         "Needs Engineering Review": true
@@ -224,12 +241,11 @@ You can also skip the qualifier and send the RFQ directly: `POST /chat`, `form-d
       "Door-programming tool (SGV2_DOOR_TOOLS) not included; verify before release"
     ],
     "Subtotal": 5965.68,
-    "Freight": 0.0,
+    "Freight": 975.0,
     "Hst": 902.29,
     "Total": 7842.97
   },
   "estimate_number": "EST-900106",
-  "rendered_html": "<div ...>...</div>",
   "pdf_download_url": "/api/ftl/quote/pdf/EST-900106?template_type=inflow",
   "pdf_base64": "JVBERi0xLjQK...",
   "pdf_filename": "EST-900106.pdf"
@@ -238,16 +254,18 @@ You can also skip the qualifier and send the RFQ directly: `POST /chat`, `form-d
 
 | Field | Notes |
 |---|---|
-| `Line Items[].Category` | `Door Operator`, `Clutch`, `Panel Adaptor`, `Car Door Panel`, `Roller Guide`, `Governor`, `Car Safety`, `Door Protective Device`, `Door Tools`, `Other` |
-| `Line Items[].Needs Engineering Review` | `true` when the line has an open question; flagged on the `internal_review` PDF. |
-| `Freight Estimate` | The freight used in the totals. The separate `Freight` key is currently always `0`. |
+| `Invoice Type` | Chosen by the model from the RFQ wording: `Quotation` (price/quote/tender request, the default), `Sales Estimate` (internal or budget estimate), `Proforma Invoice` (customer asks for a proforma), `Sales Order` (order confirmed or PO sent), `Tax Invoice` (billing for goods already supplied). |
+| `Company Name`, `Contact`, `Phone Number`, `Email`, `Date` | Taken from the RFQ/email when stated, otherwise empty. |
+| `Line Item[].Category` | `Door Operator`, `Clutch`, `Panel Adaptor`, `Car Door Panel`, `Roller Guide`, `Governor`, `Car Safety`, `Door Protective Device`, `Door Tools`, `Other` |
+| `Line Item[].Needs Engineering Review` | `true` when the line has an open question; flagged on the `internal_review` PDF. |
+| `Freight Estimate`, `Freight` | The freight used in the totals (both show the same amount). |
 | `Subtotal`, `Hst`, `Total` | Subtotal of all lines; HST is 13% of subtotal + freight; Total = subtotal + freight + HST. |
 
 ---
 
 ## 3. Quote JSON to PDF base64
 
-Edit `quote_result` from step 2 (prices, quantities, remarks) and send it back as `Quote Result`. The model is not called. `Subtotal`, `Hst` and `Total` are recalculated from `Qty`, `Unit Price` and `Freight Estimate`, so you don't need to send them.
+Edit `quote_result` from step 2 (prices, quantities, remarks) and send it back as `Quote Result`. The model is not called. `Subtotal`, `Freight`, `Hst` and `Total` are recalculated from `Qty`, `Price` and `Freight Estimate`, so you don't need to send them.
 
 The same quote can be rendered in two PDF formats, chosen with `Template Type`.
 
@@ -267,36 +285,36 @@ The same quote can be rendered in two PDF formats, chosen with `Template Type`.
   "payload": {
     "Template Type": "inflow",
     "Quote Result": {
-      "Estimate Number": "EST-900106",
-      "Project Name": "285-295 Coventry - Modernization",
-      "Customer Name": "ATTA Elevators",
-      "Contact Name": "John Smith",
-      "Contact Phone": "416-555-0100",
+      "Order Number": "EST-900106",
+      "Project": "285-295 Coventry - Modernization",
+      "Company Name": "ATTA Elevators",
+      "Contact": "John Smith",
+      "Phone Number": "416-555-0100",
       "Billing Address": "100 King St W, Toronto, ON",
       "Shipping Address": "285 Coventry Rd, Ottawa, ON",
       "Bdm": "Seth",
       "Payment Terms": "Net 30",
-      "Line Items": [
+      "Line Item": [
         {
-          "Product Code": "SGV2_DOOR_OP_1S42_RH",
+          "Product": "SGV2_DOOR_OP_1S42_RH",
           "Description": "SGV2 - 1/SPEED DOOR OPERATOR (42\")",
           "Category": "Door Operator",
           "Qty": 1,
-          "Unit Price": 4955.28
+          "Price": 4955.28
         },
         {
-          "Product Code": "SGV2_CLUTCH_OTIS_RH",
+          "Product": "SGV2_CLUTCH_OTIS_RH",
           "Description": "CLUTCH + CAR DOOR LOCK ASSEMBLY (RIGHT HAND)",
           "Category": "Clutch",
           "Qty": 2,
-          "Unit Price": 1010.4
+          "Price": 1010.4
         },
         {
-          "Product Code": "SGV2_CLUTCH_HALL_DOOR_INTERLOCK",
+          "Product": "SGV2_CLUTCH_HALL_DOOR_INTERLOCK",
           "Description": "Wittur Hall Door Interlock Assembly for SGV2 system",
           "Category": "Clutch",
           "Qty": 1,
-          "Unit Price": 0.0
+          "Price": 0.0
         }
       ],
       "Freight Estimate": 975.0
@@ -312,13 +330,13 @@ Output:
   "session_id": "test-coventry-pdf-inflow",
   "reply": "PDF generated for EST-900106 (inflow).",
   "quote_result": {
-    "Estimate Number": "EST-900106",
-    "Project Name": "285-295 Coventry - Modernization",
-    "Customer Name": "ATTA Elevators",
-    "Line Items": [
-      { "Product Code": "SGV2_DOOR_OP_1S42_RH", "Category": "Door Operator", "Qty": 1, "Unit Price": 4955.28, "Subtotal": 4955.28 },
-      { "Product Code": "SGV2_CLUTCH_OTIS_RH", "Category": "Clutch", "Qty": 2, "Unit Price": 1010.4, "Subtotal": 2020.8 },
-      { "Product Code": "SGV2_CLUTCH_HALL_DOOR_INTERLOCK", "Category": "Clutch", "Qty": 1, "Unit Price": 0.0, "Subtotal": 0.0 }
+    "Order Number": "EST-900106",
+    "Project": "285-295 Coventry - Modernization",
+    "Company Name": "ATTA Elevators",
+    "Line Item": [
+      { "Product": "SGV2_DOOR_OP_1S42_RH", "Category": "Door Operator", "Qty": 1, "Price": 4955.28, "Subtotal": 4955.28 },
+      { "Product": "SGV2_CLUTCH_OTIS_RH", "Category": "Clutch", "Qty": 2, "Price": 1010.4, "Subtotal": 2020.8 },
+      { "Product": "SGV2_CLUTCH_HALL_DOOR_INTERLOCK", "Category": "Clutch", "Qty": 1, "Price": 0.0, "Subtotal": 0.0 }
     ],
     "Freight Estimate": 975.0,
     "Subtotal": 6976.08,
@@ -344,40 +362,40 @@ Same quote, plus the fields that only the internal format shows (`Note`, `Needs 
   "payload": {
     "Template Type": "internal_review",
     "Quote Result": {
-      "Estimate Number": "EST-900106",
-      "Project Name": "285-295 Coventry - Modernization",
-      "Customer Name": "ATTA Elevators",
-      "Contact Name": "John Smith",
-      "Contact Phone": "416-555-0100",
+      "Order Number": "EST-900106",
+      "Project": "285-295 Coventry - Modernization",
+      "Company Name": "ATTA Elevators",
+      "Contact": "John Smith",
+      "Phone Number": "416-555-0100",
       "Billing Address": "100 King St W, Toronto, ON",
       "Shipping Address": "285 Coventry Rd, Ottawa, ON",
       "Bdm": "Seth",
       "Payment Terms": "Net 30",
-      "Line Items": [
+      "Line Item": [
         {
-          "Product Code": "SGV2_DOOR_OP_1S42_RH",
+          "Product": "SGV2_DOOR_OP_1S42_RH",
           "Description": "SGV2 - 1/SPEED DOOR OPERATOR (42\")",
           "Category": "Door Operator",
           "Qty": 1,
-          "Unit Price": 4955.28,
+          "Price": 4955.28,
           "Note": "Kone compatibility via adaptor; confirm before release",
           "Needs Engineering Review": true
         },
         {
-          "Product Code": "SGV2_CLUTCH_OTIS_RH",
+          "Product": "SGV2_CLUTCH_OTIS_RH",
           "Description": "CLUTCH + CAR DOOR LOCK ASSEMBLY (RIGHT HAND)",
           "Category": "Clutch",
           "Qty": 2,
-          "Unit Price": 1010.4,
+          "Price": 1010.4,
           "Note": "",
           "Needs Engineering Review": false
         },
         {
-          "Product Code": "SGV2_CLUTCH_HALL_DOOR_INTERLOCK",
+          "Product": "SGV2_CLUTCH_HALL_DOOR_INTERLOCK",
           "Description": "Wittur Hall Door Interlock Assembly for SGV2 system",
           "Category": "Clutch",
           "Qty": 1,
-          "Unit Price": 0.0,
+          "Price": 0.0,
           "Subtotal Override": 0,
           "Note": "Bundled with clutch; verify code before release",
           "Needs Engineering Review": true
@@ -403,8 +421,8 @@ Output:
   "session_id": "test-coventry-pdf-internal",
   "reply": "PDF generated for EST-900106 (internal_review).",
   "quote_result": {
-    "Estimate Number": "EST-900106",
-    "Line Items": [ "... same lines, with Note and Needs Engineering Review ..." ],
+    "Order Number": "EST-900106",
+    "Line Item": [ "... same lines, with Note and Needs Engineering Review ..." ],
     "Freight Estimate": 975.0,
     "Freight Note": "Flat freight estimate of $975.00 (temporary default; confirm at order).",
     "Remarks": "Quote based on consultant specification review. Clutches and interlocks are exact SGV2 matches.",
@@ -423,14 +441,14 @@ Output:
 
 | Field | Required | Notes |
 |---|---|---|
-| `Estimate Number` | recommended | Used for the PDF title and filename. Defaults to `ESTIMATE`. |
-| `Line Items[].Product Code`, `Description` | yes | Shown on each line. |
-| `Line Items[].Qty` | yes | Must be `Qty`, not `Quantity`. |
-| `Line Items[].Unit Price` | yes | Line subtotal = `Qty × Unit Price`. |
-| `Line Items[].Subtotal Override` | no | Forces a line subtotal, e.g. `0` for a bundled item. |
+| `Order Number` | recommended | Used for the PDF title and filename. Defaults to `ESTIMATE`. |
+| `Line Item[].Product`, `Description` | yes | Shown on each line. |
+| `Line Item[].Qty` | yes | Must be `Qty`, not `Quantity`. |
+| `Line Item[].Price` | yes | Line subtotal = `Qty × Price`. |
+| `Line Item[].Subtotal Override` | no | Forces a line subtotal, e.g. `0` for a bundled item. |
 | `Freight Estimate` | no | Added before tax. |
-| `Customer Name`, `Contact Name`, `Contact Phone`, `Billing Address`, `Shipping Address`, `Bdm`, `Payment Terms`, `Project Name` | no | Header fields. |
-| `Line Items[].Note`, `Line Items[].Needs Engineering Review`, `Freight Note`, `Remarks`, `Assumptions` | no | Shown on the `internal_review` format only. |
+| `Company Name`, `Contact`, `Phone Number`, `Billing Address`, `Shipping Address`, `Bdm`, `Payment Terms`, `Project` | no | Header fields. |
+| `Line Item[].Note`, `Line Item[].Needs Engineering Review`, `Freight Note`, `Remarks`, `Assumptions` | no | Shown on the `internal_review` format only. |
 
 ---
 
@@ -483,7 +501,7 @@ window.open(url);
 
 | Method and path | Input | Output |
 |---|---|---|
-| `POST /api/ftl/quote` | JSON or form-data: `file` / `Raw Text` / `Qualifier Result`, `Template Type` | `estimate_number`, `quote_result`, `rendered_html`, `pdf_download_url` |
+| `POST /api/ftl/quote` | JSON or form-data: `file` / `Raw Text` / `Qualifier Result`, `Template Type` | `estimate_number`, `quote_result`, `pdf_download_url` |
 | `POST /api/ftl/quote/pdf` | JSON: `Quote Result`, `Template Type` | PDF file directly (no base64) |
 | `GET /api/ftl/quote/pdf/{estimate_number}?template_type=inflow` | none | PDF file for a saved estimate (same server only) |
 
@@ -491,5 +509,6 @@ window.open(url);
 
 - **`json_invalid` / "Expecting property name enclosed in double quotes"**: the body is not valid JSON. In Postman choose Body, raw, JSON, and use straight double quotes on every key and string.
 - **Totals look wrong**: check that line items use `Qty`, not `Quantity`, and that freight is in `Freight Estimate`.
+- **Empty `Line Item` from a qualifier result**: the estimator only prices real FTL catalog products. If every matched item has `Catalog Ref: null`, or the items aren't in the Wittur catalog, nothing can be priced; send the RFQ file instead, or edit the matched items to real products.
 - **Estimator output doesn't match your qualifier result**: use a new `session_id` for each fresh test run.
 - **Base64 to PDF returns 400**: the `Pdf Base64` value is incomplete; copy the whole string.

@@ -40,6 +40,9 @@ def format_decision_markdown(run: Dict[str, Any]) -> str:
     project_name = run.get("project_name") or result.get("project_name")
     if project_name:
         lines.append(f"**Project:** {project_name}")
+    company_name = result.get("customer_name")
+    if company_name:
+        lines.append(f"**Company:** {company_name}")
     deadline = run.get("deadline_text") or result.get("deadline")
     if deadline:
         lines.append(f"**Deadline:** {deadline}")

@@ -56,6 +56,18 @@ _WHITELIST_CHECKED_CATEGORIES = {
 # instructions, e.g. the car door restrictor is bundled with the operator and isn't its own SKU).
 _WHITELIST_KNOWN_EXTRAS = {"SGV2_CAR_DOOR_RESTRICTOR"}
 
+INVOICE_TYPES = ("Quotation", "Sales Estimate", "Proforma Invoice", "Sales Order", "Tax Invoice")
+DEFAULT_INVOICE_TYPE = "Quotation"
+_INVOICE_TYPE_CHOICES = " | ".join(f'"{t}"' for t in INVOICE_TYPES)
+_INVOICE_TYPE_DESCRIPTION = (
+    "The kind of document this request calls for, judged from the RFQ/email wording: "
+    "'Quotation' when the customer asks for a price/quote/tender bid (most RFQs); "
+    "'Sales Estimate' for an internal or budget estimate with no formal quote request; "
+    "'Proforma Invoice' when the customer asks for a proforma (e.g. to arrange prepayment); "
+    "'Sales Order' when the customer has confirmed the order or sent a PO; "
+    "'Tax Invoice' when billing for goods already supplied. If unclear, use 'Quotation'."
+)
+
 AGENT_VERSION = "2.0.0"
 MAX_LOOKUP_ROUNDS = 8
 # NOTE: this was bumped to 12 for one round of testing (to reduce forced-truncation quotes) but
@@ -105,9 +117,16 @@ _SUBMIT_QUOTE_TOOL = {
             "type": "object",
             "properties": {
                 "project_name": {"type": "string", "description": "Project or tender name, e.g. '120 Bloor Street East, Toronto, ON'."},
-                "customer_name": {"type": "string"},
+                "invoice_type": {
+                    "type": "string",
+                    "enum": list(INVOICE_TYPES),
+                    "description": _INVOICE_TYPE_DESCRIPTION,
+                },
+                "customer_name": {"type": "string", "description": "Company that sent the RFQ (customer / contractor). Empty if not stated."},
                 "contact_name": {"type": "string"},
                 "contact_phone": {"type": "string"},
+                "email": {"type": "string", "description": "Contact email address from the RFQ/email. Empty if not stated."},
+                "quote_date": {"type": "string", "description": "Date of the RFQ/email as YYYY-MM-DD. Empty if not stated."},
                 "billing_address": {"type": "string"},
                 "shipping_address": {"type": "string"},
                 "bdm": {"type": "string", "description": "FTL executive / business development manager on the account, if known — else leave blank."},
@@ -215,9 +234,12 @@ def build_system_prompt(skill: Dict[str, Any], is_json_mode: bool = False) -> st
             "2. When you have found all items and prices and are ready to submit your quote:\n"
             '{"action": "submit_quote", "quote": {\n'
             '  "project_name": "...",\n'
+            f'  "invoice_type": {_INVOICE_TYPE_CHOICES},\n'
             '  "customer_name": "...",\n'
             '  "contact_name": "...",\n'
             '  "contact_phone": "...",\n'
+            '  "email": "...",\n'
+            '  "quote_date": "YYYY-MM-DD",\n'
             '  "billing_address": "...",\n'
             '  "shipping_address": "...",\n'
             '  "bdm": "...",\n'
@@ -239,6 +261,7 @@ def build_system_prompt(skill: Dict[str, Any], is_json_mode: bool = False) -> st
             '  "remarks": "...",\n'
             '  "assumptions": ["..."]\n'
             '}}\n\n'
+            f"invoice_type: {_INVOICE_TYPE_DESCRIPTION}\n\n"
             "You will be given the candidate text extracted from an RFQ. Use search_pricelist to find exact catalog codes and prices before submitting."
         )
     else:
@@ -2122,10 +2145,14 @@ def _validate_quote_payload(quote: Any) -> Dict[str, Any]:
     for field in (
         "project_name", "customer_name", "contact_name", "contact_phone",
         "billing_address", "shipping_address", "bdm", "freight_note",
-        "payment_terms", "remarks",
+        "payment_terms", "remarks", "email", "quote_date",
     ):
         value = quote.get(field, "")
         quote[field] = "" if value is None else str(value).strip()
+
+    invoice_type = str(quote.get("invoice_type") or "").strip()
+    by_lower = {t.lower(): t for t in INVOICE_TYPES}
+    quote["invoice_type"] = by_lower.get(invoice_type.lower(), DEFAULT_INVOICE_TYPE)
 
     if not isinstance(quote.get("assumptions"), list):
         quote["assumptions"] = (

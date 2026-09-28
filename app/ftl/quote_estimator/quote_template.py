@@ -146,6 +146,7 @@ def compute_totals(quote: Dict[str, Any]) -> Dict[str, Any]:
         "remarks": (quote.get("remarks") or "") if isinstance(quote, dict) else "",
         "assumptions": (quote.get("assumptions") or []) if isinstance(quote, dict) else [],
         "subtotal": running_subtotal,
+        "freight": freight,
         "hst": hst,
         "total": total,
     }

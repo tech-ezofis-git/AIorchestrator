@@ -1,8 +1,9 @@
 """Public API shape of a qualifier decision.
 
 The model fills in snake_case keys (see agent.py's submit_qualification_decision schema) and runs
-are stored that way; callers see Title Case keys ("Project Name", "Matched Items", "Ai Insight",
-including the keys inside each item) and Title Case code values ("Needs Review", "Door Operator").
+are stored that way; callers see the public keys from key_format ("Project", "Matched items",
+"Company Name", "Ai Insight", including the keys inside each item) and Title Case code values
+("Needs Review", "Door Operator").
 to_internal accepts either shape so an edited public result can be sent straight back to the
 Quote Estimator.
 """
@@ -17,6 +18,7 @@ DECISION_KEYS = (
     "qualify",
     "project_type",
     "project_name",
+    "customer_name",
     "deadline",
     "matched_items",
     "excluded_items",
@@ -27,7 +29,7 @@ DECISION_KEYS = (
 )
 
 _LIST_KEYS = ("matched_items", "excluded_items", "flags")
-_TEXT_KEYS = ("project_type", "project_name", "reasoning", "ai_insight")
+_TEXT_KEYS = ("project_type", "project_name", "customer_name", "reasoning", "ai_insight")
 
 
 def _confidence_percent(value: Any) -> Optional[int]:

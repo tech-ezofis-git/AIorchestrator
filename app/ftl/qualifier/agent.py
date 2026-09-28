@@ -318,6 +318,10 @@ _SUBMIT_DECISION_TOOL = {
                 "flags": {"type": "array", "items": {"type": "string"}},
                 "deadline": {"type": ["string", "null"]},
                 "project_name": {"type": "string"},
+                "customer_name": {
+                    "type": "string",
+                    "description": "Company that sent the RFQ (the customer / contractor), from the email or spec. Empty if not stated.",
+                },
                 "reasoning": {"type": "string"},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                 "ai_insight": {"type": "string", "description": _AI_INSIGHT_DESCRIPTION},
@@ -372,6 +376,7 @@ def build_system_prompt(skill: Dict[str, Any], is_json_mode: bool = False) -> st
             '  "flags": ["..."],\n'
             '  "deadline": "..." | null,\n'
             '  "project_name": "...",\n'
+            '  "customer_name": "company that sent the RFQ, or empty",\n'
             '  "reasoning": "...",\n'
             '  "confidence": 0.0 to 1.0,\n'
             '  "ai_insight": "..."\n'
@@ -467,6 +472,7 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
             decision.setdefault("flags", [])
             decision.setdefault("deadline", None)
             decision.setdefault("project_name", "")
+            decision.setdefault("customer_name", "")
             decision.setdefault("reasoning", "")
             decision.setdefault("confidence", 0.8)
             decision.setdefault("ai_insight", "")
