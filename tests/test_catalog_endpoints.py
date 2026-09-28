@@ -20,6 +20,7 @@ def test_list_catalog_agents_seeds_builtins(client):
         "insight",
         "mail",
         "ocr",
+        "pdf",
         "prompt",
         "report",
         "search",
