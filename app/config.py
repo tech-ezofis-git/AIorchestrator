@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # in one RFQ are sent to Paddle. Text pages are never counted against it.
     ftl_ocr_max_pages: int = 40
     ocr_max_recommended_fields: int = 15
+    # OCR agent only: scan the same pages for QR codes (OpenCV) alongside text
+    # extraction. Pages are rendered at ocr_qr_dpi; a page with no hit is
+    # retried once at double resolution for small codes.
+    ocr_qr_enabled: bool = True
+    ocr_qr_dpi: int = 200
     ocr_allowed_host_suffixes: str = ".blob.core.windows.net"
     ocr_download_timeout_seconds: float = 60.0
     ocr_max_file_bytes: int = 25 * 1024 * 1024  # 25 MiB

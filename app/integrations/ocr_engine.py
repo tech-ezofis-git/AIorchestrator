@@ -5,6 +5,7 @@ tests can run without the remote OCR service.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, Optional
@@ -26,6 +27,7 @@ from app.integrations.docx_text import (
     looks_like_docx,
     looks_like_legacy_doc,
 )
+from app.integrations.qr_scan import scan_document_qr
 
 logger = logging.getLogger("orchestrator.ocr")
 
@@ -55,11 +57,15 @@ class OcrEngineClient:
         content_type: Optional[str] = None,
         page_selection: Optional[PageSelection] = None,
         tenant_id: Optional[str] = None,
+        scan_qr: bool = False,
     ) -> dict[str, Any]:
         """Extract text for a document job or legacy reference string.
 
         Prefer file_bytes (upload) over filepath (blob). Legacy callers may
         still pass only `reference` (mock/demo path when URL unset).
+
+        With scan_qr, the same pages are scanned for QR codes concurrently
+        with text extraction and returned as `qr_codes`.
         """
         settings = self._cfg()
         pages = page_selection or PageSelection(start=1, end=1, raw="1")
@@ -102,6 +108,59 @@ class OcrEngineClient:
             tenant_id=tenant_id,
         )
 
+        qr_task = None
+        if scan_qr and settings.ocr_qr_enabled and data:
+            qr_task = asyncio.create_task(
+                asyncio.to_thread(
+                    scan_document_qr,
+                    data,
+                    filename=name,
+                    content_type=ctype,
+                    page_selection=pages,
+                    dpi=settings.ocr_qr_dpi,
+                )
+            )
+        try:
+            result = await self._extract_text(
+                data=data, name=name, ctype=ctype, pages=pages, source=source, extract_url=extract_url
+            )
+        except OcrEngineError as exc:
+            if qr_task is None:
+                raise
+            qr_codes = await qr_task
+            if not qr_codes:
+                raise
+            # Text extraction failed but QR codes were decoded: return them instead of failing.
+            logger.warning("ocr_text_failed_qr_kept", extra={"error": str(exc)[:200]})
+            return {
+                "source_reference": source,
+                "text": "",
+                "confidence": None,
+                "mock": False,
+                "filename": name,
+                "pages": pages.label(),
+                "qr_codes": qr_codes,
+                "text_error": str(exc),
+            }
+        except BaseException:
+            if qr_task is not None:
+                qr_task.cancel()
+            raise
+        if qr_task is not None:
+            result["qr_codes"] = await qr_task
+        return result
+
+    async def _extract_text(
+        self,
+        *,
+        data: bytes,
+        name: str,
+        ctype: str,
+        pages: PageSelection,
+        source: str,
+        extract_url: str,
+    ) -> dict[str, Any]:
+        settings = self._cfg()
         local_text = self._extract_local_text(
             data=data,
             filename=name,

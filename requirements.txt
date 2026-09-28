@@ -9,6 +9,8 @@ redis==5.0.8
 python-multipart==0.0.31
 azure-storage-blob==12.23.1
 pymupdf==1.26.7
+# OCR agent QR detection/decoding (app/integrations/qr_scan.py).
+opencv-python-headless==4.11.0.86
 pandas==2.2.3
 openpyxl==3.1.5
 # AP invoice date normalization (app/ap_skills/extract_invoice.py). Already
