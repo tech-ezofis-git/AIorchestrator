@@ -3,7 +3,7 @@
 
 Prompts for DB password (does not use stale .env password unless you pass it).
 
-One workflow (FTL Agent or any other). Preview, then execute:
+One workflow (AP Agent or any other). Preview, then execute:
   py -3 scripts/run_wipe_ezofis_tickets.py --tenant-id <tenant-guid> --workflow-id <workflow-guid>
   py -3 scripts/run_wipe_ezofis_tickets.py --tenant-id <tenant-guid> --workflow-id <workflow-guid> --execute
 
@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import getpass
 import os
+import re
 import sys
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -126,6 +127,15 @@ def table_matches_workflow(table_name: str, short: str, full: str) -> bool:
     return name.endswith("_" + short) or name.endswith("_" + full)
 
 
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def qident(name: str) -> str:
+    if not _IDENT_RE.match(name or ""):
+        raise SystemExit(f"refusing unsafe SQL identifier: {name!r}")
+    return '"' + name + '"'
+
+
 async def list_wipe_tables(conn: asyncpg.Connection) -> list[tuple[str, str]]:
     rows = await conn.fetch(
         f"""
@@ -189,6 +199,27 @@ async def list_workflow_tables(
     return [(schema, name) for schema, name in tables if table_matches_workflow(name, short, full)]
 
 
+async def _column_map(conn: asyncpg.Connection, schema: str, table: str) -> dict[str, str]:
+    rows = await conn.fetch(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = $2
+        """,
+        schema,
+        table,
+    )
+    return {str(row["column_name"]).lower(): str(row["column_name"]) for row in rows}
+
+
+def _pick_column(columns: dict[str, str], *names: str) -> str | None:
+    for name in names:
+        found = columns.get(name.lower())
+        if found:
+            return found
+    return None
+
+
 async def _workflow_id_column(conn: asyncpg.Connection, schema: str, name: str) -> str | None:
     row = await conn.fetchrow(
         """
@@ -203,6 +234,468 @@ async def _workflow_id_column(conn: asyncpg.Connection, schema: str, name: str) 
         name,
     )
     return str(row["column_name"]) if row else None
+
+
+def _split_items_table(raw: str, repository_id: str) -> tuple[str, str]:
+    text = (raw or "").strip().strip('"')
+    if "." in text:
+        schema, table = text.split(".", 1)
+        schema = schema.strip().strip('"')
+        table = table.strip().strip('"')
+    else:
+        schema, table = "repository", text
+    if not table:
+        compact = compact_guid(repository_id)
+        table = f"items_{compact[:8]}" if len(compact) >= 8 else ""
+    return schema or "repository", table
+
+
+async def _locate_table(conn: asyncpg.Connection, table_name: str) -> tuple[str, str] | None:
+    if not table_name:
+        return None
+    row = await conn.fetchrow(
+        """
+        SELECT table_schema, table_name
+        FROM information_schema.tables
+        WHERE lower(table_name) = lower($1)
+          AND table_type = 'BASE TABLE'
+          AND table_schema NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY CASE
+            WHEN table_schema = 'repository' THEN 0
+            WHEN table_schema = 'dbo' THEN 1
+            WHEN table_schema = 'public' THEN 2
+            ELSE 3
+        END
+        LIMIT 1
+        """,
+        table_name,
+    )
+    if row is None:
+        return None
+    return str(row["table_schema"]), str(row["table_name"])
+
+
+def _ezfb_items_name(form_id: str) -> str:
+    raw = (form_id or "").strip()
+    if not raw:
+        return ""
+    if raw.isdigit():
+        return f"ezfb_{int(raw)}_items"
+    compact = compact_guid(raw)
+    if len(compact) >= 8:
+        return f"ezfb_{compact[:8]}_items"
+    return ""
+
+
+async def _item_family(conn: asyncpg.Connection, schema: str, table: str) -> list[tuple[str, str]]:
+    """History and stage rows first, then the items table itself."""
+    found: list[tuple[str, str]] = []
+    for suffix in ("_history", "_stage", "_versions", "_files"):
+        name = f"{table}{suffix}"
+        if await table_exists(conn, schema, name):
+            found.append((schema, name))
+    if await table_exists(conn, schema, table):
+        found.append((schema, table))
+    return found
+
+
+async def resolve_workflow_repository(conn: asyncpg.Connection, workflow_id: str) -> dict | None:
+    """workflow.Workflows.RepositoryId → repository.Repositories items table."""
+    if not await table_exists(conn, "workflow", "Workflows"):
+        print("  workflow.Workflows missing; repository files not resolved")
+        return None
+    wf_cols = await _column_map(conn, "workflow", "Workflows")
+    id_col = _pick_column(wf_cols, "id")
+    repo_col = _pick_column(wf_cols, "repositoryid", "repository_id")
+    form_col = _pick_column(wf_cols, "formid", "form_id", "wformid")
+    name_col = _pick_column(wf_cols, "name")
+    if not id_col or not repo_col:
+        print("  workflow.Workflows has no repository id; repository files not resolved")
+        return None
+    select = [
+        f"{qident(id_col)}::text AS id",
+        f"{qident(repo_col)}::text AS repository_id",
+    ]
+    if form_col:
+        select.append(f"{qident(form_col)}::text AS form_id")
+    if name_col:
+        select.append(f"{qident(name_col)}::text AS name")
+    deleted = _pick_column(wf_cols, "isdeleted", "is_deleted")
+    row = await conn.fetchrow(
+        f"SELECT {', '.join(select)} FROM workflow.{qident('Workflows')} "
+        f"WHERE replace(lower({qident(id_col)}::text), '-', '') = $1 LIMIT 1",
+        compact_guid(workflow_id),
+    )
+    if row is None or not row["repository_id"]:
+        print("  this workflow has no repository linked")
+        return None
+    repository_id = str(row["repository_id"])
+    repository_compact = compact_guid(repository_id)
+    workflow_name = str(row["name"]) if name_col and row["name"] else ""
+
+    other_workflows = 0
+    if repository_compact:
+        deleted_sql = ""
+        if deleted:
+            deleted_sql = (
+                f" AND lower(COALESCE({qident(deleted)}::text, 'false'))"
+                " NOT IN ('1', 'true', 't')"
+            )
+        other_workflows = int(
+            await conn.fetchval(
+                f"SELECT count(*) FROM workflow.{qident('Workflows')} "
+                f"WHERE replace(lower({qident(repo_col)}::text), '-', '') = $1 "
+                f"AND replace(lower({qident(id_col)}::text), '-', '') <> $2"
+                f"{deleted_sql}",
+                repository_compact,
+                compact_guid(workflow_id),
+            )
+            or 0
+        )
+
+    schema, table = "repository", f"items_{repository_compact[:8]}" if len(repository_compact) >= 8 else ""
+    repository_name = ""
+    if await table_exists(conn, "repository", "Repositories"):
+        repo_cols = await _column_map(conn, "repository", "Repositories")
+        repo_id_col = _pick_column(repo_cols, "id")
+        items_col = _pick_column(repo_cols, "itemstablename", "items_table_name")
+        repo_name_col = _pick_column(repo_cols, "name")
+        if repo_id_col:
+            repo_select = [f"{qident(repo_id_col)}::text AS id"]
+            if items_col:
+                repo_select.append(f"{qident(items_col)}::text AS items_table")
+            if repo_name_col:
+                repo_select.append(f"{qident(repo_name_col)}::text AS name")
+            repo_row = await conn.fetchrow(
+                f"SELECT {', '.join(repo_select)} FROM repository.{qident('Repositories')} "
+                f"WHERE replace(lower({qident(repo_id_col)}::text), '-', '') = $1 LIMIT 1",
+                repository_compact,
+            )
+            if repo_row is not None:
+                repository_name = str(repo_row["name"] or "") if repo_name_col else ""
+                if items_col and repo_row["items_table"]:
+                    schema, table = _split_items_table(str(repo_row["items_table"]), repository_id)
+    located = await _locate_table(conn, table) if table else None
+    if located is None and len(repository_compact) >= 8:
+        located = await _locate_table(conn, f"items_{repository_compact[:8]}")
+    if located is None:
+        schema, table = "", ""
+    else:
+        schema, table = located
+
+    form_id = str(row["form_id"] or "") if form_col and row["form_id"] else ""
+    form_schema, form_table = "", ""
+    other_form_workflows = 0
+    form_name = _ezfb_items_name(form_id)
+    if form_name:
+        form_located = await _locate_table(conn, form_name)
+        if form_located is not None:
+            form_schema, form_table = form_located
+            if form_col:
+                deleted_sql = ""
+                if deleted:
+                    deleted_sql = (
+                        f" AND lower(COALESCE({qident(deleted)}::text, 'false'))"
+                        " NOT IN ('1', 'true', 't')"
+                    )
+                other_form_workflows = int(
+                    await conn.fetchval(
+                        f"SELECT count(*) FROM workflow.{qident('Workflows')} "
+                        f"WHERE replace(lower({qident(form_col)}::text), '-', '') = $1 "
+                        f"AND replace(lower({qident(id_col)}::text), '-', '') <> $2"
+                        f"{deleted_sql}",
+                        compact_guid(form_id) or form_id.lower(),
+                        compact_guid(workflow_id),
+                    )
+                    or 0
+                )
+    return {
+        "workflow_name": workflow_name,
+        "repository_id": repository_id,
+        "repository_name": repository_name,
+        "repository_compact": repository_compact,
+        "schema": schema,
+        "table": table,
+        "other_workflows": other_workflows,
+        "form_id": form_id,
+        "form_schema": form_schema,
+        "form_table": form_table,
+        "other_form_workflows": other_form_workflows,
+    }
+
+
+async def _collect_attachment_items(
+    conn: asyncpg.Connection, workflow_id: str
+) -> list[tuple[str, str]]:
+    """Item ids still stored on this workflow's attachment/document tables."""
+    short, full = workflow_suffixes(workflow_id)
+    found: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for prefix in ("workflow_attachments_", "workflow_documents_"):
+        for suffix in (short, full):
+            name = prefix + suffix
+            if not await table_exists(conn, "workflow", name):
+                continue
+            columns = await _column_map(conn, "workflow", name)
+            item_col = _pick_column(
+                columns, "itemid", "item_id", "repositoryitemid", "ifileid", "witemid"
+            )
+            if not item_col:
+                continue
+            repo_col = _pick_column(columns, "repositoryid", "repository_id", "wrepositoryid")
+            repo_sql = f"{qident(repo_col)}::text" if repo_col else "NULL::text"
+            rows = await conn.fetch(
+                f"SELECT {qident(item_col)}::text AS item_id, {repo_sql} AS repository_id "
+                f"FROM workflow.{qident(name)} "
+                f"WHERE {qident(item_col)} IS NOT NULL"
+            )
+            for row in rows:
+                item = compact_guid(str(row["item_id"] or ""))
+                repo = compact_guid(str(row["repository_id"] or ""))
+                if not item or (item, repo) in seen:
+                    continue
+                seen.add((item, repo))
+                found.append((item, repo))
+    return found
+
+
+async def _collect_instance_ids(conn: asyncpg.Connection, workflow_id: str) -> list[str]:
+    short, full = workflow_suffixes(workflow_id)
+    ids: list[str] = []
+    seen: set[str] = set()
+    for suffix in (short, full):
+        for name in (f"workflow_instances_{suffix}", f"workflowinstances_{suffix}"):
+            if not await table_exists(conn, "workflow", name):
+                continue
+            columns = await _column_map(conn, "workflow", name)
+            id_col = _pick_column(columns, "id", "instanceid", "instance_id", "workflowinstanceid")
+            if not id_col:
+                continue
+            rows = await conn.fetch(
+                f"SELECT {qident(id_col)}::text AS id FROM workflow.{qident(name)} "
+                f"WHERE {qident(id_col)} IS NOT NULL"
+            )
+            for row in rows:
+                compact = compact_guid(str(row["id"] or ""))
+                if compact and compact not in seen:
+                    seen.add(compact)
+                    ids.append(compact)
+    return ids
+
+
+def _repository_match_where(
+    columns: dict[str, str],
+    *,
+    item_ids: list[str],
+    instance_ids: list[str],
+    workflow_compact: str,
+) -> tuple[str, list]:
+    clauses: list[str] = []
+    args: list = []
+    item_col = _pick_column(columns, "itemid", "item_id", "id", "ifileid", "repositoryitemid")
+    if item_col and item_ids:
+        args.append(item_ids)
+        clauses.append(
+            f"replace(lower({qident(item_col)}::text), '-', '') = ANY(${len(args)}::text[])"
+        )
+    workflow_col = _pick_column(columns, "workflowid", "workflow_id", "wworkflowid", "iworkflowid")
+    if workflow_col and workflow_compact:
+        args.append(workflow_compact)
+        clauses.append(
+            f"replace(lower({qident(workflow_col)}::text), '-', '') = ${len(args)}"
+        )
+    instance_col = _pick_column(
+        columns,
+        "workflow_instance_id",
+        "workflowinstanceid",
+        "instanceid",
+        "instance_id",
+        "winstanceid",
+    )
+    if instance_col and instance_ids:
+        args.append(instance_ids)
+        clauses.append(
+            f"replace(lower({qident(instance_col)}::text), '-', '') = ANY(${len(args)}::text[])"
+        )
+    if not clauses:
+        return "", []
+    return " WHERE " + " OR ".join(clauses), args
+
+
+async def repository_file_targets(conn: asyncpg.Connection, workflow_id: str) -> list[dict]:
+    """Files to clear: the workflow's repository, plus attachment item ids."""
+    link = await resolve_workflow_repository(conn, workflow_id)
+    attachments = await _collect_attachment_items(conn, workflow_id)
+    instance_ids = await _collect_instance_ids(conn, workflow_id)
+    workflow_compact = compact_guid(workflow_id)
+    targets: list[dict] = []
+    covered: set[tuple[str, str]] = set()
+
+    def add_family(schema: str, table: str, mode: str, item_ids: list[str]) -> None:
+        # Family is resolved by the caller; this only records one table.
+        key = (schema, table.lower())
+        if key in covered or not table:
+            return
+        covered.add(key)
+        targets.append(
+            {
+                "schema": schema,
+                "table": table,
+                "mode": mode,
+                "item_ids": item_ids,
+                "instance_ids": instance_ids,
+                "workflow_compact": workflow_compact,
+                "link": link,
+            }
+        )
+
+    if link and link.get("table"):
+        # AP invoice files are the rows in the workflow's repository. Ticket
+        # tables do not keep a per-file key once they are truncated, so the
+        # whole linked library is cleared.
+        family = await _item_family(conn, link["schema"], link["table"])
+        for schema, table in family:
+            add_family(schema, table, "all", [])
+    if link and link.get("form_table") and int(link.get("other_form_workflows") or 0) == 0:
+        for schema, table in await _item_family(conn, link["form_schema"], link["form_table"]):
+            add_family(schema, table, "all", [])
+
+    extra_repos = {
+        repo
+        for _item, repo in attachments
+        if repo and (not link or repo != link.get("repository_compact"))
+    }
+    for repo in extra_repos:
+        table = f"items_{repo[:8]}"
+        if not await table_exists(conn, "repository", table):
+            continue
+        item_ids = [item for item, item_repo in attachments if item_repo == repo]
+        for schema, name in await _item_family(conn, "repository", table):
+            add_family(schema, name, "match", item_ids)
+
+    if not link and attachments:
+        rows = await conn.fetch(
+            """
+            SELECT table_schema, table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'repository'
+              AND table_type = 'BASE TABLE'
+              AND table_name LIKE 'items_%'
+              AND table_name NOT LIKE '%\\_stage' ESCAPE '\\'
+              AND table_name NOT LIKE '%\\_history' ESCAPE '\\'
+              AND table_name NOT LIKE '%\\_versions' ESCAPE '\\'
+              AND table_name NOT LIKE '%\\_files' ESCAPE '\\'
+            """
+        )
+        item_ids = [item for item, _repo in attachments]
+        for row in rows:
+            for schema, name in await _item_family(conn, row["table_schema"], row["table_name"]):
+                add_family(schema, name, "match", item_ids)
+    return targets
+
+
+async def _repository_target_count(conn: asyncpg.Connection, target: dict) -> int | None:
+    schema, table = target["schema"], target["table"]
+    qualified = f"{qident(schema)}.{qident(table)}"
+    if target["mode"] == "all":
+        return int(await conn.fetchval(f"SELECT count(*) FROM {qualified}") or 0)
+    columns = await _column_map(conn, schema, table)
+    where, args = _repository_match_where(
+        columns,
+        item_ids=target["item_ids"],
+        instance_ids=target["instance_ids"],
+        workflow_compact=target["workflow_compact"],
+    )
+    if not where:
+        return None
+    return int(await conn.fetchval(f"SELECT count(*) FROM {qualified}{where}", *args) or 0)
+
+
+async def preview_repository_files(conn: asyncpg.Connection, workflow_id: str) -> list[dict]:
+    targets = await repository_file_targets(conn, workflow_id)
+    print("\n=== Repository files linked to this workflow ===")
+    if not targets:
+        print("  no repository items table linked to this workflow")
+        return targets
+    link = targets[0].get("link") or {}
+    if link:
+        label = link.get("repository_name") or link.get("repository_id") or ""
+        others = int(link.get("other_workflows") or 0)
+        scope = "all files in this workflow's repository will be deleted"
+        if others:
+            scope = (
+                f"WARNING: {others} other workflow(s) use this repository. "
+                "All files in it will still be deleted."
+            )
+        print(f"  repository {label} ({link.get('repository_id')})")
+        if link.get("workflow_name"):
+            print(f"  workflow {link['workflow_name']}")
+        print(f"  {scope}")
+        if link.get("form_table"):
+            form_note = f"  form {link['form_schema']}.{link['form_table']}"
+            if int(link.get("other_form_workflows") or 0) == 0:
+                form_note += " — all rows will be deleted"
+            else:
+                form_note += " — left in place (shared with another workflow)"
+            print(form_note)
+    for target in targets:
+        count = await _repository_target_count(conn, target)
+        name = f"{target['schema']}.{target['table']}"
+        if count is None:
+            print(f"  {name} left untouched (no workflow, instance, or item link on this table)")
+        else:
+            print(f"  {name} rows={count}")
+    return targets
+
+
+async def delete_repository_files(conn: asyncpg.Connection, workflow_id: str) -> None:
+    targets = await repository_file_targets(conn, workflow_id)
+    if not targets:
+        print("  no repository files linked to this workflow")
+        return
+    print("  clearing repository files")
+    for target in targets:
+        schema, table = target["schema"], target["table"]
+        qualified = f"{qident(schema)}.{qident(table)}"
+        if target["mode"] == "all":
+            result = await conn.execute(f"DELETE FROM {qualified}")
+            print(f"  {result} {schema}.{table}")
+            continue
+        columns = await _column_map(conn, schema, table)
+        where, args = _repository_match_where(
+            columns,
+            item_ids=target["item_ids"],
+            instance_ids=target["instance_ids"],
+            workflow_compact=target["workflow_compact"],
+        )
+        if not where:
+            print(f"  skip {schema}.{table} (shared repository, no remaining file link)")
+            continue
+        result = await conn.execute(f"DELETE FROM {qualified}{where}", *args)
+        print(f"  {result} {schema}.{table}")
+
+
+_AP_HISTORY_TABLES = ("ap_skill_artifacts", "ap_runs", "ap_credit_ledger")
+
+
+async def preview_ap_history(conn: asyncpg.Connection) -> None:
+    """Prior MATCHED rows here make the next invoice with the same number a duplicate."""
+    print("\n=== AP run history (duplicate check) ===")
+    for name in _AP_HISTORY_TABLES:
+        if not await table_exists(conn, "public", name):
+            print(f"  public.{name} missing")
+            continue
+        count = await conn.fetchval(f"SELECT count(*) FROM public.{qident(name)}")
+        print(f"  public.{name} rows={count}")
+
+
+async def delete_ap_history(conn: asyncpg.Connection) -> None:
+    print("  clearing AP run history")
+    for name in _AP_HISTORY_TABLES:
+        if not await table_exists(conn, "public", name):
+            print(f"  skip public.{name} (missing)")
+            continue
+        await truncate(conn, "public", name)
 
 
 async def preview_one_workflow(conn: asyncpg.Connection, workflow_id: str) -> list[tuple[str, str]]:
@@ -228,19 +721,24 @@ async def preview_one_workflow(conn: asyncpg.Connection, workflow_id: str) -> li
             compact_guid(workflow_id),
         )
         print(f"  workflow.{name}.{col} matching rows={count}")
+    await preview_repository_files(conn, workflow_id)
+    await preview_ap_history(conn)
     return tables
 
 
 async def wipe_one_workflow(conn: asyncpg.Connection, workflow_id: str) -> None:
     db = await conn.fetchval("SELECT current_database()")
     tables = await list_workflow_tables(conn, workflow_id)
-    if not tables:
+    repo_targets = await repository_file_targets(conn, workflow_id)
+    if not tables and not repo_targets:
         raise SystemExit(
-            f"No workflow tables matched {workflow_id} on {db}. Nothing deleted."
+            f"No workflow tables or repository files matched {workflow_id} on {db}. Nothing deleted."
         )
     print(f"\n=== Wiping workflow {workflow_id} on {db} ===")
     compact = compact_guid(workflow_id)
     async with conn.transaction():
+        await delete_repository_files(conn, workflow_id)
+        await delete_ap_history(conn)
         for schema, name in tables:
             await truncate(conn, schema, name)
         for name in ("WorkflowInstanceLookup", "WorkflowApprovals", "ApAgentJobProgress", "jiraCreateIssue"):
