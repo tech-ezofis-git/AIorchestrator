@@ -111,11 +111,7 @@ class FtlQualifierAgent:
         email_meta: Dict[str, Any] = {}
         if ext == "eml":
             parsed = extract.parse_eml_bytes(file_bytes)
-            email_meta = {
-                "from": parsed.get("from", ""),
-                "subject": parsed.get("subject", ""),
-                "date": parsed.get("date", ""),
-            }
+            email_meta = {k: v for k, v in parsed.items() if k != "attachments"}
             attachments = parsed.get("attachments") or []
             spec_attachment = prefer_spec_attachment(attachments)
             if spec_attachment:
@@ -134,7 +130,7 @@ class FtlQualifierAgent:
         else:
             full_text = file_bytes.decode("utf-8", errors="replace")
 
-        candidate = extract.build_candidate_text(full_text)
+        candidate = extract.build_candidate_text(full_text, email_meta=email_meta or None)
         rendered = extract.render_candidate_text_for_model(candidate, email_meta=email_meta or None)
         return rendered, email_meta, ext
 
