@@ -43,7 +43,9 @@ def _enforce_new_construction_disqualify(decision: Dict[str, Any], candidate_tex
     PART 1/2/3 heading structure) — it never touches a genuinely uncertain ("unknown") case, which
     should still be free to land on needs_review or qualify per the model's own judgment."""
     m = _STRUCTURE_SIGNAL_RE.search(candidate_text or "")
-    if not m or m.group(1) != "new_construction_single_spec":
+    is_new_const_signal = bool(m and m.group(1) == "new_construction_single_spec")
+    is_new_const_project = (decision.get("project_type") == "new_construction")
+    if not (is_new_const_signal or is_new_const_project):
         return decision
     if decision.get("qualify") == "disqualify":
         return decision
@@ -51,14 +53,17 @@ def _enforce_new_construction_disqualify(decision: Dict[str, Any], candidate_tex
     original_call = decision.get("qualify")
     decision["qualify"] = "disqualify"
     decision["project_type"] = "new_construction"
+    detection_source = (
+        "extract.py's code-level structure detection confidently identified this as a new-construction, single-spec tender (PART 1/PART 2/PART 3 structure)"
+        if is_new_const_signal
+        else "project_type was identified as 'new_construction'"
+    )
     decision["reasoning"] = (
-        f"(Auto-overridden from '{original_call}' to 'disqualify': extract.py's code-level structure "
-        "detection confidently identified this as a new-construction, single-spec tender (PART 1/"
-        "PART 2/PART 3 structure), and FTL's stated policy is to default to disqualify for this "
-        "tender type even when in-scope items are technically requested — see Step 5. This override "
-        "is enforced deterministically because repeated live testing showed the model correctly "
-        "naming this policy in its own reasoning but then not applying it when several in-scope "
-        "items were also found.)\n\n" + (decision.get("reasoning") or "")
+        f"(Auto-overridden from '{original_call}' to 'disqualify': {detection_source}, "
+        "and FTL's stated policy is to default to disqualify for this tender type even when in-scope "
+        "items are technically requested — see Step 5. This override is enforced deterministically "
+        "because repeated live testing showed the model correctly naming this policy in its own reasoning "
+        "but then not applying it when several in-scope items were also found.)\n\n" + (decision.get("reasoning") or "")
     )
     decision["flags"] = list(decision.get("flags") or []) + [
         "auto_overridden_new_construction_disqualify"
@@ -87,13 +92,46 @@ _INDEPENDENT_CATEGORIES = {"ROLLER_GUIDE", "GOVERNOR", "CAR_SAFETY", "CLUTCH", "
 
 
 def _tags_for_item(entry: Dict[str, Any]) -> set:
-    text = " ".join(
-        str(entry.get(k) or "") for k in ("item", "category", "note")
-    ).lower()
+    item_str = str(entry.get("item") or "").lower()
+    cat_str = str(entry.get("category") or "").lower()
+    note_str = str(entry.get("note") or "").lower()
+    text = f"{item_str} {cat_str} {note_str}"
     tags = set()
     for tag, keywords in _ITEM_CATEGORY_KEYWORDS.items():
         if any(kw in text for kw in keywords):
             tags.add(tag)
+
+    # A power supply is a derivative of an unpaired detector per Step 3; it is
+    # NEVER a door operator or an independent detector, even if the description mentions
+    # "for detector without operator" or "power supply".
+    if "POWER_SUPPLY" in tags or "power supply" in text or "powersupply" in text:
+        tags.discard("DOOR_OPERATOR")
+        tags.discard("DETECTOR")
+
+    # Negated or secondary operator mentions: e.g. "without operator", "no operator",
+    # or items whose explicit category is detector / protective device.
+    if "DOOR_OPERATOR" in tags:
+        cleaned_for_op = re.sub(
+            r"\b(without|no|except|excluding|lacking|not\s+confirmed|not\s+requested)\s+(?:a\s+)?(?:door\s+)?operators?\b",
+            "",
+            text,
+        )
+        if not any(kw in cleaned_for_op for kw in _ITEM_CATEGORY_KEYWORDS["DOOR_OPERATOR"]):
+            tags.discard("DOOR_OPERATOR")
+        elif any(w in cat_str for w in ("detector", "protective device", "light curtain", "power supply")):
+            tags.discard("DOOR_OPERATOR")
+
+    # An item whose explicit category is door operator is not an independent detector.
+    if "DETECTOR" in tags:
+        if "door_operator" in cat_str or "door operator" in cat_str:
+            cleaned_for_det = re.sub(
+                r"\b(without|no|except|excluding|lacking)\s+(?:a\s+)?(?:door\s+)?(?:detector|protective device)s?\b",
+                "",
+                text,
+            )
+            if not any(kw in cleaned_for_det for kw in _ITEM_CATEGORY_KEYWORDS["DETECTOR"]):
+                tags.discard("DETECTOR")
+
     return tags
 
 
