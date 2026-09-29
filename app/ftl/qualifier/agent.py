@@ -74,7 +74,7 @@ def _enforce_new_construction_disqualify(decision: Dict[str, Any], candidate_tex
 _ITEM_CATEGORY_KEYWORDS = {
     "ROLLER_GUIDE": ("roller guide", "roller guides"),
     "GOVERNOR": ("governor", "governors"),
-    "CAR_SAFETY": ("car safety", "car safeties", "unidirectional", "safeties", "safety"),
+    "CAR_SAFETY": ("car safety", "car safeties", "unidirectional"),
     "CLUTCH": ("clutch", "interlock"),
     "PANEL_ADAPTOR": ("panel adaptor", "panel adapter", "car door panel", "door panel"),
     "DOOR_OPERATOR": ("door operator", "door operators", "operator", "operators", "sgv", "supra"),
@@ -320,12 +320,63 @@ def _enforce_wittur_allowed_operator_package(decision: Dict[str, Any]) -> Dict[s
     return decision
 
 
+_UNSUPPORTED_NEW_OPERATOR_RE = re.compile(r"new\s+harmonic", re.IGNORECASE)
+# A manuals line ("Safeties & governor") or a structural clause ("governors, guide rails")
+# is not a new governor. Only an actual new-equipment call-out counts.
+_REAL_INDEPENDENT_RES = (
+    re.compile(r"roller guide", re.IGNORECASE),
+    re.compile(r"car safet", re.IGNORECASE),
+    re.compile(r"unidirectional", re.IGNORECASE),
+    re.compile(r"\bclutch\b", re.IGNORECASE),
+    re.compile(r"panel adapt", re.IGNORECASE),
+    re.compile(
+        r"new governor|governor and governor|provide(?:\s+\w+){0,6}\s+governors?",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _enforce_unsupported_operator_lone_detector(decision: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Turn a false Qualify back to Disqualify for the harmonic freight-detector case.
+
+    The Central YMCA spec's only FTL item is an infrared door detector. The new door
+    operator is "new harmonic" (unsupported) and car guiding is sliding guides. Keyword
+    windows also contain "Safeties & governor" from the manuals list, which the model
+    reports as a real governor or car safety. Step 4's qualify backstop then keeps
+    Qualify. This runs last and overrides that when the spec text itself has no
+    independent new-equipment category.
+    """
+    text = candidate_text or ""
+    if decision.get("qualify") == "disqualify":
+        return decision
+    if not _UNSUPPORTED_NEW_OPERATOR_RE.search(text):
+        return decision
+    if any(pattern.search(text) for pattern in _REAL_INDEPENDENT_RES):
+        return decision
+    decision = dict(decision)
+    original_call = decision.get("qualify")
+    decision["qualify"] = "disqualify"
+    decision["reasoning"] = (
+        f"(Auto-overridden from '{original_call}' to 'disqualify': the equipment schedule "
+        "specifies the new door operator as harmonic, which is not a supported Wittur OEM, "
+        "and the spec has no independent new-equipment category (roller guide, governor, "
+        "car safety, clutch, or panel adaptor). An infrared detector alone, and a manuals "
+        "or structural mention of safeties or governors, do not qualify the RFQ. Sliding "
+        "guides are not roller guides.)\n\n" + (decision.get("reasoning") or "")
+    )
+    decision["flags"] = list(decision.get("flags") or []) + [
+        "auto_overridden_unsupported_operator_lone_detector"
+    ]
+    return decision
+
+
 def _apply_policy_overrides(decision: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
     """Apply Git's deterministic qualify backstops without changing the live model client."""
     decision = _enforce_new_construction_disqualify(decision, candidate_text)
     decision = _enforce_unknown_project_type_needs_review(decision)
     decision = _enforce_wittur_allowed_operator_package(decision)
-    return _enforce_ambiguous_item_qualify_threshold(decision)
+    decision = _enforce_ambiguous_item_qualify_threshold(decision)
+    return _enforce_unsupported_operator_lone_detector(decision, candidate_text)
 
 
 # Cosine-similarity floor below which search_pricelist's top result is treated as "nothing real

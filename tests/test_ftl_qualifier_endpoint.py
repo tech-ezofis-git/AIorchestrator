@@ -216,6 +216,52 @@ def test_policy_overrides_follow_git_backstops():
     )
     assert harmonic_only["qualify"] == "disqualify"
 
+    door_retainers = _apply_policy_overrides(
+        {
+            "qualify": "disqualify",
+            "project_type": "modernization",
+            "matched_items": [{"item": "door safety retainers", "category": "safety", "match": "ambiguous"}],
+            "reasoning": "retainers are not car safeties",
+            "flags": [],
+        },
+        "",
+    )
+    assert door_retainers["qualify"] == "disqualify"
+
+    ymc_false_qualify = _apply_policy_overrides(
+        {
+            "qualify": "qualify",
+            "project_type": "modernization",
+            "matched_items": [
+                {"item": "infra-red door detector", "category": "detector", "match": "exact"},
+                {"item": "Safeties & governor", "category": "governor", "match": "ambiguous"},
+                {"item": "door safety retainers", "category": "safety", "match": "ambiguous"},
+            ],
+            "reasoning": "Modernization with a governor and a detector.",
+            "flags": [],
+        },
+        (
+            "door operator not provided new harmonic\n"
+            "door reopening device not provided new infrared\n"
+            "car guiding sliding guides new sliding guides\n"
+            "Operation and maintenance manuals including: Safeties & governor\n"
+        ),
+    )
+    assert ymc_false_qualify["qualify"] == "disqualify"
+    assert "auto_overridden_unsupported_operator_lone_detector" in ymc_false_qualify["flags"]
+
+    harmonic_with_real_governor = _apply_policy_overrides(
+        {
+            "qualify": "qualify",
+            "project_type": "modernization",
+            "matched_items": [{"item": "new governor", "category": "governor", "match": "ambiguous"}],
+            "reasoning": "governor requested",
+            "flags": [],
+        },
+        "door operator not provided new harmonic\nProvide a new governor for each car.\n",
+    )
+    assert harmonic_with_real_governor["qualify"] == "qualify"
+
 
 def test_extract_keeps_short_text_and_split_section_numbers():
     from app.ftl.qualifier.extract import build_candidate_text, detect_structure_signal
@@ -231,3 +277,24 @@ def test_extract_keeps_short_text_and_split_section_numbers():
     shaw = "2.01 Existing Equipment Information\nType: Hydraulic\nDoor Configuration: single"
     subsections = build_candidate_text(shaw)["subsections"]
     assert "Existing Equipment Information" in subsections
+
+
+def test_scope_schedule_reaches_the_model_when_headings_do_not_match():
+    from app.ftl.qualifier.extract import build_candidate_text, render_candidate_text_for_model
+
+    spec = "\n".join([
+        "1.1 Door Operators",
+        "Retain the existing entrance hardware.",
+        "1.2 Door Protective Device",
+        "See the schedule.",
+        "2.56 Sliding guides " + ("." * 12) + " 64",
+        "car guiding | sliding guides | new sliding guides",
+        "door operator | not provided | new harmonic",
+        "door reopening device | not provided | new infrared",
+    ])
+    candidate = build_candidate_text(spec)
+    assert candidate["used_fallback"] is False
+    rendered = render_candidate_text_for_model(candidate).lower()
+    assert "new harmonic" in rendered
+    assert "car guiding | sliding guides | new sliding guides" in rendered
+    assert "new infrared" in rendered
