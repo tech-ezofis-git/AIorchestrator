@@ -246,7 +246,18 @@ FALLBACK_KEYWORDS = [
     "door protective",
     "door detector",
     "car door",
+    "sliding guide",
+    "harmonic",
+    "door reopening",
 ]
+
+# Schedule rows the heading list never names (KJA freight specs use "2.56 Sliding guides"
+# and a pipe-separated attribute table, not "Car Roller Guides" / "Door Operators").
+_SCOPE_SCHEDULE_MARKERS = (
+    "new harmonic",
+    "sliding guide",
+    "door reopening device",
+)
 
 _HEADING_RE = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80})\s*$", re.MULTILINE)
 
@@ -362,6 +373,44 @@ def _extract_by_headings(full_text: str) -> Dict[str, str]:
     return out
 
 
+def _find_scope_schedule(full_text: str) -> str:
+    """Windows around the attribute-table rows that decide a lone-detector disqualify.
+
+    Heading targeting misses these: the row is "door operator | new harmonic" and
+    "car guiding | sliding guides", not a "Door Operators" or "Car Roller Guides" heading.
+    TOC lines ("2.56 Sliding guides .... 64") are skipped.
+    """
+    lower = full_text.lower()
+    hits: List[int] = []
+    for marker in _SCOPE_SCHEDULE_MARKERS:
+        start = 0
+        while True:
+            index = lower.find(marker, start)
+            if index < 0:
+                break
+            line_start = lower.rfind("\n", 0, index) + 1
+            line_end = lower.find("\n", index)
+            if line_end < 0:
+                line_end = len(full_text)
+            line = full_text[line_start:line_end]
+            if line.count(".") < 8:
+                hits.append(index)
+            start = index + len(marker)
+    if not hits:
+        return ""
+    hits.sort()
+    windows: List[Tuple[int, int]] = []
+    for index in hits:
+        w_start = max(0, index - 280)
+        w_end = min(len(full_text), index + 420)
+        if windows and w_start <= windows[-1][1]:
+            windows[-1] = (windows[-1][0], max(windows[-1][1], w_end))
+        else:
+            windows.append((w_start, w_end))
+    parts = [full_text[start:end].strip() for start, end in windows[:4] if full_text[start:end].strip()]
+    return "\n\n---\n\n".join(parts)
+
+
 def _fallback_keyword_windows(full_text: str, total_word_budget: int = 4000) -> str:
     lower = full_text.lower()
     hits: List[Tuple[int, int]] = []
@@ -401,6 +450,7 @@ def build_candidate_text(full_text: str, email_meta: Optional[Dict[str, Any]] = 
     fallback), and return everything the agent needs, already shrunk to a nano-model-friendly size."""
     equipment_manifest = _find_equipment_manifest(full_text)
     device_count_summary = _find_device_count_summary(full_text)
+    scope_schedule = _find_scope_schedule(full_text)
     subsections = _extract_by_headings(full_text)
     structure_signal = detect_structure_signal(full_text, subsection_hit_count=len(subsections), email_meta=email_meta)
 
@@ -424,6 +474,7 @@ def build_candidate_text(full_text: str, email_meta: Optional[Dict[str, Any]] = 
         "equipment_manifest": equipment_manifest,
         "device_count_summary": device_count_summary,
         "subsections": subsections,
+        "scope_schedule": scope_schedule,
         "used_fallback": used_fallback,
         "fallback_text": fallback_text,
     }
@@ -454,6 +505,11 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
     if candidate["equipment_manifest"]:
         lines.append("## Equipment manifest / existing-equipment questionnaire (from the spec)")
         lines.append(candidate["equipment_manifest"])
+        lines.append("")
+
+    if candidate.get("scope_schedule"):
+        lines.append("## Equipment schedule (from the spec)")
+        lines.append(candidate["scope_schedule"])
         lines.append("")
 
     if candidate["subsections"]:
