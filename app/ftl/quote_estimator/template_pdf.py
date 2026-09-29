@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from reportlab.pdfgen import canvas
 
-from app.ftl.key_format import title_key
+from app.ftl.key_format import internal_key, title_key
 from app.pdf_skills.template_renderer import (
     convert_page_measure,
     detect_page_unit,
@@ -15,19 +15,22 @@ from app.pdf_skills.template_renderer import (
     measure_table_height_mm,
     parse_page_padding,
     render_schema_page,
+    resolve_metadata_value,
     resolve_table_rows,
     safe_float,
 )
 
 FOOTER_ZONE_MM = 25.0
 TABLE_GAP_MM = 3.0
-_BLANKABLE_TYPES = {"text", "multivariabletext", "image", "table"}
+# Images are not blanked: an embedded logo must still render when formData has no value for it.
+_BLANKABLE_TYPES = {"text", "multivariabletext", "table"}
 
 Page = Tuple[List[Dict[str, Any]], Dict[str, Any]]
 
 
 def prepare_form_data(value: Any) -> Any:
-    """Keep caller keys and add public-name aliases (``customer_name`` -> ``Company Name``)."""
+    """Keep caller keys and add public and internal aliases
+    (``customer_name`` <-> ``Company Name``, ``Order Number`` -> ``estimate_number``)."""
     if isinstance(value, list):
         return [prepare_form_data(v) for v in value]
     if not isinstance(value, dict):
@@ -35,10 +38,10 @@ def prepare_form_data(value: Any) -> Any:
     out: Dict[str, Any] = {}
     for key, raw in value.items():
         out[key] = prepare_form_data(raw)
-    for key, raw in value.items():
-        alias = title_key(key)
-        if alias not in out:
-            out[alias] = out[key]
+    for key in value:
+        for alias in (title_key(key), internal_key(key)):
+            if alias not in out:
+                out[alias] = out[key]
     return out
 
 
@@ -136,6 +139,84 @@ def _page_number_field(idx: int, total: int, page_w: float, page_h: float, to_un
     }
 
 
+def _is_zero_or_blank(value: Any) -> bool:
+    text = str(value if value is not None else "").replace(",", "").replace("$", "").strip()
+    if not text:
+        return True
+    try:
+        return float(text) == 0
+    except ValueError:
+        return False
+
+
+def _expand_containers(fields: List[Dict[str, Any]], data: Dict[str, Any], to_unit: float) -> List[Dict[str, Any]]:
+    """Replace each ``container`` field with the rectangle and text fields the renderer draws."""
+    out: List[Dict[str, Any]] = []
+    for field in fields:
+        if str(field.get("type", "")).lower() == "container":
+            out.extend(_container_fields(field, data, to_unit))
+        else:
+            out.append(field)
+    return out
+
+
+def _container_fields(box: Dict[str, Any], data: Dict[str, Any], to_unit: float) -> List[Dict[str, Any]]:
+    """A container is a background box whose ``key_value`` children are stacked as equal-height rows,
+    label on the left and the formData value on the right."""
+    pos = box.get("position") or {}
+    x, y = safe_float(pos.get("x"), 0.0), safe_float(pos.get("y"), 0.0)
+    w, h = safe_float(box.get("width"), 0.0), safe_float(box.get("height"), 0.0)
+    prefix = f"KV{box.get('name') or 'Container'}"
+
+    def rect(name: str, top: float, height: float, src: Dict[str, Any]) -> Dict[str, Any]:
+        field = {"name": name, "type": "rectangle", "position": {"x": x, "y": top}, "width": w, "height": height}
+        for key in ("backgroundColor", "borderColor", "borderWidth"):
+            if src.get(key):
+                field[key] = src[key]
+        return field
+
+    shapes: List[Dict[str, Any]] = []
+    if box.get("backgroundColor") or box.get("borderColor"):
+        shapes.append(rect(f"{prefix}Background", y, h, box))
+
+    rows = []
+    for child in box.get("children") or []:
+        if not isinstance(child, dict) or str(child.get("type", "")).lower() != "key_value":
+            continue
+        value = resolve_metadata_value(child, data, "")
+        if child.get("hideIfZero") and _is_zero_or_blank(value):
+            continue
+        rows.append((child, value))
+    if not rows:
+        return shapes
+
+    pad = 3.0 * to_unit
+    half = max(0.0, w - 2 * pad) / 2
+    row_h = h / len(rows)
+    texts: List[Dict[str, Any]] = []
+    for idx, (child, value) in enumerate(rows):
+        top = y + idx * row_h
+        name = f"{prefix}{child.get('name') or idx}"
+        if child.get("backgroundColor"):
+            shapes.append(rect(f"{name}Background", top, row_h, child))
+        style = {
+            "type": "text",
+            "readOnly": True,
+            "preserveColors": True,
+            "fontSize": child.get("fontSize", 9),
+            "fontName": child.get("fontName", "Helvetica"),
+            "fontColor": child.get("textColor") or child.get("fontColor") or "#000000",
+            "verticalAlignment": "middle",
+            "width": half,
+            "height": row_h,
+        }
+        texts.append({**style, "name": f"{name}Label", "content": str(child.get("label") or ""),
+                      "alignment": "left", "position": {"x": x + pad, "y": top}})
+        texts.append({**style, "name": f"{name}Value", "content": "" if value is None else str(value),
+                      "alignment": "right", "position": {"x": x + pad + half, "y": top}})
+    return shapes + texts
+
+
 def render_template_pdf(template: Dict[str, Any], form_data: Dict[str, Any], title: Optional[str] = None) -> Tuple[bytes, int]:
     """Return ``(pdf_bytes, page_count)`` for ``template`` filled with ``form_data``."""
     if not is_pdfme_template(template) or not template["schemas"]:
@@ -156,6 +237,8 @@ def render_template_pdf(template: Dict[str, Any], form_data: Dict[str, Any], tit
     padding = parse_page_padding(base_pdf.get("padding"), unit)
 
     data = _format_top_level(prepare_form_data(form_data))
+    to_unit = 1.0 if unit == "mm" else 72.0 / 25.4
+    schemas = [_expand_containers(page, data, to_unit) for page in schemas]
     if len(schemas) == 1:
         pages = _paginate(schemas[0], data, page_w, page_h, unit)
     else:

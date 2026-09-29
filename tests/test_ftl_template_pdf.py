@@ -91,6 +91,57 @@ def test_many_line_items_paginate_with_header_and_totals_on_last_page():
     assert all("600.00" not in t for t in texts[:-1])
 
 
+def _logo_data_url():
+    with open("app/ftl/quote_estimator/assets/ftl_logo.png", "rb") as f:
+        return "data:image/png;base64," + base64.b64encode(f.read()).decode()
+
+
+def _branded_template(logo_content):
+    return {
+        "basePdf": {"width": 210, "height": 297, "padding": [15, 15, 15, 15]},
+        "schemas": [[
+            {"name": "CompanyLogo", "type": "image", "dataKey": "company_logo", "content": logo_content,
+             "position": {"x": 15, "y": 15}, "width": 42, "height": 20},
+            {"name": "StandardTermsBlock", "type": "text",
+             "content": "Delivery: Lead times confirmed at order.\n\n{{estimate_number}}",
+             "position": {"x": 15, "y": 235}, "width": 115, "height": 30, "fontSize": 8},
+            {"name": "TotalsContainer", "type": "container", "position": {"x": 135, "y": 235},
+             "width": 60, "height": 42, "backgroundColor": "#13253B",
+             "children": [
+                 {"name": "SubtotalRow", "type": "key_value", "label": "Subtotal", "dataKey": "subtotal",
+                  "textColor": "#FFFFFF"},
+                 {"name": "FreightRow", "type": "key_value", "label": "Freight", "dataKey": "freight",
+                  "textColor": "#FFFFFF", "hideIfZero": True},
+                 {"name": "TotalRow", "type": "key_value", "label": "Total", "dataKey": "total",
+                  "backgroundColor": "#091626", "textColor": "#FFFFFF", "fontName": "Helvetica-Bold"},
+             ]},
+        ]],
+    }
+
+
+@pytest.mark.parametrize("raw_base64", [False, True], ids=["data_url", "raw_base64"])
+def test_embedded_logo_renders_without_form_data_value(raw_base64):
+    logo = _logo_data_url()
+    if raw_base64:
+        logo = logo.split(",", 1)[1]
+    pdf, _ = render_template_pdf(_branded_template(logo), {"estimate_number": "EST-1"})
+    assert pdf.count(b"/Subtype /Image") == 1
+
+
+def test_container_rows_and_static_placeholders():
+    form = {"Order Number": "EST-42", "subtotal": "$3,450.00", "freight": "$0.00", "total": "$3,898.50"}
+    text = _pages_text(render_template_pdf(_branded_template(""), form)[0])[0]
+    for expected in ("Subtotal", "$3,450.00", "Total", "$3,898.50", "EST-42"):
+        assert expected in text
+    assert "Freight" not in text
+    assert "{{" not in text
+
+
+def test_unfilled_static_placeholder_is_dropped():
+    text = _pages_text(render_template_pdf(_branded_template(""), {"subtotal": "1.00"})[0])[0]
+    assert "{{" not in text and "estimate_number" not in text
+
+
 def test_rejects_non_template():
     with pytest.raises(ValueError):
         render_template_pdf({"foo": 1}, {})

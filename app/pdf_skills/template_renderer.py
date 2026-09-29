@@ -893,8 +893,11 @@ def resolve_text_content(field: Dict[str, Any], data: Dict[str, Any]) -> str:
 
     # 1. Static Label Box
     if is_static_label_field(field):
-        raw_content = field.get("content", field.get("text", ""))
-        return collapse_exact_duplicated_text(normalize_text(raw_content))
+        raw_content = normalize_text(field.get("content", field.get("text", "")))
+        if "{{" in raw_content:
+            raw_content = substitute_variables(raw_content, field.get("variables", []), data)
+            raw_content = re.sub(r"\{\{[^{}]*\}\}", "", raw_content).rstrip()
+        return collapse_exact_duplicated_text(raw_content)
 
     # 2. Dynamic Value Box
     base = resolve_metadata_value(field, data, default="")
@@ -1372,8 +1375,11 @@ def render_text_box(
     else:
         font_name = resolve_font_name(field.get("fontName", "Helvetica"))
 
+    if field.get("preserveColors"):
+        fill_color = hex_to_color(field.get("fontColor"), colors.black) or colors.black
+        bg_color = hex_to_color(field.get("backgroundColor"))
     # 1. White on Deep Navy for header bars and BALANCE DUE / TOTAL PDA
-    if field_name in [
+    elif field_name in [
         "BalanceDueLabel",
         "BalanceDueValue",
         "TotalPDALabel",
@@ -1663,14 +1669,21 @@ def render_schema_page(
         elif f_type == "image":
             img_src = resolve_metadata_value(field, data, field.get("content"))
             if img_src and isinstance(img_src, str):
+                img_src = img_src.strip()
                 try:
                     if "base64," in img_src:
                         img_bytes = base64.b64decode(img_src.split("base64,", 1)[1])
                         c.drawImage(ImageReader(io.BytesIO(img_bytes)), cur_x, cur_y, width=w, height=h, preserveAspectRatio=True)
                     elif os.path.isfile(img_src):
                         c.drawImage(ImageReader(img_src), cur_x, cur_y, width=w, height=h, preserveAspectRatio=True)
+                    else:
+                        img_bytes = base64.b64decode("".join(img_src.split()), validate=True)
+                        c.drawImage(ImageReader(io.BytesIO(img_bytes)), cur_x, cur_y, width=w, height=h, preserveAspectRatio=True)
                 except Exception as exc:
-                    logger.warning("template_image_render_failed", extra={"error": str(exc)})
+                    logger.warning(
+                        "template_image_render_failed",
+                        extra={"field": field.get("name"), "error": str(exc)},
+                    )
 
         c.restoreState()
 
