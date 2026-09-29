@@ -109,12 +109,15 @@ class Settings(BaseSettings):
     ocr_qr_enabled: bool = False
     ocr_qr_dpi: int = 200
     # OCR agent only: passport/ID/visa MRZ. The pages are rendered at
-    # ocr_mrz_dpi, MRZ bands are located with OpenCV, and only those crops are
-    # OCR'd (re-read rotated 180 degrees when the check digits fail), in
-    # parallel with text extraction. The MRZ found in the extracted text is the
-    # fallback. The decoded fields go to field structuring.
+    # ocr_mrz_dpi and MRZ bands are located with OpenCV. Each crop is read
+    # locally with PassportEye + Tesseract in parallel with text extraction
+    # (needs the tesseract-ocr binary); when that read fails the check digits,
+    # the crops are OCR'd by the extract service instead (re-read rotated 180
+    # degrees). The MRZ found in the extracted text is the last fallback. The
+    # decoded fields go to field structuring.
     ocr_mrz_enabled: bool = True
     ocr_mrz_image_enabled: bool = True
+    ocr_mrz_passporteye_enabled: bool = True
     ocr_mrz_dpi: int = 300
     ocr_mrz_max_crops: int = 3
     ocr_allowed_host_suffixes: str = ".blob.core.windows.net"
