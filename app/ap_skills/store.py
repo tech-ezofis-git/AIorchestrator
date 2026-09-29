@@ -1473,6 +1473,19 @@ class ApStore:
                     out[key] = str(value)
                 else:
                     out[key] = value
+            raw_lines = _ci_get(
+                data,
+                "PO_Line_Item",
+                "PO Line Item",
+                "PoLineItem",
+                "POLineItem",
+            )
+            controls = await self.fetch_form_controls(tenant_id=tenant_id, form_id=fid)
+            from app.ap_skills.form_lines import decode_form_line_items
+
+            decoded_lines = decode_form_line_items(raw_lines, controls)
+            if decoded_lines:
+                out["lines"] = decoded_lines
             return out
         except Exception as exc:
             logger.warning(

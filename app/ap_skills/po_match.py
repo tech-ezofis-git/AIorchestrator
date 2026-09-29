@@ -239,10 +239,46 @@ async def run(ctx: ApContext) -> ApSkillResult:
     po_row = build_po_row(invoice, po if isinstance(po, dict) else {})
     if po_row:
         data["po_row"] = po_row
+    _stamp_invoice_line_scores(invoice, po if isinstance(po, dict) else {})
     return ApSkillResult(
         skill_id=SKILL_ID,
         data=data,
     )
+
+
+def _stamp_invoice_line_scores(invoice: dict[str, Any], po: dict[str, Any]) -> None:
+    """Copy each line match score onto the invoice rows the ticket grid reads.
+
+    The grid shows Amount from qty and price, and Score / Total from fields
+    that extract_invoice does not set. An empty score renders as 0%, and the
+    footer total stays 0.00.
+    """
+    from app.ap_skills.agent_validation_response import _line_matching
+
+    lines = invoice.get("line_items")
+    if not isinstance(lines, list) or not lines:
+        return
+    matched = _line_matching(invoice, po)
+    for index, line in enumerate(lines):
+        if not isinstance(line, dict):
+            continue
+        score = 0.0
+        if index < len(matched):
+            raw_score = matched[index].get("Line Score")
+            if isinstance(raw_score, (int, float)):
+                score = float(raw_score)
+        line["score"] = score
+        line["Score"] = score
+        amount = field_number(line, "amount", "line_amount", "total")
+        if amount is None:
+            qty = field_number(line, "qty", "quantity")
+            price = field_number(line, "price", "rate", "unit_price")
+            if qty is not None and price is not None:
+                amount = qty * price
+        if amount is not None:
+            line["amount"] = amount
+            line["total"] = amount
+            line["Total"] = amount
 
 
 def _invoice_has(invoice: dict[str, Any], *keys: str) -> bool:
