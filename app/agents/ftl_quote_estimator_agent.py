@@ -234,6 +234,7 @@ class FtlQuoteEstimatorAgent:
         template_type: str = "inflow",
         model_override: Optional[str] = None,
         llm_overrides: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Runs quote estimation asynchronously and persists the result."""
         input_filename = filename or (os.path.basename(filepath) if filepath else "manual_input")
@@ -257,7 +258,7 @@ class FtlQuoteEstimatorAgent:
         else:
             raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
 
-        skill = skill_store.get_skill()
+        skill = await skill_store.load_runtime_skill(tenant_id=tenant_id)
         overrides = dict(llm_overrides or {})
         if model_override:
             overrides["model"] = model_override
@@ -406,6 +407,7 @@ class FtlQuoteEstimatorAgent:
                 template_type=template_type,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
+                tenant_id=job.get("tenant_id"),
             )
             quote = res["quote_result"]
             est_num = res["estimate_number"]

@@ -1,0 +1,8 @@
+---
+description: Roller-guide quantity convention, verified against a real invoice
+alwaysApply: true
+---
+
+120 Bloor Street East (6-car modernization): real invoice line for the RG150 car guides, qty 24, unit price $785.00, subtotal $18,840.00 — 24 = 4 pieces/set x 6 cars. The counterweight line for RG80 on the same invoice: qty 24, unit price $468.50, subtotal $11,244.00 — same math, different (smaller) frame size for the counterweight. An earlier draft of this skill said quantity should be 1 line per car (i.e. 6, not 24) — that was wrong and undercounted roller guide cost by 4x on a real quote comparison. Always quote roller guides in pieces: qty = 4 x cars-needing-that-size.
+
+That invoice's own product codes (WRG150_CAR / WRG80_CWT_T82) are from an OLDER pricelist revision — the CURRENT indexed pricelist's PRODUCT NAME column for these same frame sizes is `WRG_MOTION_GEAR150` / `WRG_MOTION_GEAR80` (etc. for RG100/125/200/300), confirmed directly against the live pricelist. Always copy whatever search_pricelist actually returns today for the code — the quantity math above still applies unchanged, only the code string has been superseded.

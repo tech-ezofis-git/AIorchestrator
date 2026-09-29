@@ -144,6 +144,7 @@ class FtlQualifierAgent:
         raw_text: Optional[str] = None,
         model_override: Optional[str] = None,
         llm_overrides: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Runs qualification on the given file/text asynchronously in a worker thread."""
         input_filename = filename or (os.path.basename(filepath) if filepath else "manual_input")
@@ -163,7 +164,7 @@ class FtlQualifierAgent:
         else:
             raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
 
-        skill = skill_store.get_skill()
+        skill = await skill_store.load_runtime_skill(tenant_id=tenant_id)
         overrides = dict(llm_overrides or {})
         if model_override:
             overrides["model"] = model_override
@@ -222,6 +223,7 @@ class FtlQualifierAgent:
                 raw_text=raw_text,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
+                tenant_id=job.get("tenant_id"),
             )
             run_rec = res["run_record"]
             reply_md = format_decision_markdown(run_rec)

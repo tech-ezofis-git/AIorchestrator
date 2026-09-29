@@ -1,0 +1,8 @@
+---
+description: Bundled-item $0 example (from real Sales Order SO-261024)
+alwaysApply: true
+---
+
+A real converted order included SGV2_DOOR_OP_1S42_RH at $4,955.28/unit (qty 2, subtotal $8,919.50 — a small bundle discount, not exactly qty×price) alongside SGV2(1S)_PANEL_ADAPTOR_GAL42_RH at $264.32 unit price but $0.00 subtotal, and SGV2_DOOR_TOOLS at $598.50 unit price but $0.00 subtotal — both included with the door operator purchase.
+
+IMPORTANT CORRECTION: this example does NOT mean SGV2_DOOR_TOOLS is always $0-bundled with a door operator purchase — a separate, more recent, client-confirmed real quote (EST-261132, "25 Telegram Mews", 8 door operators) billed this exact line chargeable at full price ($698.50, no override). This order's panel adaptor line is also project-specific: it applied because the existing car door panels were being RETAINED (adapted to the new operator), not because 1S doors always need an adaptor — see the panel-adaptor guidance in Step 1 above. Treat this example as one real data point about how bundled pricing CAN look on an estimate, not a rule that generalizes to every project — the corrected rules in Step 1 and Step 4 are the actual guidance to follow.

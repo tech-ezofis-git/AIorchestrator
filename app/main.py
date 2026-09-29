@@ -1146,6 +1146,8 @@ _PACK_CONSOLE_AGENTS = frozenset(
         "dashboard-prompts",
         "dashboard-schema",
         "dashboard-data",
+        "ftl_qualifier",
+        "ftl_quote_estimator",
     }
 )
 

@@ -1,0 +1,10 @@
+---
+description: Real FTL quote structure (from EST-261114 and EST-261113)
+alwaysApply: true
+---
+
+Header: FTL Distribution Inc. Sales Estimate, Estimate No. EST-NNNNNN, Date. Billing Address / Shipping Address / Contact / FTL Executive (BDM). Payment Terms is NOT always shown — CORRECTION: an earlier version of this note said it was always fixed to '50% Upon Acceptance of Order, 50% Upon Delivery (Net 30)', but a real, client-confirmed quote (EST-261132) has no Payment Terms line at all. Only show payment terms when the RFQ/customer record/quoting rules actually state them for this deal — see the payment_terms guidance in Step 5.
+
+Line-item table columns: # / Product code (bold) + description line(s) below it / Qty / Unit Price / Subtotal. Product code is FTL's internal SKU-like code (e.g. WRG100_CAR, CSGB03_CAR_SAFETIES, SGV2_DOOR_OP_2C42_RH), the description line spells out what it is in plain terms (often including '*FULL SET = 4*' or '(SET OF 2)' style notes carried over from the pricelist).
+
+Footer band: Delivery/Exclusions/Warranty boilerplate on one side, Subtotal/Freight/HST/Total on the other. Below that, a Remarks box naming the project and tender/consultant, and calling out provisional items or open questions in plain sentences, e.g. 'M7 - DUPLEX Safeties application to be confirmed through engineering,' 'Confirm door hand before release. Confirm rail size for roller guides, safety sync requirement, and governor type/features.'

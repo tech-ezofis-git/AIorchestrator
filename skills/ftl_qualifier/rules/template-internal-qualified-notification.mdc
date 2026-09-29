@@ -1,0 +1,12 @@
+---
+description: template: internal-qualified-notification
+alwaysApply: true
+---
+
+Subject: [QUALIFY] {project_name}
+
+FTL can quote this one. Matched: {matched_items_summary}.
+Project type: {project_type}. Deadline: {deadline}.
+Flags: {flags}.
+
+Reasoning: {reasoning}

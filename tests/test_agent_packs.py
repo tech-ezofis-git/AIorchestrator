@@ -29,6 +29,8 @@ def test_disk_packs_parse_for_all_markdown_agents():
         "dashboard-prompts",
         "dashboard-schema",
         "dashboard-data",
+        "ftl_qualifier",
+        "ftl_quote_estimator",
     ):
         skill_path = root / agent / "SKILL.md"
         assert skill_path.is_file(), agent
@@ -36,6 +38,56 @@ def test_disk_packs_parse_for_all_markdown_agents():
         assert body.strip()
         rules = list((root / agent / "rules").glob("*.mdc"))
         assert rules, agent
+
+
+@pytest.mark.asyncio
+async def test_ftl_qualifier_pack_loads_from_disk():
+    set_catalog_store(None)
+    skill = await get_agent_skill("ftl_qualifier", tenant_id=None)
+    assert "OEM or Wittur" in skill.skill_body
+    template_rules = [r for r in skill.rules if r.description.lower().startswith("template:")]
+    assert len(template_rules) == 2
+    assert any("qualified" in r.description.lower() for r in template_rules)
+    assert any("disqualify" in r.description.lower() for r in template_rules)
+
+
+@pytest.mark.asyncio
+async def test_ftl_quote_estimator_pack_loads_from_disk():
+    set_catalog_store(None)
+    skill = await get_agent_skill("ftl_quote_estimator", tenant_id=None)
+    assert "quote-building analyst" in skill.skill_body
+    assert "OL35-RC" in skill.skill_body
+    template_rules = [r for r in skill.rules if r.description.lower().startswith("template:")]
+    assert len(template_rules) == 1
+    assert "remarks-provisional-example" in template_rules[0].description
+    assert any("roller" in r.description.lower() for r in skill.rules)
+
+
+def test_skill_dict_splits_templates_from_references():
+    from app.agent_skills.types import LoadedRule, LoadedSkill
+    from app.ftl.qualifier.skill_store import skill_dict_from_loaded
+
+    loaded = LoadedSkill(
+        agent="ftl_qualifier",
+        skill_id="ftl_qualifier",
+        name="ftl_qualifier",
+        description="",
+        skill_body="Qualify door packages.",
+        rules=(
+            LoadedRule(path=Path("oem.mdc"), description="OEM guide", body="Check brands."),
+            LoadedRule(
+                path=Path("qualified.mdc"),
+                description="template: internal-qualified-notification",
+                body="Subject: QUALIFY",
+            ),
+        ),
+    )
+    skill = skill_dict_from_loaded(loaded, {"name": "ftl-rfq-qualifier", "evals": []})
+    assert skill["instructions"] == "Qualify door packages."
+    assert skill["references"] == [{"title": "OEM guide", "content": "Check brands."}]
+    assert skill["templates"] == [
+        {"name": "internal-qualified-notification", "content": "Subject: QUALIFY"}
+    ]
 
 
 @pytest.mark.asyncio

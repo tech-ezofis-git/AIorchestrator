@@ -70,6 +70,7 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
     cand_text: Optional[str] = None
     r_text: Optional[str] = None
     m_override: Optional[str] = None
+    tenant_id: Optional[str] = None
 
     if "multipart/form-data" in content_type:
         form = _form_fields(await request.form())
@@ -82,6 +83,7 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
         cand_text = form.get("candidate_text") if isinstance(form.get("candidate_text"), str) else None
         r_text = form.get("raw_text") if isinstance(form.get("raw_text"), str) else None
         m_override = form.get("model") if isinstance(form.get("model"), str) else None
+        tenant_id = form.get("tenant_id") if isinstance(form.get("tenant_id"), str) else None
     else:
         try:
             body = await request.json()
@@ -94,6 +96,7 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
             cand_text = body.get("candidate_text")
             r_text = body.get("raw_text") or body.get("message")
             m_override = body.get("model")
+            tenant_id = body.get("tenant_id") if isinstance(body.get("tenant_id"), str) else None
             b64_bytes = body.get("file_bytes")
             if b64_bytes and isinstance(b64_bytes, str):
                 import base64
@@ -112,6 +115,7 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
             raw_text=r_text,
             model_override=m_override,
             llm_overrides=_request_llm_overrides(request, m_override),
+            tenant_id=tenant_id,
         )
         return {
             "status": "success",
@@ -190,6 +194,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
     qualifier_result: Optional[dict[str, Any]] = None
     tpl_type: str = "inflow"
     m_override: Optional[str] = None
+    tenant_id: Optional[str] = None
 
     if "multipart/form-data" in content_type:
         form = _form_fields(await request.form())
@@ -206,6 +211,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
         if isinstance(tpl_val, str) and tpl_val.strip():
             tpl_type = tpl_val.strip()
         m_override = form.get("model") if isinstance(form.get("model"), str) else None
+        tenant_id = form.get("tenant_id") if isinstance(form.get("tenant_id"), str) else None
     else:
         try:
             body = await request.json()
@@ -220,6 +226,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
             qualifier_result = _qualifier_result_from(body.get("qualifier_result"))
             tpl_type = body.get("template_type") or tpl_type
             m_override = body.get("model")
+            tenant_id = body.get("tenant_id") if isinstance(body.get("tenant_id"), str) else None
             b64_bytes = body.get("file_bytes")
             if b64_bytes and isinstance(b64_bytes, str):
                 import base64
@@ -240,6 +247,7 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
             template_type=tpl_type,
             model_override=m_override,
             llm_overrides=_request_llm_overrides(request, m_override),
+            tenant_id=tenant_id,
         )
         return {
             "status": "success",
