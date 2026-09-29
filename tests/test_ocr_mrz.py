@@ -7,8 +7,9 @@ from app.agents.ocr_agent import _pick_mrz
 from app.agents.ocr_helpers import PageSelection
 from app.config import Settings
 from app.integrations.mrz_image import find_mrz_crops
-from app.integrations.mrz_parse import apply_mrz_to_fields, check_digit, find_mrz
+from app.integrations.mrz_parse import apply_mrz_to_fields, check_digit, find_mrz, mrz_document_kind
 from app.integrations.ocr_engine import OcrEngineClient, embedded_pdf_text_is_usable
+from app.ocr_skills.extract_fields import parse_document_type
 
 # ICAO 9303 specimen MRZs.
 TD3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
@@ -172,7 +173,9 @@ async def test_engine_reads_mrz_crop_and_retries_rotated(monkeypatch):
         return ">>>>>>9L0t80tLLE >>>" if calls.count("mrz.png") == 1 else TD3
 
     monkeypatch.setattr(OcrEngineClient, "_call_extract_text", fake_extract)
-    engine = OcrEngineClient(Settings(ocr_extract_url="http://paddle.invalid/extract"))
+    engine = OcrEngineClient(
+        Settings(ocr_extract_url="http://paddle.invalid/extract", ocr_mrz_passporteye_enabled=False)
+    )
     result = await engine.run_ocr(
         file_bytes=_passport_png(), filename="passport.png", content_type="image/png",
         page_selection=_PAGE_1, scan_mrz=True,
@@ -182,6 +185,102 @@ async def test_engine_reads_mrz_crop_and_retries_rotated(monkeypatch):
     assert result["mrz"]["page"] == 1
     assert result["mrz"]["document_number"] == "L898902C3"
     assert calls.count("mrz.png") == 2
+
+
+def _fake_passporteye(monkeypatch, mrz):
+    seen: list[int] = []
+
+    def fake_read(crops):
+        seen.append(len(crops))
+        return mrz
+
+    monkeypatch.setattr("app.integrations.ocr_engine.read_mrz_crops", fake_read)
+    return seen
+
+
+async def test_engine_uses_valid_passporteye_read_without_crop_ocr(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_extract(self, *, filename, **_kwargs):
+        calls.append(filename)
+        return "UTOPIA PASSPORT\nSurname ERIKSSON"
+
+    monkeypatch.setattr(OcrEngineClient, "_call_extract_text", fake_extract)
+    seen = _fake_passporteye(monkeypatch, {**find_mrz(TD3), "source": "passporteye", "page": 1})
+    engine = OcrEngineClient(Settings(ocr_extract_url="http://paddle.invalid/extract"))
+    result = await engine.run_ocr(
+        file_bytes=_passport_png(), filename="passport.png", content_type="image/png",
+        page_selection=_PAGE_1, scan_mrz=True,
+    )
+    assert seen == [1]
+    assert calls == ["passport.png"]
+    assert result["mrz"]["source"] == "passporteye"
+    assert result["mrz"]["valid"] is True
+
+
+async def test_engine_falls_back_to_crop_ocr_when_passporteye_read_is_invalid(monkeypatch):
+    calls: list[str] = []
+
+    async def fake_extract(self, *, filename, **_kwargs):
+        calls.append(filename)
+        return TD3 if filename == "mrz.png" else "UTOPIA PASSPORT"
+
+    monkeypatch.setattr(OcrEngineClient, "_call_extract_text", fake_extract)
+    invalid = find_mrz(TD3.replace("F1204159", "F1204158"))
+    _fake_passporteye(monkeypatch, {**invalid, "source": "passporteye", "page": 1})
+    engine = OcrEngineClient(Settings(ocr_extract_url="http://paddle.invalid/extract"))
+    result = await engine.run_ocr(
+        file_bytes=_passport_png(), filename="passport.png", content_type="image/png",
+        page_selection=_PAGE_1, scan_mrz=True,
+    )
+    assert calls == ["passport.png", "mrz.png"]
+    assert result["mrz"]["source"] == "image"
+    assert result["mrz"]["valid"] is True
+
+
+async def test_engine_keeps_partial_passporteye_read_without_extract_service(monkeypatch):
+    invalid = find_mrz(TD3.replace("F1204159", "F1204158"))
+    _fake_passporteye(monkeypatch, {**invalid, "source": "passporteye", "page": 1})
+    engine = OcrEngineClient(Settings(ocr_extract_url=""))
+    result = await engine.run_ocr(
+        file_bytes=_passport_png(), filename="passport.png", content_type="image/png",
+        page_selection=_PAGE_1, scan_mrz=True,
+    )
+    assert result["mrz"]["source"] == "passporteye"
+    assert result["mrz"]["valid"] is False
+
+
+def test_passporteye_reads_generated_passport_crop():
+    import shutil
+
+    pytest.importorskip("passporteye")
+    if shutil.which("tesseract") is None:
+        pytest.skip("tesseract binary not installed")
+    from app.integrations.mrz_passporteye import read_mrz_crops
+
+    crops = find_mrz_crops(_passport_png(), filename="passport.png", content_type="image/png", page_selection=_PAGE_1)
+    mrz = read_mrz_crops(crops)
+    assert mrz["source"] == "passporteye"
+    assert mrz["valid"] is True
+    assert mrz["document_number"] == "L898902C3"
+
+
+@pytest.mark.parametrize(
+    "data_line",
+    [
+        "L898902C36UTO7408122F1204159ZE184226B<<10",  # 3 fillers dropped mid-line
+        "L898902C36UTO7408122F1204159ZE184226B<<<<<<<<10",  # 3 fillers added mid-line
+        "L898902C36UTO7408122F1204159ZE184226B<<<<<1Q",  # composite digit read as a letter
+    ],
+    ids=["dropped", "added", "digit_lookalike"],
+)
+def test_filler_run_miscounts_are_repaired_by_check_digits(data_line):
+    name_line = TD3.split("\n")[0]
+    mrz = find_mrz(f"{name_line.rstrip('<')}<<<\n{data_line}")
+    assert mrz["valid"] is True
+    assert mrz["document_number"] == "L898902C3"
+    assert mrz["personal_number"] == "ZE184226B"
+    assert mrz["raw_lines"][0] == name_line
 
 
 async def test_engine_skips_mrz_images_when_disabled(monkeypatch):
@@ -279,14 +378,32 @@ async def test_engine_skips_crop_ocr_when_text_mrz_is_valid(monkeypatch):
         return f"UTOPIA PASSPORT\n{TD3}"
 
     monkeypatch.setattr(OcrEngineClient, "_call_extract_text", fake_extract)
-    engine = OcrEngineClient(Settings(ocr_extract_url="http://paddle.invalid/extract"))
+    engine = OcrEngineClient(
+        Settings(ocr_extract_url="http://paddle.invalid/extract", ocr_mrz_passporteye_enabled=False)
+    )
     result = await engine.run_ocr(
         file_bytes=_passport_png(), filename="passport.png", content_type="image/png",
         page_selection=_PAGE_1, scan_mrz=True,
     )
     assert calls == ["passport.png"]
-    assert "mrz" not in result
+    assert result["mrz"] is None
     assert find_mrz(result["text"])["valid"] is True
+
+
+async def test_engine_prefers_passporteye_over_valid_text_mrz(monkeypatch):
+    async def fake_extract(self, *, filename, **_kwargs):
+        return f"UTOPIA PASSPORT\n{TD3.replace('ERIKSSON<<', 'ERIKSSON<')}"
+
+    monkeypatch.setattr(OcrEngineClient, "_call_extract_text", fake_extract)
+    _fake_passporteye(monkeypatch, {**find_mrz(TD3), "source": "passporteye", "page": 1})
+    engine = OcrEngineClient(Settings(ocr_extract_url="http://paddle.invalid/extract"))
+    result = await engine.run_ocr(
+        file_bytes=_passport_png(), filename="passport.png", content_type="image/png",
+        page_selection=_PAGE_1, scan_mrz=True,
+    )
+    assert result["mrz"]["source"] == "passporteye"
+    assert result["mrz"]["surname"] == "ERIKSSON"
+    assert _pick_mrz(result["mrz"], find_mrz(result["text"]))["source"] == "passporteye"
 
 
 def test_apply_mrz_skips_invalid_mrz():
@@ -336,7 +453,51 @@ def test_ocr_sends_decoded_mrz_to_llm_and_returns_it(client, monkeypatch):
     assert reply["mrz"]["document_number"] == "L898902C3"
     assert body["ocr_result"]["mrz"] == reply["mrz"]
     assert reply["ocrResult"][0]["value"] == "L898902C3"
+    assert reply["document_type"] == body["ocr_result"]["document_type"] == "Passport"
     assert any("MRZ found in the document" in p and "birth_date: 1974-08-12" in p for p in seen)
+
+
+def test_ocr_returns_llm_document_type_without_mrz(client, monkeypatch):
+    async def fake_completion(self, messages, **_kwargs):
+        assert '"documentType"' in messages[-1]["content"]
+        return {
+            "content": json.dumps({"documentType": "Invoice", "ocrResult": [{"name": "Invoice No", "value": "INV-9"}]}),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+    response = client.post(
+        "/chat",
+        data={"session_id": "s-inv", "intent": "ocr", "pageno": "1", "parameters": "[]", "tableparameters": "[]"},
+        files={"file": ("invoice.txt", b"INVOICE INV-9\nTotal 100.00\n", "text/plain")},
+    )
+
+    assert response.status_code == 200, response.text
+    reply = json.loads(response.json()["reply"])
+    assert reply["document_type"] == "Invoice"
+    assert reply["mrz"] is None
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ('{"documentType": "Bill of Lading", "ocrResult": []}', "Bill of Lading"),
+        ('```json\n{"document_type": " Purchase Order ", "ocrResult": []}\n```', "Purchase Order"),
+        ('{"documentType": null, "ocrResult": []}', None),
+        ('{"documentType": "unknown", "ocrResult": []}', None),
+        ('{"ocrResult": [{"name": "Document Type", "value": "Invoice"}]}', None),
+    ],
+)
+def test_parse_document_type(content, expected):
+    assert parse_document_type(content) == expected
+
+
+def test_mrz_document_kind():
+    assert mrz_document_kind(find_mrz(TD3)) == "Passport"
+    assert mrz_document_kind(find_mrz(MRV_A)) == "Visa"
+    assert mrz_document_kind(find_mrz(TD1)) == "Identity Card"
+    assert mrz_document_kind(find_mrz(TD3.replace("F1204159", "F1204158"))) is None
+    assert mrz_document_kind(None) is None
 
 
 @pytest.fixture
@@ -351,5 +512,7 @@ def test_ocr_mrz_disabled(mrz_off, client, monkeypatch):
     response = _post_passport(client)
 
     assert response.status_code == 200, response.text
-    assert json.loads(response.json()["reply"])["mrz"] is None
+    reply = json.loads(response.json()["reply"])
+    assert reply["mrz"] is None
+    assert reply["document_type"] is None
     assert not any("MRZ found in the document" in p for p in seen)

@@ -752,7 +752,7 @@ class ChatResponse(BaseModel):
     ocr_result: Optional[dict[str, Any]] = Field(
         default=None,
         description=(
-            "OCR intent output — ocrResult + tableResult + qr_codes + ocr_text "
+            "OCR intent output — document_type + ocrResult + tableResult + qr_codes + mrz + ocr_text "
             "(plus optional source_reference / ocr_status). Token counts live in token_usage."
         ),
     )

@@ -11,6 +11,7 @@ Given OCR text and optional field definitions, return ONLY valid JSON with this 
 
 ```json
 {
+  "documentType": "Invoice",
   "ocrResult": [{"name": "...", "value": "...", "type": "..."}],
   "tableResult": []
 }

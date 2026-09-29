@@ -29,6 +29,7 @@ from app.integrations.docx_text import (
 )
 from app.integrations.mrz_image import find_mrz_crops, rotate_png_180
 from app.integrations.mrz_parse import find_mrz
+from app.integrations.mrz_passporteye import read_mrz_crops
 from app.integrations.qr_scan import scan_document_qr
 
 logger = logging.getLogger("orchestrator.ocr")
@@ -125,20 +126,12 @@ class OcrEngineClient:
                     dpi=settings.ocr_qr_dpi,
                 )
             )
-        # Band detection is local (OpenCV) and runs alongside text extraction; the crops are OCR'd
-        # only afterwards because the extract service fails on concurrent requests.
+        # Band detection and the PassportEye read are local and run alongside text extraction; the
+        # extract-service fallback runs only afterwards because it fails on concurrent requests.
         mrz_task = None
-        if scan_mrz and settings.ocr_mrz_enabled and settings.ocr_mrz_image_enabled and data and extract_url:
+        if scan_mrz and settings.ocr_mrz_enabled and settings.ocr_mrz_image_enabled and data:
             mrz_task = asyncio.create_task(
-                asyncio.to_thread(
-                    find_mrz_crops,
-                    data,
-                    filename=name,
-                    content_type=ctype,
-                    page_selection=pages,
-                    dpi=settings.ocr_mrz_dpi,
-                    max_crops=settings.ocr_mrz_max_crops,
-                )
+                asyncio.to_thread(self._detect_and_read_mrz, data, filename=name, content_type=ctype, pages=pages)
             )
         try:
             result = await self._extract_text(
@@ -146,7 +139,7 @@ class OcrEngineClient:
             )
         except OcrEngineError as exc:
             qr_codes = await qr_task if qr_task is not None else []
-            mrz = await self._read_mrz_crops(await mrz_task, extract_url) if mrz_task is not None else None
+            mrz = await self._resolve_image_mrz(await mrz_task, extract_url) if mrz_task is not None else None
             if not qr_codes and not mrz:
                 raise
             # Text extraction failed but QR codes / an MRZ were decoded: return them instead of failing.
@@ -174,12 +167,39 @@ class OcrEngineClient:
             result["qr_codes"] = await qr_task
         if mrz_task is not None:
             text_mrz = find_mrz(result.get("text") or "")
-            if text_mrz and text_mrz["valid"]:
-                # The extracted text already holds a verified MRZ; skip the extra OCR calls.
-                mrz_task.cancel()
-            else:
-                result["mrz"] = await self._read_mrz_crops(await mrz_task, extract_url)
+            # A verified MRZ in the extracted text makes the extra crop OCR calls unnecessary.
+            fallback_url = "" if text_mrz and text_mrz["valid"] else extract_url
+            result["mrz"] = await self._resolve_image_mrz(await mrz_task, fallback_url)
         return result
+
+    def _detect_and_read_mrz(
+        self, data: bytes, *, filename: str, content_type: str, pages: PageSelection
+    ) -> tuple[list[dict[str, Any]], Optional[dict[str, Any]]]:
+        """MRZ band crops of the pages plus the local PassportEye read of them (blocking)."""
+        settings = self._cfg()
+        crops = find_mrz_crops(
+            data,
+            filename=filename,
+            content_type=content_type,
+            page_selection=pages,
+            dpi=settings.ocr_mrz_dpi,
+            max_crops=settings.ocr_mrz_max_crops,
+        )
+        local = read_mrz_crops(crops) if crops and settings.ocr_mrz_passporteye_enabled else None
+        return crops, local
+
+    async def _resolve_image_mrz(
+        self, detected: tuple[list[dict[str, Any]], Optional[dict[str, Any]]], extract_url: str
+    ) -> Optional[dict[str, Any]]:
+        """A valid PassportEye read wins; otherwise the crops go to the extract service."""
+        crops, local = detected
+        if local and local["valid"]:
+            return local
+        remote = await self._read_mrz_crops(crops, extract_url) if crops and extract_url else None
+        candidates = [m for m in (local, remote) if m]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda m: (m["valid"], sum(m["checks"].values())))
 
     async def _read_mrz_crops(self, crops: list[dict[str, Any]], extract_url: str) -> Optional[dict[str, Any]]:
         """OCR each MRZ crop one at a time (then rotated 180 degrees) and validate; never raises."""

@@ -15,7 +15,7 @@ from app.agents.reference_extraction import extract_reference
 from app.config import Settings
 from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
-from app.integrations.mrz_parse import apply_mrz_to_fields, find_mrz
+from app.integrations.mrz_parse import apply_mrz_to_fields, find_mrz, mrz_document_kind
 from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import resolve_preset_overrides
@@ -205,6 +205,7 @@ class OcrAgent:
             table_result=table_result,
             qr_codes=qr_codes,
             mrz=mrz,
+            document_type=mrz_document_kind(mrz) or synthesized.get("documentType"),
         )
         body["source_reference"] = source
         body["ocr_status"] = ocr_status
@@ -335,9 +336,11 @@ def _locked_body(
     table_result: Any = None,
     qr_codes: Optional[list[dict[str, Any]]] = None,
     mrz: Optional[dict[str, Any]] = None,
+    document_type: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Single OCR payload node: fields + tables + QR codes + MRZ + text (no nested duplicates)."""
+    """Single OCR payload node: document type + fields + tables + QR codes + MRZ + text (no nested duplicates)."""
     return {
+        "document_type": document_type,
         "ocrResult": ocr_result,
         "tableResult": table_result if table_result is not None else [],
         "qr_codes": qr_codes or [],
@@ -348,6 +351,7 @@ def _locked_body(
 
 def _reply_payload(body: dict[str, Any]) -> dict[str, Any]:
     return {
+        "document_type": body.get("document_type"),
         "ocrResult": body.get("ocrResult") or [],
         "tableResult": body.get("tableResult") or [],
         "qr_codes": body.get("qr_codes") or [],

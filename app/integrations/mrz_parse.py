@@ -11,11 +11,13 @@ Pure text processing, never raises: returns None when no parseable MRZ is found.
 """
 from __future__ import annotations
 
+import itertools
 import re
 from datetime import date
 from typing import Any, Optional
 
 _LENGTHS = {30: 3, 36: 2, 44: 2}
+_MAX_FILLER_REPAIR = 8
 _FILLER_LOOKALIKES = str.maketrans(
     {"«": "<", "‹": "<", "»": "<", "›": "<", "＜": "<", ">": "<", "{": "<", "(": "<"}
 )
@@ -95,6 +97,17 @@ def _corrected(mrz_key: str, value: str, mrz_value: str) -> Optional[str]:
     return None
 
 
+# ICAO 9303 document codes (first MRZ character).
+_DOCUMENT_KINDS = {"P": "Passport", "V": "Visa", "I": "Identity Card", "A": "Identity Card", "C": "Identity Card"}
+
+
+def mrz_document_kind(mrz: Optional[dict[str, Any]]) -> Optional[str]:
+    """Passport / Visa / Identity Card from a fully valid MRZ's document code, else None."""
+    if not mrz or not mrz.get("valid"):
+        return None
+    return _DOCUMENT_KINDS.get(str(mrz.get("document_type") or "")[:1])
+
+
 def check_digit(value: str) -> int:
     total = 0
     for i, ch in enumerate(value):
@@ -112,19 +125,35 @@ def _clean_line(line: str) -> str:
     return re.sub(r"\s+", "", line.upper().translate(_FILLER_LOOKALIKES))
 
 
-def _normalize_length(line: str) -> Optional[str]:
-    """Snaps a line to the nearest MRZ length (30/36/44), padding lost trailing fillers."""
-    for target in (44, 36, 30):
-        if len(line) == target:
-            return line
-    for target in (44, 36, 30):
-        if 0 < target - len(line) <= 3 and line.endswith("<"):
-            return line + "<" * (target - len(line))
-    return None
+def _filler_runs(line: str) -> list[tuple[int, int]]:
+    """(start, end) of each run of fillers, the trailing run first."""
+    runs = [(m.start(), m.end()) for m in re.finditer(r"<+", line)]
+    return sorted(runs, key=lambda run: run[1] != len(line))
 
 
-def _candidate_lines(text: str) -> list[tuple[int, str]]:
-    out: list[tuple[int, str]] = []
+def _length_variants(line: str) -> list[str]:
+    """The line resized to each nearby MRZ length by growing or shrinking one filler run.
+
+    OCR often drops or adds a few fillers inside long "<<<<" runs, shifting every field after them;
+    the check digits pick the right variant. Trailing-run edits come first so they win ties.
+    """
+    if len(line) in _LENGTHS:
+        return [line]
+    out: list[str] = []
+    for target in _LENGTHS:
+        diff = target - len(line)
+        if abs(diff) > _MAX_FILLER_REPAIR:
+            continue
+        for start, end in _filler_runs(line):
+            size = end - start + diff
+            if size >= (0 if end == len(line) else 1):
+                out.append(line[:start] + "<" * size + line[end:])
+    return list(dict.fromkeys(out))
+
+
+def _candidate_lines(text: str) -> list[tuple[int, str, list[str]]]:
+    """(line index, cleaned line, MRZ-length variants) for every MRZ-like line."""
+    out: list[tuple[int, str, list[str]]] = []
     for idx, raw in enumerate(text.splitlines()):
         line = _clean_line(raw)
         if "<" not in line or not _MRZ_CHARS.fullmatch(line):
@@ -132,45 +161,37 @@ def _candidate_lines(text: str) -> list[tuple[int, str]]:
         # OCR sometimes merges the MRZ lines into one.
         for length, count in _LENGTHS.items():
             if len(line) == length * count and count > 1:
-                out.extend((idx, line[i * length:(i + 1) * length]) for i in range(count))
+                out.extend((idx, part, [part]) for part in (line[i * length:(i + 1) * length] for i in range(count)))
                 break
         else:
-            normalized = _normalize_length(line) if len(line) >= 27 else None
-            if normalized:
-                out.append((idx, normalized))
-            elif 10 <= len(line) < 44 and line[0].isalpha() and line.endswith("<") and "<<" in line:
-                # A name line whose trailing fillers OCR dropped; completed from the line below it.
-                out.append((idx, line))
+            variants = _length_variants(line)
+            if variants or _is_short_name_line(line):
+                out.append((idx, line, variants))
     return out
+
+
+def _is_short_name_line(line: str) -> bool:
+    """A name line whose trailing fillers OCR dropped; completed from the line below it."""
+    return 10 <= len(line) < 44 and line[0].isalpha() and line.endswith("<") and "<<" in line
 
 
 def _candidate_groups(text: str) -> list[list[str]]:
     lines = _candidate_lines(text)
     groups: list[list[str]] = []
-    for i in range(len(lines)):
-        idx, line = lines[i]
-        length = len(line)
+    for i, (idx, line, variants) in enumerate(lines):
         nxt = lines[i + 1] if i + 1 < len(lines) else None
-        if (
-            nxt
-            and len(nxt[1]) in (36, 44)
-            and length < len(nxt[1])
-            and nxt[0] - idx <= 3
-            and line.endswith("<")
-            and "<<" in line
-        ):
-            groups.append([line.ljust(len(nxt[1]), "<"), nxt[1]])
-        if length not in _LENGTHS:
-            continue
-        count = _LENGTHS[length]
-        window = lines[i:i + count]
-        if len(window) < count:
-            continue
-        if any(len(line) != length for _, line in window):
-            continue
-        if window[-1][0] - window[0][0] > 2 * (count - 1) + 1:
-            continue
-        groups.append([line for _, line in window])
+        if nxt and nxt[0] - idx <= 3 and _is_short_name_line(line):
+            for below in nxt[2]:
+                if len(below) in (36, 44) and len(line) < len(below):
+                    groups.append([line.ljust(len(below), "<"), below])
+        for variant in variants:
+            length = len(variant)
+            count = _LENGTHS[length]
+            window = lines[i:i + count]
+            if len(window) < count or window[-1][0] - window[0][0] > 2 * (count - 1) + 1:
+                continue
+            rest = [[v for v in other[2] if len(v) == length] for other in window[1:]]
+            groups.extend([variant, *combo] for combo in itertools.product(*rest))
     return groups
 
 
@@ -264,6 +285,7 @@ def _parse_two_line(lines: list[str], fmt: str) -> Optional[dict[str, Any]]:
         "expiry_date": _date(expiry, expiry=True),
     }
     if fmt == "TD3":
+        l2 = l2[:42] + _digits(l2[42]) + l2[43:]
         personal = l2[28:42]
         result["personal_number"] = _text(personal)
         checks["personal_number"] = _check(personal, l2[42])
