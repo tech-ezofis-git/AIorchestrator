@@ -230,3 +230,67 @@ N/A
     assert inv["invoice_number"] == "4500034567"
     assert inv["vendor"]
     assert "25841.72" in str(inv["total"]).replace(",", "")
+
+
+def test_stacked_ocr_table_becomes_line_items_when_model_returns_none():
+    from app.ap_skills.extract_invoice import _coalesce_invoice, _heuristic_from_text
+
+    text = """
+Line #
+Product And Description
+Qty Ordered
+Qty B/O
+Qty Shipped
+U/M
+Unit Price
+Ext Price
+CHAMPION INDUSTRIAL TEST
+Supplier #: APC-T001
+ICP1001
+1
+INDUSTRIAL CONTROL PANEL
+6
+0
+6
+EA
+254.00
+1524.00
+PDU2001
+2
+POWER DISTRIBUTION UNIT
+9
+0
+9
+EA
+270.00
+2430.00
+NER3001
+3
+NETWORK EQUIPMENT RACK
+3
+0
+3
+EA
+217.00
+651.00
+3 Lines Total
+Subtotal
+4605.00
+Invoice Total
+5203.65
+"""
+    heuristic = _heuristic_from_text(text)
+    invoice, _ungrounded = _coalesce_invoice({"line_items": [], "total": "5203.65"}, heuristic, text)
+    lines = invoice["line_items"]
+    assert [row["description"] for row in lines] == [
+        "INDUSTRIAL CONTROL PANEL",
+        "POWER DISTRIBUTION UNIT",
+        "NETWORK EQUIPMENT RACK",
+    ]
+    assert lines[0]["qty"] == 6
+    assert lines[0]["price"] == "254.00"
+    assert lines[0]["amount"] == "1524.00"
+    assert lines[1]["qty"] == 9
+    assert lines[1]["amount"] == "2430.00"
+    assert lines[2]["qty"] == 3
+    assert lines[2]["amount"] == "651.00"

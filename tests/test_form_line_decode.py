@@ -22,6 +22,34 @@ _CONTROLS = [
 ]
 
 
+def test_decode_form_line_items_without_control_names():
+    raw = (
+        '[{"2z2Rh5MpXEaiHSaWlMThr":"1","eEpfRP5JIbS8aFle8J615":"ICP1001",'
+        '"8nVIWBIeCFM6wgC7JOlzL":"A","ZpY63z5PRSjClud4PDpKV":"Industrial Control Panel",'
+        '"hy5p0sTmR4l7MkX5sWIuE":"EA","ja59TImIXkfIm_EIy2dxJ":"13%",'
+        '"eewd3Jx-Kx1ub1ZcjBt7L":"6","STqVWjmFqexaezHTRAkFG":"254",'
+        '"gRh9236whOB_ri9TtFaKq":"1524","Ywg9Bc_J8IyRglLcnrAWl":"2026-06-20",'
+        '"kXPikEE9xLRxtpE9lGwFo":"3.30","JXmxAE-HiQMv119GGn5N6":"6100-AP"},'
+        '{"2z2Rh5MpXEaiHSaWlMThr":"2","eEpfRP5JIbS8aFle8J615":"PDU2001",'
+        '"ZpY63z5PRSjClud4PDpKV":"Power Distribution Unit","hy5p0sTmR4l7MkX5sWIuE":"EA",'
+        '"eewd3Jx-Kx1ub1ZcjBt7L":"9","STqVWjmFqexaezHTRAkFG":"270","gRh9236whOB_ri9TtFaKq":"2430"},'
+        '{"2z2Rh5MpXEaiHSaWlMThr":"3","eEpfRP5JIbS8aFle8J615":"NER3001",'
+        '"ZpY63z5PRSjClud4PDpKV":"Network Equipment Rack","hy5p0sTmR4l7MkX5sWIuE":"EA",'
+        '"eewd3Jx-Kx1ub1ZcjBt7L":"3","STqVWjmFqexaezHTRAkFG":"217","gRh9236whOB_ri9TtFaKq":"651"}]'
+    )
+    lines = decode_form_line_items(raw, [])
+    assert [row["description"] for row in lines] == [
+        "Industrial Control Panel",
+        "Power Distribution Unit",
+        "Network Equipment Rack",
+    ]
+    assert lines[0]["qty"] == "6"
+    assert lines[0]["price"] == "254"
+    assert lines[0]["amount"] == "1524"
+    assert lines[1]["amount"] == "2430"
+    assert lines[2]["qty"] == "3"
+
+
 def test_decode_form_line_items_maps_control_ids():
     lines = decode_form_line_items(_PO_LINE_JSON, _CONTROLS)
     assert len(lines) == 2
