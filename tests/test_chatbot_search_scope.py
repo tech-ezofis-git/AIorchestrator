@@ -55,7 +55,12 @@ def test_rules_plan_documents_tickets_and_bare_document_ask():
     docs = plan_from_rules("documents from 6001")
     assert docs.target == "documents"
     assert docs.query == "6001"
-    assert tools_for_plan(docs) == ("search_repo_metadata", "search_repo_rag")
+    assert tools_for_plan(docs) == (
+        "search_repo_metadata",
+        "search_repo_rag",
+        "search_tickets",
+        "search_comments",
+    )
 
     text = plan_from_rules("Search a Text of APEX")
     assert text.target == "both"
@@ -66,6 +71,7 @@ def test_rules_plan_documents_tickets_and_bare_document_ask():
     assert ticket.query == "REQ-12"
     assert "search_workflows" not in tools_for_plan(ticket)
     assert "search_tickets" in tools_for_plan(ticket)
+    assert "search_repo_metadata" in tools_for_plan(ticket)
 
     bare = plan_from_rules("Search my documents")
     assert bare.target == "ask_term"
@@ -303,7 +309,12 @@ def test_chatbot_document_query_does_not_call_workflow_or_forms(client):
         },
     )
     assert response.status_code == 200, response.text
-    assert set(called) == {"search_repo_metadata", "search_repo_rag"}
+    assert set(called) == {
+        "search_repo_metadata",
+        "search_repo_rag",
+        "search_tickets",
+        "search_comments",
+    }
     assert seen_query["query"] == "6001"
     assert "6001" in response.json()["reply"]
 
@@ -463,7 +474,7 @@ def test_model_routes_text_search_and_writes_the_reply(client, monkeypatch):
     assert body["token_usage"]["total_tokens"] == 15
     assert ("search_repo_metadata", "APEX") in called
     assert ("search_repo_rag", "APEX") in called
-    assert not any(name == "search_tickets" for name, _query in called)
+    assert ("search_tickets", "APEX") in called
     cards = next(b for b in body["chatbot_result"]["text"]["blocks"] if b["type"] == "cards")
     assert cards["items"][0]["title"] == "HR_01.pdf"
 
@@ -685,8 +696,8 @@ def test_need_document_from_apex_searches_every_repository(client, monkeypatch):
     assert body["chatbot_result"]["specificId"] in (None, "")
     assert "which repository" not in body["reply"].lower()
     assert ("search_repo_metadata", "APEX", "") in called
+    assert ("search_tickets", "APEX", "") in called
     assert not any(name == "search_repositories" for name, *_rest in called)
-    assert not any(name == "search_tickets" for name, *_rest in called)
     cards = next(b for b in body["chatbot_result"]["text"]["blocks"] if b["type"] == "cards")
     assert cards["items"][0]["title"] == "APEX.pdf"
     assert repo_id not in str(next(b for b in body["chatbot_result"]["text"]["blocks"] if "Filter" in str(b.get("title"))))
@@ -746,7 +757,7 @@ def test_request_follow_up_searches_workflows_with_the_earlier_value(client, mon
     assert "APEX" in body["reply"]
     assert body["chatbot_result"]["specificId"] in (None, "")
     assert ("search_tickets", "APEX", "") in called
-    assert not any(name == "search_repo_metadata" for name, *_rest in called)
+    assert ("search_repo_metadata", "APEX", "") in called
     assert not any(name == "search_repositories" for name, *_rest in called)
 
 

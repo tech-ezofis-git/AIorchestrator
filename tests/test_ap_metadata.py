@@ -993,6 +993,12 @@ def test_embedded_pdf_text_rejects_form_labels():
         "Amount: 1234.56\nDate: 2026-08-31\nQty 10 widgets"
     )
     assert embedded_pdf_text_is_usable(invoice) is True
+    brand = (
+        "INVOICE\nBilled to\nNorthwind Studio\n123 Market Street\nNew York\n"
+        "Invoice number\nBW-1042\nDate\nSeptember 24, 2026\n"
+        "Description\nBrand identity design\nAmount\n250\nTotal due\n250"
+    )
+    assert embedded_pdf_text_is_usable(brand) is True
 
 
 def test_hollow_extract_does_not_write_defaults():

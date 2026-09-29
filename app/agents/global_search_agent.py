@@ -32,13 +32,12 @@ class GlobalSearchAgent:
         query = str(job.get("query") or message or "").strip()
         if not query:
             raise ValueError("query is required for intent=global_search.")
-        specific_id = str(job.get("specific_id") or job.get("repository_id") or "").strip()
-
+        # Session, query, and tenant only. A repository id must not narrow the search.
         result = await run_global_search(
             self._dispatcher,
             query=query,
             tenant_id=tenant_id,
-            specific_id=specific_id,
+            specific_id="",
             limit=self._limit,
             rag_limit=self._rag_limit,
         )

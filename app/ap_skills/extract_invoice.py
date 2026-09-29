@@ -565,8 +565,79 @@ def _heuristic_from_text(text: str) -> dict[str, Any]:
         "invoice_date": invoice_date,
         "terms": terms,
         "invoice_header": merged,
+        "line_items": _guess_line_items_from_ocr(text),
     }
     return _as_invoice(payload)
+
+
+_OCR_SKU = re.compile(r"^[A-Z][A-Z0-9]{2,}(?:-\d+)?$")
+_OCR_MONEY = re.compile(r"^\d{1,3}(?:,\d{3})*\.\d{2}$|^\d+\.\d{2}$")
+_OCR_INT = re.compile(r"^\d{1,6}$")
+_OCR_UOM = re.compile(r"^(?:EA|PC|PCS|EACH|LB|KG|BOX|SET|FT|M)$", re.IGNORECASE)
+_OCR_LINE_END = re.compile(r"lines total|subtotal|pkg\s*#|tracking\s*#", re.IGNORECASE)
+
+
+def _guess_line_items_from_ocr(text: str) -> list[dict[str, Any]]:
+    """Read a stacked product table when the model returns no line_items.
+
+    Some invoices OCR as one cell per line: SKU, line number, description,
+    qty ordered / backorder / shipped, UOM, unit price, extended price.
+    """
+    raw_lines = [line.strip() for line in (text or "").splitlines()]
+    start = 0
+    for index, line in enumerate(raw_lines):
+        if re.search(r"ext\s*price|unit\s*price", line, re.IGNORECASE):
+            start = index + 1
+    end = len(raw_lines)
+    for index in range(start, len(raw_lines)):
+        if _OCR_LINE_END.search(raw_lines[index]):
+            end = index
+            break
+    tokens = [line for line in raw_lines[start:end] if line and ":" not in line]
+    items: list[dict[str, Any]] = []
+    index = 0
+    while index < len(tokens):
+        if not _OCR_SKU.match(tokens[index]) or not any(ch.isdigit() for ch in tokens[index]):
+            index += 1
+            continue
+        sku = tokens[index]
+        index += 1
+        line_no = None
+        if index < len(tokens) and _OCR_INT.match(tokens[index]) and int(tokens[index]) < 100:
+            line_no = int(tokens[index])
+            index += 1
+        description: list[str] = []
+        while index < len(tokens) and not _OCR_INT.match(tokens[index]) and not _OCR_MONEY.match(tokens[index]) and not _OCR_UOM.match(tokens[index]):
+            if re.search(r"[A-Za-z]", tokens[index]):
+                description.append(tokens[index])
+            index += 1
+        quantities: list[int] = []
+        while index < len(tokens) and _OCR_INT.match(tokens[index]):
+            quantities.append(int(tokens[index]))
+            index += 1
+        uom = ""
+        if index < len(tokens) and _OCR_UOM.match(tokens[index]):
+            uom = tokens[index].upper()
+            index += 1
+        prices: list[str] = []
+        while index < len(tokens) and _OCR_MONEY.match(tokens[index]):
+            prices.append(tokens[index].replace(",", ""))
+            index += 1
+        if not description or not quantities or not prices:
+            continue
+        qty = quantities[-1] if len(quantities) >= 3 else quantities[0]
+        items.append(
+            {
+                "line_no": line_no,
+                "item_no": sku,
+                "description": " ".join(description),
+                "qty": qty,
+                "uom": uom,
+                "price": prices[0],
+                "amount": prices[1] if len(prices) > 1 else None,
+            }
+        )
+    return items
 
 
 def _header_from_labeled_text(text: str) -> dict[str, Any]:
@@ -596,6 +667,18 @@ def _filled(value: Any) -> bool:
     if isinstance(value, (list, dict)) and not value:
         return False
     return True
+
+
+def _usable_line_items(value: Any) -> bool:
+    """A model stub like [{}] must not replace OCR lines that have real rows."""
+    if not isinstance(value, list):
+        return False
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        if any(row.get(key) not in (None, "") for key in ("description", "item", "name", "qty", "quantity", "price", "amount")):
+            return True
+    return False
 
 
 # Top-level fields gated by _is_grounded — plain text/number values that
@@ -677,6 +760,8 @@ def _coalesce_invoice(
     norm_text, digit_text = _ocr_grounding_haystacks(ocr_text)
     for key, value in primary.items():
         if key == "invoice_header":
+            continue
+        if key in _LINE_KEYS and not _usable_line_items(value):
             continue
         if not _filled(value):
             continue

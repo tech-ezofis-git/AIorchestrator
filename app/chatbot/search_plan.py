@@ -98,7 +98,13 @@ def search_llm_enabled() -> bool:
 
 
 def tools_for_plan(plan: SearchPlan) -> tuple[str, ...]:
-    return _TARGET_TOOLS.get(plan.target, _TARGET_TOOLS["both"])
+    """A keyword search returns repository files and workflow tickets together.
+
+    A ticket match must not hide the file, and a file match must not hide the ticket.
+    """
+    if plan.target in {"documents", "tickets", "both"}:
+        return _DOCUMENT_TOOLS + _TICKET_TOOLS
+    return _TARGET_TOOLS.get(plan.target, _DOCUMENT_TOOLS + _TICKET_TOOLS)
 
 
 _LOCATOR_RE = re.compile(

@@ -10,6 +10,7 @@ from typing import Any, Optional
 from app.agents.ocr_helpers import parse_parameter_entries
 from app.llm.adapter import LLMAdapterError
 from app.ocr_skills import rules
+from app.ocr_skills.ground_fields import fill_null_fields
 
 SKILL_ID = "extract_fields"
 
@@ -85,6 +86,7 @@ async def run(
         expected=parsed_params,
         max_recommended_fields=max_recommended_fields,
     )
+    fields = fill_null_fields(fields, ocr_text)
     return {
         "ocrResult": fields,
         "tableResult": table_result,
