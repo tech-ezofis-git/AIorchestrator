@@ -43,5 +43,13 @@ def build_user_prompt(
         f"Page focus: {page_label}\n\n"
         f"Parameters:\n{param_lines}\n\n"
         f"Table parameters:\n{table_lines}\n\n"
+        f"{DOCUMENT_TYPE_RULE}\n\n"
         f"OCR text:\n{ocr_text}"
     )
+
+
+DOCUMENT_TYPE_RULE = (
+    'Document type: also return a top-level "documentType" key next to "ocrResult" - a short '
+    "label for the kind of document inferred from the OCR text (for example Passport, Invoice, "
+    "Purchase Order, Bill of Lading, Agreement), or null when it cannot be determined."
+)

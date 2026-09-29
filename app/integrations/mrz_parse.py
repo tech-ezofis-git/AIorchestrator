@@ -97,6 +97,17 @@ def _corrected(mrz_key: str, value: str, mrz_value: str) -> Optional[str]:
     return None
 
 
+# ICAO 9303 document codes (first MRZ character).
+_DOCUMENT_KINDS = {"P": "Passport", "V": "Visa", "I": "Identity Card", "A": "Identity Card", "C": "Identity Card"}
+
+
+def mrz_document_kind(mrz: Optional[dict[str, Any]]) -> Optional[str]:
+    """Passport / Visa / Identity Card from a fully valid MRZ's document code, else None."""
+    if not mrz or not mrz.get("valid"):
+        return None
+    return _DOCUMENT_KINDS.get(str(mrz.get("document_type") or "")[:1])
+
+
 def check_digit(value: str) -> int:
     total = 0
     for i, ch in enumerate(value):

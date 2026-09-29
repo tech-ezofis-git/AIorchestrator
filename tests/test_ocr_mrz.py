@@ -7,8 +7,9 @@ from app.agents.ocr_agent import _pick_mrz
 from app.agents.ocr_helpers import PageSelection
 from app.config import Settings
 from app.integrations.mrz_image import find_mrz_crops
-from app.integrations.mrz_parse import apply_mrz_to_fields, check_digit, find_mrz
+from app.integrations.mrz_parse import apply_mrz_to_fields, check_digit, find_mrz, mrz_document_kind
 from app.integrations.ocr_engine import OcrEngineClient, embedded_pdf_text_is_usable
+from app.ocr_skills.extract_fields import parse_document_type
 
 # ICAO 9303 specimen MRZs.
 TD3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
@@ -452,7 +453,51 @@ def test_ocr_sends_decoded_mrz_to_llm_and_returns_it(client, monkeypatch):
     assert reply["mrz"]["document_number"] == "L898902C3"
     assert body["ocr_result"]["mrz"] == reply["mrz"]
     assert reply["ocrResult"][0]["value"] == "L898902C3"
+    assert reply["document_type"] == body["ocr_result"]["document_type"] == "Passport"
     assert any("MRZ found in the document" in p and "birth_date: 1974-08-12" in p for p in seen)
+
+
+def test_ocr_returns_llm_document_type_without_mrz(client, monkeypatch):
+    async def fake_completion(self, messages, **_kwargs):
+        assert '"documentType"' in messages[-1]["content"]
+        return {
+            "content": json.dumps({"documentType": "Invoice", "ocrResult": [{"name": "Invoice No", "value": "INV-9"}]}),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+    response = client.post(
+        "/chat",
+        data={"session_id": "s-inv", "intent": "ocr", "pageno": "1", "parameters": "[]", "tableparameters": "[]"},
+        files={"file": ("invoice.txt", b"INVOICE INV-9\nTotal 100.00\n", "text/plain")},
+    )
+
+    assert response.status_code == 200, response.text
+    reply = json.loads(response.json()["reply"])
+    assert reply["document_type"] == "Invoice"
+    assert reply["mrz"] is None
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ('{"documentType": "Bill of Lading", "ocrResult": []}', "Bill of Lading"),
+        ('```json\n{"document_type": " Purchase Order ", "ocrResult": []}\n```', "Purchase Order"),
+        ('{"documentType": null, "ocrResult": []}', None),
+        ('{"documentType": "unknown", "ocrResult": []}', None),
+        ('{"ocrResult": [{"name": "Document Type", "value": "Invoice"}]}', None),
+    ],
+)
+def test_parse_document_type(content, expected):
+    assert parse_document_type(content) == expected
+
+
+def test_mrz_document_kind():
+    assert mrz_document_kind(find_mrz(TD3)) == "Passport"
+    assert mrz_document_kind(find_mrz(MRV_A)) == "Visa"
+    assert mrz_document_kind(find_mrz(TD1)) == "Identity Card"
+    assert mrz_document_kind(find_mrz(TD3.replace("F1204159", "F1204158"))) is None
+    assert mrz_document_kind(None) is None
 
 
 @pytest.fixture
@@ -467,5 +512,7 @@ def test_ocr_mrz_disabled(mrz_off, client, monkeypatch):
     response = _post_passport(client)
 
     assert response.status_code == 200, response.text
-    assert json.loads(response.json()["reply"])["mrz"] is None
+    reply = json.loads(response.json()["reply"])
+    assert reply["mrz"] is None
+    assert reply["document_type"] is None
     assert not any("MRZ found in the document" in p for p in seen)

@@ -5,6 +5,7 @@ around the LLM structuring call.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from app.agents.ocr_helpers import parse_parameter_entries
@@ -90,6 +91,17 @@ async def run(
     return {
         "ocrResult": fields,
         "tableResult": table_result,
+        "documentType": parse_document_type(result["content"]),
         "usage": result.get("usage"),
         "skill_id": SKILL_ID,
     }
+
+
+_DOCUMENT_TYPE_KEY = re.compile(r'"document_?type"\s*:\s*"([^"\n]{1,80})"', re.I)
+
+
+def parse_document_type(content: str) -> Optional[str]:
+    """The top-level documentType label from the model reply, or None."""
+    match = _DOCUMENT_TYPE_KEY.search(content or "")
+    label = match.group(1).strip() if match else ""
+    return label if label and label.lower() not in ("null", "none", "unknown") else None
