@@ -111,11 +111,7 @@ class FtlQualifierAgent:
         email_meta: Dict[str, Any] = {}
         if ext == "eml":
             parsed = extract.parse_eml_bytes(file_bytes)
-            email_meta = {
-                "from": parsed.get("from", ""),
-                "subject": parsed.get("subject", ""),
-                "date": parsed.get("date", ""),
-            }
+            email_meta = {k: v for k, v in parsed.items() if k != "attachments"}
             attachments = parsed.get("attachments") or []
             spec_attachment = prefer_spec_attachment(attachments)
             if spec_attachment:
@@ -134,7 +130,7 @@ class FtlQualifierAgent:
         else:
             full_text = file_bytes.decode("utf-8", errors="replace")
 
-        candidate = extract.build_candidate_text(full_text)
+        candidate = extract.build_candidate_text(full_text, email_meta=email_meta or None)
         rendered = extract.render_candidate_text_for_model(candidate, email_meta=email_meta or None)
         return rendered, email_meta, ext
 
@@ -148,6 +144,7 @@ class FtlQualifierAgent:
         raw_text: Optional[str] = None,
         model_override: Optional[str] = None,
         llm_overrides: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Runs qualification on the given file/text asynchronously in a worker thread."""
         input_filename = filename or (os.path.basename(filepath) if filepath else "manual_input")
@@ -167,7 +164,7 @@ class FtlQualifierAgent:
         else:
             raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
 
-        skill = skill_store.get_skill()
+        skill = await skill_store.load_runtime_skill(tenant_id=tenant_id)
         overrides = dict(llm_overrides or {})
         if model_override:
             overrides["model"] = model_override
@@ -226,6 +223,7 @@ class FtlQualifierAgent:
                 raw_text=raw_text,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
+                tenant_id=job.get("tenant_id"),
             )
             run_rec = res["run_record"]
             reply_md = format_decision_markdown(run_rec)

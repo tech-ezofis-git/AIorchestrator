@@ -1,0 +1,20 @@
+---
+description: Per-opening vs per-car vs per-project counting — worked example (25 Telegram Mews)
+alwaysApply: true
+---
+
+A real, client-confirmed quote (EST-261132) for a 5-elevator modernization shows all three counting bases on one project, and is the clearest real example of why one assumed car count must never be applied uniformly across categories:
+
+Per-car equipment inventory table, resolved car-by-car (do this same resolution step before writing any line_items — see Step 1):
+  Car 1: Entrance Type SSSO (=1S), Width 36", Rear Door Yes -> 2 openings, both 1S 36".
+  Car 2: Entrance Type SSSO (=1S), Width 36", Rear Door Yes -> 2 openings, both 1S 36".
+  Car 3: Entrance Type SSSO (=1S), Width 42", Rear Door Yes -> 2 openings, both 1S 42".
+  Car 4: Entrance Type CO (=2C), Width 42", Rear Door No -> 1 opening, 2C 42".
+  Car 5: Entrance Type CO (=2C), Width 42", Rear Door No -> 1 opening, 2C 42".
+Only after all 5 rows are individually resolved do you group matching configurations: 4 openings at 1S 36" (Cars 1 & 2), 2 openings at 1S 42" (Car 3), 2 openings at 2C 42" (Cars 4 & 5) = 8 total openings across 5 cars. Door hardware is counted per OPENING using these grouped totals: 8 door operators (4 x SGV2 36" 1S, 2 x SGV2 42" 1S, 2 x SGV2 42" 2C — three DIFFERENT configurations, not one guessed width/type applied to all 5 cars), 8 clutches, 8 car door restrictors (@ $0, bundled), 8 car door panels (matching each operator's own type/width), and 8 x 3D door detectors.
+
+Governors are counted per CAR/ELEVATOR, not per opening, even on the same project: 5 cars needed 5 governors total, not 8 — 4 x WG_OL35_GOVERNOR_RC (Cars 1, 2, 4, 5) plus 1 x a different, higher-spec governor variant for Car 3 specifically (that car's own row in the per-car table showed a different drive method/speed than the other four — a real, confirmed case of one car in a project needing a different variant than the rest; always check each car's own row rather than assuming uniform equipment across the project).
+
+The door-programming tool was counted per PROJECT: qty 1 regardless of 5 cars/8 openings, and billed chargeable (no $0 override) — see the corrected Step 4 guidance.
+
+The agent that got this wrong had instead based the whole quote on a guessed "4 cars/4 openings" figure, one uniform door configuration, one uniform governor selection, and had forced the programming tool's subtotal to $0 — every one of those was a wrong assumption traceable to not reading the real per-car table and applying one guessed count everywhere instead of the three distinct counting bases shown above.

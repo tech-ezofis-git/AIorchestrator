@@ -3464,9 +3464,11 @@ function setComposerMode(mode) {
   } else if (mode === 'ftl_qualifier') {
     banner.textContent = 'FTL Qualifier';
     messageInput.placeholder = 'Optional note, or paste RFQ text if no file is attached';
+    loadAgentSkillsPack('ftl_qualifier');
   } else if (mode === 'ftl_quote_estimator') {
     banner.textContent = 'FTL Quote Estimator';
     messageInput.placeholder = 'Optional note, or paste RFQ requirements if no file is attached';
+    loadAgentSkillsPack('ftl_quote_estimator');
   } else {
     messageInput.placeholder = 'Ask AI anything…';
   }
@@ -3616,7 +3618,7 @@ function setSummarySkillsStatus(kind, text) {
   el.textContent = text;
 }
 
-const PACK_AGENTS = ['summary', 'classification', 'document_intelligent', 'ocr', 'insight', 'prompt', 'pdf', 'ap'];
+const PACK_AGENTS = ['summary', 'classification', 'document_intelligent', 'ocr', 'insight', 'prompt', 'pdf', 'ap', 'ftl_qualifier', 'ftl_quote_estimator'];
 const PACK_AGENT_LABELS = {
   summary: 'Summary',
   classification: 'Classification',
@@ -3626,6 +3628,8 @@ const PACK_AGENT_LABELS = {
   prompt: 'Prompt',
   pdf: 'PDF',
   ap: 'AP',
+  ftl_qualifier: 'FTL Qualifier',
+  ftl_quote_estimator: 'FTL Quote Estimator',
 };
 const PACK_TENANT_FIELDS = {
   summary: 'summaryTenant',
@@ -3636,6 +3640,8 @@ const PACK_TENANT_FIELDS = {
   prompt: 'summaryTenant',
   pdf: 'summaryTenant',
   ap: 'apTenant',
+  ftl_qualifier: 'summaryTenant',
+  ftl_quote_estimator: 'summaryTenant',
 };
 
 const summaryPackState = {
@@ -3648,7 +3654,7 @@ const summaryPackState = {
 function isPackAgent(mode) {
   // Inline check so setComposerMode('chat') at boot cannot hit TDZ on PACK_AGENTS.
   return mode === 'summary' || mode === 'classification' || mode === 'document_intelligent' || mode === 'ocr' || mode === 'insight'
-    || mode === 'prompt' || mode === 'pdf';
+    || mode === 'prompt' || mode === 'pdf' || mode === 'ftl_qualifier' || mode === 'ftl_quote_estimator';
 }
 
 function packApiBase(agent) {

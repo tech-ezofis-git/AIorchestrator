@@ -246,7 +246,18 @@ FALLBACK_KEYWORDS = [
     "door protective",
     "door detector",
     "car door",
+    "sliding guide",
+    "harmonic",
+    "door reopening",
 ]
+
+# Schedule rows the heading list never names (KJA freight specs use "2.56 Sliding guides"
+# and a pipe-separated attribute table, not "Car Roller Guides" / "Door Operators").
+_SCOPE_SCHEDULE_MARKERS = (
+    "new harmonic",
+    "sliding guide",
+    "door reopening device",
+)
 
 _HEADING_RE = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80})\s*$", re.MULTILINE)
 
@@ -255,7 +266,11 @@ _HEADING_RE = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80}
 _STANDALONE_SUBSECTION_NUM_RE = re.compile(r"^\s*\d{1,2}(?:\.\d+)+\s*$", re.MULTILINE)
 
 
-def detect_structure_signal(full_text: str, subsection_hit_count: int = 0) -> str:
+def detect_structure_signal(
+    full_text: str,
+    subsection_hit_count: int = 0,
+    email_meta: Optional[Dict[str, Any]] = None,
+) -> str:
     """'modernization_3section' | 'new_construction_single_spec' | 'unknown' — a hard, code-level
     signal handed to the model rather than left for it to infer from scratch.
 
@@ -265,18 +280,32 @@ def detect_structure_signal(full_text: str, subsection_hit_count: int = 0) -> st
     and standalone NN.N lines are secondary signals for specs whose headings were split by PDF
     extraction.
     """
-    mod_number_hits = len(re.findall(r"\b14000\b", full_text)) + len(re.findall(r"\b14100\b", full_text)) + len(
-        re.findall(r"\b14900\b", full_text)
+    combined_text = full_text
+    email_text = ""
+    if email_meta:
+        email_text = f"{email_meta.get('subject', '')}\n{email_meta.get('body_text', '')}"
+        combined_text = f"{email_text}\n{full_text}"
+
+    mod_number_hits = len(re.findall(r"\b14000\b", combined_text)) + len(re.findall(r"\b14100\b", combined_text)) + len(
+        re.findall(r"\b14900\b", combined_text)
     )
     distinct_subsection_numbers = len(set(m.strip() for m in _STANDALONE_SUBSECTION_NUM_RE.findall(full_text)))
     new_construction_hits = sum(
         1
         for pat in (r"PART\s*1\s*[-–]\s*GENERAL", r"PART\s*2\s*[-–]\s*PRODUCTS", r"PART\s*3\s*[-–]\s*EXECUTION")
-        if re.search(pat, full_text, re.IGNORECASE)
+        if re.search(pat, combined_text, re.IGNORECASE)
     )
+    email_new_const = bool(
+        re.search(r"\bnew[\s-]+(?:construction|building)\b", email_text, re.IGNORECASE)
+    )
+
+    # If the email explicitly identifies this as new construction, or the spec has the standard
+    # PART 1/2/3 single-spec template without strong 3-section modernization indicators:
+    if (email_new_const or new_construction_hits >= 2) and mod_number_hits < 6 and subsection_hit_count < 4:
+        return "new_construction_single_spec"
     if subsection_hit_count >= 4 or mod_number_hits >= 6 or distinct_subsection_numbers >= 8:
         return "modernization_3section"
-    if new_construction_hits >= 2:
+    if new_construction_hits >= 2 or email_new_const:
         return "new_construction_single_spec"
     return "unknown"
 
@@ -344,6 +373,44 @@ def _extract_by_headings(full_text: str) -> Dict[str, str]:
     return out
 
 
+def _find_scope_schedule(full_text: str) -> str:
+    """Windows around the attribute-table rows that decide a lone-detector disqualify.
+
+    Heading targeting misses these: the row is "door operator | new harmonic" and
+    "car guiding | sliding guides", not a "Door Operators" or "Car Roller Guides" heading.
+    TOC lines ("2.56 Sliding guides .... 64") are skipped.
+    """
+    lower = full_text.lower()
+    hits: List[int] = []
+    for marker in _SCOPE_SCHEDULE_MARKERS:
+        start = 0
+        while True:
+            index = lower.find(marker, start)
+            if index < 0:
+                break
+            line_start = lower.rfind("\n", 0, index) + 1
+            line_end = lower.find("\n", index)
+            if line_end < 0:
+                line_end = len(full_text)
+            line = full_text[line_start:line_end]
+            if line.count(".") < 8:
+                hits.append(index)
+            start = index + len(marker)
+    if not hits:
+        return ""
+    hits.sort()
+    windows: List[Tuple[int, int]] = []
+    for index in hits:
+        w_start = max(0, index - 280)
+        w_end = min(len(full_text), index + 420)
+        if windows and w_start <= windows[-1][1]:
+            windows[-1] = (windows[-1][0], max(windows[-1][1], w_end))
+        else:
+            windows.append((w_start, w_end))
+    parts = [full_text[start:end].strip() for start, end in windows[:4] if full_text[start:end].strip()]
+    return "\n\n---\n\n".join(parts)
+
+
 def _fallback_keyword_windows(full_text: str, total_word_budget: int = 4000) -> str:
     lower = full_text.lower()
     hits: List[Tuple[int, int]] = []
@@ -378,13 +445,14 @@ def _fallback_keyword_windows(full_text: str, total_word_budget: int = 4000) -> 
     return "\n\n---\n\n".join(out_parts)
 
 
-def build_candidate_text(full_text: str) -> Dict[str, Any]:
+def build_candidate_text(full_text: str, email_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The single entry point: run structure detection + targeted extraction (with a keyword-window
     fallback), and return everything the agent needs, already shrunk to a nano-model-friendly size."""
     equipment_manifest = _find_equipment_manifest(full_text)
     device_count_summary = _find_device_count_summary(full_text)
+    scope_schedule = _find_scope_schedule(full_text)
     subsections = _extract_by_headings(full_text)
-    structure_signal = detect_structure_signal(full_text, subsection_hit_count=len(subsections))
+    structure_signal = detect_structure_signal(full_text, subsection_hit_count=len(subsections), email_meta=email_meta)
 
     used_fallback = False
     if len(subsections) < 2:
@@ -406,6 +474,7 @@ def build_candidate_text(full_text: str) -> Dict[str, Any]:
         "equipment_manifest": equipment_manifest,
         "device_count_summary": device_count_summary,
         "subsections": subsections,
+        "scope_schedule": scope_schedule,
         "used_fallback": used_fallback,
         "fallback_text": fallback_text,
     }
@@ -436,6 +505,11 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
     if candidate["equipment_manifest"]:
         lines.append("## Equipment manifest / existing-equipment questionnaire (from the spec)")
         lines.append(candidate["equipment_manifest"])
+        lines.append("")
+
+    if candidate.get("scope_schedule"):
+        lines.append("## Equipment schedule (from the spec)")
+        lines.append(candidate["scope_schedule"])
         lines.append("")
 
     if candidate["subsections"]:

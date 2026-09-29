@@ -1,0 +1,6 @@
+---
+description: Ambiguous-item handling — worked example
+alwaysApply: true
+---
+
+A real FTL quote included "CSGB03-D_CAR_SAFETIES_DUPLEX" (a duplex unidirectional safety configuration) even though the standard pricelist only lists the single "CSGB03-SYNC" safety set. The right call: still in-scope (it's a car safety, a category FTL sells), but flag `needs_engineering_review` since the exact configuration isn't a confirmed catalog line — do not treat an unlisted variant within a supported category as out-of-scope, and do not silently assume an exact price/SKU match either.

@@ -216,6 +216,52 @@ def test_policy_overrides_follow_git_backstops():
     )
     assert harmonic_only["qualify"] == "disqualify"
 
+    door_retainers = _apply_policy_overrides(
+        {
+            "qualify": "disqualify",
+            "project_type": "modernization",
+            "matched_items": [{"item": "door safety retainers", "category": "safety", "match": "ambiguous"}],
+            "reasoning": "retainers are not car safeties",
+            "flags": [],
+        },
+        "",
+    )
+    assert door_retainers["qualify"] == "disqualify"
+
+    ymc_false_qualify = _apply_policy_overrides(
+        {
+            "qualify": "qualify",
+            "project_type": "modernization",
+            "matched_items": [
+                {"item": "infra-red door detector", "category": "detector", "match": "exact"},
+                {"item": "Safeties & governor", "category": "governor", "match": "ambiguous"},
+                {"item": "door safety retainers", "category": "safety", "match": "ambiguous"},
+            ],
+            "reasoning": "Modernization with a governor and a detector.",
+            "flags": [],
+        },
+        (
+            "door operator not provided new harmonic\n"
+            "door reopening device not provided new infrared\n"
+            "car guiding sliding guides new sliding guides\n"
+            "Operation and maintenance manuals including: Safeties & governor\n"
+        ),
+    )
+    assert ymc_false_qualify["qualify"] == "disqualify"
+    assert "auto_overridden_unsupported_operator_lone_detector" in ymc_false_qualify["flags"]
+
+    harmonic_with_real_governor = _apply_policy_overrides(
+        {
+            "qualify": "qualify",
+            "project_type": "modernization",
+            "matched_items": [{"item": "new governor", "category": "governor", "match": "ambiguous"}],
+            "reasoning": "governor requested",
+            "flags": [],
+        },
+        "door operator not provided new harmonic\nProvide a new governor for each car.\n",
+    )
+    assert harmonic_with_real_governor["qualify"] == "qualify"
+
 
 def test_extract_keeps_short_text_and_split_section_numbers():
     from app.ftl.qualifier.extract import build_candidate_text, detect_structure_signal
@@ -231,3 +277,73 @@ def test_extract_keeps_short_text_and_split_section_numbers():
     shaw = "2.01 Existing Equipment Information\nType: Hydraulic\nDoor Configuration: single"
     subsections = build_candidate_text(shaw)["subsections"]
     assert "Existing Equipment Information" in subsections
+
+
+@pytest.mark.asyncio
+async def test_eml_candidate_text_includes_email_body_and_structure_signal():
+    from app.agents.ftl_qualifier_agent import FtlQualifierAgent
+    from app.ftl.qualifier.extract import detect_structure_signal
+
+    eml_content = (
+        b"From: francine@ftl-distribution.ca\r\n"
+        b"Subject: New Building Tender\r\n"
+        b"Date: Wed, 20 Aug 2026 12:00:00 +0000\r\n"
+        b"Content-Type: text/plain; charset=utf-8\r\n"
+        b"\r\n"
+        b"This is a new construction (new building) tender - we do not quote 95% of the time.\r\n"
+    )
+
+    agent = FtlQualifierAgent()
+    rendered, email_meta, ext = await agent._build_candidate_from_bytes(eml_content, "rfq.eml")
+
+    assert ext == "eml"
+    assert "body_text" in email_meta
+    assert "new construction (new building) tender" in email_meta["body_text"]
+    assert "## Email" in rendered
+    assert "This is a new construction (new building) tender" in rendered
+    assert "## Detected structure signal: new_construction_single_spec" in rendered
+
+    new_const_spec = (
+        "PART 1 - GENERAL\n1.1 Scope\n"
+        "PART 2 - PRODUCTS\n2.1 Elevators\n"
+        "PART 3 - EXECUTION\n3.1 Installation\n"
+    )
+    sig = detect_structure_signal(new_const_spec)
+    assert sig == "new_construction_single_spec"
+
+
+def test_power_supply_with_phrase_without_operator_never_triggers_qualify_override():
+    from app.ftl.qualifier.agent import _apply_policy_overrides
+
+    decision = {
+        "qualify": "disqualify",
+        "project_type": "modernization",
+        "matched_items": [
+            {
+                "item": "3D door detector (infra-red multiple beam)",
+                "category": "door protective device/detector",
+                "match": "exact",
+                "catalog_ref": "VISIONPLUS_3D_DETECTOR",
+            },
+            {
+                "item": "Formula System Power Supply (for 3D detector without operator)",
+                "category": "door protective device/detector",
+                "match": "exact",
+                "catalog_ref": "VISIONPLUS_POWERSUPPLY",
+            },
+        ],
+        "excluded_items": [
+            {
+                "item": "door operator",
+                "reason": "Brand not confirmed Wittur/SGV2",
+            }
+        ],
+        "flags": [],
+        "reasoning": "The door-package coupling rule excludes quoting the 3D detector alone without a supported door operator.",
+    }
+
+    overridden = _apply_policy_overrides(decision, "## Detected structure signal: modernization_3section\n")
+    assert overridden["qualify"] == "disqualify"
+    assert "auto_overridden_ambiguous_item_qualify_threshold" not in (overridden.get("flags") or [])
+
+

@@ -1,0 +1,11 @@
+---
+description: template: internal-disqualify-notification
+alwaysApply: true
+---
+
+Subject: [DISQUALIFY] {project_name}
+
+Recommending we pass on this one — for your review before it's actually declined.
+Project type: {project_type}.
+
+Reasoning: {reasoning}
