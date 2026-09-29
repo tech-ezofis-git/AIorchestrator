@@ -27,6 +27,8 @@ from app.integrations.docx_text import (
     looks_like_docx,
     looks_like_legacy_doc,
 )
+from app.integrations.mrz_image import find_mrz_crops, rotate_png_180
+from app.integrations.mrz_parse import find_mrz
 from app.integrations.qr_scan import scan_document_qr
 
 logger = logging.getLogger("orchestrator.ocr")
@@ -58,6 +60,7 @@ class OcrEngineClient:
         page_selection: Optional[PageSelection] = None,
         tenant_id: Optional[str] = None,
         scan_qr: bool = False,
+        scan_mrz: bool = False,
     ) -> dict[str, Any]:
         """Extract text for a document job or legacy reference string.
 
@@ -65,7 +68,9 @@ class OcrEngineClient:
         still pass only `reference` (mock/demo path when URL unset).
 
         With scan_qr, the same pages are scanned for QR codes concurrently
-        with text extraction and returned as `qr_codes`.
+        with text extraction and returned as `qr_codes`. With scan_mrz, MRZ
+        bands are located on the page images, OCR'd on their own and the
+        best-validated result is returned as `mrz`.
         """
         settings = self._cfg()
         pages = page_selection or PageSelection(start=1, end=1, raw="1")
@@ -120,35 +125,94 @@ class OcrEngineClient:
                     dpi=settings.ocr_qr_dpi,
                 )
             )
+        # Band detection is local (OpenCV) and runs alongside text extraction; the crops are OCR'd
+        # only afterwards because the extract service fails on concurrent requests.
+        mrz_task = None
+        if scan_mrz and settings.ocr_mrz_enabled and settings.ocr_mrz_image_enabled and data and extract_url:
+            mrz_task = asyncio.create_task(
+                asyncio.to_thread(
+                    find_mrz_crops,
+                    data,
+                    filename=name,
+                    content_type=ctype,
+                    page_selection=pages,
+                    dpi=settings.ocr_mrz_dpi,
+                    max_crops=settings.ocr_mrz_max_crops,
+                )
+            )
         try:
             result = await self._extract_text(
                 data=data, name=name, ctype=ctype, pages=pages, source=source, extract_url=extract_url
             )
         except OcrEngineError as exc:
-            if qr_task is None:
+            qr_codes = await qr_task if qr_task is not None else []
+            mrz = await self._read_mrz_crops(await mrz_task, extract_url) if mrz_task is not None else None
+            if not qr_codes and not mrz:
                 raise
-            qr_codes = await qr_task
-            if not qr_codes:
-                raise
-            # Text extraction failed but QR codes were decoded: return them instead of failing.
+            # Text extraction failed but QR codes / an MRZ were decoded: return them instead of failing.
             logger.warning("ocr_text_failed_qr_kept", extra={"error": str(exc)[:200]})
-            return {
+            partial: dict[str, Any] = {
                 "source_reference": source,
                 "text": "",
                 "confidence": None,
                 "mock": False,
                 "filename": name,
                 "pages": pages.label(),
-                "qr_codes": qr_codes,
                 "text_error": str(exc),
             }
-        except BaseException:
             if qr_task is not None:
-                qr_task.cancel()
+                partial["qr_codes"] = qr_codes
+            if mrz_task is not None:
+                partial["mrz"] = mrz
+            return partial
+        except BaseException:
+            for task in (qr_task, mrz_task):
+                if task is not None:
+                    task.cancel()
             raise
         if qr_task is not None:
             result["qr_codes"] = await qr_task
+        if mrz_task is not None:
+            text_mrz = find_mrz(result.get("text") or "")
+            if text_mrz and text_mrz["valid"]:
+                # The extracted text already holds a verified MRZ; skip the extra OCR calls.
+                mrz_task.cancel()
+            else:
+                result["mrz"] = await self._read_mrz_crops(await mrz_task, extract_url)
         return result
+
+    async def _read_mrz_crops(self, crops: list[dict[str, Any]], extract_url: str) -> Optional[dict[str, Any]]:
+        """OCR each MRZ crop one at a time (then rotated 180 degrees) and validate; never raises."""
+        settings = self._cfg()
+        try:
+            best: Optional[dict[str, Any]] = None
+            for crop in crops:
+                for rotated in (False, True):
+                    png = await asyncio.to_thread(rotate_png_180, crop["png"]) if rotated else crop["png"]
+                    try:
+                        text = await self._call_extract_text(
+                            url=extract_url,
+                            engine=settings.ocr_engine or "paddle",
+                            data=png,
+                            filename="mrz.png",
+                            content_type="image/png",
+                            page_selection=PageSelection(start=1, end=1, raw="1"),
+                            timeout=settings.ocr_download_timeout_seconds,
+                        )
+                    except OcrEngineError:
+                        continue
+                    mrz = find_mrz(text)
+                    if mrz is None:
+                        continue
+                    mrz = {**mrz, "source": "image", "page": crop["page"]}
+                    if mrz["valid"]:
+                        return mrz
+                    if best is None or sum(mrz["checks"].values()) > sum(best["checks"].values()):
+                        best = mrz
+            return best
+        except Exception as exc:
+            logger.warning("mrz_image_read_failed", extra={"error_type": type(exc).__name__})
+            return None
 
     async def _extract_text(
         self,
@@ -544,6 +608,11 @@ def embedded_pdf_text_is_usable(text: str) -> bool:
     if len(raw) < 40:
         return False
     if _INVOICE_ID.search(raw) or _PO_ID.search(raw) or _MONEY.search(raw) or _TOTAL_HINT.search(raw):
+        return True
+    # Passports / ID cards / visas: a check-digit-verified MRZ proves the text layer is real, and
+    # paddle OCR tends to mangle MRZ filler runs.
+    mrz = find_mrz(raw)
+    if mrz and mrz.get("valid"):
         return True
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     for line in lines:

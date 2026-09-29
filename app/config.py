@@ -108,6 +108,15 @@ class Settings(BaseSettings):
     # with OCR_QR_ENABLED=true.
     ocr_qr_enabled: bool = False
     ocr_qr_dpi: int = 200
+    # OCR agent only: passport/ID/visa MRZ. The pages are rendered at
+    # ocr_mrz_dpi, MRZ bands are located with OpenCV, and only those crops are
+    # OCR'd (re-read rotated 180 degrees when the check digits fail), in
+    # parallel with text extraction. The MRZ found in the extracted text is the
+    # fallback. The decoded fields go to field structuring.
+    ocr_mrz_enabled: bool = True
+    ocr_mrz_image_enabled: bool = True
+    ocr_mrz_dpi: int = 300
+    ocr_mrz_max_crops: int = 3
     ocr_allowed_host_suffixes: str = ".blob.core.windows.net"
     ocr_download_timeout_seconds: float = 60.0
     ocr_max_file_bytes: int = 25 * 1024 * 1024  # 25 MiB

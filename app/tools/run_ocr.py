@@ -20,6 +20,7 @@ RUN_OCR_SCHEMA = ToolSchema(
             "page_end": {"type": "integer"},
             "page_raw": {"type": "string"},
             "scan_qr": {"type": "boolean", "description": "Also detect and decode QR codes on the same pages."},
+            "scan_mrz": {"type": "boolean", "description": "Also locate and read passport/ID/visa MRZ bands on the page images."},
         },
         "required": [],
     },
@@ -40,6 +41,7 @@ def make_run_ocr_handler(ocr_engine_client: OcrEngineClient):
         page_end: int = 1,
         page_raw: str = "1",
         scan_qr: bool = False,
+        scan_mrz: bool = False,
         **_: Any,
     ) -> dict[str, Any]:
         pages = PageSelection(start=page_start, end=page_end, raw=page_raw)
@@ -52,6 +54,7 @@ def make_run_ocr_handler(ocr_engine_client: OcrEngineClient):
             page_selection=pages,
             tenant_id=tenant_id,
             scan_qr=scan_qr,
+            scan_mrz=scan_mrz,
         )
 
     return handler
