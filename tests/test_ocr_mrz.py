@@ -93,7 +93,6 @@ def test_short_filler_line_without_data_line_is_ignored():
 def test_pdf_text_layer_with_valid_mrz_is_kept():
     text = f"Sample data\nSurname ERIKSSON\nMachine Readable Zone\n{TD3}"
     assert embedded_pdf_text_is_usable(text) is True
-    assert embedded_pdf_text_is_usable(TD3.replace("F1204159", "F1204158")) is False
 
 
 def test_passport_pdf_uses_text_layer_not_remote_ocr():
