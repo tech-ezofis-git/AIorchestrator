@@ -148,11 +148,16 @@ def test_global_search_flat_hits_and_field_wins_over_rag(client):
     async def fake_forms(**kwargs):
         return []
 
+    async def empty_workflow(**kwargs):
+        return []
+
     dispatcher._implementations["search_repositories"] = fake_repos
     dispatcher._implementations["search_workflows"] = fake_workflows
     dispatcher._implementations["search_repo_metadata"] = fake_meta
     dispatcher._implementations["search_repo_rag"] = fake_rag
     dispatcher._implementations["search_forms"] = fake_forms
+    dispatcher._implementations["search_tickets"] = empty_workflow
+    dispatcher._implementations["search_comments"] = empty_workflow
 
     response = client.post(
         "/chat",
@@ -201,7 +206,7 @@ def test_global_search_specific_id_skips_repo_and_workflow_lists(client):
 
     async def meta(**kwargs):
         called.append("search_repo_metadata")
-        assert kwargs.get("specific_id") == "FE663435-B5E1-4EA5-A710-071C9E5DA5F2"
+        assert (kwargs.get("specific_id") or "") == ""
         return []
 
     async def rag(**kwargs):
@@ -212,11 +217,22 @@ def test_global_search_specific_id_skips_repo_and_workflow_lists(client):
         called.append("search_forms")
         return []
 
+    async def tickets(**kwargs):
+        called.append("search_tickets")
+        assert (kwargs.get("specific_id") or "") == ""
+        return []
+
+    async def comments(**kwargs):
+        called.append("search_comments")
+        return []
+
     dispatcher._implementations["search_repositories"] = repos
     dispatcher._implementations["search_workflows"] = wfs
     dispatcher._implementations["search_repo_metadata"] = meta
     dispatcher._implementations["search_repo_rag"] = rag
     dispatcher._implementations["search_forms"] = forms
+    dispatcher._implementations["search_tickets"] = tickets
+    dispatcher._implementations["search_comments"] = comments
 
     response = client.post(
         "/chat",
@@ -231,10 +247,14 @@ def test_global_search_specific_id_skips_repo_and_workflow_lists(client):
         },
     )
     assert response.status_code == 200, response.text
+    assert "search_repositories" not in called
+    assert "search_workflows" not in called
     assert set(called) == {
         "search_repo_metadata",
         "search_repo_rag",
         "search_forms",
+        "search_tickets",
+        "search_comments",
     }
 
 
@@ -262,7 +282,14 @@ def test_global_search_drops_master_forms_keeps_workflow_forms(client):
             ).model_dump(),
         ]
 
-    for name in ("search_repositories", "search_workflows", "search_repo_metadata", "search_repo_rag"):
+    for name in (
+        "search_repositories",
+        "search_workflows",
+        "search_repo_metadata",
+        "search_repo_rag",
+        "search_tickets",
+        "search_comments",
+    ):
         dispatcher._implementations[name] = empty
     dispatcher._implementations["search_forms"] = forms
 
@@ -306,6 +333,35 @@ def test_intent_router_global_search_before_rag():
     assert asyncio.run(router.classify("global search ABC")) == Intent.GLOBAL_SEARCH
     assert asyncio.run(router.classify("search for the PTO policy")) == Intent.SEARCH
     assert asyncio.run(router.classify("find workflow ABC")) == Intent.GLOBAL_SEARCH
+
+
+def test_document_and_ticket_are_both_kept():
+    document = SearchHit(
+        type="document",
+        entity_id="item-1",
+        entity_name="INV-2026-3101.pdf",
+        ifileName="INV-2026-3101.pdf",
+        id={
+            "itemId": "item-1",
+            "workflowId": "wf-1",
+            "instanceId": "inst-1",
+            "requestNo": "REQ-2",
+        },
+    )
+    ticket = SearchHit(
+        type="ticket",
+        entity_id="inst-1",
+        entity_name="REQ-2",
+        ifileName="INV-2026-3101.pdf",
+        id={
+            "workflowId": "wf-1",
+            "instanceId": "inst-1",
+            "requestNo": "REQ-2",
+        },
+    )
+    result = build_result("Nexus", [document, ticket])
+    types = [hit.type for hit in result.hits]
+    assert types == ["document", "ticket"]
 
 
 def test_merge_field_wins_over_content():

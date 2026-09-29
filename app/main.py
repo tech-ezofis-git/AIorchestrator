@@ -2485,10 +2485,6 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         document_job = {
             "query": (p.query if p and p.query else None) or message,
             "tenant_id": p.tenant_id if p else None,
-            "specific_id": p.repository_id if p else None,
-            "repository_id": p.repository_id if p else None,
-            "workspace_id": p.workspace_id if p else None,
-            "action_from": p.action_from if p else None,
         }
     elif intent == Intent.CHATBOT:
         p = payload.payload

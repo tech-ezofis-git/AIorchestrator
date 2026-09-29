@@ -56,6 +56,7 @@ _MAILBOX_PREFIXES = ("inbox_", "sent_", "completed_")
 _TRANSACTION_PREFIXES = ("transaction_",)
 _LINK_TABLE_LIMIT = 200
 _CHATBOT_SOURCE_TABLE_LIMIT = 40
+_ALL_ITEMS_TABLE_LIMIT = 200
 
 
 def normalize_query(raw: str) -> str:
@@ -1286,7 +1287,7 @@ async def search_document_metadata(
     if index_row:
         tables.append(index_row)
     if not specific_id:
-        tables.extend(await find_items_tables(db, limit=8))
+        tables.extend(await find_items_tables(db, limit=_ALL_ITEMS_TABLE_LIMIT))
     elif not tables:
         logger.warning(
             "global_search_no_items_table",

@@ -52,9 +52,9 @@ async def run_global_search(
 ) -> GlobalSearchResult:
     """Run GS tools in parallel and return a deduped flat result.
 
-    When ``include_comments_tickets`` is True (Chatbot Phase 2+), also runs
-    ``search_comments`` and ``search_tickets``. Pass ``tools`` to run an
-    explicit subset (Chatbot keyword scope); that list replaces the default.
+    The default search checks repository files and workflow tickets.
+    Pass ``tools`` to run an explicit subset. ``include_comments_tickets`` is
+    unused because tickets are already part of that default.
     """
     query = normalize_query(query)
     tenant_id = (tenant_id or "").strip()
@@ -94,13 +94,12 @@ async def run_global_search(
         return _as_hits(raw)
 
     if tools is None:
-        selected = list(_CORE_TOOLS)
+        # Files in every repository, plus workflow tickets. Catalog name lists stay off.
+        selected = [*_CORE_TOOLS, *_COMMENT_TICKET_TOOLS]
         if INCLUDE_REPOSITORY_LIST:
             selected.append("search_repositories")
         if INCLUDE_WORKFLOW_LIST:
             selected.append("search_workflows")
-        if include_comments_tickets:
-            selected.extend(_COMMENT_TICKET_TOOLS)
     else:
         selected = [name for name in tools if name in args_for]
 
