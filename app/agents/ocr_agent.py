@@ -15,6 +15,7 @@ from app.agents.reference_extraction import extract_reference
 from app.config import Settings
 from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
+from app.integrations.mrz_parse import apply_mrz_to_fields, find_mrz
 from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import resolve_preset_overrides
@@ -101,6 +102,7 @@ class OcrAgent:
         ocr_text = ""
         ocr_tool: dict[str, Any] = {}
         qr_codes: list[dict[str, Any]] = []
+        image_mrz: Optional[dict[str, Any]] = None
 
         try:
             ocr_tool = await self._dispatcher.dispatch(
@@ -116,10 +118,12 @@ class OcrAgent:
                     "page_end": pages.end,
                     "page_raw": pages.raw,
                     "scan_qr": True,
+                    "scan_mrz": settings.ocr_mrz_enabled,
                 },
             )
             ocr_text = (ocr_tool.get("text") or "").strip()
             qr_codes = list(ocr_tool.get("qr_codes") or [])
+            image_mrz = ocr_tool.get("mrz")
             if not ocr_text:
                 ocr_status = "fallback"
         except (ToolExecutionError, OcrEngineError, Exception) as exc:
@@ -130,7 +134,8 @@ class OcrAgent:
             ocr_status = "fallback"
             ocr_text = ""
 
-        model_text = _with_qr_text(ocr_text, qr_codes)
+        mrz = _pick_mrz(image_mrz, find_mrz(ocr_text)) if settings.ocr_mrz_enabled else None
+        model_text = _with_mrz_text(_with_qr_text(ocr_text, qr_codes), mrz)
 
         # No OCR text or QR data → do not hallucinate; null out requested fields.
         if not model_text:
@@ -191,7 +196,7 @@ class OcrAgent:
                 fallback_overrides=fallback_overrides,
             )
 
-        fields = synthesized["ocrResult"]
+        fields = apply_mrz_to_fields(synthesized["ocrResult"], mrz)
         table_result = synthesized.get("tableResult")
         usage = synthesized.get("usage") or {}
         body = _locked_body(
@@ -199,6 +204,7 @@ class OcrAgent:
             ocr_text=ocr_text,
             table_result=table_result,
             qr_codes=qr_codes,
+            mrz=mrz,
         )
         body["source_reference"] = source
         body["ocr_status"] = ocr_status
@@ -293,18 +299,49 @@ def _with_qr_text(ocr_text: str, qr_codes: list[dict[str, Any]]) -> str:
     return "\n\n".join(part for part in (ocr_text, "\n".join(lines)) if part)
 
 
+def _pick_mrz(
+    image_mrz: Optional[dict[str, Any]], text_mrz: Optional[dict[str, Any]]
+) -> Optional[dict[str, Any]]:
+    """Image-read MRZ first; the MRZ found in the extracted text is the fallback."""
+    candidates = [m for m in (image_mrz, text_mrz and {**text_mrz, "source": "text"}) if m]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda m: (bool(m.get("valid")), sum((m.get("checks") or {}).values())))
+
+
+def _with_mrz_text(text: str, mrz: Optional[dict[str, Any]]) -> str:
+    """Appends the decoded MRZ so field structuring can use (and prefer) its values."""
+    if not mrz:
+        return text
+    skip = ("checks", "raw_lines", "valid", "source", "page")
+    fields = {k: v for k, v in mrz.items() if k not in skip and v}
+    status = (
+        "all check digits valid - prefer the document number and dates over the printed text; "
+        "names carry no check digit, so prefer the printed names when they differ"
+        if mrz.get("valid")
+        else "some check digits failed: " + ", ".join(k for k, ok in mrz["checks"].items() if not ok)
+    )
+    block = "\n".join(
+        [f"--- MRZ found in the document (decoded; {status}) ---"]
+        + [f"{key}: {value}" for key, value in fields.items()]
+    )
+    return "\n\n".join(part for part in (text, block) if part)
+
+
 def _locked_body(
     *,
     ocr_result: list[dict[str, Any]],
     ocr_text: str,
     table_result: Any = None,
     qr_codes: Optional[list[dict[str, Any]]] = None,
+    mrz: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Single OCR payload node: fields + tables + QR codes + text (no nested duplicates)."""
+    """Single OCR payload node: fields + tables + QR codes + MRZ + text (no nested duplicates)."""
     return {
         "ocrResult": ocr_result,
         "tableResult": table_result if table_result is not None else [],
         "qr_codes": qr_codes or [],
+        "mrz": mrz,
         "ocr_text": ocr_text,
     }
 
@@ -314,5 +351,6 @@ def _reply_payload(body: dict[str, Any]) -> dict[str, Any]:
         "ocrResult": body.get("ocrResult") or [],
         "tableResult": body.get("tableResult") or [],
         "qr_codes": body.get("qr_codes") or [],
+        "mrz": body.get("mrz"),
         "ocr_text": body.get("ocr_text") or "",
     }
