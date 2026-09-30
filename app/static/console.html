@@ -623,7 +623,9 @@
   }
   .composer form {
     position: relative;
-    display: flex; gap: 10px; align-items: flex-end;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
     padding: 8px 10px 8px 16px;
     background: rgba(255,255,255,0.92);
     border: 1px solid var(--line);
@@ -633,6 +635,12 @@
   }
   .composer.ask-mode form {
     box-shadow: 0 10px 36px rgba(99, 102, 241, 0.14), 0 0 0 1px rgba(168,85,247,0.08);
+  }
+  .composer-input-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    width: 100%;
   }
   .composer textarea {
     flex: 1; resize: none; min-height: 40px; max-height: 96px;
@@ -644,34 +652,34 @@
     padding: 0; display: grid; place-items: center;
   }
   .composer .btn-send svg { width: 18px; height: 18px; }
-  .composer-footer {
+  .composer-model-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 18px 0;
-    min-height: 28px;
+    padding: 0 4px 2px;
+    min-height: 26px;
   }
   .composer-model {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    max-width: min(280px, 55vw);
+    max-width: min(320px, 70vw);
     color: var(--ink-3);
   }
   .composer-model svg {
-    width: 14px; height: 14px; flex-shrink: 0; opacity: 0.75;
+    width: 14px; height: 14px; flex-shrink: 0; opacity: 0.85;
   }
   .composer-model-select {
     appearance: none;
     -webkit-appearance: none;
     border: none;
-    background: transparent;
+    background-color: transparent;
     color: var(--ink-2);
     font: inherit;
     font-size: 12.5px;
     font-weight: 500;
     padding: 2px 18px 2px 0;
-    max-width: 100%;
+    max-width: min(260px, 60vw);
     cursor: pointer;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%737373' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
@@ -2721,19 +2729,21 @@ vendor_validate</textarea>
         <div hidden>Uses <code>skills/prompt/SKILL.md</code> and <code>skills/prompt/rules/*.mdc</code></div>
       </div>
       <form id="composerForm">
-        <textarea id="messageInput" placeholder="Ask AI anything…" rows="1"></textarea>
-        <button type="submit" class="btn-primary btn-send" id="sendBtn" aria-label="Ask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        <div class="composer-input-row">
+          <textarea id="messageInput" placeholder="Ask AI anything…" rows="1"></textarea>
+          <button type="submit" class="btn-primary btn-send" id="sendBtn" aria-label="Ask"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        </div>
+        <div class="composer-model-row">
+          <label class="composer-model" for="composerModelSelect" title="Model for this console run (API calls still use Catalog primary)">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="9.5" cy="12" r="5.5" fill="#7c3aed" opacity="0.9"/>
+              <circle cx="14.5" cy="12" r="5.5" fill="#2563eb" opacity="0.85"/>
+            </svg>
+            <select id="composerModelSelect" class="composer-model-select" aria-label="Model"></select>
+          </label>
+          <span class="composer-model-hint" id="composerModelHint">primary</span>
+        </div>
       </form>
-      <div class="composer-footer">
-        <label class="composer-model" for="composerModelSelect" title="Primary model for the active agent">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <circle cx="9.5" cy="12" r="5.5" fill="#7c3aed" opacity="0.9"/>
-            <circle cx="14.5" cy="12" r="5.5" fill="#2563eb" opacity="0.85"/>
-          </svg>
-          <select id="composerModelSelect" class="composer-model-select" aria-label="Primary model"></select>
-        </label>
-        <span class="composer-model-hint" id="composerModelHint">primary</span>
-      </div>
     </div>
   </section>
 
@@ -3057,8 +3067,11 @@ let llmPresets = [];
 let consoleComposerModels = [];
 /** agent_slug -> { model_id, model_slug } from catalog_tenant_agent_models */
 let consoleAgentModels = {};
-/** tenant-wide default model UUID from catalog_tenant_models */
+/** tenant-wide default from catalog_tenant_models */
 let consoleTenantDefaultModelId = '';
+let consoleTenantDefaultModelSlug = '';
+/** Per-mode console-only override slug (not written to Catalog DB). */
+let composerSessionOverrides = {};
 let composerModelSyncing = false;
 
 const composerModelSelect = document.getElementById('composerModelSelect');
@@ -3084,9 +3097,10 @@ function agentSlugForComposerMode(mode) {
   return mode || 'chat';
 }
 
+/** Option values are model slugs so the UI shows names, not UUIDs. */
 function composerModelOptions() {
   return consoleComposerModels.map(m => ({
-    id: m.id,
+    id: m.slug || m.id,
     label: m.label || m.slug || m.id,
     region: m.region,
   }));
@@ -3098,28 +3112,69 @@ function findComposerModel(modelIdOrSlug) {
   return consoleComposerModels.find(m => m.id === key || m.slug === key) || null;
 }
 
+function modelSlugFromIdOrSlug(modelIdOrSlug) {
+  const model = findComposerModel(modelIdOrSlug);
+  if (model) return model.slug || model.id;
+  return (modelIdOrSlug || '').trim();
+}
+
 /** Same order as server: per-agent DB row → tenant default → console default. */
-function resolvedPrimaryModelId(mode) {
+function resolvedPrimaryModelSlug(mode) {
   const slug = agentSlugForComposerMode(mode);
   const mapped = consoleAgentModels[slug];
-  if (mapped && mapped.model_id) return mapped.model_id;
-  if (consoleTenantDefaultModelId) return consoleTenantDefaultModelId;
-  const defSlug = (llmDefaultSelect && llmDefaultSelect.value) || '';
-  const byConsole = findComposerModel(defSlug);
-  if (byConsole) return byConsole.id;
-  const panel = modePanelModelSelect(mode);
-  if (panel && panel.value) {
-    const byPanel = findComposerModel(panel.value);
-    if (byPanel) return byPanel.id;
+  if (mapped) {
+    const fromMap = (mapped.model_slug || '').trim() || modelSlugFromIdOrSlug(mapped.model_id);
+    if (fromMap) return fromMap;
   }
-  return (consoleComposerModels[0] && consoleComposerModels[0].id) || '';
+  if (consoleTenantDefaultModelSlug) return consoleTenantDefaultModelSlug;
+  if (consoleTenantDefaultModelId) {
+    const fromTenant = modelSlugFromIdOrSlug(consoleTenantDefaultModelId);
+    if (fromTenant) return fromTenant;
+  }
+  const defSlug = (llmDefaultSelect && llmDefaultSelect.value) || '';
+  if (defSlug) return defSlug;
+  return (consoleComposerModels[0] && (consoleComposerModels[0].slug || consoleComposerModels[0].id)) || '';
 }
 
 function primarySourceHint(mode) {
   const slug = agentSlugForComposerMode(mode);
-  if (consoleAgentModels[slug] && consoleAgentModels[slug].model_id) return 'agent primary';
-  if (consoleTenantDefaultModelId) return 'tenant default';
+  if (consoleAgentModels[slug] && (consoleAgentModels[slug].model_id || consoleAgentModels[slug].model_slug)) {
+    return 'agent primary';
+  }
+  if (consoleTenantDefaultModelId || consoleTenantDefaultModelSlug) return 'tenant default';
   return 'console default';
+}
+
+function selectedComposerModelSlug() {
+  return (composerModelSelect && composerModelSelect.value || '').trim();
+}
+
+/** Only when user picks a non-primary model — API callers omit model and get Catalog primary. */
+function selectedComposerModelSlugForRequest() {
+  const selected = selectedComposerModelSlug();
+  if (!selected) return '';
+  const mode = typeof composerMode === 'string' ? composerMode : 'chat';
+  const primary = resolvedPrimaryModelSlug(mode);
+  if (selected === primary) return '';
+  return selected;
+}
+
+function resolveJobModel(panelSelect) {
+  const override = selectedComposerModelSlugForRequest();
+  if (override) return override;
+  return (panelSelect && panelSelect.value) || '';
+}
+
+function updateComposerModelHint() {
+  if (!composerModelHint) return;
+  const mode = typeof composerMode === 'string' ? composerMode : 'chat';
+  const selected = selectedComposerModelSlug();
+  const primary = resolvedPrimaryModelSlug(mode);
+  if (selected && primary && selected !== primary) {
+    composerModelHint.textContent = 'this run';
+  } else {
+    composerModelHint.textContent = primarySourceHint(mode);
+  }
 }
 
 function syncComposerPrimaryModel() {
@@ -3128,27 +3183,30 @@ function syncComposerPrimaryModel() {
   if (!options.length) return;
   composerModelSyncing = true;
   const mode = typeof composerMode === 'string' ? composerMode : 'chat';
-  const selected = resolvedPrimaryModelId(mode);
+  const primary = resolvedPrimaryModelSlug(mode);
+  const selected = composerSessionOverrides[mode] || primary;
   fillPresetSelect(composerModelSelect, options, selected);
   if (selected && composerModelSelect.value !== selected) {
-    // Selected id missing from list — keep value visible via temp option
+    const model = findComposerModel(selected);
     const orphan = document.createElement('option');
     orphan.value = selected;
-    orphan.textContent = selected;
+    orphan.textContent = model ? (model.label || model.slug) : selected;
     composerModelSelect.appendChild(orphan);
     composerModelSelect.value = selected;
   }
-  const model = findComposerModel(selected);
-  if (composerModelHint) composerModelHint.textContent = primarySourceHint(mode);
+  const model = findComposerModel(selected) || findComposerModel(primary);
+  updateComposerModelHint();
   if (composerModelSelect) {
     const label = model ? (model.label || model.slug) : (selected || 'No model');
-    composerModelSelect.title = `Primary model for ${MODE_LABELS[mode] || mode}: ${label}`;
+    composerModelSelect.title = `${MODE_LABELS[mode] || mode}: ${label}`;
   }
   const panel = modePanelModelSelect(mode);
-  if (panel && model) {
-    const presetId = model.slug || model.id;
-    if (!panel.value && [...panel.options].some(o => o.value === presetId)) {
-      panel.value = presetId;
+  if (panel) {
+    const override = selectedComposerModelSlugForRequest();
+    if (override && [...panel.options].some(o => o.value === override)) {
+      panel.value = override;
+    } else if (!override && panel.value && panel.value === selected) {
+      /* keep panel if already set */
     }
   }
   composerModelSyncing = false;
@@ -3194,6 +3252,7 @@ async function refreshConsoleAgentModels() {
   const tid = typeof consoleTenantId === 'function' ? consoleTenantId() : '';
   consoleAgentModels = {};
   consoleTenantDefaultModelId = '';
+  consoleTenantDefaultModelSlug = '';
   if (!tid) {
     syncComposerPrimaryModel();
     return;
@@ -3209,56 +3268,38 @@ async function refreshConsoleAgentModels() {
       (agentData.mappings || []).forEach(row => {
         if (!row.agent_slug) return;
         const modelId = row.model_id ? String(row.model_id) : '';
-        if (!modelId) return;
+        const modelSlug = (row.model_slug || '').trim();
+        if (!modelId && !modelSlug) return;
         consoleAgentModels[row.agent_slug] = {
           model_id: modelId,
-          model_slug: row.model_slug || '',
+          model_slug: modelSlug || modelSlugFromIdOrSlug(modelId),
         };
       });
     }
-    if (tenantRes.ok && tenantData.tenant_model && tenantData.tenant_model.default_model_id) {
-      consoleTenantDefaultModelId = String(tenantData.tenant_model.default_model_id);
+    if (tenantRes.ok && tenantData.tenant_model) {
+      const tm = tenantData.tenant_model;
+      if (tm.default_model_id) consoleTenantDefaultModelId = String(tm.default_model_id);
+      consoleTenantDefaultModelSlug = (tm.default_slug || '').trim()
+        || modelSlugFromIdOrSlug(consoleTenantDefaultModelId);
     }
   } catch (_) { /* ignore — fall back to console default */ }
   syncComposerPrimaryModel();
 }
 
-async function onComposerModelChange() {
+function onComposerModelChange() {
   if (composerModelSyncing || !composerModelSelect) return;
-  const modelId = composerModelSelect.value;
   const mode = typeof composerMode === 'string' ? composerMode : 'chat';
-  const slug = agentSlugForComposerMode(mode);
-  const model = findComposerModel(modelId);
+  const selected = selectedComposerModelSlug();
+  const primary = resolvedPrimaryModelSlug(mode);
+  if (selected && selected !== primary) composerSessionOverrides[mode] = selected;
+  else delete composerSessionOverrides[mode];
   const panel = modePanelModelSelect(mode);
-  if (panel && model) {
-    const presetId = model.slug || model.id;
-    if ([...panel.options].some(o => o.value === presetId)) panel.value = presetId;
+  if (panel) {
+    const override = selectedComposerModelSlugForRequest();
+    if (override && [...panel.options].some(o => o.value === override)) panel.value = override;
+    else if (!override && panel.options.length && panel.options[0].value === '') panel.value = '';
   }
-  const tid = typeof consoleTenantId === 'function' ? consoleTenantId() : '';
-  if (tid && slug) {
-    try {
-      const res = await fetch('/console/catalog/tenant-agent-models', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenant_id: tid, agent_slug: slug, model_id: modelId || null }),
-      });
-      if (res.ok) {
-        if (modelId) {
-          consoleAgentModels[slug] = { model_id: modelId, model_slug: (model && model.slug) || '' };
-        } else {
-          delete consoleAgentModels[slug];
-        }
-      }
-    } catch (_) { /* keep UI selection */ }
-  } else if (model && llmDefaultSelect) {
-    const presetId = model.slug || model.id;
-    if ([...llmDefaultSelect.options].some(o => o.value === presetId)) {
-      llmDefaultSelect.value = presetId;
-      updateDefaultHint(presetId);
-      try { await saveLlmConfig(); } catch (_) { /* ignore */ }
-    }
-  }
-  syncComposerPrimaryModel();
+  updateComposerModelHint();
 }
 
 function fillPresetSelect(selectEl, presets, selectedId, { includeNone } = {}) {
@@ -3950,6 +3991,7 @@ function setComposerMode(mode) {
   const prevMode = composerMode;
   const modeChanged = mode !== prevMode;
   composerMode = mode;
+  if (modeChanged) delete composerSessionOverrides[prevMode];
   const banner = document.getElementById('docBanner');
   const composerWrap = document.getElementById('composerWrap');
   const modeLabel = document.getElementById('composerModeLabel');
@@ -6714,12 +6756,13 @@ async function sendOcrJob() {
     let res;
     let request;
     if (file) {
+      const ocrModel = selectedComposerModelSlugForRequest();
       request = {
         intent: 'ocr',
         kind: 'file',
         session_id: sessionId,
         filename: file.name,
-        form: { pageno, instruction: instruction || undefined },
+        form: { pageno, instruction: instruction || undefined, model: ocrModel || undefined },
         formLists: { parameters, tableparameters: ['[]'] },
       };
       const form = new FormData();
@@ -6730,20 +6773,24 @@ async function sendOcrJob() {
       parameters.forEach(p => form.append('parameters', p));
       form.append('tableparameters', '[]');
       if (tenantId) form.append('tenant_id', tenantId);
+      if (ocrModel) form.append('model', ocrModel);
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
+      const ocrPayload = {
+        filepath,
+        pageno,
+        tenant_id: tenantId || null,
+        parameters,
+        tableparameters: [],
+      };
+      const ocrModel = selectedComposerModelSlugForRequest();
+      if (ocrModel) ocrPayload.model = ocrModel;
       const body = {
         session_id: sessionId,
         intent: 'ocr',
         instruction: instruction || null,
-        payload: {
-          filepath,
-          pageno,
-          tenant_id: tenantId || null,
-          parameters,
-          tableparameters: [],
-        },
+        payload: ocrPayload,
       };
       request = { intent: 'ocr', kind: 'json', session_id: sessionId, body };
       res = await fetch('/chat', {
@@ -6780,7 +6827,7 @@ async function sendSummaryJob() {
   const keyFactsRaw = (document.getElementById('summaryKeyFactsCount').value || '').trim();
   const file = fileInput.files && fileInput.files[0];
   const pageno = document.getElementById('summaryPageno').value.trim() || '1';
-  const model = (summaryModelSelect && summaryModelSelect.value) || '';
+  const model = resolveJobModel(summaryModelSelect);
 
   let summaryJson = null;
   if (jsonRaw) {
@@ -6918,7 +6965,7 @@ async function sendClassificationJob() {
   const ocrText = (document.getElementById('classificationOcrText').value || '').trim();
   const file = fileInput.files && fileInput.files[0];
   const pageno = document.getElementById('classificationPageno').value.trim() || '1';
-  const model = (classificationModelSelect && classificationModelSelect.value) || '';
+  const model = resolveJobModel(classificationModelSelect);
 
   if (!file && !filepath && !ocrText) {
     addSystemMessage('Classification needs a file upload, a blob filepath, or OCR text.');
@@ -7015,7 +7062,7 @@ async function sendDocumentIntelligentJob() {
   const ocrText = (document.getElementById('diOcrText').value || '').trim();
   const file = fileInput.files && fileInput.files[0];
   const pageno = document.getElementById('diPageno').value.trim() || '1';
-  const model = (diModelSelect && diModelSelect.value) || '';
+  const model = resolveJobModel(diModelSelect);
 
   if (!tenantId) {
     addSystemMessage('Document Intelligent needs tenant_id.');
@@ -7098,7 +7145,7 @@ async function sendInsightJob() {
   const insightArea = (document.getElementById('insightArea').value || '').trim();
   const file = fileInput.files && fileInput.files[0];
   const pageno = document.getElementById('insightPageno').value.trim() || '1';
-  const model = (insightModelSelect && insightModelSelect.value) || '';
+  const model = resolveJobModel(insightModelSelect);
 
   let insightJson = null;
   if (jsonRaw) {
@@ -7283,6 +7330,7 @@ async function sendApJob() {
   try {
     let res;
     let request;
+    const apModel = selectedComposerModelSlugForRequest();
     if (file) {
       request = {
         intent: 'ap',
@@ -7307,6 +7355,7 @@ async function sendApJob() {
           activityid: activityId || undefined,
           skills: skills.length ? JSON.stringify(skills) : undefined,
           invoice_json: invoiceJson ? JSON.stringify(invoiceJson) : undefined,
+          model: apModel || undefined,
         },
       };
       const form = new FormData();
@@ -7329,6 +7378,7 @@ async function sendApJob() {
       if (activityId) form.append('activityid', activityId);
       if (skills.length) form.append('skills', JSON.stringify(skills));
       if (invoiceJson) form.append('invoice_json', JSON.stringify(invoiceJson));
+      if (apModel) form.append('model', apModel);
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
@@ -7353,6 +7403,7 @@ async function sendApJob() {
           activityid: activityId || null,
           skills: skills.length ? skills : null,
           invoice_json: invoiceJson,
+          model: apModel || null,
         },
       };
       request = { intent: 'ap', kind: 'json', session_id: sessionId, body };
@@ -7478,7 +7529,7 @@ async function sendPromptJob() {
   }
   const sessionId = sessionIdInput.value.trim() || newSessionId();
   sessionIdInput.value = sessionId;
-  const model = (promptModelSelect && promptModelSelect.value) || '';
+  const model = resolveJobModel(promptModelSelect);
   const preview = message.length > 400 ? message.slice(0, 400) + '…' : message;
   addUserMessage(preview);
   const processing = addProcessingMessage('Running prompt…');
@@ -7839,6 +7890,8 @@ async function sendChatbotJob() {
     }
     const upload = await fileToUploadPayload(uploadInput);
     if (upload) payload.uploadFile = upload;
+    const cbModel = selectedComposerModelSlugForRequest();
+    if (cbModel) payload.model = cbModel;
     const body = {
       session_id: sessionId,
       intent: 'chatbot',
@@ -7912,6 +7965,8 @@ async function sendDashboardJob(forcedPhase) {
     if (repositoryId) payload.repository_id = repositoryId;
     if (workflowId) payload.workflow_id = workflowId;
     if (dashboardJson) payload.dashboard_json = dashboardJson;
+    const dashModel = selectedComposerModelSlugForRequest();
+    if (dashModel) payload.model = dashModel;
     const body = {
       session_id: sessionId,
       intent: 'dashboard',
@@ -8258,7 +8313,7 @@ async function sendFtlQualifyJob() {
   const fileInput = document.getElementById('ftlQualFile');
   const candidateText = (document.getElementById('ftlQualCandidateText').value || '').trim();
   const noteMessage = messageInput.value.trim();
-  const model = (ftlQualModelSelect && ftlQualModelSelect.value) || '';
+  const model = resolveJobModel(ftlQualModelSelect);
   const file = fileInput.files && fileInput.files[0];
   const textToProcess = candidateText || noteMessage;
   if (!file && !textToProcess) {
@@ -8322,7 +8377,7 @@ async function sendFtlQuoteJob() {
   const candidateText = (document.getElementById('ftlQuoteCandidateText').value || '').trim();
   const templateType = (document.getElementById('ftlQuoteTemplateType').value || 'inflow').trim();
   const noteMessage = messageInput.value.trim();
-  const model = (ftlQuoteModelSelect && ftlQuoteModelSelect.value) || '';
+  const model = resolveJobModel(ftlQuoteModelSelect);
   const file = fileInput.files && fileInput.files[0];
   const textToProcess = candidateText || noteMessage;
   if (!file && !textToProcess) {
@@ -8413,6 +8468,10 @@ async function sendFtlQuoteJob() {
   try {
     const body = attachConsoleTenantBody({ session_id: sessionId, message });
     if (window.activeCustomIntent) body.intent = window.activeCustomIntent;
+    const chatModel = selectedComposerModelSlugForRequest();
+    if (chatModel) {
+      body.payload = { ...(body.payload || {}), model: chatModel };
+    }
     const request = { intent: body.intent || 'chat', kind: 'json', session_id: sessionId, body };
     const res = await fetch('/chat', {
       method: 'POST',
