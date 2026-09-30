@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     ocr_mrz_passporteye_enabled: bool = True
     ocr_mrz_dpi: int = 300
     ocr_mrz_max_crops: int = 3
+    # OCR agent only: expiry-date fields get a status like "Active · 10 years" /
+    # "Expired · 8 years" against today's date in ocr_expiry_timezone (still
+    # Active on the expiry day).
+    ocr_expiry_timezone: str = "Asia/Kolkata"
     ocr_allowed_host_suffixes: str = ".blob.core.windows.net"
     ocr_download_timeout_seconds: float = 60.0
     ocr_max_file_bytes: int = 25 * 1024 * 1024  # 25 MiB

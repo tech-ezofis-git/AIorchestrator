@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date, datetime
+from datetime import timezone as dt_timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.agents.ocr_helpers import (
     InvalidOcrPageError,
@@ -20,6 +23,7 @@ from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import resolve_preset_overrides
 from app.llm.runtime_models import RuntimeModelSelection
+from app.ocr_skills.expiry_status import apply_expiry_status
 from app.ocr_skills.extract_fields import run as extract_fields_skill
 
 logger = logging.getLogger("orchestrator.ocr_agent")
@@ -196,7 +200,10 @@ class OcrAgent:
                 fallback_overrides=fallback_overrides,
             )
 
-        fields = apply_mrz_to_fields(synthesized["ocrResult"], mrz)
+        fields = apply_expiry_status(
+            apply_mrz_to_fields(synthesized["ocrResult"], mrz),
+            today=_today(settings.ocr_expiry_timezone),
+        )
         table_result = synthesized.get("tableResult")
         usage = synthesized.get("usage") or {}
         body = _locked_body(
@@ -285,6 +292,14 @@ class OcrAgent:
             )
 
         raise error
+
+
+def _today(timezone: str) -> date:
+    try:
+        return datetime.now(ZoneInfo(timezone)).date()
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("ocr_expiry_timezone_invalid", extra={"timezone": timezone})
+        return datetime.now(dt_timezone.utc).date()
 
 
 def _with_qr_text(ocr_text: str, qr_codes: list[dict[str, Any]]) -> str:
