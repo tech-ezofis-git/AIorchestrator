@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from app.ap_pipeline import (
+    DEFAULT_PIPELINE_KEY,
     default_platform_config,
     resolve_pipeline_config,
     seed_platform_ap_pipeline,
@@ -47,7 +48,7 @@ async def test_resolve_empty_tenant_matches_code_defaults_after_seed():
     assert resolved.source == "platform"
     assert resolved.skills_order == list(DEFAULT_SKILL_ORDER)
     assert resolved.skills_enabled is None
-    assert resolved.flags.get("force_hana_po_lookup") is False
+    assert resolved.flags.get("force_hana_po_lookup") is True
 
 
 @pytest.mark.asyncio
@@ -229,12 +230,17 @@ def test_settings_default_flag_true_with_false_rollback():
 
 @pytest.mark.asyncio
 async def test_runner_no_silent_hana_inject_when_catalog_flag_false():
-    """Phase 2: platform force_hana=false → no po_lookup_sap even for SAP master."""
+    """Platform force_hana=false → no po_lookup_sap even for SAP master."""
     from app.ap_skills.hana_po import EZOFIS_TENANT_ID
 
     db = FakeDBPool()
     catalog = CatalogStore(db)
     await seed_platform_ap_pipeline(catalog)
+    # Override product default (force_hana=true) to assert the off path.
+    row = db.platform_ap_pipeline[DEFAULT_PIPELINE_KEY]
+    cfg = dict(row["config_json"])
+    cfg["flags"] = {**(cfg.get("flags") or {}), "force_hana_po_lookup": False}
+    row["config_json"] = cfg
     set_catalog_store(catalog)
 
     settings = Settings(ap_pipeline_from_db=True, ap_llm_planner=False)
@@ -256,6 +262,27 @@ async def test_runner_no_silent_hana_inject_when_catalog_flag_false():
     )
     assert "po_lookup_sap" not in result["skills_run"]
     assert result["skills_run"] == list(DEFAULT_SKILL_ORDER)
+
+
+@pytest.mark.asyncio
+async def test_default_seed_force_hana_injects_lookup_skill_for_sap():
+    """Product default force_hana=true → ensure_* injects po_lookup_sap for SAP master."""
+    db = FakeDBPool()
+    catalog = CatalogStore(db)
+    await seed_platform_ap_pipeline(catalog)
+    set_catalog_store(catalog)
+
+    resolved = await resolve_pipeline_config("any-tenant")
+    assert resolved.flags.get("force_hana_po_lookup") is True
+
+    skills = ensure_ezofis_hana_po_lookup(
+        list(DEFAULT_SKILL_ORDER),
+        tenant_id="any-tenant",
+        force=bool(resolved.flags.get("force_hana_po_lookup")),
+        document_job={"master_source": "SAP", "resource": "SAP"},
+    )
+    assert "po_lookup_sap" in skills
+    assert skills.index("po_lookup_sap") < skills.index("po_match")
 
 
 @pytest.mark.asyncio

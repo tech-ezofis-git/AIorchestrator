@@ -21,7 +21,7 @@ def test_default_platform_config_matches_code_defaults() -> None:
         "partial": 50,
         "amount_tolerance": 0.02,
     }
-    assert cfg["flags"] == {"use_planner": False, "force_hana_po_lookup": False}
+    assert cfg["flags"] == {"use_planner": False, "force_hana_po_lookup": True}
     assert cfg["policy"]["workflow_step_name"] == "AP AGENT 1"
     assert cfg["policy"]["review_labels"]["MATCHED"] == "Matched"
     assert cfg["policy"]["line_match_floor"] == 0.5
@@ -43,7 +43,7 @@ async def test_seed_platform_ap_pipeline_idempotent() -> None:
     assert second["skills_order"] == list(DEFAULT_SKILL_ORDER)
     row2 = db.platform_ap_pipeline[DEFAULT_PIPELINE_KEY]
     assert row2["version"] == 2
-    assert row2["config_json"]["flags"]["force_hana_po_lookup"] is False
+    assert row2["config_json"]["flags"]["force_hana_po_lookup"] is True
     assert len(db.platform_ap_pipeline) == 1
 
 

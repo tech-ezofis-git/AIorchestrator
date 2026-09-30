@@ -37,8 +37,8 @@ def default_platform_config() -> dict[str, Any]:
         },
         "flags": {
             "use_planner": False,
-            # Opt-in code inject when Workflow asks SAP/HANA (Core usually stamps skills).
-            "force_hana_po_lookup": False,
+            # Inject po_lookup_sap when Workflow asks SAP/HANA (even if payload.skills omitted/null).
+            "force_hana_po_lookup": True,
         },
         "policy": {
             "workflow_step_name": "AP AGENT 1",
