@@ -7,7 +7,7 @@
 <link rel="icon" href="/static/ezofis-logo-mark.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     /* Base44 shell — global (all agents) */
@@ -15,42 +15,47 @@
     --periwinkle: #64748b;
     --violet: #0f172a;
     --violet-deep: #1e293b;
-    --brand: #0f172a;
-    --brand-hover: #1e293b;
-    --brand-deep: #0f172a;
-    --brand-ink: #0f172a;
-    --brand-soft: #f1f5f9;
-    --brand-mist: #e2e8f0;
-    --brand-glow: rgba(15, 23, 42, 0.12);
-    --brand-glow-cyan: rgba(15, 23, 42, 0.08);
-    --gradient-brand: #0f172a;
-    --gradient-brand-hover: #1e293b;
-    --gradient-soft: #f8fafc;
+    --brand: #212121;
+    --brand-hover: #121212;
+    --brand-deep: #212121;
+    --brand-ink: #171717;
+    --brand-soft: #f0f0f0;
+    --brand-mist: #e6e6e6;
+    --brand-glow: rgba(0, 0, 0, 0.08);
+    --brand-glow-cyan: rgba(0, 0, 0, 0.05);
+    --gradient-brand: #212121;
+    --gradient-brand-hover: #121212;
+    --gradient-soft: #f7f7f7;
     --glass: #ffffff;
-    --glass-border: #e2e8f0;
-    --ink: #0f172a;
-    --ink-2: #334155;
-    --ink-3: #64748b;
-    --ink-4: #94a3b8;
-    --line: #e2e8f0;
-    --line-strong: #cbd5e1;
+    --glass-border: #e5e5e5;
+    --ink: #171717;
+    --ink-2: #404040;
+    --ink-3: #737373;
+    --ink-4: #a3a3a3;
+    --line: #e5e5e5;
+    --line-strong: #d4d4d4;
     --surface: #ffffff;
     --surface-2: #ffffff;
-    --surface-3: #f8fafc;
+    --surface-3: #f0f0f0;
     --danger: #f43f5e;
     --warn: #f97316;
     --ok: #10b981;
     --info: #64748b;
-    --radius: 14px;
+    --radius: 12px;
     --radius-sm: 10px;
-    --radius-lg: 16px;
+    --radius-lg: 14px;
     --radius-pill: 999px;
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-    --shadow-lg: 0 8px 24px rgba(15, 23, 42, 0.08);
-    --display: "Sora", "Plus Jakarta Sans", system-ui, sans-serif;
-    --font: "Plus Jakarta Sans", system-ui, sans-serif;
-    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+    --rail: 44px;
+    --sidebar-w: 220px;
+    --sidebar-w-xl: 248px;
+    --pack-w: minmax(300px, 330px);
+    --pack-w-xl: minmax(330px, 440px);
+    --display: "Poppins", "Inter", system-ui, sans-serif;
+    --font: "Inter", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
     /* legacy aliases used by inline JS templates */
     --accent-primary: var(--brand);
     --accent-primary-hover: var(--brand-hover);
@@ -77,7 +82,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    background: #f1f5f9;
+    background: #f7f7f7;
     overflow: hidden;
   }
   body::before, body::after, .mesh-blob, .grain { display: none; }
@@ -160,46 +165,166 @@
   .health-dot.down { background: var(--danger); box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.15); }
   .health-label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 
-  /* —— Layout —— */
+  /* —— Layout (Base44 3-column shell) —— */
   .layout {
     display: grid;
-    grid-template-columns: 260px minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+    gap: 0;
     max-width: none;
     width: auto;
-    margin: 10px;
+    margin: 0;
     padding: 0;
     flex: 1 1 auto;
     height: auto;
     min-height: 0;
     animation: fadeUp .55s ease both;
     align-items: stretch;
+    position: relative;
+    transition: grid-template-columns .2s ease;
+    border-top: 1px solid var(--line);
+    background: #fff;
+  }
+  @media (min-width: 1280px) {
+    .layout { grid-template-columns: var(--sidebar-w-xl) minmax(0, 1fr); }
+    .layout.pack-inspector-open {
+      grid-template-columns: var(--sidebar-w-xl) minmax(0, 1fr) var(--pack-w-xl);
+    }
+    .layout.agents-sidebar-collapsed.pack-inspector-open {
+      grid-template-columns: var(--rail) minmax(0, 1fr) var(--pack-w-xl);
+    }
+    .layout.pack-inspector-open.pack-rail-collapsed {
+      grid-template-columns: var(--sidebar-w-xl) minmax(0, 1fr) var(--rail);
+    }
+    .layout.agents-sidebar-collapsed.pack-inspector-open.pack-rail-collapsed {
+      grid-template-columns: var(--rail) minmax(0, 1fr) var(--rail);
+    }
   }
   .layout.pack-inspector-open {
-    grid-template-columns: 260px minmax(0, 1fr) minmax(300px, 28vw);
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--pack-w);
     max-width: none;
   }
+  .layout.agents-sidebar-collapsed {
+    grid-template-columns: var(--rail) minmax(0, 1fr);
+  }
+  .layout.agents-sidebar-collapsed.pack-inspector-open {
+    grid-template-columns: var(--rail) minmax(0, 1fr) var(--pack-w);
+  }
+  .layout.pack-inspector-open.pack-rail-collapsed {
+    grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--rail);
+  }
+  .layout.agents-sidebar-collapsed.pack-inspector-open.pack-rail-collapsed {
+    grid-template-columns: var(--rail) minmax(0, 1fr) var(--rail);
+  }
+  .sidebar-rail-only,
+  .pack-rail-only {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 12px;
+    width: 100%;
+  }
+  .layout.agents-sidebar-collapsed > .sidebar {
+    padding: 0;
+    overflow: hidden;
+    border-right: 1px solid var(--line);
+    border-radius: 0;
+    min-width: 0;
+  }
+  .layout.agents-sidebar-collapsed > .sidebar .sidebar-body { display: none; }
+  .layout.agents-sidebar-collapsed > .sidebar .sidebar-rail-only { display: flex; }
+  .layout.pack-rail-collapsed > .pack-inspector.visible {
+    padding: 0;
+    overflow: hidden;
+    border-left: 1px solid var(--line);
+    border-radius: 0;
+    min-width: 0;
+  }
+  .layout.pack-rail-collapsed > .pack-inspector.visible .pack-inspector-head,
+  .layout.pack-rail-collapsed > .pack-inspector.visible .pack-inspector-body {
+    display: none;
+  }
+  .layout.pack-rail-collapsed > .pack-inspector.visible .pack-rail-only { display: flex; }
+  .sidebar-head-row,
+  .pack-head-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .sidebar-head-row { margin-bottom: 10px; align-items: center; }
+  .sidebar-head-row h2 { margin: 0; }
+  .sidebar-head-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .agents-count {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--ink-3);
+    min-width: 1em;
+    text-align: right;
+  }
+  .panel-collapse-btn,
+  .rail-icon-btn {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink-3);
+    line-height: 1;
+  }
+  .panel-collapse-btn:hover,
+  .rail-icon-btn:hover {
+    background: var(--surface-3);
+    color: var(--ink);
+  }
+  .panel-collapse-btn svg,
+  .rail-icon-btn svg { width: 16px; height: 16px; display: block; }
+  .rail-icon-btn { width: 32px; height: 32px; }
   @media (max-width: 1200px) {
-    .layout.pack-inspector-open {
-      grid-template-columns: 260px minmax(0, 1fr);
+    .layout.pack-inspector-open,
+    .layout.agents-sidebar-collapsed.pack-inspector-open,
+    .layout.pack-inspector-open.pack-rail-collapsed,
+    .layout.agents-sidebar-collapsed.pack-inspector-open.pack-rail-collapsed {
+      grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
       grid-template-rows: minmax(0, 1fr) minmax(280px, 38vh);
+    }
+    .layout.agents-sidebar-collapsed.pack-inspector-open {
+      grid-template-columns: var(--rail) minmax(0, 1fr);
     }
     .pack-inspector.visible { grid-column: 1 / -1; }
   }
   @media (max-width: 920px) {
-    .layout, .layout.pack-inspector-open { grid-template-columns: 1fr; height: auto; min-height: 0; }
-    header { margin: 6px 8px 0; }
-    .layout { margin: 8px; }
+    .layout, .layout.pack-inspector-open,
+    .layout.agents-sidebar-collapsed,
+    .layout.agents-sidebar-collapsed.pack-inspector-open,
+    .layout.pack-inspector-open.pack-rail-collapsed,
+    .layout.agents-sidebar-collapsed.pack-inspector-open.pack-rail-collapsed {
+      grid-template-columns: 1fr; height: auto; min-height: 0;
+    }
+    header { margin: 0; }
+    .layout { margin: 0; }
     .catalog-shell { margin: 8px; }
     .transcript { min-height: 160px; }
     .main-controls { max-height: min(42vh, 280px); }
     .pack-inspector.visible { grid-column: 1; max-height: 360px; }
+    .layout.agents-sidebar-collapsed > .sidebar,
+    .layout.pack-rail-collapsed > .pack-inspector.visible {
+      display: none !important;
+    }
   }
 
   .panel {
     background: #fff;
-    border: 1px solid var(--line);
-    border-radius: 16px;
+    border: none;
+    border-radius: 0;
     box-shadow: none;
     backdrop-filter: none;
   }
@@ -207,18 +332,27 @@
 
   /* —— Sidebar —— */
   .sidebar {
-    padding: 20px 18px 22px;
-    overflow-y: auto;
+    padding: 0;
+    overflow: hidden;
     align-self: stretch;
     display: flex;
     flex-direction: column;
     background: #fff;
+    border-right: 1px solid var(--line);
+  }
+  .sidebar-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 16px 12px 18px;
+    overflow-y: auto;
   }
   .sidebar .settings-fold { margin-top: auto; }
-  .sidebar-section + .sidebar-section { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--line); }
+  .sidebar-section + .sidebar-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
   .sidebar h2 {
-    font-size: 10px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.1em; color: var(--ink-4); margin: 0 0 12px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--ink-3); margin: 0 0 12px;
   }
   .sidebar label {
     display: block; font-size: 12px; font-weight: 500; color: var(--ink-3); margin: 14px 0 6px;
@@ -276,33 +410,40 @@
     box-shadow: none;
   }
 
-  .cap-actions { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 4px; }
+  .cap-actions { display: grid; grid-template-columns: 1fr; gap: 2px; margin-top: 2px; }
   .cap-btn {
     display: flex; align-items: center; gap: 10px;
-    width: 100%; text-align: left; font-size: 13px; font-weight: 600;
-    padding: 11px 12px; border-radius: 12px;
+    width: 100%; text-align: left; font-size: 13px; font-weight: 500;
+    padding: 0 10px; height: 36px; border-radius: 12px;
     background: transparent;
-    color: var(--ink-2); border: 1px solid transparent;
-    letter-spacing: 0.02em;
+    color: rgba(23, 23, 23, 0.8); border: 1px solid transparent;
+    letter-spacing: 0;
+    position: relative;
   }
   .cap-btn .cap-ico {
-    width: 28px; height: 28px; border-radius: 9px; flex-shrink: 0;
+    width: 16px; height: 16px; border-radius: 0; flex-shrink: 0;
     display: grid; place-items: center;
-    background: #f1f5f9; color: var(--ink-2);
+    background: transparent; color: var(--ink-3);
   }
-  .cap-btn .cap-ico svg { width: 15px; height: 15px; }
+  .cap-btn .cap-ico svg { width: 16px; height: 16px; }
+  .cap-btn .cap-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cap-btn .cap-check {
+    display: none; width: 14px; height: 14px; margin-left: auto; flex-shrink: 0; opacity: 0.8;
+  }
   .cap-btn .dot { display: none; }
   .cap-btn:hover {
-    border-color: var(--line); background: #f8fafc;
+    border-color: transparent; background: var(--surface-3);
     color: var(--ink); transform: none; box-shadow: none;
   }
+  .cap-btn:hover .cap-ico { color: var(--ink-2); }
   .cap-btn.active {
-    background: #0f172a;
-    color: #fff; border-color: #0f172a;
-    box-shadow: none;
+    background: var(--brand);
+    color: #fff; border-color: transparent;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
     transform: none;
   }
-  .cap-btn.active .cap-ico { background: rgba(255,255,255,0.22); color: #fff; }
+  .cap-btn.active .cap-ico { background: transparent; color: #fff; }
+  .cap-btn.active .cap-check { display: block; color: rgba(255,255,255,0.85); }
 
   .prompt-list { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
   .prompt-chip {
@@ -326,6 +467,7 @@
     min-height: 0;
     height: 100%;
     overflow: hidden;
+    background: #fafafa;
   }
   .transcript {
     flex: 1 1 0;
@@ -473,8 +615,8 @@
     padding-top: 12px;
   }
   .composer.prompt-mode textarea {
-    min-height: 120px;
-    max-height: 280px;
+    min-height: 72px;
+    max-height: 112px;
   }
   .composer #promptFields {
     margin: 0 8px;
@@ -493,9 +635,9 @@
     box-shadow: 0 10px 36px rgba(99, 102, 241, 0.14), 0 0 0 1px rgba(168,85,247,0.08);
   }
   .composer textarea {
-    flex: 1; resize: none; min-height: 48px; max-height: 160px;
-    background: transparent; border: none; box-shadow: none; padding: 12px 0;
-    line-height: 1.5;
+    flex: 1; resize: none; min-height: 40px; max-height: 96px;
+    background: transparent; border: none; box-shadow: none; padding: 10px 0;
+    line-height: 1.45;
   }
   .composer .btn-primary, .composer .btn-send {
     min-width: 48px; width: 48px; height: 48px; border-radius: 16px; flex-shrink: 0;
@@ -534,6 +676,8 @@
     overflow: visible;
   }
   .doc-panel.visible { display: block; }
+  .doc-panel[hidden],
+  .ocr-panel[hidden] { display: none !important; }
   .doc-panel > summary {
     padding: 12px 20px;
     font-size: 11px;
@@ -602,6 +746,28 @@
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
   }
+  #dashPanel > summary { padding: 8px 16px; }
+  #dashPanel .ocr-grid {
+    gap: 8px;
+    margin: 0 12px 10px;
+    padding: 10px;
+  }
+  #dashPanel .ocr-grid label { margin-bottom: 2px; font-size: 10.5px; }
+  #dashPanel .ocr-grid input[type=text],
+  #dashPanel .ocr-grid select {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+  #dashPanel #dashJson {
+    min-height: 52px;
+    max-height: 88px;
+    resize: vertical;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  #dashPanel .ocr-actions { margin-top: 2px; }
+  #dashPanel .ocr-actions .btn-primary,
+  #dashPanel .ocr-actions .btn-ghost { padding: 6px 10px; font-size: 11.5px; }
   .dash-preview { width: 100%; min-height: 520px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
   @media (max-width: 700px) { .ocr-grid { grid-template-columns: 1fr; } }
   .ocr-grid label { display: block; font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: 4px; }
@@ -897,6 +1063,8 @@
     overflow: hidden;
     padding: 0;
     min-height: 0;
+    border-left: 1px solid var(--line);
+    background: #fff;
   }
   .pack-inspector.visible { display: flex; }
   .pack-inspector-head {
@@ -904,6 +1072,7 @@
     border-bottom: 1px solid var(--line);
     flex-shrink: 0;
   }
+  .pack-head-row .pack-inspector-title { min-width: 0; flex: 1; }
   .pack-inspector-title h2 {
     font-size: 13px; font-weight: 700; margin: 0 0 2px; color: var(--ink);
     letter-spacing: -0.02em;
@@ -1929,9 +2098,23 @@
 </div>
 
 <div class="layout ap-workbench" id="chatView">
-  <aside class="panel sidebar">
+  <aside class="panel sidebar" id="agentsSidebar">
+    <div class="sidebar-rail-only">
+      <button type="button" class="rail-icon-btn" id="agentsSidebarExpandBtn" title="Show agents" aria-label="Show agents">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>
+      </button>
+    </div>
+    <div class="sidebar-body">
     <div class="sidebar-section">
-      <h2>Agents</h2>
+      <div class="sidebar-head-row">
+        <h2>Agents</h2>
+        <div class="sidebar-head-meta">
+          <span class="agents-count" id="agentsCount"></span>
+          <button type="button" class="panel-collapse-btn" id="agentsSidebarCollapseBtn" title="Hide agents" aria-label="Hide agents">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>
+          </button>
+        </div>
+      </div>
       <div class="cap-actions" id="capActions"></div>
     </div>
 
@@ -1962,6 +2145,7 @@
       </div>
       <div class="llm-status" id="llmStatus"></div>
     </details>
+    </div>
   </aside>
 
   <section class="panel main">
@@ -2188,7 +2372,7 @@ Due Date,DATE</textarea>
       </div>
       </div>
     </details>
-    <details class="ocr-panel ap-panel-b44" id="apPanel" open>
+    <details class="ocr-panel ap-panel-b44" id="apPanel" hidden>
       <summary>
         <span class="ap-panel-kicker">AP</span>
         <span>AP Document</span>
@@ -2295,7 +2479,7 @@ vendor_validate</textarea>
         </div>
       </div>
     </details>
-    <details class="ocr-panel" id="gsPanel">
+    <details class="ocr-panel" id="gsPanel" hidden>
       <summary>Global Search options</summary>
       <div class="ocr-grid">
         <div class="span-all">
@@ -2307,7 +2491,7 @@ vendor_validate</textarea>
         </div>
       </div>
     </details>
-    <details class="ocr-panel" id="dashPanel">
+    <details class="ocr-panel" id="dashPanel" hidden>
       <summary>Dashboard options (prompts · schema · data)</summary>
       <div class="ocr-grid">
         <div>
@@ -2322,17 +2506,17 @@ vendor_validate</textarea>
           <label for="dashTenant">Tenant</label>
           <input type="text" id="dashTenant" placeholder="tenant UUID" />
         </div>
-        <div class="span-all">
+        <div>
           <label for="dashRepositoryId">Repository id</label>
           <input type="text" id="dashRepositoryId" placeholder="required unless workflow id is set" />
         </div>
-        <div class="span-all">
-          <label for="dashWorkflowId">Workflow id (optional — used when repository id is empty)</label>
+        <div>
+          <label for="dashWorkflowId">Workflow id (optional)</label>
           <input type="text" id="dashWorkflowId" placeholder="workflow UUID" />
         </div>
         <div class="span-all">
-          <label for="dashJson">dashboard_json (data step — filled after schema)</label>
-          <textarea id="dashJson" rows="8" placeholder='{"phase":"schema","kpis":[],"charts":[]}'></textarea>
+          <label for="dashJson">dashboard_json (data step)</label>
+          <textarea id="dashJson" rows="3" placeholder='{"phase":"schema","kpis":[],"charts":[]}'></textarea>
         </div>
         <div class="ocr-actions">
           <button type="button" class="btn-ghost" id="dashPromptBtn">Suggest prompt</button>
@@ -2342,7 +2526,7 @@ vendor_validate</textarea>
       </div>
     </details>
 
-    <details class="ocr-panel" id="reportPanel">
+    <details class="ocr-panel" id="reportPanel" hidden>
       <summary>Report Agent options</summary>
       <div class="ocr-grid">
         <div class="span-all">
@@ -2390,7 +2574,7 @@ vendor_validate</textarea>
         </div>
       </div>
     </details>
-    <details class="ocr-panel" id="ftlQualPanel">
+    <details class="ocr-panel" id="ftlQualPanel" hidden>
       <summary>FTL Qualifier options</summary>
       <div class="ocr-grid">
         <div class="span-all">
@@ -2411,7 +2595,7 @@ vendor_validate</textarea>
         </div>
       </div>
     </details>
-    <details class="ocr-panel" id="ftlQuotePanel">
+    <details class="ocr-panel" id="ftlQuotePanel" hidden>
       <summary>FTL Quote Estimator options</summary>
       <div class="ocr-grid">
         <div class="span-all">
@@ -2439,7 +2623,7 @@ vendor_validate</textarea>
         </div>
       </div>
     </details>
-    <details class="ocr-panel" id="cbPanel">
+    <details class="ocr-panel" id="cbPanel" hidden>
       <summary>Chatbot options</summary>
       <div class="ocr-grid">
         <div class="span-all">
@@ -2476,10 +2660,20 @@ vendor_validate</textarea>
   </section>
 
   <aside class="panel pack-inspector" id="summaryPackInspector">
+    <div class="pack-rail-only">
+      <button type="button" class="rail-icon-btn" data-expand-pack title="Show inspector" aria-label="Show inspector">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></svg>
+      </button>
+    </div>
     <div class="pack-inspector-head">
-      <div class="pack-inspector-title">
-        <h2 id="packInspectorTitle">Agent pack</h2>
-        <p class="pack-inspector-sub" id="packInspectorSub">Defaults and tenant overlays</p>
+      <div class="pack-head-row">
+        <div class="pack-inspector-title">
+          <h2 id="packInspectorTitle">Agent pack</h2>
+          <p class="pack-inspector-sub" id="packInspectorSub">Defaults and tenant overlays</p>
+        </div>
+        <button type="button" class="panel-collapse-btn" data-collapse-pack title="Hide inspector" aria-label="Hide inspector">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg>
+        </button>
       </div>
       <div class="pack-tabs" id="apInstrMainTabs" hidden style="margin-bottom:8px">
         <button type="button" class="pack-tab" data-ap-main-tab="pipeline">Pipeline</button>
@@ -2522,10 +2716,20 @@ vendor_validate</textarea>
   </aside>
 
   <aside class="panel pack-inspector" id="apPipelineInspector">
+    <div class="pack-rail-only">
+      <button type="button" class="rail-icon-btn" data-expand-pack title="Show inspector" aria-label="Show inspector">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></svg>
+      </button>
+    </div>
     <div class="pack-inspector-head">
-      <div class="pack-inspector-title">
-        <h2 id="apConfigTitle">AP Agent</h2>
-        <p class="pack-inspector-sub" id="apConfigSub">Pipeline (executable) and Instructions (soft LLM guidance)</p>
+      <div class="pack-head-row">
+        <div class="pack-inspector-title">
+          <h2 id="apConfigTitle">AP Agent</h2>
+          <p class="pack-inspector-sub" id="apConfigSub">Pipeline (executable) and Instructions (soft LLM guidance)</p>
+        </div>
+        <button type="button" class="panel-collapse-btn" data-collapse-pack title="Hide inspector" aria-label="Hide inspector">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg>
+        </button>
       </div>
       <div class="pack-tabs" style="margin-bottom:8px">
         <button type="button" class="pack-tab active" data-ap-main-tab="pipeline">Pipeline</button>
@@ -2943,21 +3147,22 @@ const ICONS = {
   ftl_qualifier: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
   ftl_quote_estimator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 15h0M2 9.5h20M7 8h10"/></svg>',
 };
+const CAP_CHECK_SVG = '<svg class="cap-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 const CAP_ACTIONS = [
-  { slug: 'ocr', label: 'OCR agent', mode: 'ocr' },
-  { slug: 'summary', label: 'Summary agent', mode: 'summary' },
-  { slug: 'classification', label: 'Classification agent', mode: 'classification' },
+  { slug: 'ocr', label: 'OCR', mode: 'ocr' },
+  { slug: 'summary', label: 'Summary', mode: 'summary' },
+  { slug: 'classification', label: 'Classification', mode: 'classification' },
   { slug: 'document_intelligent', label: 'Document Intelligent', mode: 'document_intelligent' },
-  { slug: 'insight', label: 'Insight agent', mode: 'insight' },
-  { slug: 'ap', label: 'AP agent', mode: 'ap' },
-  { slug: 'prompt', label: 'Prompt agent', mode: 'prompt' },
-  { slug: 'pdf', label: 'PDF generator', mode: 'pdf' },
+  { slug: 'insight', label: 'Insight', mode: 'insight' },
+  { slug: 'ap', label: 'AP', mode: 'ap' },
+  { slug: 'prompt', label: 'Prompt', mode: 'prompt' },
+  { slug: 'pdf', label: 'PDF', mode: 'pdf' },
   { slug: 'global_search', label: 'Global Search', mode: 'global_search' },
   { slug: 'chatbot', label: 'Chatbot', mode: 'chatbot' },
-  { slug: 'report', label: 'Report agent', mode: 'report' },
-  { slug: 'dashboard', label: 'Dashboard agent', mode: 'dashboard' },
+  { slug: 'report', label: 'Report', mode: 'report' },
+  { slug: 'dashboard', label: 'Dashboard', mode: 'dashboard' },
   { slug: 'ftl_qualifier', label: 'FTL Qualifier', mode: 'ftl_qualifier' },
-  { slug: 'ftl_quote_estimator', label: 'FTL Quote Estimator', mode: 'ftl_quote_estimator' },
+  { slug: 'ftl_quote_estimator', label: 'FTL Quote', mode: 'ftl_quote_estimator' },
   { slug: 'chat', label: 'Ask AI', mode: 'chat' },
 ];
 const MODE_LABELS = {
@@ -3200,18 +3405,20 @@ async function refreshConsoleAgents() {
   }
 
   capActionsEl.innerHTML = '';
+  let visibleCount = 0;
   CAP_ACTIONS.forEach(item => {
     if (enabledSlugs && !enabledSlugs.has(item.slug)) return;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'cap-btn';
     btn.dataset.mode = item.mode;
-    btn.innerHTML = '<span class="cap-ico">' + (ICONS[item.mode] || '') + '</span><span>' + item.label + '</span>';
+    btn.innerHTML = '<span class="cap-ico">' + (ICONS[item.mode] || '') + '</span><span class="cap-label">' + item.label + '</span>' + CAP_CHECK_SVG;
     btn.addEventListener('click', () => {
       window.activeCustomIntent = '';
       setComposerMode(item.mode);
     });
     capActionsEl.appendChild(btn);
+    visibleCount += 1;
   });
   customAgents.forEach(agent => {
     const btn = document.createElement('button');
@@ -3220,13 +3427,16 @@ async function refreshConsoleAgents() {
     btn.dataset.mode = 'chat';
     btn.dataset.intent = agent.slug;
     btn.title = agent.description || agent.name;
-    btn.innerHTML = '<span class="cap-ico">' + (ICONS.chat || '') + '</span><span>' + escapeHtml(agent.name) + '</span>';
+    btn.innerHTML = '<span class="cap-ico">' + (ICONS.chat || '') + '</span><span class="cap-label">' + escapeHtml(agent.name) + '</span>' + CAP_CHECK_SVG;
     btn.addEventListener('click', () => {
       window.activeCustomIntent = agent.slug;
       setComposerMode('chat');
     });
     capActionsEl.appendChild(btn);
+    visibleCount += 1;
   });
+  const agentsCount = document.getElementById('agentsCount');
+  if (agentsCount) agentsCount.textContent = String(visibleCount);
 
   if (enabledSlugs && !enabledSlugs.has(composerMode)) {
     const fallback = enabledSlugs.has('chat') ? 'chat' : (CAP_ACTIONS.find(item => enabledSlugs.has(item.slug)) || {}).mode;
@@ -3315,8 +3525,11 @@ function emptyStateHtml(mode) {
 
 function autosizeComposer() {
   if (!messageInput) return;
+  const promptMode = document.getElementById('composerWrap')?.classList.contains('prompt-mode');
+  const minH = promptMode ? 72 : 40;
+  const maxH = promptMode ? 112 : 96;
   messageInput.style.height = 'auto';
-  messageInput.style.height = Math.min(Math.max(messageInput.scrollHeight, 48), 160) + 'px';
+  messageInput.style.height = Math.min(Math.max(messageInput.scrollHeight, minH), maxH) + 'px';
 }
 
 function renderChatReply(text) {
@@ -3336,8 +3549,87 @@ function syncMainControls() {
   const mc = document.getElementById('mainControls');
   const panel = document.getElementById('docPanel');
   if (!mc || !panel) return;
-  const active = panel.classList.contains('visible') || (apPanel && apPanel.open) || (gsPanel && gsPanel.open) || (cbPanel && cbPanel.open) || (dashPanel && dashPanel.open) || (reportPanel && reportPanel.open) || (ftlQualPanel && ftlQualPanel.open) || (ftlQuotePanel && ftlQuotePanel.open);
+  const active = (panel.classList.contains('visible') && !panel.hidden)
+    || (apPanel && !apPanel.hidden)
+    || (gsPanel && !gsPanel.hidden)
+    || (cbPanel && !cbPanel.hidden)
+    || (dashPanel && !dashPanel.hidden)
+    || (reportPanel && !reportPanel.hidden)
+    || (ftlQualPanel && !ftlQualPanel.hidden)
+    || (ftlQuotePanel && !ftlQuotePanel.hidden);
   mc.hidden = !active;
+}
+
+function setExclusiveAgentPanels(mode) {
+  const docPanel = document.getElementById('docPanel');
+  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'document_intelligent'
+    || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
+  if (docPanel) {
+    docPanel.hidden = !showDoc;
+    docPanel.classList.toggle('visible', showDoc);
+    docPanel.open = showDoc;
+  }
+  const panels = [
+    [apPanel, 'ap'],
+    [gsPanel, 'global_search'],
+    [cbPanel, 'chatbot'],
+    [dashPanel, 'dashboard'],
+    [reportPanel, 'report'],
+    [ftlQualPanel, 'ftl_qualifier'],
+    [ftlQuotePanel, 'ftl_quote_estimator'],
+  ];
+  for (const [el, panelMode] of panels) {
+    if (!el) continue;
+    const on = mode === panelMode;
+    el.hidden = !on;
+    el.open = on;
+  }
+}
+
+const CONSOLE_AGENTS_COLLAPSED_KEY = 'console.agentsSidebarCollapsed';
+const CONSOLE_PACK_COLLAPSED_KEY = 'console.packRailCollapsed';
+
+function syncRailReopenButtons() {
+  /* Slim rails are CSS-driven; expand controls live inside collapsed panels. */
+}
+
+function setAgentsSidebarCollapsed(collapsed) {
+  const layout = document.getElementById('chatView') || document.querySelector('.layout');
+  if (!layout) return;
+  layout.classList.toggle('agents-sidebar-collapsed', !!collapsed);
+  try { localStorage.setItem(CONSOLE_AGENTS_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (_) {}
+}
+
+function setPackRailCollapsed(collapsed) {
+  const layout = document.getElementById('chatView') || document.querySelector('.layout');
+  if (!layout) return;
+  layout.classList.toggle('pack-rail-collapsed', !!collapsed);
+  try { localStorage.setItem(CONSOLE_PACK_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (_) {}
+}
+
+function initPanelCollapseControls() {
+  const collapseAgents = document.getElementById('agentsSidebarCollapseBtn');
+  const expandAgents = document.getElementById('agentsSidebarExpandBtn');
+  if (collapseAgents) {
+    collapseAgents.addEventListener('click', () => setAgentsSidebarCollapsed(true));
+  }
+  if (expandAgents) {
+    expandAgents.addEventListener('click', () => setAgentsSidebarCollapsed(false));
+  }
+  document.querySelectorAll('[data-collapse-pack]').forEach(btn => {
+    btn.addEventListener('click', () => setPackRailCollapsed(true));
+  });
+  document.querySelectorAll('[data-expand-pack]').forEach(btn => {
+    btn.addEventListener('click', () => setPackRailCollapsed(false));
+  });
+  let agentsCollapsed = false;
+  let packCollapsed = false;
+  try {
+    agentsCollapsed = localStorage.getItem(CONSOLE_AGENTS_COLLAPSED_KEY) === '1';
+    packCollapsed = localStorage.getItem(CONSOLE_PACK_COLLAPSED_KEY) === '1';
+  } catch (_) {}
+  setAgentsSidebarCollapsed(agentsCollapsed);
+  setPackRailCollapsed(packCollapsed);
 }
 
 function collapseFormsAfterResult(body) {
@@ -3365,22 +3657,14 @@ function setComposerMode(mode) {
   if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'classification' || mode === 'document_intelligent' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report' || mode === 'ftl_qualifier' || mode === 'ftl_quote_estimator')) {
     mode = 'chat';
   }
+  const prevMode = composerMode;
+  const modeChanged = mode !== prevMode;
   composerMode = mode;
-  const panel = document.getElementById('docPanel');
   const banner = document.getElementById('docBanner');
   const composerWrap = document.getElementById('composerWrap');
   const modeLabel = document.getElementById('composerModeLabel');
-  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'document_intelligent' || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
-  panel.classList.toggle('visible', showDoc);
-  panel.open = showDoc;
-  if (apPanel) apPanel.open = mode === 'ap';
-  if (gsPanel) gsPanel.open = mode === 'global_search';
-  if (cbPanel) cbPanel.open = mode === 'chatbot';
-  if (dashPanel) dashPanel.open = mode === 'dashboard';
-      if (reportPanel) reportPanel.open = mode === 'report';
-  if (ftlQualPanel) ftlQualPanel.open = mode === 'ftl_qualifier';
-  if (ftlQuotePanel) ftlQuotePanel.open = mode === 'ftl_quote_estimator';
-      if (mode === 'report' && typeof loadReportTemplates === 'function') loadReportTemplates();
+  setExclusiveAgentPanels(mode);
+  if (mode === 'report' && typeof loadReportTemplates === 'function') loadReportTemplates();
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   const classificationFields = document.getElementById('classificationFields');
@@ -3401,7 +3685,7 @@ function setComposerMode(mode) {
     modeLabel.textContent = MODE_LABELS[mode] || 'Ask AI';
     modeLabel.hidden = mode === 'chat';
   }
-  const layout = document.querySelector('.layout');
+  const layout = document.getElementById('chatView') || document.querySelector('.layout');
   const packInspector = document.getElementById('summaryPackInspector');
   const apPipeInspector = document.getElementById('apPipelineInspector');
   const packOpen = isPackAgent(mode);
@@ -3412,8 +3696,14 @@ function setComposerMode(mode) {
   }
   if (packInspector) packInspector.classList.toggle('visible', packOpen);
   if (apPipeInspector) apPipeInspector.classList.toggle('visible', apPipeOpen);
+  syncRailReopenButtons();
   syncCapButtonActiveState();
   syncSendBtn();
+  if (modeChanged) {
+    transcript.innerHTML = '';
+    const mc = document.getElementById('mainControls');
+    if (mc) mc.scrollTop = 0;
+  }
   if (mode === 'summary') {
     banner.textContent = 'Summary';
     messageInput.placeholder = 'Optional note';
@@ -3485,6 +3775,7 @@ window.proceedToFtlQuote = function(target) {
     setComposerMode('ftl_quote_estimator');
   }
   if (ftlQuotePanel) {
+    ftlQuotePanel.hidden = false;
     ftlQuotePanel.open = true;
   }
   const el = document.getElementById('ftlQuoteCandidateText');
@@ -3501,6 +3792,7 @@ window.proceedToFtlQuote = function(target) {
 };
 
 refreshConsoleAgents();
+initPanelCollapseControls();
 setComposerMode('chat');
 
 transcript.addEventListener('click', (e) => {
@@ -4537,6 +4829,7 @@ function setApMainView(view) {
     if (sub) sub.textContent = 'Pipeline (executable) — Catalog skill order, thresholds, and flags.';
     loadApPipelineConsole();
   }
+  syncRailReopenButtons();
 }
 
 const apPipeSaveBtn = document.getElementById('apPipeSaveBtn');
