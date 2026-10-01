@@ -124,6 +124,9 @@ class Settings(BaseSettings):
     # "Expired · 8 years" against today's date in ocr_expiry_timezone (still
     # Active on the expiry day).
     ocr_expiry_timezone: str = "Asia/Kolkata"
+    # The first expiry field with a readable date is returned under this name
+    # (empty keeps the original name, e.g. "expiryDate").
+    ocr_expiry_field_name: str = "DocumentStatus"
     ocr_allowed_host_suffixes: str = ".blob.core.windows.net"
     ocr_download_timeout_seconds: float = 60.0
     ocr_max_file_bytes: int = 25 * 1024 * 1024  # 25 MiB

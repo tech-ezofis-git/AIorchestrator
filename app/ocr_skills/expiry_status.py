@@ -24,11 +24,18 @@ def is_expiry_field(name: str) -> bool:
     return key in _EXPIRY_NAMES or key.endswith(("expirydate", "dateofexpiry", "expirationdate"))
 
 
-def apply_expiry_status(fields: list[dict[str, Any]], *, today: date) -> list[dict[str, Any]]:
+def apply_expiry_status(
+    fields: list[dict[str, Any]], *, today: date, rename_to: Optional[str] = None
+) -> list[dict[str, Any]]:
+    """Add `status` to expiry fields; the first one with a readable date is renamed to `rename_to`."""
     out = []
+    renamed = False
     for field in fields:
         if isinstance(field, dict) and is_expiry_field(str(field.get("name") or "")):
             field = {**field, **expiry_status(field.get("value"), today=today)}
+            if rename_to and not renamed and field.get("status"):
+                field["name"] = rename_to
+                renamed = True
         out.append(field)
     return out
 

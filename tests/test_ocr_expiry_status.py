@@ -63,6 +63,18 @@ def test_only_expiry_fields_get_status():
     assert out[1] == {**fields[1], "status": "Expired · 8 years"}
 
 
+def test_first_readable_expiry_field_is_renamed():
+    fields = [
+        {"name": "Visa Expiry Date", "value": "unreadable", "type": "date"},
+        {"name": "expiryDate", "value": "2015-09-22", "type": "SHORT_TEXT"},
+        {"name": "validUntil", "value": "2036-09-30", "type": "date"},
+    ]
+    out = apply_expiry_status(fields, today=TODAY, rename_to="DocumentStatus")
+    assert [f["name"] for f in out] == ["Visa Expiry Date", "DocumentStatus", "validUntil"]
+    assert out[1] == {"name": "DocumentStatus", "value": "2015-09-22", "type": "SHORT_TEXT", "status": "Expired · 11 years"}
+    assert out[2]["status"] == "Active · 10 years"
+
+
 def test_chat_ocr_adds_status_to_expiry_field(client, monkeypatch):
     td3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
 
@@ -86,6 +98,7 @@ def test_chat_ocr_adds_status_to_expiry_field(client, monkeypatch):
     issue, expiry = json.loads(response.json()["reply"])["ocrResult"]
     assert "status" not in issue
     # The check-digit-verified MRZ expiry (2012-04-15) replaces the LLM's value before the status.
+    assert expiry["name"] == "DocumentStatus"
     assert expiry["value"] == "2012-04-15"
     assert expiry["status"].startswith("Expired · ")
     assert set(expiry) == {"name", "value", "type", "status"}
