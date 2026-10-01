@@ -119,26 +119,28 @@ curl -X POST http://localhost:8010/chat \
   "document_id": "VESSEL_call_enquiry_form_sample_HW-1.png",
   "token_usage": { "prompt_tokens": 1452, "completion_tokens": 253, "total_tokens": 1705 },
   "document_intelligent_result": {
-    "repository_id": "E7596082-D04A-4233-A842-C4C6C3138B79",
-    "repository_name": "Shipping Agency Files",
+    "keywords": ["Vessel", "Customer", "IMO Number", "Terminal", "Port", "ETA", "Cargo Type", "ETD", "Cargo Quantity", "Agency Appointment Date", "Date"],
     "candidates": [
       {
         "repository_id": "E7596082-D04A-4233-A842-C4C6C3138B79",
         "repository_name": "Shipping Agency Files",
         "score": 85.0,
-        "rationale": "This document has Vessel, Customer and IMO Number details that match Shipping Agency Files."
+        "rationale": "This document has Vessel, Customer and IMO Number details that match Shipping Agency Files.",
+        "keywords": ["Vessel", "Customer", "IMO Number", "Terminal", "Port", "ETA", "Cargo Type", "ETD", "Cargo Quantity", "Agency Appointment Date"]
       },
       {
         "repository_id": "D049F1AA-C89D-4386-AEEC-1EE9DB870C02",
         "repository_name": "Trade Finance Documents",
         "score": 45.0,
-        "rationale": "This document shares no specific details with Trade Finance Documents; it was suggested from its overall content."
+        "rationale": "This document shares no specific details with Trade Finance Documents; it was suggested from its overall content.",
+        "keywords": []
       },
       {
         "repository_id": "9F522761-FF15-4F38-A32A-B6CC01B9690A",
         "repository_name": "FTL",
         "score": 30.0,
-        "rationale": "This document has Date details that match FTL."
+        "rationale": "This document has Date details that match FTL.",
+        "keywords": ["Date"]
       }
     ],
     "ocr_text": "SHIPPER/CHARTERER/BROKER VESSEL NAME ...",
@@ -151,13 +153,12 @@ curl -X POST http://localhost:8010/chat \
 
 | Key | Type | Notes |
 |-----|------|-------|
-| `repository_id` | string \| null | The chosen folder. `null` when no folder is a clear fit |
-| `repository_name` | string \| null | Name of the chosen folder |
+| `keywords` | array | All candidates' keywords combined, best folder first, no duplicates |
 | `candidates` | array | Up to 5 folders, best first (see §5.2) |
 | `ocr_text` | string | Text the match was based on |
 | `source_reference` | string | File name, blob path, or `ocr_text` |
 
-There is **no** top-level `confidence_score` or `rationale`. Both live only inside each candidate.
+There is **no** top-level `repository_id`, `repository_name`, `confidence_score` or `rationale`. The best folder is always the first candidate.
 
 ### 5.2 Candidate keys
 
@@ -167,12 +168,13 @@ There is **no** top-level `confidence_score` or `rationale`. Both live only insi
 | `repository_name` | string | Folder name from the tenant catalog |
 | `score` | number | 0–100 |
 | `rationale` | string | One plain line on why this folder is suggested (see §6) |
+| `keywords` | array | Every field name of this folder found in the document, in document order. Empty when none match |
 
 ---
 
 ## 6. Rationale
 
-Built in code (not by the model), from the folder's field names that appear in the document text. At most 3 details are named, in the order they appear in the document.
+Built in code from the candidate's `keywords`: the folder's field names found literally in the text, plus field names the model reports in `matched_fields` (this covers non-English documents, e.g. Arabic). Model-reported names are kept only if they are real fields of that folder. At most 3 details are named.
 
 | Situation | Rationale |
 |-----------|-----------|
@@ -187,9 +189,11 @@ Field names are matched loosely: `IMO Number`, `IMONumber`, `imo_number` and `IM
 
 | Rule | Behaviour |
 |------|-----------|
-| Chosen folder | Set only when the model's confidence is **≥ 55** and the folder exists in the catalog |
+| Model's pick | Placed first in `candidates` when its confidence is **≥ 55** and the folder exists in the catalog |
 | Model returns < 3 candidates | Code adds folders whose field names (or a folder-name word, e.g. "Invoices" ↔ "Invoice") appear in the text |
 | Score of code-added folders | Share of the folder's fields found in the text, always **below 55** |
+| Candidate with no `keywords` | Score capped at **30**, so it never shows a high percentage next to "shares no specific details" |
+| Order | Candidates sorted by final score, highest first |
 | Nothing in common with any folder | `candidates` is empty |
 | Folder not in catalog | Dropped |
 
@@ -199,7 +203,7 @@ Field names are matched loosely: `IMO Number`, `IMONumber`, `imo_number` and `IM
 
 | Case | `reply` |
 |------|---------|
-| A folder was chosen, or candidates exist | `Document repository inferred successfully.` |
+| Candidates exist | `Document repository inferred successfully.` |
 | Text found but no candidates at all | `This document doesn't match any of your folders.` |
 | No readable text | `This document has no readable text, so it can't be matched to a folder.` |
 
@@ -236,6 +240,8 @@ Older layouts (`repository."Fields"`, `dbo.wrepositoryfield`) are tried as fallb
 | Rationale | One top-level, technical sentence | One plain line on **each** candidate |
 | Top-level `confidence_score` | Returned | Removed; score is per candidate |
 | Top-level `rationale` | Returned | Removed |
+| Top-level `repository_id` / `repository_name` | Returned (often `null`) | Removed; best folder is `candidates[0]` |
+| `keywords` | Not returned | Per candidate (that folder's matched fields) and top level (all combined) |
 | No clear match | Often empty `candidates` | Closest folders still suggested |
 | `reply` with suggestions only | "doesn't match any of your folders" | `Document repository inferred successfully.` |
-| Console card | Overall confidence bar | Each candidate shows score and rationale; title "Suggested folders" when none is chosen |
+| Console card | Overall confidence bar | Each candidate shows score and rationale under "Suggested folders" |

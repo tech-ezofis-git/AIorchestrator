@@ -5562,9 +5562,8 @@ function renderClassificationResult(result, request) {
 
 function renderDocumentIntelligentResult(result, request) {
   const candidates = Array.isArray(result.candidates) ? result.candidates : [];
-  const title = result.repository_name || (candidates.length ? 'Suggested folders' : 'No repository match');
+  const title = candidates.length ? 'Suggested folders' : 'No repository match';
   const chips = [
-    result.repository_id ? `<span class="summary-chip source">${escapeHtml(result.repository_id)}</span>` : '',
     result.source_reference ? `<span class="summary-chip source">${escapeHtml(result.source_reference)}</span>` : '',
   ].join('');
   const candHtml = candidates.map(c => `<li>${escapeHtml(c.repository_name || '')} · ${escapeHtml(String(c.score ?? ''))}${c.rationale ? `<div class="summary-prose">${escapeHtml(c.rationale)}</div>` : ''}</li>`).join('');
@@ -6691,7 +6690,7 @@ function renderQuoteResult(rawQuote, request, body) {
     bubbleText = body.reply || `Classification ready — ${kind}.`;
   }
   if (body.document_intelligent_result) {
-    const kind = body.document_intelligent_result.repository_name || 'suggested folders';
+    const kind = (body.document_intelligent_result.candidates || [])[0]?.repository_name || 'no match';
     bubbleText = body.reply || `Repository match — ${kind}.`;
   }
   if (body.insight_result) {
