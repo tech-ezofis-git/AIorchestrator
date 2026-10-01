@@ -314,6 +314,8 @@
     .catalog-shell { margin: 8px; }
     .transcript { min-height: 160px; }
     .main-controls { max-height: min(42vh, 280px); }
+    .main-controls.expanded-report { max-height: none; min-height: 240px; }
+    .main.report-mode .transcript { max-height: 18vh; min-height: 64px; }
     .pack-inspector.visible { grid-column: 1; max-height: 360px; }
     .layout.agents-sidebar-collapsed > .sidebar,
     .layout.pack-rail-collapsed > .pack-inspector.visible {
@@ -712,6 +714,18 @@
   }
   .main-controls.compact-dash {
     max-height: min(28vh, 220px);
+  }
+  /* Report Builder needs room for prompt + result panes above the composer. */
+  .main-controls.expanded-report {
+    flex: 1 1 auto;
+    max-height: none;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .main.report-mode .transcript {
+    flex: 0 1 auto;
+    min-height: 72px;
+    max-height: 22vh;
   }
   .main-controls[hidden] { display: none !important; }
   .main-controls::-webkit-scrollbar { width: 6px; }
@@ -2079,9 +2093,12 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px;
     margin-top: 10px;
+    align-items: stretch;
+    min-height: min(48vh, 520px);
   }
   .report-workspace-pane {
     min-width: 0;
+    min-height: 0;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
     padding: 12px;
@@ -2095,9 +2112,12 @@
     align-items: center;
     gap: 8px;
     margin-bottom: 8px;
+    flex: 0 0 auto;
   }
   #reportPromptOverride {
-    min-height: 360px;
+    flex: 1 1 auto;
+    min-height: 240px;
+    height: 100%;
     resize: vertical;
     font-family: var(--mono);
     font-size: 11.5px;
@@ -2111,18 +2131,23 @@
     color: var(--ink);
   }
   #reportPlanPreview {
-    min-height: 360px;
+    flex: 1 1 auto;
+    min-height: 240px;
     overflow: auto;
     background: #fff;
     border: 1px solid var(--line);
     border-radius: var(--radius-xs);
     padding: 12px;
     box-sizing: border-box;
-    flex: 1;
   }
   @media (max-width: 900px) {
     .report-workspace {
       grid-template-columns: 1fr;
+      min-height: 0;
+    }
+    #reportPromptOverride,
+    #reportPlanPreview {
+      min-height: 180px;
     }
   }
 </style>
@@ -3903,6 +3928,10 @@ function syncMainControls() {
     || (ftlQuotePanel && !ftlQuotePanel.hidden);
   mc.hidden = !active;
   mc.classList.toggle('compact-dash', !!(dashPanel && !dashPanel.hidden && composerMode === 'dashboard'));
+  const reportActive = !!(reportPanel && !reportPanel.hidden && composerMode === 'report');
+  mc.classList.toggle('expanded-report', reportActive);
+  const mainPanel = document.querySelector('.panel.main');
+  if (mainPanel) mainPanel.classList.toggle('report-mode', reportActive);
 }
 
 function setExclusiveAgentPanels(mode) {
