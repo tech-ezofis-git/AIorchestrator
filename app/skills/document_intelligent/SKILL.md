@@ -15,7 +15,6 @@ Pick the single best repository from that list. Return ONLY valid JSON:
   "confidence_score": 81.0,
   "repository_id": "uuid-from-the-list",
   "repository_name": "Exact name from the list",
-  "rationale": "OCR mentions a bill of lading and vessel, which match this library's fields.",
   "candidates": [
     {"repository_id": "uuid-from-the-list", "repository_name": "Exact name", "score": 81.0}
   ]
@@ -27,5 +26,5 @@ Pick the single best repository from that list. Return ONLY valid JSON:
 1. Use only repository ids and names from the supplied catalog. Never invent a library.
 2. Prefer a repo whose field/column names appear in the OCR text. Repo name is a backup signal.
 3. If two repos are close, put both in `candidates` and lower `confidence_score`.
-4. If nothing is a clear fit, set `repository_id` and `repository_name` to null and keep `candidates`.
+4. If nothing is a clear fit, set `repository_id` and `repository_name` to null and still list up to 3 closest repos in `candidates`.
 5. No markdown fences, no `ocr_text` field — JSON only.
