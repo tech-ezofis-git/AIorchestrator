@@ -124,6 +124,56 @@ def test_definition_sql_is_read_only_and_paginated():
     assert "INSERT" not in data_sql.upper()
 
 
+def test_parse_definition_json_repairs_trailing_comma():
+    raw = """```json
+{
+  "title": "Approved",
+  "reportType": "specific_workflow",
+  "sources": [{"alias": "t", "schemaName": "dbo", "table": "ezfb_6e45749f_items"}],
+  "joins": [],
+  "columns": [
+    {"key": "Invoice_No", "label": "Invoice", "source": "t.Invoice_No", "aggregate": "none"},
+  ],
+  "filters": [],
+  "groupBy": [],
+  "orderBy": [],
+  "availableFilters": [],
+  "summary": {},
+  "warnings": [],
+}
+```"""
+    payload = parse_definition_json(raw)
+    assert payload["title"] == "Approved"
+    assert payload["columns"][0]["key"] == "Invoice_No"
+
+
+def test_fallback_definition_from_prompt_uses_named_table():
+    schema = _schema()
+    # add ezfb table like live AP form
+    schema.tables.append(("dbo", "ezfb_6e45749f_items"))
+    schema.columns_by_table[("dbo", "ezfb_6e45749f_items")] = [
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_No", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Number", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Matched_Status", "text"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "PO_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_6e45749f_items", "Invoice_Amount", "numeric"),
+    ]
+    schema.all_columns.extend(schema.columns_by_table[("dbo", "ezfb_6e45749f_items")])
+    from app.report_agent.definition_lock import fallback_definition_from_prompt
+
+    prompt = (
+        "Data sources: Use the table dbo.ezfb_6e45749f_items. "
+        "Required fields: Matched_Status, PO_Amount, Invoice_Amount, Invoice_No, PO_Number. "
+        "Total Approved with Score"
+    )
+    raw = fallback_definition_from_prompt(prompt, schema, report_type="specific_workflow")
+    assert raw is not None
+    assert raw["sources"][0]["table"] == "ezfb_6e45749f_items"
+    keys = {c["key"] for c in raw["columns"]}
+    assert "Invoice_No" in keys
+    assert raw["warnings"]
+
+
 def test_parse_definition_json_strips_fences():
     payload = parse_definition_json('```json\n{"title":"T","sources":[],"columns":[]}\n```')
     assert payload["title"] == "T"

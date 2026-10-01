@@ -1,11 +1,14 @@
 """Lock LLM reportDefinition against live schema — never invent identifiers."""
 from __future__ import annotations
 
-import json
+import logging
 import re
 from typing import Any, Optional
 
 from app.report_agent.metadata_service import DatabaseSchema
+from app.summary_skills.lock import loads_json_object
+
+logger = logging.getLogger("orchestrator.report_agent.definition_lock")
 
 _AGG = frozenset({"none", "count", "sum", "avg", "min", "max"})
 _OPS = frozenset({"eq", "ne", "gt", "gte", "lt", "lte", "in", "like", "is_null", "not_null"})
@@ -13,23 +16,33 @@ _JOIN_TYPES = frozenset({"inner", "left"})
 
 
 def parse_definition_json(text: str) -> dict[str, Any]:
+    """Parse Phase 2 model output into a dict, tolerating common LLM JSON defects."""
     raw = (text or "").strip()
     if not raw:
         raise ValueError("Empty model response for report definition.")
-    fence = re.search(r"```(?:json)?\s*(\{.*\})\s*```", raw, flags=re.DOTALL)
-    if fence:
-        raw = fence.group(1)
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("Model response was not JSON.") from None
-        payload = json.loads(raw[start : end + 1])
-    if not isinstance(payload, dict):
-        raise ValueError("Model JSON was not an object.")
-    return payload
+
+    payload = loads_json_object(raw)
+    if isinstance(payload, dict):
+        return payload
+
+    # Secondary salvage: strip fences / prose and retry with summary lock helpers
+    cleaned = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    payload = loads_json_object(cleaned)
+    if isinstance(payload, dict):
+        return payload
+
+    # Last attempt: find first object-looking block
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end > start:
+        payload = loads_json_object(cleaned[start : end + 1])
+        if isinstance(payload, dict):
+            return payload
+
+    snippet = raw[:240].replace("\n", "\\n")
+    logger.warning("report_definition_json_parse_failed", extra={"snippet": snippet})
+    raise ValueError("Model response was not valid reportDefinition JSON.")
 
 
 def _index_schema(schema: DatabaseSchema) -> dict[str, set[str]]:
@@ -63,9 +76,9 @@ def _resolve_table(
             if "." in key:
                 s, t = key.split(".", 1)
                 return s, t
-            # find first matching schema
-            for (s, t) in [(k.split(".", 1)[0], k.split(".", 1)[1]) for k in index if "." in k]:
-                if t == table_clean.lower():
+            for full in index:
+                if "." in full and full.endswith("." + table_clean.lower()):
+                    s, t = full.split(".", 1)
                     return s, t
             return "", table_clean
     return None
@@ -118,14 +131,12 @@ def lock_report_definition(
         if alias:
             table_key = alias_to_table.get(alias.lower())
             if not table_key:
-                # treat alias as table name
                 table_key = _resolve_table(None, alias, index)
                 if not table_key:
                     return False
             s, t = table_key
             cols = index.get(f"{s}.{t}") or index.get(t) or set()
             return col.lower() in cols
-        # bare column: must exist on some source
         for s, t in alias_to_table.values():
             cols = index.get(f"{s}.{t}") or index.get(t) or set()
             if col.lower() in cols:
@@ -176,10 +187,7 @@ def lock_report_definition(
         if op not in _OPS:
             warnings.append(f"Dropped filter with invalid op '{op}'.")
             continue
-        if op not in ("is_null", "not_null") and not _field_ok(field):
-            warnings.append(f"Dropped unknown filter field '{field}'.")
-            continue
-        if op in ("is_null", "not_null") and not _field_ok(field):
+        if not _field_ok(field):
             warnings.append(f"Dropped unknown filter field '{field}'.")
             continue
         filters_out.append({"field": field, "op": op, "value": filt.get("value")})
@@ -200,7 +208,6 @@ def lock_report_definition(
         direction = str(ob.get("direction") or "asc").lower()
         if direction not in ("asc", "desc"):
             direction = "asc"
-        # allow column keys from columns_out
         keys = {c["key"].lower() for c in columns_out}
         if _field_ok(field) or field.lower() in keys:
             order_by_out.append({"field": field, "direction": direction})
@@ -245,4 +252,144 @@ def lock_report_definition(
         "availableFilters": available_filters,
         "summary": summary,
         "warnings": warnings,
+    }
+
+
+def fallback_definition_from_prompt(
+    prompt: str,
+    schema: DatabaseSchema,
+    *,
+    report_type: Optional[str] = None,
+    title: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Best-effort schema-backed definition when the model returns broken JSON."""
+    text = prompt or ""
+    if not text.strip() or not schema.tables:
+        return None
+
+    index = _index_schema(schema)
+    # Prefer tables explicitly named in the prompt
+    mentioned: list[tuple[str, str]] = []
+    for schema_name, table in schema.tables:
+        for candidate in (
+            f"{schema_name}.{table}",
+            table,
+            f'dbo.{table}' if schema_name.lower() != "dbo" else table,
+        ):
+            if candidate.lower() in text.lower():
+                mentioned.append((schema_name, table))
+                break
+    if not mentioned:
+        # Prefer ezfb_* / items_* / inbox_* style business tables
+        for schema_name, table in schema.tables:
+            tl = table.lower()
+            if tl.startswith(("ezfb_", "items_", "inbox_", "workflow_instances_")):
+                mentioned.append((schema_name, table))
+        mentioned = mentioned[:1]
+
+    if not mentioned:
+        return None
+
+    schema_name, table = mentioned[0]
+    cols = schema.get_columns_for_table(schema_name, table)
+    if not cols:
+        return None
+    col_by_lower = {c.column.lower(): c.column for c in cols}
+
+    # Collect field names that appear in the prompt and exist on the table
+    token_hits: list[str] = []
+    for lower_name, real_name in col_by_lower.items():
+        # word-ish match for CamelCase / snake_case identifiers
+        if re.search(rf"\b{re.escape(real_name)}\b", text, flags=re.IGNORECASE):
+            token_hits.append(real_name)
+        elif re.search(rf"\b{re.escape(lower_name)}\b", text, flags=re.IGNORECASE):
+            token_hits.append(real_name)
+
+    # Prefer useful business columns if none explicitly matched
+    preferred = [
+        "invoice_no",
+        "invoiceno",
+        "po_number",
+        "ponumber",
+        "supplier",
+        "vendor",
+        "currency",
+        "po_date",
+        "due_date",
+        "matched_status",
+        "status",
+        "po_amount",
+        "invoice_amount",
+        "amount",
+        "name",
+        "stage",
+    ]
+    if not token_hits:
+        for pref in preferred:
+            if pref in col_by_lower:
+                token_hits.append(col_by_lower[pref])
+
+    # de-dupe preserve order
+    seen: set[str] = set()
+    fields: list[str] = []
+    for name in token_hits:
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        fields.append(name)
+    fields = fields[:12]
+    if not fields:
+        fields = [c.column for c in cols[:8]]
+
+    alias = "t"
+    columns = [
+        {
+            "key": f,
+            "label": f.replace("_", " "),
+            "source": f"{alias}.{f}",
+            "aggregate": "none",
+        }
+        for f in fields
+    ]
+
+    filters: list[dict[str, Any]] = []
+    # Soft-delete if present
+    for del_name in ("isDeleted", "is_deleted", "IsDeleted"):
+        if del_name.lower() in col_by_lower:
+            real = col_by_lower[del_name.lower()]
+            filters.append({"field": f"{alias}.{real}", "op": "eq", "value": False})
+            break
+    # Matched_Status / status not-null when prompt mentions approved/matched
+    if re.search(r"approved|matched_status|awaiting", text, flags=re.IGNORECASE):
+        for status_name in ("Matched_Status", "matched_status", "status", "Status"):
+            if status_name.lower() in col_by_lower:
+                real = col_by_lower[status_name.lower()]
+                filters.append({"field": f"{alias}.{real}", "op": "not_null", "value": None})
+                break
+
+    available = [
+        {
+            "key": f,
+            "label": f.replace("_", " "),
+            "field": f"{alias}.{f}",
+            "type": "text",
+        }
+        for f in fields[:6]
+    ]
+
+    return {
+        "title": (title or "Report").strip() or "Report",
+        "reportType": report_type,
+        "sources": [{"alias": alias, "schemaName": schema_name or None, "table": table}],
+        "joins": [],
+        "columns": columns,
+        "filters": filters,
+        "groupBy": [],
+        "orderBy": [{"field": f"{alias}.{fields[0]}", "direction": "asc"}] if fields else [],
+        "availableFilters": available,
+        "summary": {},
+        "warnings": [
+            "Used schema-backed fallback definition because the model returned invalid JSON."
+        ],
     }

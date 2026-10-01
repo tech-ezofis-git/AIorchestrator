@@ -11,3 +11,4 @@ alwaysApply: true
 - Do not add a preamble like "Here is the prompt:".
 - Do not include commentary after the prompt.
 - The prompt must be self-contained so Phase 2 can execute it with schema + tenant context.
+- Prefer concrete Matched_Status / status values only when they appear in the approved schema or sampled values; otherwise say the exact allowed values are unknown and ask Phase 2 to use only schema-backed filters.

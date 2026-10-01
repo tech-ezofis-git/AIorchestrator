@@ -19,7 +19,11 @@ from app.models.report_agent import (
     ScopeOption,
 )
 from app.report_agent.data_service import execute_report_query
-from app.report_agent.definition_lock import lock_report_definition, parse_definition_json
+from app.report_agent.definition_lock import (
+    fallback_definition_from_prompt,
+    lock_report_definition,
+    parse_definition_json,
+)
 from app.report_agent.definition_sql import generate_definition_sql
 from app.report_agent.metadata_service import get_database_schema
 from app.report_agent.pack import report_system_prompt
@@ -288,12 +292,15 @@ class ReportAgentService:
             "reportPrompt": prompt,
         }
         user = (
-            "Interpret the report prompt into locked reportDefinition JSON.\n\n"
+            "Interpret the report prompt into locked reportDefinition JSON.\n"
+            "Return ONLY one valid JSON object. No markdown fences, no commentary, "
+            "no trailing commas, no undefined values.\n\n"
             f"Input:\n{json.dumps(user_payload, indent=2)}\n\n"
             f"{schema_block}\n"
         )
 
         warnings: list[str] = []
+        raw_def: Optional[dict[str, Any]] = None
         try:
             content, _usage = await self._chat(
                 system=system,
@@ -301,9 +308,56 @@ class ReportAgentService:
                 tenant_id=request.tenant_id,
                 model=request.model,
             )
-            raw_def = parse_definition_json(content)
+            try:
+                raw_def = parse_definition_json(content)
+            except ValueError as parse_exc:
+                logger.warning(
+                    "report_agent_definition_parse_retry",
+                    extra={"error": str(parse_exc)[:200], "snippet": str(content)[:240]},
+                )
+                repair_user = (
+                    "Your previous response was invalid JSON. "
+                    "Return ONLY a corrected reportDefinition JSON object. "
+                    "No markdown, no trailing commas.\n\n"
+                    f"Broken response:\n{str(content)[:4000]}\n\n"
+                    f"Original request:\n{json.dumps(user_payload, indent=2)}\n\n"
+                    f"{schema_block}\n"
+                )
+                repaired, _ = await self._chat(
+                    system=system,
+                    user=repair_user,
+                    tenant_id=request.tenant_id,
+                    model=request.model,
+                )
+                raw_def = parse_definition_json(repaired)
         except Exception as exc:
             logger.warning("report_agent_run_llm_failed", extra={"error": str(exc)[:200]})
+            raw_def = fallback_definition_from_prompt(
+                prompt,
+                schema,
+                report_type=rt.key if rt else request.report_type,
+                title=(request.report_type or "Report"),
+            )
+            if raw_def is None:
+                duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+                return RunReportResponse(
+                    title="Report",
+                    report_type=rt.key if rt else request.report_type,
+                    columns=[],
+                    rows=[],
+                    total_count=0,
+                    page=request.page,
+                    page_size=request.page_size,
+                    filters=[],
+                    summary={},
+                    warnings=[f"Model failed to produce a report definition: {exc}"],
+                    duration_ms=duration_ms,
+                )
+            warnings.append(
+                f"Model JSON failed ({exc}); used schema-backed fallback definition."
+            )
+
+        if raw_def is None:
             duration_ms = round((time.perf_counter() - t0) * 1000, 2)
             return RunReportResponse(
                 title="Report",
@@ -315,7 +369,7 @@ class ReportAgentService:
                 page_size=request.page_size,
                 filters=[],
                 summary={},
-                warnings=[f"Model failed to produce a report definition: {exc}"],
+                warnings=["Model failed to produce a report definition."],
                 duration_ms=duration_ms,
             )
 

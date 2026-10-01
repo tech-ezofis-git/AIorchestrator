@@ -66,3 +66,6 @@ Return ONLY valid JSON with this shape:
 - `joins`, `filters`, `groupBy`, `orderBy`, `availableFilters`, `summary`, and `warnings` may be empty arrays/objects but must be present.
 - Do not wrap JSON in markdown fences.
 - Do not emit SQL or extra keys.
+- Prefer empty arrays over omitted keys.
+- Never emit trailing commas, comments, or bare `undefined` / `NaN` values.
+- If a filter value is unknown, use `"op": "not_null"` and `"value": null` instead of inventing status strings.
