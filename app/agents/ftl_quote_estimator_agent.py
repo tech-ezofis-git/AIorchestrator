@@ -26,6 +26,7 @@ from app.ftl.quote_estimator import (
 from app.ftl.quote_estimator.quote_pdf import generate_quote_pdf
 from app.ftl.quote_estimator.quote_template import compute_totals, render_quote_html
 from app.ftl.quote_estimator.template_pdf import render_template_pdf
+from app.ftl.job_progress import FtlJobProgressReporter
 
 logger = logging.getLogger("orchestrator.ftl_quote_estimator_agent")
 
@@ -235,96 +236,128 @@ class FtlQuoteEstimatorAgent:
         model_override: Optional[str] = None,
         llm_overrides: Optional[Dict[str, Any]] = None,
         tenant_id: Optional[str] = None,
+        ap_agent_job_id: Optional[str] = None,
+        ezofis: Any = None,
     ) -> Dict[str, Any]:
         """Runs quote estimation asynchronously and persists the result."""
+        progress = FtlJobProgressReporter(
+            ezofis=ezofis,
+            job_id=ap_agent_job_id,
+            tenant_id=tenant_id,
+        )
+
         input_filename = filename or (os.path.basename(filepath) if filepath else "manual_input")
         input_type = "text"
 
-        if isinstance(qualifier_result, dict) and qualifier_result:
-            rendered = render_qualifier_decision_for_quote(qualifier_result)
-            input_filename = input_filename if filename else "qualifier_result.json"
-            input_type = "qualifier_json"
-        elif file_bytes is not None:
-            rendered, _, input_type = await self._build_candidate_from_bytes(file_bytes, input_filename)
-        elif filepath is not None and os.path.exists(filepath):
-            with open(filepath, "rb") as f:
-                fb = f.read()
-            rendered, _, input_type = await self._build_candidate_from_bytes(fb, input_filename)
-        elif candidate_text:
-            rendered = candidate_text
-        elif raw_text:
-            candidate = extract.build_candidate_text(raw_text)
-            rendered = extract.render_candidate_text_for_model(candidate)
-        else:
-            raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
-
-        skill = await skill_store.load_runtime_skill(tenant_id=tenant_id)
-        overrides = dict(llm_overrides or {})
-        if model_override:
-            overrides["model"] = model_override
-
-        def _run() -> Tuple[Dict[str, Any], int]:
-            return quote_agent.run_quote_estimation(skill, rendered, llm_overrides=overrides or None)
-
-        quote_result, total_tokens = await asyncio.to_thread(_run)
-
-        estimate_number = quote_result.get("estimate_number") or quotes_store.next_estimate_number()
-        quote_result["estimate_number"] = estimate_number
-
-        # Render HTML
-        rendered_html = render_quote_html(quote_result, estimate_number, template_type=template_type)
-
-        # Write PDF to downloads cache
-        pdf_bytes: Optional[bytes] = None
         try:
-            pdf_bytes = generate_quote_pdf(quote_result, estimate_number, template_type=template_type)
-            pdf_filename = quote_pdf_filename(estimate_number, template_type)
-            pdf_path = os.path.join(PDF_DIR, pdf_filename)
-            with open(pdf_path, "wb") as f:
-                f.write(pdf_bytes)
-            pdf_available = True
-        except Exception as pdf_err:
-            logger.warning(f"Failed to generate quote PDF: {pdf_err}")
-            pdf_available = False
-            pdf_filename = None
+            # --- 20%: Reading qualified RFQ items ---
+            await progress.update("PROCESSING", "Reading qualified RFQ items", 20)
 
-        totals = compute_totals(quote_result)
-        quote_result["subtotal"] = totals.get("subtotal", 0.0)
-        quote_result["freight"] = totals.get("freight", 0.0)
-        quote_result["hst"] = totals.get("hst", 0.0)
-        quote_result["total"] = totals.get("total", 0.0)
-        if totals.get("line_items"):
-            quote_result["line_items"] = totals["line_items"]
+            if isinstance(qualifier_result, dict) and qualifier_result:
+                rendered = render_qualifier_decision_for_quote(qualifier_result)
+                input_filename = input_filename if filename else "qualifier_result.json"
+                input_type = "qualifier_json"
+            elif file_bytes is not None:
+                rendered, _, input_type = await self._build_candidate_from_bytes(file_bytes, input_filename)
+            elif filepath is not None and os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    fb = f.read()
+                rendered, _, input_type = await self._build_candidate_from_bytes(fb, input_filename)
+            elif candidate_text:
+                rendered = candidate_text
+            elif raw_text:
+                candidate = extract.build_candidate_text(raw_text)
+                rendered = extract.render_candidate_text_for_model(candidate)
+            else:
+                raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
 
-        # Store quote
-        raw_file_bytes = file_bytes
-        if raw_file_bytes is None and filepath and os.path.exists(filepath):
-            with open(filepath, "rb") as f:
-                raw_file_bytes = f.read()
+            # --- 40%: Preparing quote line items ---
+            await progress.update("PROCESSING", "Preparing quote line items", 40)
 
-        quote_record = quotes_store.append_quote(
-            estimate_number=estimate_number,
-            input_filename=input_filename,
-            input_type=input_type,
-            candidate_text=rendered,
-            quote_result=quote_result,
-            rendered_html=rendered_html,
-            total_tokens=total_tokens,
-            raw_file_bytes=raw_file_bytes,
-        )
+            skill = await skill_store.load_runtime_skill(tenant_id=tenant_id)
+            overrides = dict(llm_overrides or {})
+            if model_override:
+                overrides["model"] = model_override
 
-        return {
-            "quote_result": quote_result,
-            "estimate_number": estimate_number,
-            "rendered_html": rendered_html,
-            "pdf_available": pdf_available,
-            "pdf_filename": pdf_filename,
-            "pdf_download_url": f"/api/ftl/quote/pdf/{estimate_number}?template_type={template_type}",
-            "pdf_base64": base64.b64encode(pdf_bytes).decode("ascii") if pdf_bytes else None,
-            "quote_record": quote_record,
-            "total_tokens": total_tokens,
-            "candidate_text": rendered,
-        }
+            # --- 60%: Calculating prices (LLM call runs here) ---
+            await progress.update("PROCESSING", "Calculating prices", 60)
+
+            def _run() -> Tuple[Dict[str, Any], int]:
+                return quote_agent.run_quote_estimation(skill, rendered, llm_overrides=overrides or None)
+
+            quote_result, total_tokens = await asyncio.to_thread(_run)
+
+            estimate_number = quote_result.get("estimate_number") or quotes_store.next_estimate_number()
+            quote_result["estimate_number"] = estimate_number
+
+            # Render HTML
+            rendered_html = render_quote_html(quote_result, estimate_number, template_type=template_type)
+
+            # --- 80%: Calculating freight and HST ---
+            await progress.update("PROCESSING", "Calculating freight and HST", 80)
+
+            # Write PDF to downloads cache
+            pdf_bytes: Optional[bytes] = None
+            try:
+                pdf_bytes = generate_quote_pdf(quote_result, estimate_number, template_type=template_type)
+                pdf_filename = quote_pdf_filename(estimate_number, template_type)
+                pdf_path = os.path.join(PDF_DIR, pdf_filename)
+                with open(pdf_path, "wb") as f:
+                    f.write(pdf_bytes)
+                pdf_available = True
+            except Exception as pdf_err:
+                logger.warning(f"Failed to generate quote PDF: {pdf_err}")
+                pdf_available = False
+                pdf_filename = None
+
+            totals = compute_totals(quote_result)
+            quote_result["subtotal"] = totals.get("subtotal", 0.0)
+            quote_result["freight"] = totals.get("freight", 0.0)
+            quote_result["hst"] = totals.get("hst", 0.0)
+            quote_result["total"] = totals.get("total", 0.0)
+            if totals.get("line_items"):
+                quote_result["line_items"] = totals["line_items"]
+
+            # Store quote
+            raw_file_bytes = file_bytes
+            if raw_file_bytes is None and filepath and os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    raw_file_bytes = f.read()
+
+            quote_record = quotes_store.append_quote(
+                estimate_number=estimate_number,
+                input_filename=input_filename,
+                input_type=input_type,
+                candidate_text=rendered,
+                quote_result=quote_result,
+                rendered_html=rendered_html,
+                total_tokens=total_tokens,
+                raw_file_bytes=raw_file_bytes,
+            )
+
+            # --- 90%: Generating customer estimate ---
+            await progress.update("PROCESSING", "Generating customer estimate", 90)
+
+            # --- 100%: Quote completed ---
+            await progress.update("COMPLETED", "Quote generated successfully", 100)
+
+            return {
+                "quote_result": quote_result,
+                "estimate_number": estimate_number,
+                "rendered_html": rendered_html,
+                "pdf_available": pdf_available,
+                "pdf_filename": pdf_filename,
+                "pdf_download_url": f"/api/ftl/quote/pdf/{estimate_number}?template_type={template_type}",
+                "pdf_base64": base64.b64encode(pdf_bytes).decode("ascii") if pdf_bytes else None,
+                "quote_record": quote_record,
+                "total_tokens": total_tokens,
+                "candidate_text": rendered,
+            }
+
+        except Exception as exc:
+            # Report failure to the Hangfire job before re-raising.
+            await progress.update("FAILED", f"Quote generation failed: {exc}", 60)
+            raise
 
     async def handle(
         self,
@@ -350,6 +383,8 @@ class FtlQuoteEstimatorAgent:
         quote_input = job.get("quote_result")
         form_data = job.get("form_data")
         template_json = job.get("template_json")
+        ap_agent_job_id = str(job.get("apAgentJobId") or job.get("ap_agent_job_id") or "").strip() or None
+        ezofis = kwargs.get("ezofis")
 
         if template_json or (form_data and not (quote_input or file_bytes or filepath or candidate_text or qualifier_result)):
             if not isinstance(template_json, dict) or not template_json:
@@ -408,6 +443,8 @@ class FtlQuoteEstimatorAgent:
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
                 tenant_id=job.get("tenant_id"),
+                ap_agent_job_id=ap_agent_job_id,
+                ezofis=ezofis,
             )
             quote = res["quote_result"]
             est_num = res["estimate_number"]

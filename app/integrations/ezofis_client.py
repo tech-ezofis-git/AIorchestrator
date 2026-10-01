@@ -836,6 +836,54 @@ class EzofisClient:
             logger.warning("ezofis_progress_error")
             return {"ok": False}
 
+    async def report_ap_agent_job_progress(
+        self,
+        *,
+        tenant_id: str,
+        job_id: str,
+        stage: str,
+        message: str,
+        percent: int,
+    ) -> dict[str, Any]:
+        """PATCH /api/workflows/ap-agent/jobs/{jobId}/progress — Hangfire job progress.
+
+        Used by the FTL Qualifier and Quote Estimator to report progress against
+        the AP Agent Hangfire job identified by *job_id* (the ``apAgentJobId``
+        field in their Python input).
+
+        Expected response: 204 No Content.
+        Non-fatal: any HTTP or network failure is logged and ``{"ok": False}``
+        is returned so the caller can continue processing.
+        """
+        job_id_val = str(job_id or "").strip()
+        if not job_id_val:
+            return {"ok": False, "skipped": True, "reason": "missing_job_id"}
+        body: dict[str, Any] = {
+            "stage": str(stage or "").strip().upper(),
+            "message": str(message or "").strip(),
+            "percent": max(0, min(100, int(percent))),
+        }
+        if not self._live_enabled():
+            return {"ok": True, "mock": True, "job_id": job_id_val, **body}
+        try:
+            headers = await self._auth_headers(tenant_id)
+            url = f"{self._base()}/workflows/ap-agent/jobs/{job_id_val}/progress"
+            async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
+                response = await client.patch(url, headers=headers, json=body)
+                if response.status_code not in (200, 204):
+                    logger.warning(
+                        "ezofis_job_progress_failed",
+                        extra={"status_code": response.status_code, "job_id": job_id_val},
+                    )
+                    return {"ok": False, "status_code": response.status_code}
+                return {"ok": True}
+        except Exception as exc:
+            logger.warning(
+                "ezofis_job_progress_error",
+                extra={"error_type": type(exc).__name__, "job_id": job_id_val},
+            )
+            return {"ok": False}
+
     async def apply_ap_agent_metadata(
         self,
         *,
