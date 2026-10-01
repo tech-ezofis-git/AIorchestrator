@@ -777,7 +777,8 @@ class ChatResponse(BaseModel):
         default=None,
         description=(
             "Document Intelligent output — repository_id, repository_name, "
-            "confidence_score, rationale, candidates, ocr_text (plus source_reference). "
+            "candidates (each with a score and a one-line rationale), ocr_text "
+            "(plus source_reference). "
             "`reply` is a short status line."
         ),
     )

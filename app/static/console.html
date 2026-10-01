@@ -5506,17 +5506,13 @@ function renderClassificationResult(result, request) {
 }
 
 function renderDocumentIntelligentResult(result, request) {
-  const score = Number(result.confidence_score);
-  const hasScore = Number.isFinite(score);
-  const confClass = !hasScore ? '' : (score >= 80 ? '' : score >= 50 ? 'mid' : 'low');
-  const width = hasScore ? Math.max(0, Math.min(100, score)) : 0;
-  const title = result.repository_name || 'No repository match';
+  const candidates = Array.isArray(result.candidates) ? result.candidates : [];
+  const title = result.repository_name || (candidates.length ? 'Suggested folders' : 'No repository match');
   const chips = [
     result.repository_id ? `<span class="summary-chip source">${escapeHtml(result.repository_id)}</span>` : '',
     result.source_reference ? `<span class="summary-chip source">${escapeHtml(result.source_reference)}</span>` : '',
   ].join('');
-  const candidates = Array.isArray(result.candidates) ? result.candidates : [];
-  const candHtml = candidates.map(c => `<li>${escapeHtml(c.repository_name || '')} · ${escapeHtml(String(c.score ?? ''))}</li>`).join('');
+  const candHtml = candidates.map(c => `<li>${escapeHtml(c.repository_name || '')} · ${escapeHtml(String(c.score ?? ''))}${c.rationale ? `<div class="summary-prose">${escapeHtml(c.rationale)}</div>` : ''}</li>`).join('');
   const resultJson = JSON.stringify(result, null, 2);
   const curlText = buildChatCurl(request && { ...request, intent: request.intent || 'document_intelligent' }, 'document_intelligent');
 
@@ -5525,17 +5521,7 @@ function renderDocumentIntelligentResult(result, request) {
       <div class="summary-card-kicker">Document Intelligent</div>
       <div class="summary-card-title">${escapeHtml(title)}</div>
       <div class="summary-meta">${chips}</div>`;
-  if (hasScore) {
-    html += `<div class="summary-conf">
-      <span class="summary-conf-label">Confidence</span>
-      <div class="summary-conf-bar ${confClass}"><span style="width:${width}%"></span></div>
-      <span class="summary-conf-score">${escapeHtml(String(result.confidence_score))}</span>
-    </div>`;
-  }
   html += `</div><div class="summary-card-body">`;
-  if (result.rationale) {
-    html += `<div class="summary-prose">${escapeHtml(result.rationale)}</div>`;
-  }
   if (candHtml) {
     html += `<div class="summary-section-label">Candidates</div><ul class="summary-facts">${candHtml}</ul>`;
   }
@@ -6650,7 +6636,7 @@ function renderQuoteResult(rawQuote, request, body) {
     bubbleText = body.reply || `Classification ready — ${kind}.`;
   }
   if (body.document_intelligent_result) {
-    const kind = body.document_intelligent_result.repository_name || 'no match';
+    const kind = body.document_intelligent_result.repository_name || 'suggested folders';
     bubbleText = body.reply || `Repository match — ${kind}.`;
   }
   if (body.insight_result) {

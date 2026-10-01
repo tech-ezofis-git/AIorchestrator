@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.dashboard.ids import normalize_guid
@@ -100,6 +101,12 @@ class DocumentIntelligentStore:
         out: dict[str, list[str]] = {}
         queries = (
             """
+            SELECT "RepositoryId"::text AS repository_id, "Name" AS name, "SqlColumnName" AS column_name
+            FROM repository."RepositoryFields"
+            WHERE COALESCE("IsDeleted", false) = false
+            ORDER BY "RepositoryId", "OrderId"
+            """,
+            """
             SELECT "RepositoryId"::text AS repository_id, "Name" AS name, "ColumnName" AS column_name
             FROM repository."Fields"
             """,
@@ -124,9 +131,12 @@ class DocumentIntelligentStore:
             if rid not in allowed:
                 continue
             labels = []
+            seen = set()
             for key in ("name", "column_name"):
                 label = _as_str(_row_get(row, key))
-                if label and label not in labels:
+                norm = re.sub(r"[^a-z0-9]", "", label.lower())
+                if label and norm not in seen:
+                    seen.add(norm)
                     labels.append(label)
             if not labels:
                 continue

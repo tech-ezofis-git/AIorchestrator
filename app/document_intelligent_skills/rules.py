@@ -7,8 +7,8 @@ from typing import Any, Optional
 from app.agent_skills.loader import get_skill
 
 MIN_CONFIDENCE = 55.0
-EMPTY_TEXT = "I couldn't extract any text from that document, so I can't match a repository."
-NO_MATCH = "Could not confidently match a repository."
+EMPTY_TEXT = "This document has no readable text, so it can't be matched to a folder."
+NO_MATCH = "This document doesn't match any of your folders."
 
 
 def system_prompt(*, settings=None, tenant_id: Optional[str] = None) -> str:
@@ -40,7 +40,8 @@ def build_user_prompt(
     ]
     return (
         "Pick the best repository from the catalog for this OCR text. "
-        "Use only ids and names from the catalog.\n\n"
+        "Use only ids and names from the catalog. "
+        "Always list up to 3 closest repositories in candidates, even when none is a clear fit.\n\n"
         f"Source: {source}{page}\n\n"
         f"Repository catalog:\n{json.dumps(slim, ensure_ascii=False)}\n\n"
         f"OCR text:\n{content}"
