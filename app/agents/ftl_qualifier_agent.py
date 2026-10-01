@@ -17,6 +17,7 @@ from app.ftl.page_text import (
 from app.ftl.qualifier import extract, runs_store, skill_store
 from app.ftl.qualifier import agent as qualifier_agent
 from app.ftl.qualifier.output_format import to_public
+from app.ftl.job_progress import FtlJobProgressReporter
 
 logger = logging.getLogger("orchestrator.ftl_qualifier_agent")
 
@@ -145,56 +146,89 @@ class FtlQualifierAgent:
         model_override: Optional[str] = None,
         llm_overrides: Optional[Dict[str, Any]] = None,
         tenant_id: Optional[str] = None,
+        ap_agent_job_id: Optional[str] = None,
+        ezofis: Any = None,
     ) -> Dict[str, Any]:
         """Runs qualification on the given file/text asynchronously in a worker thread."""
+        progress = FtlJobProgressReporter(
+            ezofis=ezofis,
+            job_id=ap_agent_job_id,
+            tenant_id=tenant_id,
+        )
+
         input_filename = filename or (os.path.basename(filepath) if filepath else "manual_input")
         input_type = "text"
 
-        if file_bytes is not None:
-            rendered, _, input_type = await self._build_candidate_from_bytes(file_bytes, input_filename)
-        elif filepath is not None and os.path.exists(filepath):
-            with open(filepath, "rb") as f:
-                fb = f.read()
-            rendered, _, input_type = await self._build_candidate_from_bytes(fb, input_filename)
-        elif candidate_text:
-            rendered = candidate_text
-        elif raw_text:
-            candidate = extract.build_candidate_text(raw_text)
-            rendered = extract.render_candidate_text_for_model(candidate)
-        else:
-            raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
+        try:
+            # --- 20%: Reading the RFQ ---
+            await progress.update("PROCESSING", "Reading the RFQ", 20)
 
-        skill = await skill_store.load_runtime_skill(tenant_id=tenant_id)
-        overrides = dict(llm_overrides or {})
-        if model_override:
-            overrides["model"] = model_override
+            if file_bytes is not None:
+                rendered, _, input_type = await self._build_candidate_from_bytes(file_bytes, input_filename)
+            elif filepath is not None and os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    fb = f.read()
+                rendered, _, input_type = await self._build_candidate_from_bytes(fb, input_filename)
+            elif candidate_text:
+                rendered = candidate_text
+            elif raw_text:
+                candidate = extract.build_candidate_text(raw_text)
+                rendered = extract.render_candidate_text_for_model(candidate)
+            else:
+                raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
 
-        def _run() -> Tuple[Dict[str, Any], int]:
-            return qualifier_agent.run_qualification(skill, rendered, llm_overrides=overrides or None)
+            # --- 40%: Extracting RFQ requirements ---
+            await progress.update("PROCESSING", "Extracting RFQ requirements", 40)
 
-        decision, total_tokens = await asyncio.to_thread(_run)
+            skill = await skill_store.load_runtime_skill(tenant_id=tenant_id)
+            overrides = dict(llm_overrides or {})
+            if model_override:
+                overrides["model"] = model_override
 
-        # Record run
-        raw_file_bytes = file_bytes
-        if raw_file_bytes is None and filepath and os.path.exists(filepath):
-            with open(filepath, "rb") as f:
-                raw_file_bytes = f.read()
+            # --- 60%: Matching RFQ items with Wittur catalog ---
+            await progress.update("PROCESSING", "Matching RFQ items with Wittur catalog", 60)
 
-        run_record = runs_store.append_run(
-            input_filename=input_filename,
-            input_type=input_type,
-            candidate_text=rendered,
-            decision=decision,
-            total_tokens=total_tokens,
-            raw_file_bytes=raw_file_bytes,
-        )
+            # --- 80%: Applying qualification rules (LLM call runs here) ---
+            await progress.update("PROCESSING", "Applying qualification rules", 80)
 
-        return {
-            "decision": decision,
-            "run_record": run_record,
-            "total_tokens": total_tokens,
-            "candidate_text": rendered,
-        }
+            def _run() -> Tuple[Dict[str, Any], int]:
+                return qualifier_agent.run_qualification(skill, rendered, llm_overrides=overrides or None)
+
+            decision, total_tokens = await asyncio.to_thread(_run)
+
+            # --- 90%: Preparing qualification result ---
+            await progress.update("PROCESSING", "Preparing qualification result", 90)
+
+            # Record run
+            raw_file_bytes = file_bytes
+            if raw_file_bytes is None and filepath and os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    raw_file_bytes = f.read()
+
+            run_record = runs_store.append_run(
+                input_filename=input_filename,
+                input_type=input_type,
+                candidate_text=rendered,
+                decision=decision,
+                total_tokens=total_tokens,
+                raw_file_bytes=raw_file_bytes,
+            )
+
+            # --- 100%: Qualification completed ---
+            await progress.update("COMPLETED", "RFQ qualification completed successfully", 100)
+
+            return {
+                "decision": decision,
+                "run_record": run_record,
+                "total_tokens": total_tokens,
+                "candidate_text": rendered,
+            }
+
+        except Exception as exc:
+            # Report failure to the Hangfire job before re-raising.
+            # The percent reflects approximately where in the pipeline the error occurred.
+            await progress.update("FAILED", f"Qualification failed: {exc}", 60)
+            raise
 
     async def handle(
         self,
@@ -213,6 +247,8 @@ class FtlQualifierAgent:
         candidate_text = job.get("candidate_text")
         raw_text = job.get("raw_text") or (message if not file_bytes and not filepath and not candidate_text else None)
         model = job.get("model")
+        ap_agent_job_id = str(job.get("apAgentJobId") or job.get("ap_agent_job_id") or "").strip() or None
+        ezofis = kwargs.get("ezofis")
 
         try:
             res = await self.qualify(
@@ -224,6 +260,8 @@ class FtlQualifierAgent:
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
                 tenant_id=job.get("tenant_id"),
+                ap_agent_job_id=ap_agent_job_id,
+                ezofis=ezofis,
             )
             run_rec = res["run_record"]
             reply_md = format_decision_markdown(run_rec)
