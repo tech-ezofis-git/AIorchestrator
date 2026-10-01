@@ -130,6 +130,57 @@ def test_parse_definition_json_strips_fences():
 
 
 class _FakeLLM:
+    def __init__(self, content: str, *, fail_first: bool = False):
+        self._content = content
+        self._fail_first = fail_first
+        self.calls = 0
+
+    async def chat_completion(self, messages, **overrides):
+        self.calls += 1
+        if self._fail_first and self.calls == 1:
+            from app.llm.adapter import LLMAdapterError
+
+            raise LLMAdapterError(
+                "The language model provider timed out. Try another model preset in the console."
+            )
+        return {"content": self._content, "usage": None}
+
+
+@pytest.mark.asyncio
+async def test_generate_prompt_retries_fallback_on_timeout(monkeypatch):
+    llm = _FakeLLM("Recovered prompt text", fail_first=True)
+    service = ReportAgentService(llm_adapter=llm)
+    schema = _schema()
+
+    async def fake_schema(db):
+        return schema
+
+    async def fake_db(tenant_id):
+        return object()
+
+    async def fake_presets(tenant_id, model=None):
+        return {"model": "primary-model"}, {"model": "fallback-model"}
+
+    monkeypatch.setattr("app.report_agent.service.get_database_schema", fake_schema)
+    monkeypatch.setattr(service, "_resolve_db", fake_db)
+    monkeypatch.setattr(service, "_resolve_llm_presets", fake_presets)
+    monkeypatch.setattr(
+        "app.report_agent.service.report_system_prompt",
+        AsyncMock(return_value="system"),
+    )
+
+    resp = await service.generate_prompt(
+        GeneratePromptRequest(
+            report_type="all_workflows",
+            description="Awaiting for your action",
+            tenant_id="tenant-1",
+        )
+    )
+    assert llm.calls == 2
+    assert "Recovered prompt text" in resp.report_prompt
+
+
+class _FakeLLMSimple:
     def __init__(self, content: str):
         self._content = content
 
@@ -153,7 +204,7 @@ class _FakeDb:
 
 @pytest.mark.asyncio
 async def test_generate_prompt_uses_llm(monkeypatch):
-    service = ReportAgentService(llm_adapter=_FakeLLM("Report objective\nData sources\ninbox_aaaaaaaa"))
+    service = ReportAgentService(llm_adapter=_FakeLLMSimple("Report objective\nData sources\ninbox_aaaaaaaa"))
     schema = _schema()
 
     async def fake_schema(db):
@@ -183,7 +234,7 @@ async def test_generate_prompt_uses_llm(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_report_empty_on_bad_definition(monkeypatch):
     service = ReportAgentService(
-        llm_adapter=_FakeLLM('{"title":"X","sources":[],"columns":[],"joins":[],"filters":[],"groupBy":[],"orderBy":[],"availableFilters":[],"summary":{},"warnings":["none"]}')
+        llm_adapter=_FakeLLMSimple('{"title":"X","sources":[],"columns":[],"joins":[],"filters":[],"groupBy":[],"orderBy":[],"availableFilters":[],"summary":{},"warnings":["none"]}')
     )
     schema = _schema()
 
@@ -229,7 +280,7 @@ async def test_run_report_executes_locked_sql(monkeypatch):
     }
     import json
 
-    service = ReportAgentService(llm_adapter=_FakeLLM(json.dumps(definition)))
+    service = ReportAgentService(llm_adapter=_FakeLLMSimple(json.dumps(definition)))
     schema = _schema()
     db = _FakeDb(rows=[{"name": "Invoice 1"}])
 

@@ -92,10 +92,14 @@ def scope_schema(
     *,
     workflow_name: Optional[str] = None,
     repository_name: Optional[str] = None,
-    max_tables: int = 40,
-    max_columns_per_table: int = 40,
+    max_tables: int = 18,
+    max_columns_per_table: int = 24,
 ) -> list[SchemaTableSlice]:
-    """Return an approved schema slice for the LLM (never invent)."""
+    """Return an approved schema slice for the LLM (never invent).
+
+    Defaults stay intentionally small so Phase 1/2 prompts fit within
+    typical provider timeouts (large tenant schemas were timing out).
+    """
     candidates: list[tuple[str, str, list[ColumnMeta]]] = []
     for schema_name, table in schema_obj.tables:
         if _is_plumbing(table):

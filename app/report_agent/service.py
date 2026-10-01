@@ -74,23 +74,29 @@ class ReportAgentService:
             return await self._tenant_pools.acquire(tid)
         return self._db_pool
 
-    async def _llm_overrides(
+    async def _resolve_llm_presets(
         self,
         tenant_id: Optional[str],
         model: Optional[str] = None,
-    ) -> dict[str, Any]:
-        overrides: dict[str, Any] = {}
+    ) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
+        """Return (primary_overrides, fallback_overrides) for chat_completion."""
         if model:
-            overrides["model"] = model
-            return overrides
+            return {"model": model}, None
         tid = (tenant_id or "").strip()
         if not tid or self._catalog_store is None:
-            return overrides
+            return {}, None
         resolved = await apply_tenant_agent_llm(self._catalog_store, tid, "report")
+        primary: dict[str, Any] = {}
         preset = resolved.get("overrides")
         if isinstance(preset, dict):
-            overrides.update({k: v for k, v in preset.items() if v is not None})
-        return overrides
+            primary.update({k: v for k, v in preset.items() if v is not None})
+        fallback = resolved.get("fallback_overrides")
+        if not isinstance(fallback, dict) or not fallback:
+            fallback = None
+        # Avoid retrying the exact same primary preset as "fallback"
+        if fallback and primary and fallback.get("model") == primary.get("model"):
+            fallback = None
+        return primary, fallback
 
     async def _chat(
         self,
@@ -102,17 +108,29 @@ class ReportAgentService:
     ) -> tuple[str, Optional[dict[str, Any]]]:
         if self._llm is None:
             raise RuntimeError("Report Agent LLM adapter is not configured.")
-        overrides = await self._llm_overrides(tenant_id, model)
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        primary, fallback = await self._resolve_llm_presets(tenant_id, model)
         try:
-            result = await self._llm.chat_completion(
-                [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                **overrides,
+            result = await self._llm.chat_completion(messages, **primary)
+        except LLMAdapterError as primary_exc:
+            if not fallback:
+                raise RuntimeError(f"Report Agent model call failed: {primary_exc}") from primary_exc
+            logger.warning(
+                "report_agent_llm_primary_failed_retrying_fallback",
+                extra={
+                    "error": str(primary_exc)[:200],
+                    "fallback_model": fallback.get("model"),
+                },
             )
-        except LLMAdapterError as exc:
-            raise RuntimeError(f"Report Agent model call failed: {exc}") from exc
+            try:
+                result = await self._llm.chat_completion(messages, **fallback)
+            except LLMAdapterError as fallback_exc:
+                raise RuntimeError(
+                    f"Report Agent model call failed (primary and fallback): {fallback_exc}"
+                ) from fallback_exc
         return str(result.get("content") or ""), result.get("usage")
 
     async def list_scope_options(
@@ -250,7 +268,7 @@ class ReportAgentService:
                     continue
                 seen.add(key)
                 deduped.append(t)
-            tables = deduped[:40]
+            tables = deduped[:18]
 
         schema_block = schema_slice_to_prompt_block(tables)
         system = await report_system_prompt(
