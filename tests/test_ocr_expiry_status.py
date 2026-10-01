@@ -75,6 +75,41 @@ def test_first_readable_expiry_field_is_renamed():
     assert out[2]["status"] == "Active · 10 years"
 
 
+def test_requested_document_status_is_filled_from_hidden_expiry(client, monkeypatch):
+    td3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
+    prompts = []
+
+    async def fake_completion(self, messages, **_kwargs):
+        prompts.append(messages[-1]["content"])
+        return {
+            "content": json.dumps({"ocrResult": [
+                {"name": "CustomerName", "value": "ANNA MARIA ERIKSSON", "type": "SHORT_TEXT"},
+                {"name": "DocumentStatus", "value": None, "type": "SINGLE_SELECT"},
+                {"name": "VerificationDate", "value": None, "type": "DATE"},
+                {"name": "Expiry Date", "value": "2021-04-15", "type": "DATE"},
+            ]}),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
+    params = json.dumps(["CustomerName,SHORT_TEXT", "DocumentStatus,SINGLE_SELECT", "VerificationDate,DATE"])
+    response = client.post(
+        "/chat",
+        data={"session_id": "s-docstatus", "intent": "ocr", "pageno": "1", "parameters": params, "tableparameters": "[]"},
+        files={"file": ("passport.txt", f"PASSPORT\n{td3}\n".encode(), "text/plain")},
+    )
+
+    assert response.status_code == 200, response.text
+    fields = response.json()["ocr_result"]["ocrResult"]
+    assert [f["name"] for f in fields] == ["CustomerName", "DocumentStatus", "VerificationDate"]
+    status = fields[1]
+    # The check-digit-verified MRZ expiry wins over the model's reading.
+    assert status["value"] == "2012-04-15"
+    assert status["type"] == "SINGLE_SELECT"
+    assert status["status"].startswith("Expired · ")
+    assert "Expiry Date" in prompts[0]
+
+
 def test_chat_ocr_adds_status_to_expiry_field(client, monkeypatch):
     td3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
 

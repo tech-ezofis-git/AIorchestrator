@@ -16,7 +16,8 @@ Pick the single best repository from that list. Return ONLY valid JSON:
   "repository_id": "uuid-from-the-list",
   "repository_name": "Exact name from the list",
   "candidates": [
-    {"repository_id": "uuid-from-the-list", "repository_name": "Exact name", "score": 81.0}
+    {"repository_id": "uuid-from-the-list", "repository_name": "Exact name", "score": 81.0,
+     "matched_fields": ["Field name from that repo's list"]}
   ]
 }
 ```

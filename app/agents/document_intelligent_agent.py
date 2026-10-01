@@ -222,7 +222,7 @@ def _result(
     has_text = bool((body.get("ocr_text") or "").strip())
     if not has_text:
         reply = _FAIL_REPLY
-    elif body.get("repository_id") or body.get("candidates"):
+    elif body.get("candidates"):
         reply = _SUCCESS_REPLY
     else:
         reply = _NO_MATCH_REPLY

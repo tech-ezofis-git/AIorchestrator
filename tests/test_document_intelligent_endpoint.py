@@ -15,8 +15,7 @@ _CATALOG = [
     },
 ]
 _LOCKED = {
-    "repository_id",
-    "repository_name",
+    "keywords",
     "candidates",
     "ocr_text",
 }
@@ -64,6 +63,7 @@ def _assert_locked(payload: dict):
     assert _LOCKED <= set(payload)
     assert "rationale" not in payload
     assert "confidence_score" not in payload
+    assert "repository_id" not in payload and "repository_name" not in payload
     assert isinstance(payload["candidates"], list)
 
 
@@ -88,8 +88,8 @@ def test_document_intelligent_from_ocr_text(client, monkeypatch):
     assert body["reply"] == "Document repository inferred successfully."
     result = body["document_intelligent_result"]
     _assert_locked(result)
-    assert result["repository_id"] == _REPO
-    assert result["repository_name"] == "Shipping Agency Files"
+    assert result["candidates"][0]["repository_id"] == _REPO
+    assert result["candidates"][0]["repository_name"] == "Shipping Agency Files"
     assert result["candidates"][0]["rationale"] == "This document has Vessel details that match Shipping Agency Files."
     assert "BL-99" in result["ocr_text"]
     assert body["classification_result"] is None
@@ -143,8 +143,7 @@ def test_document_intelligent_rejects_unknown_repo(client, monkeypatch):
     assert response.status_code == 200, response.text
     body = response.json()
     result = body["document_intelligent_result"]
-    assert result["repository_id"] is None
-    assert result["repository_name"] is None
+    assert result["candidates"] == []
     assert "rationale" not in result
     assert body["reply"] == "This document doesn't match any of your folders."
 
@@ -173,6 +172,12 @@ def test_rationale_lines_name_the_shared_details():
     )
 
     assert "rationale" not in result
+    assert [c["keywords"] for c in result["candidates"]] == [
+        ["Bill of Lading", "Shipper", "Receiver Name", "Freight Charge", "Vessel"],
+        ["Freight Charge"],
+        [],
+    ]
+    assert result["keywords"] == ["Bill of Lading", "Shipper", "Receiver Name", "Freight Charge", "Vessel"]
     assert [c["rationale"] for c in result["candidates"]] == [
         "This document has Bill of Lading, Shipper and Receiver Name details that match Shipping Agency.",
         "This document has Freight Charge details that match Freight Billing.",
@@ -192,13 +197,43 @@ def test_no_match_still_suggests_closest_folders():
     text = "Invoice Number: 42\nDue Date: 2026-10-01\nTotal: 900\nShipped by vessel"
     result = locked_payload(ocr_text=text, catalog=catalog, confidence_score=30, candidates=[])
 
-    assert result["repository_id"] is None
+    assert "repository_id" not in result
     assert "confidence_score" not in result
     assert [c["repository_name"] for c in result["candidates"]] == ["Invoices", "Shipping Agency"]
     assert all(c["score"] < 55 for c in result["candidates"])
     assert result["candidates"][0]["rationale"] == (
         "This document has Invoice Number, Due Date and Total details that match Invoices."
     )
+
+
+def test_score_agrees_with_rationale_for_non_english_text():
+    from app.document_intelligent_skills.lock import locked_payload
+
+    catalog = [
+        {"repository_id": _REPO, "repository_name": "Shipping Agency Files",
+         "fields": ["Vessel", "IMO Number", "ETA", "ETD"]},
+        {"repository_id": "22222222-2222-2222-2222-222222222222", "repository_name": "FTL",
+         "fields": ["Company Name", "Order Number"]},
+    ]
+    text = "نموذج استفسار عن رسو السفينة\nاسم السفينة: MV Sea Horizon\nرقم IMO 9648712\nETA 03 June\nETD 04 June"
+    result = locked_payload(
+        ocr_text=text,
+        catalog=catalog,
+        confidence_score=85,
+        repository_id=_REPO,
+        candidates=[
+            {"repository_id": "22222222-2222-2222-2222-222222222222", "score": 70, "matched_fields": ["Invented"]},
+            {"repository_id": _REPO, "score": 85, "matched_fields": ["Vessel", "imo number", "Not A Field"]},
+        ],
+    )
+
+    shipping, ftl = result["candidates"]
+    assert shipping["repository_name"] == "Shipping Agency Files"
+    assert shipping["keywords"] == ["ETA", "ETD", "Vessel", "IMO Number"]
+    assert shipping["rationale"] == "This document has ETA, ETD and Vessel details that match Shipping Agency Files."
+    assert ftl["keywords"] == []
+    assert ftl["score"] == 30.0
+    assert "shares no specific details" in ftl["rationale"]
 
 
 def test_store_loads_fields_from_repository_fields_table():
@@ -230,6 +265,7 @@ def test_empty_text_has_no_candidates():
 
     result = locked_payload(ocr_text="", catalog=_CATALOG)
     assert result["candidates"] == []
+    assert result["keywords"] == []
     assert "rationale" not in result
 
 
@@ -251,5 +287,5 @@ def test_document_intelligent_multipart(client, monkeypatch):
     assert response.status_code == 200, response.text
     result = response.json()["document_intelligent_result"]
     _assert_locked(result)
-    assert result["repository_id"] == _REPO
+    assert result["candidates"][0]["repository_id"] == _REPO
     assert result["source_reference"] == "note.pdf"

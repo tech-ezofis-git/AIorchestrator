@@ -23,10 +23,19 @@ from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import resolve_preset_overrides
 from app.llm.runtime_models import RuntimeModelSelection
-from app.ocr_skills.expiry_status import apply_expiry_status
+from app.ocr_skills.expiry_status import (
+    apply_expiry_status,
+    document_expiry,
+    fill_status_field,
+    is_expiry_field,
+    same_field_name,
+)
 from app.ocr_skills.extract_fields import run as extract_fields_skill
 
 logger = logging.getLogger("orchestrator.ocr_agent")
+
+# Asked of the model, never returned, when a status field is requested without an expiry field.
+_HIDDEN_EXPIRY_FIELD = "Expiry Date"
 
 
 class OcrAgent:
@@ -172,12 +181,18 @@ class OcrAgent:
         overrides = dict(job.get("llm_overrides") or {})
         fallback_overrides = job.get("llm_fallback_overrides")
 
+        status_name = (settings.ocr_expiry_field_name or "").strip()
+        requested = [name for name, _ in parse_parameter_entries(parameters)]
+        fill_status = bool(status_name) and any(same_field_name(n, status_name) for n in requested)
+        hide_expiry = fill_status and not any(is_expiry_field(n) for n in requested)
+        llm_parameters = [*parameters, f"{_HIDDEN_EXPIRY_FIELD},DATE"] if hide_expiry else parameters
+
         try:
             synthesized = await extract_fields_skill(
                 llm=self._llm_for_skill(),
                 instruction=instruction,
                 ocr_text=model_text,
-                parameters=parameters,
+                parameters=llm_parameters,
                 tableparameters=tableparameters,
                 page_label=pages.label(),
                 max_recommended_fields=settings.ocr_max_recommended_fields,
@@ -191,7 +206,7 @@ class OcrAgent:
             synthesized = await self._structure_with_fallback(
                 instruction=instruction,
                 ocr_text=model_text,
-                parameters=parameters,
+                parameters=llm_parameters,
                 tableparameters=tableparameters,
                 page_label=pages.label(),
                 primary_overrides=overrides,
@@ -200,11 +215,15 @@ class OcrAgent:
                 fallback_overrides=fallback_overrides,
             )
 
-        fields = apply_expiry_status(
-            apply_mrz_to_fields(synthesized["ocrResult"], mrz),
-            today=_today(settings.ocr_expiry_timezone),
-            rename_to=(settings.ocr_expiry_field_name or "").strip() or None,
-        )
+        today = _today(settings.ocr_expiry_timezone)
+        fields = apply_mrz_to_fields(synthesized["ocrResult"], mrz)
+        if fill_status:
+            expiry = document_expiry(fields, mrz)
+            if hide_expiry:
+                fields = [f for f in fields if not same_field_name(f.get("name"), _HIDDEN_EXPIRY_FIELD)]
+            fields = fill_status_field(apply_expiry_status(fields, today=today), name=status_name, expiry=expiry, today=today)
+        else:
+            fields = apply_expiry_status(fields, today=today, rename_to=status_name or None)
         table_result = synthesized.get("tableResult")
         usage = synthesized.get("usage") or {}
         body = _locked_body(

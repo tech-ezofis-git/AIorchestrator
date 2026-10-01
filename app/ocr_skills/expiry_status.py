@@ -40,6 +40,40 @@ def apply_expiry_status(
     return out
 
 
+def same_field_name(a: Any, b: Any) -> bool:
+    """"DocumentStatus", "Document Status" and "document_status" are the same field."""
+    return _name_key(a) == _name_key(b) != ""
+
+
+def document_expiry(fields: list[dict[str, Any]], mrz: Optional[dict[str, Any]]) -> Optional[str]:
+    """The document's expiry date: a check-digit-verified MRZ date first, else the first readable expiry field."""
+    if mrz and (mrz.get("valid") or (mrz.get("checks") or {}).get("expiry_date")):
+        if _parse_date(mrz.get("expiry_date")):
+            return mrz["expiry_date"]
+    for field in fields:
+        if isinstance(field, dict) and is_expiry_field(str(field.get("name") or "")) and _parse_date(field.get("value")):
+            return str(field["value"]).strip()
+    return None
+
+
+def fill_status_field(
+    fields: list[dict[str, Any]], *, name: str, expiry: Optional[str], today: date
+) -> list[dict[str, Any]]:
+    """Set a requested status field (e.g. "DocumentStatus") to the expiry date plus its status."""
+    out = []
+    for field in fields:
+        if isinstance(field, dict) and same_field_name(field.get("name"), name):
+            field = {**field, **expiry_status(expiry, today=today)}
+            if expiry:
+                field["value"] = expiry
+        out.append(field)
+    return out
+
+
+def _name_key(name: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
 def expiry_status(value: Any, *, today: date) -> dict[str, Any]:
     """{"status": "Active · 10 years" / "Expired · 8 years"}; None when the value is unreadable."""
     expiry = _parse_date(value)

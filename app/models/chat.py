@@ -811,8 +811,9 @@ class ChatResponse(BaseModel):
     document_intelligent_result: Optional[dict[str, Any]] = Field(
         default=None,
         description=(
-            "Document Intelligent output — repository_id, repository_name, "
-            "candidates (each with a score and a one-line rationale), ocr_text "
+            "Document Intelligent output — "
+            "keywords (all candidates' matched fields), candidates (each with a score, "
+            "a one-line rationale and its own keywords), ocr_text "
             "(plus source_reference). "
             "`reply` is a short status line."
         ),

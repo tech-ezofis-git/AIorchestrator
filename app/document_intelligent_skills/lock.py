@@ -10,7 +10,7 @@ import re
 from typing import Any, Optional
 
 from app.dashboard.ids import normalize_guid
-from app.document_intelligent_skills.rules import MIN_CONFIDENCE
+from app.document_intelligent_skills.rules import MIN_CONFIDENCE, NO_EVIDENCE_MAX_SCORE
 from app.summary_skills.lock import loads_json_object, normalize_json_text
 
 _MAX_DETAILS = 3
@@ -73,8 +73,18 @@ def _all_matched_details(fields: list[str], text: str) -> list[str]:
     return [label for _, label in sorted(found)]
 
 
-def _matched_details(fields: list[str], text: str) -> list[str]:
-    return _all_matched_details(fields, text)[:_MAX_DETAILS]
+def _model_matched_details(fields: list[str], named: Any) -> list[str]:
+    """Field names the model reported for this folder, kept only when they are real fields of it."""
+    by_key = {key.replace(" ", ""): (field, words) for key, (field, words) in _usable_fields(fields).items()}
+    out: list[str] = []
+    for name in named if isinstance(named, list) else []:
+        key = re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+        if key in by_key:
+            field, words = by_key[key]
+            label = _detail_label(field, words)
+            if label not in out:
+                out.append(label)
+    return out
 
 
 def _name_in_text(name: str, text: str) -> bool:
@@ -131,12 +141,10 @@ def _join(items: list[str]) -> str:
     return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
 
 
-def _folder_rationale(folder: dict[str, Any], text: str) -> str:
-    """One line on why `folder` fits this document, built from the details they share."""
-    details = _matched_details(folder.get("fields") or [], text)
-    name = folder["repository_name"]
-    if details:
-        return f"This document has {_join(details)} details that match {name}."
+def _folder_rationale(name: str, keywords: list[str]) -> str:
+    """One line on why the folder fits this document, built from the details they share."""
+    if keywords:
+        return f"This document has {_join(keywords[:_MAX_DETAILS])} details that match {name}."
     return f"This document shares no specific details with {name}; it was suggested from its overall content."
 
 
@@ -172,6 +180,7 @@ def _candidates_from(value: Any, catalog_index: dict[str, dict[str, Any]]) -> li
                 "repository_id": hit["repository_id"],
                 "repository_name": hit["repository_name"],
                 "score": _coerce_confidence(item.get("score", item.get("confidence_score", 0.0))),
+                "_model_fields": item.get("matched_fields"),
             }
         )
         if len(out) >= _MAX_CANDIDATES:
@@ -194,8 +203,7 @@ def locked_payload(
     hit = _lookup(catalog_index, repository_id, repository_name) if catalog_index else None
     if not text:
         return {
-            "repository_id": None,
-            "repository_name": None,
+            "keywords": [],
             "candidates": [],
             "ocr_text": ocr_text or "",
         }
@@ -218,10 +226,23 @@ def locked_payload(
         ranked.extend(extra[: _MIN_SUGGESTIONS - len(ranked)])
     for candidate in ranked:
         folder = _lookup(catalog_index, candidate["repository_id"], candidate["repository_name"])
-        candidate["rationale"] = _folder_rationale(folder, text)
+        fields = folder.get("fields") or []
+        found = _all_matched_details(fields, text)
+        found += [k for k in _model_matched_details(fields, candidate.pop("_model_fields", None)) if k not in found]
+        candidate["rationale"] = _folder_rationale(folder["repository_name"], found)
+        candidate["keywords"] = found
+        if not found:
+            candidate["score"] = min(candidate["score"], NO_EVIDENCE_MAX_SCORE)
+    ranked.sort(key=lambda c: -c["score"])
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for candidate in ranked:
+        for keyword in candidate["keywords"]:
+            if keyword.lower() not in seen:
+                seen.add(keyword.lower())
+                keywords.append(keyword)
     return {
-        "repository_id": hit["repository_id"] if hit else None,
-        "repository_name": hit["repository_name"] if hit else None,
+        "keywords": keywords,
         "candidates": ranked,
         "ocr_text": ocr_text or "",
     }
