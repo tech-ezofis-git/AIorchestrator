@@ -180,8 +180,9 @@ def format_quote_markdown(quote: Dict[str, Any], estimate_number: str) -> str:
 class FtlQuoteEstimatorAgent:
     """Agent that extracts RFQ specifications and calculates priced quotes with HTML/PDF rendering."""
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, ezofis: Any = None, **kwargs: Any) -> None:
         os.makedirs(PDF_DIR, exist_ok=True)
+        self._ezofis = ezofis or kwargs.get("ezofis")
 
     async def _text_from_attachment(self, filename: str, content: bytes) -> str:
         att_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -383,8 +384,22 @@ class FtlQuoteEstimatorAgent:
         quote_input = job.get("quote_result")
         form_data = job.get("form_data")
         template_json = job.get("template_json")
-        ap_agent_job_id = str(job.get("apAgentJobId") or job.get("ap_agent_job_id") or "").strip() or None
-        ezofis = kwargs.get("ezofis")
+        raw_job_id = (
+            job.get("ap_agent_job_id")
+            or job.get("apAgentJobId")
+            or job.get("apJobId")
+            or job.get("job_id")
+            or job.get("jobId")
+            or job.get("JobId")
+        )
+        ap_agent_job_id = str(raw_job_id).strip() if raw_job_id else None
+        tenant_id = (
+            job.get("tenant_id")
+            or job.get("tenantId")
+            or job.get("tenantid")
+            or job.get("TenantId")
+        )
+        ezofis = kwargs.get("ezofis") or self._ezofis
 
         if template_json or (form_data and not (quote_input or file_bytes or filepath or candidate_text or qualifier_result)):
             if not isinstance(template_json, dict) or not template_json:
@@ -442,7 +457,7 @@ class FtlQuoteEstimatorAgent:
                 template_type=template_type,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
-                tenant_id=job.get("tenant_id"),
+                tenant_id=tenant_id,
                 ap_agent_job_id=ap_agent_job_id,
                 ezofis=ezofis,
             )

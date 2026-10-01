@@ -298,6 +298,19 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("tenant_id", "tenantId", "tenantid", "TenantId"),
         description="Tenant UUID. Required for relative blob filepath (container ezts{tenantid}).",
     )
+    ap_agent_job_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ap_agent_job_id",
+            "apAgentJobId",
+            "ap_job_id",
+            "apJobId",
+            "job_id",
+            "jobId",
+            "JobId",
+        ),
+        description="Hangfire AP Agent / FTL job progress identifier.",
+    )
     query: Optional[str] = Field(
         default=None,
         description=(

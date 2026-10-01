@@ -53,8 +53,8 @@ class FtlJobProgressReporter:
         self._ezofis = ezofis
         self._job_id = str(job_id or "").strip()
         self._tenant_id = str(tenant_id or "").strip()
-        # Enabled only when both identifiers are present.
-        self.enabled = bool(self._job_id and self._tenant_id)
+        # Enabled only when ezofis client, job ID, and tenant ID are all present.
+        self.enabled = bool(self._job_id and self._tenant_id and self._ezofis is not None)
 
     async def update(self, stage: str, message: str, percent: int) -> None:
         """Send a single progress PATCH.
@@ -63,6 +63,10 @@ class FtlJobProgressReporter:
         swallowed so the calling agent can continue unimpeded.
         """
         if not self.enabled:
+            if self._job_id and not self._tenant_id:
+                logger.info("ftl_job_progress_skipped_missing_tenant_id", extra={"job_id": self._job_id})
+            elif self._job_id and self._ezofis is None:
+                logger.warning("ftl_job_progress_skipped_no_ezofis_client", extra={"job_id": self._job_id, "tenant_id": self._tenant_id})
             return
         try:
             await self._ezofis.report_ap_agent_job_progress(

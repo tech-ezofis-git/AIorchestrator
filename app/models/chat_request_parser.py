@@ -84,7 +84,20 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or _form_str(form.get("quote_template_type"))
     )
     model = _form_str(form.get("model"))
-    tenant_id = _form_str(form.get("tenant_id"))
+    tenant_id = (
+        _form_str(form.get("tenant_id"))
+        or _form_str(form.get("tenantId"))
+        or _form_str(form.get("tenantid"))
+        or _form_str(form.get("TenantId"))
+    )
+    ap_agent_job_id = (
+        _form_str(form.get("ap_agent_job_id"))
+        or _form_str(form.get("apAgentJobId"))
+        or _form_str(form.get("apJobId"))
+        or _form_str(form.get("job_id"))
+        or _form_str(form.get("jobId"))
+        or _form_str(form.get("JobId"))
+    )
     form_id = (
         _form_str(form.get("form_id"))
         or _form_str(form.get("formid"))
@@ -195,6 +208,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     payload = None
     has_ap_fields = bool(
         tenant_id
+        or ap_agent_job_id
         or item_id
         or skills_raw is not None
         or skills
@@ -260,6 +274,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             tableparameters=tableparameters,
             model=model,
             tenant_id=tenant_id,
+            ap_agent_job_id=ap_agent_job_id,
             query=query,
             workspace_id=workspace_id,
             action_from=action_from,

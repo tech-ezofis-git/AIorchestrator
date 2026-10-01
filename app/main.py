@@ -589,8 +589,8 @@ async def lifespan(app: FastAPI):
     )
     audit_store = AuditStore(db_pool)
 
-    ftl_qualifier_agent = FtlQualifierAgent()
-    ftl_quote_estimator_agent = FtlQuoteEstimatorAgent()
+    ftl_qualifier_agent = FtlQualifierAgent(ezofis=ezofis_client)
+    ftl_quote_estimator_agent = FtlQuoteEstimatorAgent(ezofis=ezofis_client)
 
     agent_router = AgentRouter(chat_agent)
     agent_router.register(Intent.SEARCH, search_agent.handle)
@@ -2543,7 +2543,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "candidate_text": p.candidate_text if p else None,
             "raw_text": p.ocr_text if p else None,
             "model": p.model if p else None,
-            "tenant_id": p.tenant_id if p else None,
+            "tenant_id": (p.tenant_id if p else None) or request.headers.get("x-tenant-id") or request.headers.get("X-Tenant-Id"),
+            "ap_agent_job_id": (getattr(p, "ap_agent_job_id", None) if p else None) or request.headers.get("x-job-id") or request.headers.get("X-Job-Id"),
         }
     elif intent == Intent.FTL_QUOTE_ESTIMATOR:
         p = payload.payload
@@ -2559,7 +2560,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "template_json": p.template_json if p else None,
             "template_type": (p.template_type if p else None) or "inflow",
             "model": p.model if p else None,
-            "tenant_id": p.tenant_id if p else None,
+            "tenant_id": (p.tenant_id if p else None) or request.headers.get("x-tenant-id") or request.headers.get("X-Tenant-Id"),
+            "ap_agent_job_id": (getattr(p, "ap_agent_job_id", None) if p else None) or request.headers.get("x-job-id") or request.headers.get("X-Job-Id"),
         }
     has_invoice_json = bool(payload.payload and payload.payload.invoice_json)
     has_item_id = bool(payload.payload and (payload.payload.item_id or "").strip())
@@ -2790,6 +2792,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 message=message,
                 history=history,
                 document_job=document_job,
+                ezofis=getattr(request.app.state, "ezofis_client", None),
             )
     except ApRunInProgressError as exc:
         # More specific than ValueError (its own base) — must be caught
