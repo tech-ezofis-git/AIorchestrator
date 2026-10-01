@@ -203,6 +203,7 @@ class OcrAgent:
         fields = apply_expiry_status(
             apply_mrz_to_fields(synthesized["ocrResult"], mrz),
             today=_today(settings.ocr_expiry_timezone),
+            rename_to=(settings.ocr_expiry_field_name or "").strip() or None,
         )
         table_result = synthesized.get("tableResult")
         usage = synthesized.get("usage") or {}
