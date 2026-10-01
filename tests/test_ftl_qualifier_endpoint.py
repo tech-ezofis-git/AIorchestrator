@@ -347,3 +347,101 @@ def test_power_supply_with_phrase_without_operator_never_triggers_qualify_overri
     assert "auto_overridden_ambiguous_item_qualify_threshold" not in (overridden.get("flags") or [])
 
 
+def test_qualifier_progress_reporting_direct_endpoint(client, monkeypatch):
+    mock_decision = {
+        "qualify": "qualify",
+        "project_type": "modernization",
+        "matched_items": [],
+        "excluded_items": [],
+        "flags": [],
+        "deadline": None,
+        "project_name": "Progress Test",
+        "reasoning": "Progress test reasoning",
+        "confidence": 0.9,
+    }
+    monkeypatch.setattr(
+        "app.ftl.qualifier.agent.run_qualification",
+        lambda skill, candidate_text, llm_overrides=None: (mock_decision, 100),
+    )
+
+    reported_stages = []
+
+    async def fake_report(self, *, tenant_id, job_id, stage, message, percent):
+        reported_stages.append({"tenant_id": tenant_id, "job_id": job_id, "stage": stage, "percent": percent})
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.report_ap_agent_job_progress",
+        fake_report,
+    )
+
+    res = client.post(
+        "/api/ftl/qualify",
+        json={
+            "tenant_id": "tenant-xyz",
+            "apAgentJobId": "hangfire-job-qual-99",
+            "candidate_text": "Supply 1 Wittur Door Operator",
+        },
+    )
+    assert res.status_code == 200
+    assert len(reported_stages) >= 5
+    percents = [s["percent"] for s in reported_stages]
+    assert 20 in percents
+    assert 40 in percents
+    assert 60 in percents
+    assert 80 in percents
+    assert 100 in percents
+    assert all(s["job_id"] == "hangfire-job-qual-99" for s in reported_stages)
+    assert all(s["tenant_id"] == "tenant-xyz" for s in reported_stages)
+
+
+def test_qualifier_progress_reporting_chat_pipeline(client, monkeypatch):
+    mock_decision = {
+        "qualify": "qualify",
+        "project_type": "modernization",
+        "matched_items": [],
+        "excluded_items": [],
+        "flags": [],
+        "deadline": None,
+        "project_name": "Progress Chat Test",
+        "reasoning": "Progress chat test reasoning",
+        "confidence": 0.9,
+    }
+    monkeypatch.setattr(
+        "app.ftl.qualifier.agent.run_qualification",
+        lambda skill, candidate_text, llm_overrides=None: (mock_decision, 100),
+    )
+
+    reported_stages = []
+
+    async def fake_report(self, *, tenant_id, job_id, stage, message, percent):
+        reported_stages.append({"tenant_id": tenant_id, "job_id": job_id, "stage": stage, "percent": percent})
+        return {"ok": True}
+
+    monkeypatch.setattr(
+        "app.integrations.ezofis_client.EzofisClient.report_ap_agent_job_progress",
+        fake_report,
+    )
+
+    res = client.post(
+        "/chat",
+        json={
+            "session_id": "session-qual-progress",
+            "intent": "ftl_qualifier",
+            "payload": {
+                "tenantId": "tenant-chat-1",
+                "apAgentJobId": "hangfire-chat-qual-42",
+                "candidate_text": "Supply 1 Wittur Door Operator",
+            },
+        },
+    )
+    assert res.status_code == 200
+    assert len(reported_stages) >= 5
+    percents = [s["percent"] for s in reported_stages]
+    assert 20 in percents
+    assert 100 in percents
+    assert all(s["job_id"] == "hangfire-chat-qual-42" for s in reported_stages)
+    assert all(s["tenant_id"] == "tenant-chat-1" for s in reported_stages)
+
+
+

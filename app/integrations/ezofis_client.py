@@ -864,23 +864,48 @@ class EzofisClient:
             "percent": max(0, min(100, int(percent))),
         }
         if not self._live_enabled():
+            logger.info(
+                "ezofis_job_progress_mocked",
+                extra={
+                    "job_id": job_id_val,
+                    "stage": stage,
+                    "percent": percent,
+                    "hint": "Set EZOFIS_LOGIN_EMAIL and EZOFIS_LOGIN_PASSWORD to send live progress updates.",
+                },
+            )
             return {"ok": True, "mock": True, "job_id": job_id_val, **body}
         try:
             headers = await self._auth_headers(tenant_id)
             url = f"{self._base()}/workflows/ap-agent/jobs/{job_id_val}/progress"
             async with httpx.AsyncClient(timeout=self._cfg().ezofis_timeout_seconds) as client:
                 response = await client.patch(url, headers=headers, json=body)
+                if response.status_code == 404:
+                    # Retry with /Workflows casing in case reverse proxy or route is case-sensitive
+                    alt_url = f"{self._base()}/Workflows/ap-agent/jobs/{job_id_val}/progress"
+                    if alt_url != url:
+                        alt_resp = await client.patch(alt_url, headers=headers, json=body)
+                        if alt_resp.status_code in (200, 204):
+                            return {"ok": True}
                 if response.status_code not in (200, 204):
                     logger.warning(
                         "ezofis_job_progress_failed",
-                        extra={"status_code": response.status_code, "job_id": job_id_val},
+                        extra={
+                            "status_code": response.status_code,
+                            "job_id": job_id_val,
+                            "url": url,
+                            "detail": (response.text or "")[:300],
+                        },
                     )
                     return {"ok": False, "status_code": response.status_code}
                 return {"ok": True}
         except Exception as exc:
             logger.warning(
                 "ezofis_job_progress_error",
-                extra={"error_type": type(exc).__name__, "job_id": job_id_val},
+                extra={
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "job_id": job_id_val,
+                },
             )
             return {"ok": False}
 

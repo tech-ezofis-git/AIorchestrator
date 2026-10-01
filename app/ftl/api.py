@@ -84,8 +84,25 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
         cand_text = form.get("candidate_text") if isinstance(form.get("candidate_text"), str) else None
         r_text = form.get("raw_text") if isinstance(form.get("raw_text"), str) else None
         m_override = form.get("model") if isinstance(form.get("model"), str) else None
-        tenant_id = form.get("tenant_id") if isinstance(form.get("tenant_id"), str) else None
-        ap_agent_job_id = form.get("apAgentJobId") if isinstance(form.get("apAgentJobId"), str) else None
+        raw_tenant = (
+            form.get("tenant_id")
+            or form.get("tenantId")
+            or form.get("TenantId")
+            or request.headers.get("x-tenant-id")
+            or request.headers.get("X-Tenant-Id")
+        )
+        tenant_id = str(raw_tenant).strip() if raw_tenant else None
+        raw_job = (
+            form.get("apAgentJobId")
+            or form.get("ap_agent_job_id")
+            or form.get("apJobId")
+            or form.get("jobId")
+            or form.get("job_id")
+            or form.get("JobId")
+            or request.headers.get("x-job-id")
+            or request.headers.get("X-Job-Id")
+        )
+        ap_agent_job_id = str(raw_job).strip() if raw_job else None
     else:
         try:
             body = await request.json()
@@ -98,9 +115,22 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
             cand_text = body.get("candidate_text")
             r_text = body.get("raw_text") or body.get("message")
             m_override = body.get("model")
-            tenant_id = body.get("tenant_id") if isinstance(body.get("tenant_id"), str) else None
-            # apAgentJobId arrives camelCase; snake_keys() converts it to ap_agent_job_id
-            ap_agent_job_id = body.get("ap_agent_job_id") if isinstance(body.get("ap_agent_job_id"), str) else None
+            raw_tenant = (
+                body.get("tenant_id")
+                or body.get("tenantid")
+                or request.headers.get("x-tenant-id")
+                or request.headers.get("X-Tenant-Id")
+            )
+            tenant_id = str(raw_tenant).strip() if raw_tenant else None
+            raw_job = (
+                body.get("ap_agent_job_id")
+                or body.get("ap_job_id")
+                or body.get("job_id")
+                or body.get("jobid")
+                or request.headers.get("x-job-id")
+                or request.headers.get("X-Job-Id")
+            )
+            ap_agent_job_id = str(raw_job).strip() if raw_job else None
             b64_bytes = body.get("file_bytes")
             if b64_bytes and isinstance(b64_bytes, str):
                 import base64
@@ -218,8 +248,25 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
         if isinstance(tpl_val, str) and tpl_val.strip():
             tpl_type = tpl_val.strip()
         m_override = form.get("model") if isinstance(form.get("model"), str) else None
-        tenant_id = form.get("tenant_id") if isinstance(form.get("tenant_id"), str) else None
-        ap_agent_job_id = form.get("apAgentJobId") if isinstance(form.get("apAgentJobId"), str) else None
+        raw_tenant = (
+            form.get("tenant_id")
+            or form.get("tenantId")
+            or form.get("TenantId")
+            or request.headers.get("x-tenant-id")
+            or request.headers.get("X-Tenant-Id")
+        )
+        tenant_id = str(raw_tenant).strip() if raw_tenant else None
+        raw_job = (
+            form.get("apAgentJobId")
+            or form.get("ap_agent_job_id")
+            or form.get("apJobId")
+            or form.get("jobId")
+            or form.get("job_id")
+            or form.get("JobId")
+            or request.headers.get("x-job-id")
+            or request.headers.get("X-Job-Id")
+        )
+        ap_agent_job_id = str(raw_job).strip() if raw_job else None
     else:
         try:
             body = await request.json()
@@ -234,9 +281,22 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
             qualifier_result = _qualifier_result_from(body.get("qualifier_result"))
             tpl_type = body.get("template_type") or tpl_type
             m_override = body.get("model")
-            tenant_id = body.get("tenant_id") if isinstance(body.get("tenant_id"), str) else None
-            # apAgentJobId arrives camelCase; snake_keys() converts it to ap_agent_job_id
-            ap_agent_job_id = body.get("ap_agent_job_id") if isinstance(body.get("ap_agent_job_id"), str) else None
+            raw_tenant = (
+                body.get("tenant_id")
+                or body.get("tenantid")
+                or request.headers.get("x-tenant-id")
+                or request.headers.get("X-Tenant-Id")
+            )
+            tenant_id = str(raw_tenant).strip() if raw_tenant else None
+            raw_job = (
+                body.get("ap_agent_job_id")
+                or body.get("ap_job_id")
+                or body.get("job_id")
+                or body.get("jobid")
+                or request.headers.get("x-job-id")
+                or request.headers.get("X-Job-Id")
+            )
+            ap_agent_job_id = str(raw_job).strip() if raw_job else None
             b64_bytes = body.get("file_bytes")
             if b64_bytes and isinstance(b64_bytes, str):
                 import base64

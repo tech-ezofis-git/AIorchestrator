@@ -92,8 +92,8 @@ def format_decision_markdown(run: Dict[str, Any]) -> str:
 class FtlQualifierAgent:
     """Agent that extracts RFQ specifications and qualifies whether FTL can bid."""
 
-    def __init__(self, **kwargs: Any) -> None:
-        pass
+    def __init__(self, ezofis: Any = None, **kwargs: Any) -> None:
+        self._ezofis = ezofis or kwargs.get("ezofis")
 
     async def _text_from_attachment(self, filename: str, content: bytes) -> str:
         att_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -247,8 +247,22 @@ class FtlQualifierAgent:
         candidate_text = job.get("candidate_text")
         raw_text = job.get("raw_text") or (message if not file_bytes and not filepath and not candidate_text else None)
         model = job.get("model")
-        ap_agent_job_id = str(job.get("apAgentJobId") or job.get("ap_agent_job_id") or "").strip() or None
-        ezofis = kwargs.get("ezofis")
+        raw_job_id = (
+            job.get("ap_agent_job_id")
+            or job.get("apAgentJobId")
+            or job.get("apJobId")
+            or job.get("job_id")
+            or job.get("jobId")
+            or job.get("JobId")
+        )
+        ap_agent_job_id = str(raw_job_id).strip() if raw_job_id else None
+        tenant_id = (
+            job.get("tenant_id")
+            or job.get("tenantId")
+            or job.get("tenantid")
+            or job.get("TenantId")
+        )
+        ezofis = kwargs.get("ezofis") or self._ezofis
 
         try:
             res = await self.qualify(
@@ -259,7 +273,7 @@ class FtlQualifierAgent:
                 raw_text=raw_text,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
-                tenant_id=job.get("tenant_id"),
+                tenant_id=tenant_id,
                 ap_agent_job_id=ap_agent_job_id,
                 ezofis=ezofis,
             )
@@ -273,7 +287,7 @@ class FtlQualifierAgent:
                 "run_record": run_rec,
             }
         except Exception as exc:
-            logger.exception("ftl_qualifier_error")
+            logger.exception("ftl_qualifier_error", extra={"error": str(exc), "error_type": type(exc).__name__})
             return {
                 "reply": f"### ⚠️ Qualification Failed\n\n{str(exc)}",
                 "usage": None,
