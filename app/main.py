@@ -132,13 +132,15 @@ from app.ftl.api import router as ftl_router
 from app.agents.global_search_agent import GlobalSearchAgent
 from app.agents.chatbot_agent import ChatbotAgent
 from app.agents.dashboard_agent import DashboardAgent
+from app.agents.report_agent import ReportAgent
 from app.report_agent import ReportAgentService
 from app.models.report_agent import (
     GeneratePromptRequest,
     GeneratePromptResponse,
-    GenerateReportPlanRequest,
-    GenerateReportPlanResponse,
-    ReportAgentTemplate,
+    ReportTypeInfo,
+    RunReportRequest,
+    RunReportResponse,
+    ScopeOption,
 )
 from app.config import get_settings
 from app.dashboard.llm import configure_dashboard_llm
@@ -575,7 +577,10 @@ async def lifespan(app: FastAPI):
         tenant_pools=tenant_pools,
         db_pool=db_pool,
         catalog_store=catalog_store,
+        llm_adapter=llm_adapter,
+        settings=settings,
     )
+    report_agent = ReportAgent(report_agent_service)
 
     rate_limiter = RateLimiter(
         redis_client,
@@ -602,6 +607,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.GLOBAL_SEARCH, global_search_agent.handle)
     agent_router.register(Intent.CHATBOT, chatbot_agent.handle)
     agent_router.register(Intent.DASHBOARD, dashboard_agent.handle)
+    agent_router.register(Intent.REPORT, report_agent.handle)
     agent_router.register(Intent.FTL_QUALIFIER, ftl_qualifier_agent.handle)
     agent_router.register(Intent.FTL_QUOTE_ESTIMATOR, ftl_quote_estimator_agent.handle)
 
@@ -928,18 +934,37 @@ async def ez_data_import(request: Request, payload: DataImportRequest) -> dict:
         raise
 
 
-@app.get("/api/report-agent/templates", response_model=list[ReportAgentTemplate])
-async def list_report_templates(request: Request) -> list[ReportAgentTemplate]:
-    """Return the 10 supported business report templates."""
+@app.get("/api/report-agent/types", response_model=list[ReportTypeInfo])
+async def list_report_types(request: Request) -> list[ReportTypeInfo]:
+    """Return extensible Report Builder type registry."""
     service: ReportAgentService = request.app.state.report_agent_service
-    return service.get_supported_templates()
+    return service.list_types()
+
+
+@app.get("/api/report-agent/scope-options", response_model=list[ScopeOption])
+async def list_report_scope_options(
+    request: Request,
+    scope: str,
+    tenant_id: Optional[str] = Query(None, alias="tenantId"),
+) -> list[ScopeOption]:
+    """List workflow or repository names for Report Builder pickers."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        return await service.list_scope_options(scope=scope, tenant_id=tenant_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_agent_scope_options_failed")
+        raise HTTPException(status_code=500, detail="Failed to list scope options.") from exc
 
 
 @app.post("/api/report-agent/generate-prompt", response_model=GeneratePromptResponse)
 async def generate_report_prompt(
     request: Request, payload: GeneratePromptRequest
 ) -> GeneratePromptResponse:
-    """Dynamic Report Agent prompt generation from live database metadata discovery."""
+    """Phase 1: Primary Model generates an executable report prompt from Report Builder input."""
     service: ReportAgentService = request.app.state.report_agent_service
     try:
         return await service.generate_prompt(payload)
@@ -952,45 +977,21 @@ async def generate_report_prompt(
         raise HTTPException(status_code=500, detail="Failed to generate report prompt.") from exc
 
 
-@app.post(
-    "/api/report-agent/generate-report-plan",
-    response_model=GenerateReportPlanResponse,
-    openapi_extra={
-        "requestBody": {
-            "required": True,
-            "content": {
-                "application/json": {
-                    "schema": GenerateReportPlanRequest.model_json_schema(
-                        ref_template="#/components/schemas/{model}"
-                    ),
-                    "examples": {
-                        "prompt": {
-                            "summary": "Dynamic Report Prompt with Tenant ID",
-                            "value": {
-                                "prompt": "string",
-                                "tenantId": "string"
-                            },
-                        }
-                    },
-                }
-            },
-        }
-    },
-)
-async def generate_report_plan(
-    request: Request, payload: GenerateReportPlanRequest
-) -> GenerateReportPlanResponse:
-    """Generate structured Report Plan, safe SQL query, live database data preview, and validation."""
+@app.post("/api/report-agent/run", response_model=RunReportResponse)
+async def run_report(
+    request: Request, payload: RunReportRequest
+) -> RunReportResponse:
+    """Phase 2: Primary Model interprets reportPrompt; app validates and runs read-only SQL."""
     service: ReportAgentService = request.app.state.report_agent_service
     try:
-        return await service.generate_report_plan(payload)
+        return await service.run_report(payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("report_agent_plan_failed")
-        raise HTTPException(status_code=500, detail=f"Failed to generate report plan: {str(exc)}") from exc
+        logger.exception("report_agent_run_failed")
+        raise HTTPException(status_code=500, detail=f"Failed to run report: {exc}") from exc
 
 
 @app.get("/console", response_class=HTMLResponse)
@@ -1148,6 +1149,8 @@ _PACK_CONSOLE_AGENTS = frozenset(
         "dashboard-data",
         "ftl_qualifier",
         "ftl_quote_estimator",
+        "report-prompt",
+        "report-run",
     }
 )
 
@@ -2513,6 +2516,24 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "workflow_name": getattr(p, "workflow_name", None) if p else None,
             "phase": getattr(p, "phase", None) if p else None,
         }
+    elif intent == Intent.REPORT:
+        p = payload.payload
+        document_job = {
+            "tenant_id": p.tenant_id if p else None,
+            "phase": getattr(p, "phase", None) if p else None,
+            "report_type": getattr(p, "report_type", None) if p else None,
+            "description": getattr(p, "description", None) if p else None,
+            "workflow_name": getattr(p, "workflow_name", None) if p else None,
+            "repository_name": getattr(p, "repository_name", None) if p else None,
+            "report_prompt": getattr(p, "report_prompt", None) if p else None,
+            "prompt": getattr(p, "prompt", None) if p else None,
+            "filters": getattr(p, "filters", None) if p else None,
+            "page": getattr(p, "page", None) if p else None,
+            "page_size": getattr(p, "page_size", None) if p else None,
+            "sort": getattr(p, "sort", None) if p else None,
+            "include_debug": getattr(p, "include_debug", None) if p else None,
+            "model": p.model if p else None,
+        }
     elif intent == Intent.FTL_QUALIFIER:
         p = payload.payload
         document_job = {
@@ -2862,6 +2883,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         global_search_result=result.get("global_search_result"),
         chatbot_result=result.get("chatbot_result"),
         dashboard_result=result.get("dashboard_result"),
+        report_result=result.get("report_result"),
         html=result.get("html"),
         qualifier_result=result.get("qualifier_result"),
         quote_result=result.get("quote_result"),

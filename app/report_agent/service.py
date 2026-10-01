@@ -1,46 +1,69 @@
-"""Report Agent service — orchestrates schema discovery, prompt generation, report planning, and data execution."""
+"""Report Agent service — Phase 1 prompt generation + Phase 2 LLM interpret + safe execute."""
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Optional
 
+from app.catalog.tenant_llm import apply_tenant_agent_llm
+from app.llm.adapter import LLMAdapter, LLMAdapterError
 from app.models.report_agent import (
-    DataQuery,
-    DiscoveredField,
-    DiscoveredSchemaSummary,
+    AvailableFilterOut,
     GeneratePromptRequest,
     GeneratePromptResponse,
-    GenerateReportPlanRequest,
-    GenerateReportPlanResponse,
-    ReportAgentTemplate,
-    ReportData,
-    ReportValidation,
+    ReportColumnOut,
+    ReportTypeInfo,
+    RunReportRequest,
+    RunReportResponse,
+    ScopeOption,
 )
-from app.report_agent.data_service import execute_report_query, sample_table_values, verify_table_accessible
-from app.report_agent.field_discovery import find_relevant_fields
+from app.report_agent.data_service import execute_report_query
+from app.report_agent.definition_lock import lock_report_definition, parse_definition_json
+from app.report_agent.definition_sql import generate_definition_sql
 from app.report_agent.metadata_service import get_database_schema
-from app.report_agent.planner import create_report_plan
-from app.report_agent.prompt_generator import generate_dynamic_prompt
-from app.report_agent.prompt_parser import compile_prompt_intent, parse_prompt_metadata
-from app.report_agent.report_validator import validate_report_data
-from app.report_agent.sql_generator import generate_sql
+from app.report_agent.pack import report_system_prompt
+from app.report_agent.report_types import (
+    get_report_type,
+    list_report_types,
+    validate_report_type_input,
+)
+from app.report_agent.schema_scope import (
+    resolve_scope_options,
+    schema_slice_to_prompt_block,
+    scope_schema,
+)
 from app.report_agent.sql_validator import validate_read_only_sql
-from app.report_agent.templates import get_template, list_templates
 
 logger = logging.getLogger("orchestrator.report_agent")
 
+_FALLBACK_PROMPT_SYSTEM = (
+    "You are the EZOFIS Report Agent Phase 1. Return executable report prompt text only. "
+    "Never invent schema. Never write SQL."
+)
+_FALLBACK_RUN_SYSTEM = (
+    "You are the EZOFIS Report Agent Phase 2. Return locked reportDefinition JSON only. "
+    "Never invent schema. Never write SQL."
+)
+
 
 class ReportAgentService:
-    """Orchestrates database metadata discovery, dynamic prompts, report plans, and query execution."""
-
-    def __init__(self, tenant_pools: Any = None, db_pool: Any = None, catalog_store: Any = None):
+    def __init__(
+        self,
+        tenant_pools: Any = None,
+        db_pool: Any = None,
+        catalog_store: Any = None,
+        llm_adapter: Optional[LLMAdapter] = None,
+        settings: Any = None,
+    ):
         self._tenant_pools = tenant_pools
         self._db_pool = db_pool
         self._catalog_store = catalog_store
+        self._llm = llm_adapter
+        self._settings = settings
 
-    def get_supported_templates(self) -> list[ReportAgentTemplate]:
-        return list_templates()
+    def list_types(self) -> list[ReportTypeInfo]:
+        return list_report_types()
 
     async def _resolve_db(self, tenant_id: Optional[str]) -> Any:
         tid = (tenant_id or "").strip()
@@ -51,320 +74,394 @@ class ReportAgentService:
             return await self._tenant_pools.acquire(tid)
         return self._db_pool
 
+    async def _llm_overrides(
+        self,
+        tenant_id: Optional[str],
+        model: Optional[str] = None,
+    ) -> dict[str, Any]:
+        overrides: dict[str, Any] = {}
+        if model:
+            overrides["model"] = model
+            return overrides
+        tid = (tenant_id or "").strip()
+        if not tid or self._catalog_store is None:
+            return overrides
+        resolved = await apply_tenant_agent_llm(self._catalog_store, tid, "report")
+        preset = resolved.get("overrides")
+        if isinstance(preset, dict):
+            overrides.update({k: v for k, v in preset.items() if v is not None})
+        return overrides
+
+    async def _chat(
+        self,
+        *,
+        system: str,
+        user: str,
+        tenant_id: Optional[str],
+        model: Optional[str],
+    ) -> tuple[str, Optional[dict[str, Any]]]:
+        if self._llm is None:
+            raise RuntimeError("Report Agent LLM adapter is not configured.")
+        overrides = await self._llm_overrides(tenant_id, model)
+        try:
+            result = await self._llm.chat_completion(
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                **overrides,
+            )
+        except LLMAdapterError as exc:
+            raise RuntimeError(f"Report Agent model call failed: {exc}") from exc
+        return str(result.get("content") or ""), result.get("usage")
+
+    async def list_scope_options(
+        self,
+        *,
+        scope: str,
+        tenant_id: Optional[str],
+    ) -> list[ScopeOption]:
+        db = await self._resolve_db(tenant_id)
+        if db is None:
+            raise RuntimeError("Unable to access database metadata: No active database pool.")
+        schema = await get_database_schema(db)
+        return resolve_scope_options(schema, scope)
+
     async def generate_prompt(self, request: GeneratePromptRequest) -> GeneratePromptResponse:
         t0 = time.perf_counter()
-        template_id = (request.template_id or "").strip().lower()
-        template = get_template(template_id)
-        if template is None:
-            logger.warning(
-                "report_agent_unsupported_template",
-                extra={"template_id": request.template_id},
-            )
-            raise ValueError(f"Unsupported report template '{request.template_id}'.")
-
-        # Resolve DB connection / pool
+        rt = validate_report_type_input(
+            report_type=request.report_type,
+            workflow_name=request.workflow_name,
+            repository_name=request.repository_name,
+            description=request.description,
+            require_description=True,
+        )
         db = await self._resolve_db(request.tenant_id)
         if db is None:
-            logger.error("report_agent_db_unavailable", extra={"template_id": template.id})
             raise RuntimeError("Unable to access database metadata: No active database pool.")
-
-        # 1. Database metadata discovery
-        schema_t0 = time.perf_counter()
-        try:
-            schema = await get_database_schema(db)
-        except Exception as exc:
-            logger.error(
-                "report_agent_schema_discovery_failed",
-                extra={
-                    "template_id": template.id,
-                    "error_type": type(exc).__name__,
-                    "error": str(exc)[:200],
-                },
-            )
-            raise RuntimeError(f"Unable to access database metadata: {type(exc).__name__}") from exc
-        schema_duration_ms = round((time.perf_counter() - schema_t0) * 1000, 2)
-
-        # 2. Relevant field discovery
-        disc_t0 = time.perf_counter()
-        discovered_tables, discovered_fields, missing_fields = find_relevant_fields(template, schema)
-        disc_duration_ms = round((time.perf_counter() - disc_t0) * 1000, 2)
-
-        # 3. Dynamic prompt generation
-        prompt_t0 = time.perf_counter()
-        prompt_text = generate_dynamic_prompt(
-            template,
-            discovered_tables,
-            discovered_fields,
-            missing_fields,
+        schema = await get_database_schema(db)
+        tables = scope_schema(
+            schema,
+            rt,
+            workflow_name=request.workflow_name,
+            repository_name=request.repository_name,
         )
-        prompt_duration_ms = round((time.perf_counter() - prompt_t0) * 1000, 2)
-        total_duration_ms = round((time.perf_counter() - t0) * 1000, 2)
-
-        # 4. Structured logging
+        schema_block = schema_slice_to_prompt_block(tables)
+        system = await report_system_prompt(
+            "prompt",
+            tenant_id=request.tenant_id,
+            settings=self._settings,
+            fallback=_FALLBACK_PROMPT_SYSTEM,
+        )
+        user_payload = {
+            "reportType": rt.key,
+            "description": (request.description or "").strip(),
+            "workflowName": (request.workflow_name or "").strip() or None,
+            "repositoryName": (request.repository_name or "").strip() or None,
+        }
+        user = (
+            "Build an executable report-generation prompt for Phase 2.\n\n"
+            f"Input:\n{json.dumps(user_payload, indent=2)}\n\n"
+            f"{schema_block}\n"
+        )
+        content, _usage = await self._chat(
+            system=system,
+            user=user,
+            tenant_id=request.tenant_id,
+            model=request.model,
+        )
+        prompt_text = (content or "").strip()
+        if prompt_text.startswith("```"):
+            prompt_text = prompt_text.strip("`")
+            if prompt_text.lower().startswith("text"):
+                prompt_text = prompt_text[4:].lstrip()
+        warnings: list[str] = []
+        if not tables:
+            warnings.append("No schema tables matched this report type/scope.")
+        if not prompt_text:
+            raise RuntimeError("Model returned an empty report prompt.")
+        title = (request.description or "").strip() or rt.name
+        duration_ms = round((time.perf_counter() - t0) * 1000, 2)
         logger.info(
             "report_agent_prompt_generated",
             extra={
-                "templateId": template.id,
-                "template_title": template.title,
-                "database_discovery_duration_ms": schema_duration_ms,
-                "field_discovery_duration_ms": disc_duration_ms,
-                "prompt_generation_duration_ms": prompt_duration_ms,
-                "total_duration_ms": total_duration_ms,
-                "tables_discovered_count": len(discovered_tables),
-                "fields_discovered_count": len(discovered_fields),
-                "missing_fields_count": len(missing_fields),
-                "discovered_tables": discovered_tables,
+                "report_type": rt.key,
+                "tables": len(tables),
+                "duration_ms": duration_ms,
             },
         )
-
         return GeneratePromptResponse(
-            template_id=template.id,
-            title=template.title,
-            domain=template.domain,
-            discovered_tables=discovered_tables,
-            discovered_fields=discovered_fields,
-            missing_fields=missing_fields,
-            prompt=prompt_text,
+            report_type=rt.key,
+            title=title,
+            report_prompt=prompt_text,
+            warnings=warnings,
+            schema_tables=[
+                f"{t.schema_name + '.' if t.schema_name else ''}{t.table}" for t in tables
+            ],
+            duration_ms=duration_ms,
         )
 
-    async def generate_report_plan(
-        self,
-        request: GenerateReportPlanRequest,
-    ) -> GenerateReportPlanResponse:
-        """Phase 2: Inspect schema & data, build ReportPlan, generate safe SQL, execute, and validate."""
+    async def run_report(self, request: RunReportRequest) -> RunReportResponse:
         t0 = time.perf_counter()
-        # Extract template ID or title from request or prompt
-        t_ident = (request.template_id or "").strip()
-        prompt_title, prompt_tables, prompt_fields = parse_prompt_metadata(request.prompt or "")
+        prompt = (request.report_prompt or "").strip()
+        if not prompt:
+            raise ValueError("reportPrompt is required.")
 
-        template = None
-        if prompt_title:
-            template = get_template(prompt_title)
-        if template is None and t_ident:
-            template = get_template(t_ident)
-
-        if template is None:
-            logger.warning(
-                "report_agent_unsupported_template",
-                extra={"template_id": request.template_id, "prompt_title": prompt_title},
+        rt = None
+        if request.report_type:
+            rt = validate_report_type_input(
+                report_type=request.report_type,
+                workflow_name=request.workflow_name,
+                repository_name=request.repository_name,
+                description="run",
+                require_description=False,
             )
-            raise ValueError(f"Unsupported report template '{request.template_id or prompt_title}'.")
+        elif request.workflow_name or request.repository_name:
+            # infer type from scope params when omitted
+            if request.workflow_name:
+                rt = get_report_type("specific_workflow")
+            elif request.repository_name:
+                rt = get_report_type("specific_repository")
 
-        # Compile structured prompt intent from user prompt (business concepts, not SQL/identifiers)
-        prompt_intent = compile_prompt_intent(request.prompt or "", template_title=template.title)
-
-        # Resolve DB connection / pool
         db = await self._resolve_db(request.tenant_id)
-
-        # 1. Live database schema discovery
-        schema_t0 = time.perf_counter()
         if db is None:
-            raise RuntimeError("Unable to generate a report plan: no active database connection.")
-        try:
-            schema = await get_database_schema(db)
-        except Exception as exc:
-            logger.warning(
-                "report_agent_schema_discovery_failed",
-                extra={"template_id": template.id, "error": str(exc)[:200]},
-            )
-            raise RuntimeError("Unable to generate a report plan: live database schema discovery failed.") from exc
-        if not schema.tables:
-            raise RuntimeError("Unable to generate a report plan: live database schema contains no reportable tables.")
+            raise RuntimeError("Unable to access database: No active database pool.")
+        schema = await get_database_schema(db)
 
-        schema_duration_ms = round((time.perf_counter() - schema_t0) * 1000, 2)
-
-        # 2. Re-discover or validate fields against live schema
-        disc_tables, disc_fields, _ = find_relevant_fields(template, schema, max_tables=3)
-
-        # Prioritize prompt-specified tables if valid in live schema
-        candidate_tables: list[str] = []
-        for pt in prompt_intent.requested_tables:
-            pt_clean = pt.strip().replace('"', '')
-            for st in schema.tables:
-                st_ident = f"{st[0]}.{st[1]}" if st[0] != "public" else st[1]
-                if pt_clean.lower() in (st[1].lower(), f"{st[0]}.{st[1]}".lower()):
-                    if st_ident not in candidate_tables:
-                        candidate_tables.append(st_ident)
-        for dt in disc_tables:
-            if dt not in candidate_tables:
-                candidate_tables.append(dt)
-
-        # 3. Verify table accessibility and inspect actual data on live DB connection
-        accessible_tables: list[str] = []
-        if db is not None:
-            for t_cand in candidate_tables:
-                if await verify_table_accessible(db, t_cand):
-                    accessible_tables.append(t_cand)
-            if not accessible_tables:
-                raise RuntimeError("Unable to generate a report plan: no discovered report table is accessible.")
-            disc_tables = accessible_tables
-
-        primary_table = disc_tables[0] if disc_tables else (schema.tables[0][1] if schema.tables else "")
-
-        # Get all live columns for the primary table from schema
-        p_parts = primary_table.split(".")
-        p_schema = p_parts[0] if len(p_parts) > 1 else None
-        p_tbl = p_parts[-1]
-
-        live_cols = schema.get_columns_for_table(p_schema or "public", p_tbl)
-        if not live_cols and p_schema:
-            live_cols = schema.get_columns_for_table(None, p_tbl)
-        if not live_cols:
-            live_cols = [c for c in schema.all_columns if c.table.lower() == p_tbl.lower()]
-
-        live_col_map = {c.column.lower(): c for c in live_cols}
-
-        # Validate requested fields from prompt against live schema
-        req_fields = prompt_intent.requested_fields or [f.column for f in prompt_fields]
-        validated_fields: list[DiscoveredField] = []
-
-        if req_fields:
-            for rf in req_fields:
-                rf_clean = rf.strip().split(".")[-1].lower()
-                if rf_clean in live_col_map:
-                    c_meta = live_col_map[rf_clean]
-                    # Avoid duplicates
-                    if not any(vf.column.lower() == c_meta.column.lower() for vf in validated_fields):
-                        validated_fields.append(
-                            DiscoveredField(
-                                table=primary_table,
-                                column=c_meta.column,
-                                type=c_meta.data_type,
-                            )
-                        )
-                else:
-                    prompt_intent.warnings.append(
-                        f"Field '{rf}' specified in prompt was not found in table '{primary_table}'."
-                    )
-
-        if not validated_fields:
-            # Filter default discovered fields to accessible tables
-            acc_names = {t.lower() for t in accessible_tables} | {t.split(".")[-1].lower() for t in accessible_tables}
-            validated_fields = [
-                f for f in disc_fields
-                if f.table.lower() in acc_names or f.table.split(".")[-1].lower() in acc_names
-            ]
-            if not validated_fields:
-                validated_fields = disc_fields
-
-        col_names = [
-            f.column for f in validated_fields
-            if f.table.lower() == primary_table.lower() or f.table.split(".")[-1].lower() == primary_table.split(".")[-1].lower()
-        ]
-        if not col_names:
-            col_names = [f.column for f in validated_fields]
-
-        sample_t0 = time.perf_counter()
-        sampled_data = await sample_table_values(db, primary_table, col_names, limit=20) if db is not None else {}
-        sample_duration_ms = round((time.perf_counter() - sample_t0) * 1000, 2)
-
-        # 4. Generate ReportPlan
-        plan_t0 = time.perf_counter()
-        report_plan = create_report_plan(
-            template=template,
-            schema=schema,
-            discovered_tables=disc_tables,
-            discovered_fields=validated_fields,
-            sampled_values=sampled_data,
-            prompt_intent=prompt_intent,
-        )
-        plan_duration_ms = round((time.perf_counter() - plan_t0) * 1000, 2)
-
-        # 5. Generate and validate safe SQL
-        limit = request.limit or 50
-        sql = generate_sql(report_plan, limit=limit)
-        is_sql_valid, sql_errors = validate_read_only_sql(sql, schema=schema, allowed_tables=disc_tables)
-
-        if not is_sql_valid:
-            logger.error(
-                "report_agent_sql_validation_error",
-                extra={"template_id": template.id, "errors": sql_errors, "sql": sql},
-            )
-            # Re-generate minimal safe fallback SQL without calculations
-            report_plan.calculations = []
-            sql = generate_sql(report_plan, limit=limit)
-            is_sql_valid, sql_errors = validate_read_only_sql(sql, schema=schema, allowed_tables=disc_tables)
-
-        # 6. Execute SQL Query with retry loop (max 3 attempts)
-        report_data = ReportData()
-        exec_t0 = time.perf_counter()
-        exec_error: Optional[str] = None
-
-        for attempt in range(1, 4):
-            try:
-                report_data = await execute_report_query(db, sql, timeout_sec=15.0)
-                exec_error = None
-                break
-            except Exception as exc:
-                exec_error = str(exc)
-                logger.warning(
-                    "report_agent_query_attempt_failed",
-                    extra={"attempt": attempt, "error": str(exc)[:200], "sql": sql[:200]},
-                )
-                if attempt == 1 and report_plan.calculations:
-                    # Attempt 2: Remove complex expressions and retry
-                    report_plan.calculations = []
-                    sql = generate_sql(report_plan, limit=limit)
-                elif attempt == 2 and report_plan.filters:
-                    # Attempt 3: Remove complex filters and retry
-                    report_plan.filters = []
-                    sql = generate_sql(report_plan, limit=limit)
-
-        exec_duration_ms = round((time.perf_counter() - exec_t0) * 1000, 2)
-
-        # Ensure columns header is populated even if 0 rows returned
-        if not report_data.columns and report_plan.columns:
-            report_data.columns = [c.field for c in report_plan.columns] + [c.label for c in report_plan.calculations]
-
-        # 7. Validate returned data against plan
-        if exec_error:
-            validation = ReportValidation(
-                valid=False,
-                errors=[f"Query execution failed: {exec_error}"],
-                checks={"sql_safety": is_sql_valid, "execution_success": False},
+        if rt is not None:
+            tables = scope_schema(
+                schema,
+                rt,
+                workflow_name=request.workflow_name,
+                repository_name=request.repository_name,
             )
         else:
-            validation = validate_report_data(
-                report_plan=report_plan,
-                report_data=report_data,
-                sql_is_valid=is_sql_valid,
-                sql_errors=sql_errors if not is_sql_valid else None,
-            )
+            # broad slice when type omitted
+            from app.report_agent.report_types import REPORT_TYPES
 
-        if report_plan.warnings:
-            for w in report_plan.warnings:
-                if w not in validation.warnings:
-                    validation.warnings.append(w)
+            tables = scope_schema(schema, REPORT_TYPES["all_workflows"])
+            tables += scope_schema(schema, REPORT_TYPES["all_repositories"])
+            # de-dupe
+            seen: set[str] = set()
+            deduped = []
+            for t in tables:
+                key = f"{t.schema_name}.{t.table}".lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(t)
+            tables = deduped[:40]
 
-        total_duration_ms = round((time.perf_counter() - t0) * 1000, 2)
-
-        logger.info(
-            "report_agent_plan_generated",
-            extra={
-                "templateId": template.id,
-                "table": report_plan.source.table,
-                "row_count": report_data.row_count,
-                "is_valid": validation.valid,
-                "schema_duration_ms": schema_duration_ms,
-                "sample_duration_ms": sample_duration_ms,
-                "plan_duration_ms": plan_duration_ms,
-                "exec_duration_ms": exec_duration_ms,
-                "total_duration_ms": total_duration_ms,
-            },
+        schema_block = schema_slice_to_prompt_block(tables)
+        system = await report_system_prompt(
+            "run",
+            tenant_id=request.tenant_id,
+            settings=self._settings,
+            fallback=_FALLBACK_RUN_SYSTEM,
+        )
+        user_payload = {
+            "reportType": rt.key if rt else request.report_type,
+            "workflowName": (request.workflow_name or "").strip() or None,
+            "repositoryName": (request.repository_name or "").strip() or None,
+            "filters": request.filters or {},
+            "page": request.page,
+            "pageSize": request.page_size,
+            "sort": request.sort.model_dump() if request.sort else None,
+            "reportPrompt": prompt,
+        }
+        user = (
+            "Interpret the report prompt into locked reportDefinition JSON.\n\n"
+            f"Input:\n{json.dumps(user_payload, indent=2)}\n\n"
+            f"{schema_block}\n"
         )
 
-        return GenerateReportPlanResponse(
-            template_id=template.id,
-            report_plan=report_plan,
-            database_schema=DiscoveredSchemaSummary(
-                tables=disc_tables,
-                fields=validated_fields,
-            ),
-            data_query=DataQuery(
-                sql=sql,
-                read_only=True,
-                limit=limit,
-            ),
-            data=report_data,
-            validation=validation,
+        warnings: list[str] = []
+        try:
+            content, _usage = await self._chat(
+                system=system,
+                user=user,
+                tenant_id=request.tenant_id,
+                model=request.model,
+            )
+            raw_def = parse_definition_json(content)
+        except Exception as exc:
+            logger.warning("report_agent_run_llm_failed", extra={"error": str(exc)[:200]})
+            duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return RunReportResponse(
+                title="Report",
+                report_type=rt.key if rt else request.report_type,
+                columns=[],
+                rows=[],
+                total_count=0,
+                page=request.page,
+                page_size=request.page_size,
+                filters=[],
+                summary={},
+                warnings=[f"Model failed to produce a report definition: {exc}"],
+                duration_ms=duration_ms,
+            )
+
+        locked = lock_report_definition(
+            raw_def,
+            schema,
+            report_type=rt.key if rt else request.report_type,
+        )
+        warnings.extend(locked.get("warnings") or [])
+
+        if not locked.get("sources") or not locked.get("columns"):
+            duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return RunReportResponse(
+                title=str(locked.get("title") or "Report"),
+                report_type=locked.get("reportType"),
+                columns=[],
+                rows=[],
+                total_count=0,
+                page=request.page,
+                page_size=request.page_size,
+                filters=[AvailableFilterOut(**f) for f in locked.get("availableFilters") or [] if f.get("key")],
+                summary=locked.get("summary") or {},
+                warnings=warnings or ["No executable definition after schema lock."],
+                duration_ms=duration_ms,
+                debug={"definition": locked} if request.include_debug else None,
+            )
+
+        sort_field = request.sort.field if request.sort else None
+        sort_dir = request.sort.direction if request.sort else "asc"
+        try:
+            data_sql, count_sql = generate_definition_sql(
+                locked,
+                page=request.page,
+                page_size=request.page_size,
+                extra_filters=request.filters,
+                sort_field=sort_field,
+                sort_direction=sort_dir or "asc",
+            )
+        except ValueError as exc:
+            duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return RunReportResponse(
+                title=str(locked.get("title") or "Report"),
+                report_type=locked.get("reportType"),
+                columns=[],
+                rows=[],
+                total_count=0,
+                page=request.page,
+                page_size=request.page_size,
+                filters=[],
+                summary={},
+                warnings=warnings + [str(exc)],
+                duration_ms=duration_ms,
+                debug={"definition": locked} if request.include_debug else None,
+            )
+
+        allowed = [
+            f"{(s.get('schemaName') + '.') if s.get('schemaName') else ''}{s.get('table')}"
+            for s in locked.get("sources") or []
+        ]
+        ok, sql_errors = validate_read_only_sql(
+            data_sql,
+            schema=schema,
+            allowed_tables=allowed,
+            max_limit=500,
+        )
+        if not ok:
+            duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return RunReportResponse(
+                title=str(locked.get("title") or "Report"),
+                report_type=locked.get("reportType"),
+                columns=[],
+                rows=[],
+                total_count=0,
+                page=request.page,
+                page_size=request.page_size,
+                filters=[],
+                summary={},
+                warnings=warnings + sql_errors,
+                duration_ms=duration_ms,
+                debug={"definition": locked, "sql": data_sql, "sqlErrors": sql_errors}
+                if request.include_debug
+                else None,
+            )
+
+        try:
+            report_data = await execute_report_query(db, data_sql, timeout_sec=15.0)
+            total_count = report_data.row_count
+            try:
+                count_rows = await db.fetch(count_sql)
+                if count_rows:
+                    row0 = count_rows[0]
+                    total_count = int(row0["total"] if hasattr(row0, "keys") else row0[0])
+            except Exception as exc:
+                warnings.append(f"Count query failed; using page row count. ({exc})")
+                total_count = report_data.row_count
+        except Exception as exc:
+            duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return RunReportResponse(
+                title=str(locked.get("title") or "Report"),
+                report_type=locked.get("reportType"),
+                columns=[
+                    ReportColumnOut(key=c["key"], label=c.get("label") or c["key"])
+                    for c in locked.get("columns") or []
+                ],
+                rows=[],
+                total_count=0,
+                page=request.page,
+                page_size=request.page_size,
+                filters=[
+                    AvailableFilterOut(
+                        key=f.get("key") or "",
+                        label=f.get("label") or f.get("key") or "",
+                        field=f.get("field"),
+                        type=f.get("type") or "text",
+                    )
+                    for f in locked.get("availableFilters") or []
+                    if f.get("key")
+                ],
+                summary=locked.get("summary") or {},
+                warnings=warnings + [f"Query execution failed: {exc}"],
+                duration_ms=duration_ms,
+                debug={"definition": locked, "sql": data_sql} if request.include_debug else None,
+            )
+
+        duration_ms = round((time.perf_counter() - t0) * 1000, 2)
+        columns_out = [
+            ReportColumnOut(key=c["key"], label=c.get("label") or c["key"])
+            for c in locked.get("columns") or []
+        ]
+        # Prefer definition column order; fall back to query columns
+        if not columns_out and report_data.columns:
+            columns_out = [ReportColumnOut(key=c, label=c) for c in report_data.columns]
+
+        logger.info(
+            "report_agent_run_completed",
+            extra={
+                "report_type": locked.get("reportType"),
+                "rows": len(report_data.rows),
+                "total_count": total_count,
+                "duration_ms": duration_ms,
+            },
+        )
+        return RunReportResponse(
+            title=str(locked.get("title") or "Report"),
+            report_type=locked.get("reportType"),
+            columns=columns_out,
+            rows=report_data.rows,
+            total_count=total_count,
+            page=request.page,
+            page_size=request.page_size,
+            filters=[
+                AvailableFilterOut(
+                    key=f.get("key") or "",
+                    label=f.get("label") or f.get("key") or "",
+                    field=f.get("field"),
+                    type=f.get("type") or "text",
+                )
+                for f in locked.get("availableFilters") or []
+                if f.get("key")
+            ],
+            summary=locked.get("summary") or {},
+            warnings=warnings,
+            duration_ms=duration_ms,
+            debug={"definition": locked, "sql": data_sql, "countSql": count_sql}
+            if request.include_debug
+            else None,
         )

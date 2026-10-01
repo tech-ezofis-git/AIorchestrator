@@ -1,0 +1,13 @@
+---
+description: Phase 1 returns executable report prompt text only
+alwaysApply: true
+---
+
+# Output contract
+
+- Return plain text only: the executable report-generation prompt.
+- Do not wrap the prompt in markdown code fences.
+- Do not return JSON, SQL, YAML, or tool calls.
+- Do not add a preamble like "Here is the prompt:".
+- Do not include commentary after the prompt.
+- The prompt must be self-contained so Phase 2 can execute it with schema + tenant context.

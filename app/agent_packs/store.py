@@ -30,6 +30,8 @@ _PACK_AGENTS = (
     "dashboard-data",
     "ftl_qualifier",
     "ftl_quote_estimator",
+    "report-prompt",
+    "report-run",
 )
 
 

@@ -1,250 +1,146 @@
-"""Pydantic models for the Report Agent (Phase 1 Dynamic Prompt & Phase 2 Report Plan)."""
+"""Pydantic models for the rebuilt Report Agent (Phase 1 prompt + Phase 2 run)."""
 from __future__ import annotations
 
 from typing import Any, Optional
+
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
-class ReportAgentTemplate(BaseModel):
-    """Business-level definition of a report template (no database column names)."""
-
-    id: str
-    title: str
-    domain: str
+class ReportTypeInfo(BaseModel):
+    key: str
+    name: str
     description: str
+    scope: str  # workflows | repositories
+    required_params: list[str] = Field(default_factory=list, serialization_alias="requiredParams")
+    example_description: Optional[str] = Field(default=None, serialization_alias="exampleDescription")
 
 
-class DiscoveredField(BaseModel):
-    """A single database column discovered during schema inspection."""
+class ScopeOption(BaseModel):
+    id: str
+    name: str
 
-    table: str
-    column: str
+
+class SchemaColumnSlice(BaseModel):
+    name: str
     type: str
 
 
-class MissingField(BaseModel):
-    """A business field needed by a template that is absent from the schema."""
-
-    field: str
-    status: str = "missing"
-    reason: str = "No database field or calculable source was found."
+class SchemaTableSlice(BaseModel):
+    schema_name: Optional[str] = Field(default=None, serialization_alias="schemaName")
+    table: str
+    columns: list[SchemaColumnSlice] = Field(default_factory=list)
 
 
 class GeneratePromptRequest(BaseModel):
-    """Input payload when requesting dynamic prompt generation for a template."""
-
-    template_id: str = Field(
+    report_type: str = Field(
         ...,
-        validation_alias=AliasChoices("templateId", "template_id", "id"),
-        description="Template identifier (e.g. tpl-pending-workflow-requests).",
+        validation_alias=AliasChoices("reportType", "report_type", "type"),
     )
-    title: Optional[str] = Field(
+    description: str = Field(default="")
+    workflow_name: Optional[str] = Field(
         default=None,
-        description="Optional template title (will be loaded from template registry if omitted).",
+        validation_alias=AliasChoices("workflowName", "workflow_name"),
     )
-    domain: Optional[str] = Field(
+    repository_name: Optional[str] = Field(
         default=None,
-        description="Optional domain category (will be loaded from template registry if omitted).",
-    )
-    description: Optional[str] = Field(
-        default=None,
-        description="Optional description (will be loaded from template registry if omitted).",
+        validation_alias=AliasChoices("repositoryName", "repository_name"),
     )
     tenant_id: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("tenantId", "tenant_id", "TenantId"),
-        description="Optional tenant UUID for multi-tenant database connection.",
     )
+    model: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GeneratePromptResponse(BaseModel):
-    """Output payload with discovered schema and generated prompt."""
-
-    template_id: str = Field(..., serialization_alias="templateId")
+    report_type: str = Field(..., serialization_alias="reportType")
     title: str
-    domain: str
-    discovered_tables: list[str] = Field(default_factory=list, serialization_alias="discoveredTables")
-    discovered_fields: list[DiscoveredField] = Field(
-        default_factory=list, serialization_alias="discoveredFields"
-    )
-    missing_fields: list[MissingField] = Field(
-        default_factory=list, serialization_alias="missingFields"
-    )
-    prompt: str
-
-
-# --- Phase 2: Report Plan Models ---
-
-
-class BusinessFilter(BaseModel):
-    """A business-level filter extracted from prompt text."""
-
-    concept: str
-    operator: str = "="
-    value: Any = None
-    raw_text: Optional[str] = None
-
-
-class BusinessSort(BaseModel):
-    """A business-level sort criteria extracted from prompt text."""
-
-    concept: str
-    direction: str = "ASC"
-
-
-class PromptIntent(BaseModel):
-    """Structured business intent extracted from user prompt text."""
-
-    title: Optional[str] = None
-    description: Optional[str] = None
-    requested_tables: list[str] = Field(default_factory=list)
-    requested_fields: list[str] = Field(default_factory=list)
-    requested_filters: list[BusinessFilter] = Field(default_factory=list)
-    group_by_concepts: list[str] = Field(default_factory=list)
-    sort_concepts: list[BusinessSort] = Field(default_factory=list)
-    requested_calculations: list[str] = Field(default_factory=list)
+    report_prompt: str = Field(..., serialization_alias="reportPrompt")
     warnings: list[str] = Field(default_factory=list)
+    schema_tables: list[str] = Field(default_factory=list, serialization_alias="schemaTables")
+    duration_ms: Optional[float] = Field(default=None, serialization_alias="durationMs")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
-class ReportColumn(BaseModel):
-    """A column included in the report plan."""
-
+class ReportSortSpec(BaseModel):
     field: str
+    direction: str = "asc"
+
+
+class RunReportRequest(BaseModel):
+    report_prompt: str = Field(
+        ...,
+        validation_alias=AliasChoices("reportPrompt", "report_prompt", "prompt"),
+    )
+    report_type: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("reportType", "report_type", "type"),
+    )
+    workflow_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("workflowName", "workflow_name"),
+    )
+    repository_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("repositoryName", "repository_name"),
+    )
+    tenant_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("tenantId", "tenant_id", "TenantId"),
+    )
+    filters: dict[str, Any] = Field(default_factory=dict)
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(
+        default=25,
+        ge=1,
+        le=500,
+        validation_alias=AliasChoices("pageSize", "page_size", "limit"),
+    )
+    sort: Optional[ReportSortSpec] = None
+    model: Optional[str] = None
+    include_debug: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("includeDebug", "include_debug"),
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ReportColumnOut(BaseModel):
+    key: str
     label: str
-    type: str
-    format: Optional[str] = None
 
 
-class ReportFilter(BaseModel):
-    """A filter condition in the report plan."""
-
-    field: str
-    operator: str  # =, !=, IN, NOT IN, >, <, >=, <=, IS NULL, IS NOT NULL, LIKE, ILIKE, BETWEEN
-    value: Any
-
-
-class ReportCalculation(BaseModel):
-    """A calculated or aggregated field in the report plan."""
-
+class AvailableFilterOut(BaseModel):
+    key: str
     label: str
-    expression: str
+    field: Optional[str] = None
     type: str = "text"
 
 
-class ReportSort(BaseModel):
-    """Sort criteria in the report plan."""
-
-    field: str
-    direction: str = "ASC"  # ASC or DESC
-
-
-class ReportSource(BaseModel):
-    """Data source definition for the report plan."""
-
-    table: str
-    schema_name: Optional[str] = Field(default=None, serialization_alias="schemaName")
-    joins: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class ReportPlan(BaseModel):
-    """Structured report plan generated by the Report Agent."""
-
-    title: str
-    description: str
-    template_id: str = Field(..., serialization_alias="templateId")
-    source: ReportSource
-    columns: list[ReportColumn] = Field(default_factory=list)
-    filters: list[ReportFilter] = Field(default_factory=list)
-    calculations: list[ReportCalculation] = Field(default_factory=list)
-    group_by: list[str] = Field(default_factory=list, serialization_alias="groupBy")
-    order_by: list[ReportSort] = Field(default_factory=list, serialization_alias="orderBy")
-    status_rules: list[dict[str, Any]] = Field(default_factory=list, serialization_alias="statusRules")
-    warnings: list[str] = Field(default_factory=list)
-
-
-class DataQuery(BaseModel):
-    """Safe read-only query generated from the report plan."""
-
-    sql: str
-    read_only: bool = Field(default=True, serialization_alias="readOnly")
-    limit: int = 50
-
-
 class ReportData(BaseModel):
-    """Execution results returned by the database query."""
+    """Rows returned by execute_report_query (internal)."""
 
     row_count: int = Field(default=0, serialization_alias="rowCount")
     columns: list[str] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
-class ReportValidation(BaseModel):
-    """Validation report checking schema, SQL safety, and data integrity."""
-
-    valid: bool = True
-    errors: list[str] = Field(default_factory=list)
+class RunReportResponse(BaseModel):
+    title: str
+    report_type: Optional[str] = Field(default=None, serialization_alias="reportType")
+    columns: list[ReportColumnOut] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    total_count: int = Field(default=0, serialization_alias="totalCount")
+    page: int = 1
+    page_size: int = Field(default=25, serialization_alias="pageSize")
+    filters: list[AvailableFilterOut] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
-    checks: dict[str, bool] = Field(default_factory=dict)
+    duration_ms: Optional[float] = Field(default=None, serialization_alias="durationMs")
+    debug: Optional[dict[str, Any]] = None
 
-
-class DiscoveredSchemaSummary(BaseModel):
-    """Discovered schema container."""
-
-    tables: list[str] = Field(default_factory=list)
-    fields: list[DiscoveredField] = Field(default_factory=list)
-
-
-class GenerateReportPlanRequest(BaseModel):
-    """Input payload to generate a Report Plan and query live database data."""
-
-    prompt: Optional[str] = Field(
-        default=None,
-        description="Dynamic report prompt from Phase 1 containing Title and Discovered database schema.",
-    )
-    template_id: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("templateId", "template_id", "id"),
-        description="Optional template identifier (e.g. tpl-pending-workflow-requests) or title.",
-    )
-    discovered_schema: Optional[DiscoveredSchemaSummary] = Field(
-        default=None,
-        validation_alias=AliasChoices("discoveredSchema", "discovered_schema"),
-        description="Optional Phase 1 schema for client context. The server always re-discovers and validates fields from the live database before planning.",
-    )
-    tenant_id: Optional[str] = Field(
-        default=None,
-        validation_alias=AliasChoices("tenantId", "tenant_id", "TenantId"),
-        description="Optional tenant UUID for multi-tenant database connection.",
-    )
-    limit: Optional[int] = Field(
-        default=50,
-        ge=1,
-        le=500,
-        description="Maximum rows to fetch for report data preview (default 50).",
-    )
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "prompt": "string",
-                "tenantId": "string",
-            },
-            "examples": [
-                {
-                    "prompt": "string",
-                    "tenantId": "string",
-                }
-            ],
-        }
-    )
-
-
-class GenerateReportPlanResponse(BaseModel):
-    """Complete Phase 2 output: Report Plan + Safe SQL + Live Data + Validation."""
-
-    template_id: str = Field(..., serialization_alias="templateId")
-    report_plan: ReportPlan = Field(..., serialization_alias="reportPlan")
-    database_schema: DiscoveredSchemaSummary = Field(..., serialization_alias="databaseSchema")
-    data_query: DataQuery = Field(..., serialization_alias="dataQuery")
-    data: ReportData
-    validation: ReportValidation
+    model_config = ConfigDict(populate_by_name=True)

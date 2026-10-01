@@ -170,7 +170,42 @@ class DocumentPayload(BaseModel):
     workflow_name: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("workflow_name", "workflowName"),
-        description="Optional workflow label for dashboard prompt hinting.",
+        description="Optional workflow label for dashboard prompt hinting or Report Agent scope.",
+    )
+    report_type: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("report_type", "reportType"),
+        description="Report Agent type key: all_workflows | specific_workflow | all_repositories | specific_repository.",
+    )
+    report_prompt: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("report_prompt", "reportPrompt"),
+        description="Phase 1 generated prompt text for Report Agent phase=run.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Report Builder user description for Report Agent phase=prompt.",
+    )
+    page: Optional[int] = Field(default=None, ge=1, description="Report Agent page (phase=run).")
+    page_size: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=500,
+        validation_alias=AliasChoices("page_size", "pageSize"),
+        description="Report Agent page size (phase=run).",
+    )
+    filters: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Report Agent UI filters map (phase=run).",
+    )
+    sort: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Report Agent sort {field, direction} (phase=run).",
+    )
+    include_debug: Optional[bool] = Field(
+        default=None,
+        validation_alias=AliasChoices("include_debug", "includeDebug"),
+        description="Include Report Agent debug (definition/SQL) in report_result.",
     )
     pdf_json: Optional[Any] = Field(
         default=None,
@@ -855,6 +890,13 @@ class ChatResponse(BaseModel):
         description=(
             "Dashboard agent output via POST /chat intent=dashboard. "
             "phase=prompts | schema | data. Item rows are capped at 50."
+        ),
+    )
+    report_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Report Agent output via POST /chat intent=report. "
+            "phase=prompt returns reportPrompt; phase=run returns columns/rows/totalCount."
         ),
     )
     qualifier_result: Optional[dict[str, Any]] = Field(

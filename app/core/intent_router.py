@@ -60,6 +60,7 @@ class Intent(str, Enum):
     DOCUMENT_INTELLIGENT = "document_intelligent"
     FTL_QUALIFIER = "ftl_qualifier"
     FTL_QUOTE_ESTIMATOR = "ftl_quote_estimator"
+    REPORT = "report"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the
@@ -214,6 +215,14 @@ _MAIL_TRIGGERS = (
     "email to",
 )
 
+_REPORT_TRIGGERS = (
+    "generate report",
+    "build report",
+    "report agent",
+    "report builder",
+    "run report",
+)
+
 
 class IntentRouter:
     """Classifies free-text messages into one of the platform's Intents."""
@@ -267,6 +276,8 @@ class IntentRouter:
             return Intent.CHATBOT
         if any(trigger in normalized for trigger in _DASHBOARD_TRIGGERS):
             return Intent.DASHBOARD
+        if any(trigger in normalized for trigger in _REPORT_TRIGGERS):
+            return Intent.REPORT
         if any(trigger in normalized for trigger in _PDF_TRIGGERS):
             return Intent.PDF
         if any(trigger in normalized for trigger in _GLOBAL_SEARCH_TRIGGERS):

@@ -35,7 +35,7 @@ BUILTIN_AGENTS: list[dict[str, str]] = [
     {
         "slug": "report",
         "name": "Report Agent",
-        "description": "Discover live schema, plan SQL, and generate executive business reports.",
+        "description": "Report Builder: generate schema-grounded prompts and run read-only structured reports.",
     },
     {
         "slug": "ftl_qualifier",

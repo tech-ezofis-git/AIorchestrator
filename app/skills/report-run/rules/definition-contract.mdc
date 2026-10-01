@@ -1,0 +1,68 @@
+---
+description: Locked reportDefinition JSON shape for Phase 2
+alwaysApply: true
+---
+
+# Definition contract
+
+Return ONLY valid JSON with this shape:
+
+```json
+{
+  "title": "string",
+  "reportType": "all_workflows|specific_workflow|all_repositories|specific_repository",
+  "sources": [
+    {
+      "alias": "string",
+      "schemaName": "string|null",
+      "table": "string"
+    }
+  ],
+  "joins": [
+    {
+      "left": "alias.column",
+      "right": "alias.column",
+      "type": "inner|left"
+    }
+  ],
+  "columns": [
+    {
+      "key": "string",
+      "label": "string",
+      "source": "alias.column",
+      "aggregate": "none|count|sum|avg|min|max"
+    }
+  ],
+  "filters": [
+    {
+      "field": "alias.column",
+      "op": "eq|ne|gt|gte|lt|lte|in|like|is_null|not_null",
+      "value": null
+    }
+  ],
+  "groupBy": ["alias.column"],
+  "orderBy": [
+    {
+      "field": "alias.column|columnKey",
+      "direction": "asc|desc"
+    }
+  ],
+  "availableFilters": [
+    {
+      "key": "string",
+      "label": "string",
+      "field": "alias.column",
+      "type": "text|number|date|enum"
+    }
+  ],
+  "summary": {},
+  "warnings": ["string"]
+}
+```
+
+- Top-level keys must match this contract.
+- `columns` must be non-empty when the schema can support the request.
+- `aggregate` defaults to `none` when omitted conceptually; always emit it explicitly.
+- `joins`, `filters`, `groupBy`, `orderBy`, `availableFilters`, `summary`, and `warnings` may be empty arrays/objects but must be present.
+- Do not wrap JSON in markdown fences.
+- Do not emit SQL or extra keys.

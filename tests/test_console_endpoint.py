@@ -61,15 +61,17 @@ def test_console_serves_html(client):
     assert "dash-next-btn" in response.text
     assert "Next: Propose schema" in response.text
     assert "function renderDashboardResult" in response.text
-    assert "Report agent" in response.text
+    assert "Report agent" in response.text or "Report Builder" in response.text
     assert 'id="reportPanel"' in response.text
     assert 'id="reportPlanBtn"' in response.text
     assert 'id="reportPromptBtn"' in response.text
-    assert 'id="reportPlanRefreshBtn"' in response.text
+    assert 'id="reportTypeSelect"' in response.text
     assert 'id="reportPromptOverride"' in response.text
     assert 'id="reportPlanPreview"' in response.text
     assert "sendReportPlanJob" in response.text
     assert "sendReportPromptJob" in response.text
+    assert "loadReportTypes" in response.text
+    assert "/api/report-agent/run" in response.text
     assert 'id="cbPanel"' in response.text
     assert "intent: 'chatbot'" in response.text
     assert "function sendChatbotJob" in response.text

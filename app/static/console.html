@@ -2603,50 +2603,62 @@ vendor_validate</textarea>
     </details>
 
     <details class="ocr-panel" id="reportPanel" hidden>
-      <summary>Report Agent options</summary>
+      <summary>Report Builder options</summary>
       <div class="ocr-grid">
         <div class="span-all">
-          <label for="reportTemplateSelect">Template</label>
-          <select id="reportTemplateSelect"></select>
+          <label for="reportTypeSelect">Report Type</label>
+          <select id="reportTypeSelect"></select>
         </div>
-        <div class="span-all" id="reportTemplateInfo" style="padding:10px 14px;background:rgba(255,255,255,0.7);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:12px;line-height:1.45;">
-          <strong id="reportTemplateInfoTitle">Accounts Payable Aging</strong>
-          <span class="kind-pill" id="reportTemplateInfoDomain" style="margin-left:6px">Accounts Payable</span>
-          <div id="reportTemplateInfoDesc" style="color:var(--ink-3);margin-top:4px">Outstanding AP requests bucketed by age.</div>
+        <div class="span-all" id="reportTypeInfo" style="padding:10px 14px;background:rgba(255,255,255,0.7);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:12px;line-height:1.45;">
+          <strong id="reportTypeInfoName">All Workflows</strong>
+          <div id="reportTypeInfoDesc" style="color:var(--ink-3);margin-top:4px">Report across all workflows based on the user description.</div>
+        </div>
+        <div id="reportWorkflowWrap" hidden>
+          <label for="reportWorkflowName">Workflow Name</label>
+          <input type="text" id="reportWorkflowName" list="reportWorkflowList" placeholder="Select or type workflow name" />
+          <datalist id="reportWorkflowList"></datalist>
+        </div>
+        <div id="reportRepoWrap" hidden>
+          <label for="reportRepositoryName">Repository Name</label>
+          <input type="text" id="reportRepositoryName" list="reportRepoList" placeholder="Select or type repository name" />
+          <datalist id="reportRepoList"></datalist>
+        </div>
+        <div class="span-all">
+          <label for="reportDescription">Description</label>
+          <input type="text" id="reportDescription" placeholder="e.g. Awaiting for your action" />
         </div>
         <div>
           <label for="reportTenant">Tenant</label>
-          <input type="text" id="reportTenant" placeholder="Tenant ID (e.g. b843b988)" />
+          <input type="text" id="reportTenant" placeholder="Tenant ID" />
         </div>
         <div>
-          <label for="reportLimit">Row Limit</label>
-          <input type="number" id="reportLimit" value="20" min="1" max="500" />
+          <label for="reportPageSize">Page Size</label>
+          <input type="number" id="reportPageSize" value="25" min="1" max="500" />
         </div>
 
         <section class="report-workspace span-all" aria-label="Live report workspace">
           <div class="report-workspace-pane">
             <div class="report-workspace-heading">
-              <label for="reportPromptOverride" style="margin:0;font-weight:600;">Prompt</label>
-              <span id="reportPromptStatus" role="status" style="font-size:11px;color:var(--ink-3);">Generate a template to start</span>
+              <label for="reportPromptOverride" style="margin:0;font-weight:600;">Generated Prompt</label>
+              <span id="reportPromptStatus" role="status" style="font-size:11px;color:var(--ink-3);">Generate a prompt to start</span>
             </div>
             <textarea id="reportPromptOverride"
-              placeholder="Select a template to generate a schema-backed prompt..."></textarea>
+              placeholder="Phase 1 generates an executable report prompt here…"></textarea>
           </div>
 
           <div class="report-workspace-pane">
             <div class="report-workspace-heading">
-              <span style="font-weight:600;">Report plan</span>
-              <button type="button" class="btn-ghost" id="reportPlanRefreshBtn" style="padding:3px 8px;font-size:11px;">Refresh plan</button>
+              <span style="font-weight:600;">Report result</span>
             </div>
             <div id="reportPlanPreview" aria-live="polite">
-              Edit the prompt to generate the report plan.
+              Run the report to see columns and rows.
             </div>
           </div>
         </section>
 
         <div class="ocr-actions span-all">
-          <button type="button" class="btn-primary" id="reportPlanBtn">Generate Plan &amp; Run</button>
-          <button type="button" class="btn-ghost" id="reportPromptBtn">Generate Prompt only</button>
+          <button type="button" class="btn-primary" id="reportPlanBtn">Run Report</button>
+          <button type="button" class="btn-ghost" id="reportPromptBtn">Generate Prompt</button>
         </div>
       </div>
     </details>
@@ -3812,8 +3824,10 @@ const ASK_EMPTY_CHIPS = `
       <button type="button" class="ask-chip" data-ask="forecast revenue for next quarter">Forecast revenue<small>Look ahead</small></button>
       <button type="button" class="ask-chip" data-ask="remember that I prefer email over phone calls">Remember this<small>Save a preference</small></button>`;
 const REPORT_EMPTY_CHIPS = `
-      <button type="button" class="ask-chip" data-report-template="tpl-accounts-payable-aging">AP Aging<small>Accounts Payable</small></button>
-      <button type="button" class="ask-chip" data-report-template="tpl-pending-workflow-requests">Pending Requests<small>Workflow Automation</small></button>`;
+      <button type="button" class="ask-chip" data-report-type="all_workflows">All Workflows<small>Awaiting action</small></button>
+      <button type="button" class="ask-chip" data-report-type="specific_workflow">Specific Workflow<small>Approved with score</small></button>
+      <button type="button" class="ask-chip" data-report-type="all_repositories">All Repositories<small>Archived docs</small></button>
+      <button type="button" class="ask-chip" data-report-type="specific_repository">Specific Repository<small>Signed docs</small></button>`;
 const EMPTY_SPECS = {
   chat: { title: 'Ask AI', sub: 'Search, remember, forecast, or just talk.', chips: ASK_EMPTY_CHIPS },
   ocr: { title: 'OCR', sub: 'Add a file or blob path, then send.', chips: '' },
@@ -3824,7 +3838,7 @@ const EMPTY_SPECS = {
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
   global_search: { title: 'Global Search', sub: 'Enter a query. Optional repository id searches one library only.', chips: '' },
   chatbot: { title: 'Chatbot', sub: 'Search, then act: start workflow / upload / ticket+attach / create user. Confirm before execute.', chips: '' },
-  report: { title: 'Report Agent', sub: 'Select a template to discover live schema, generate SQL, and preview report data.', chips: REPORT_EMPTY_CHIPS },
+  report: { title: 'Report Builder', sub: 'Pick a report type, describe the need, generate prompt, then run.', chips: REPORT_EMPTY_CHIPS },
   dashboard: { title: 'Dashboard', sub: 'Prompts, schema, then load HTML. Need tenant + repository or workflow.', chips: '' },
   prompt: { title: 'Prompt', sub: 'Paste a full prompt in the box below.', chips: '' },
   ftl_qualifier: {
@@ -3996,7 +4010,10 @@ function setComposerMode(mode) {
   const composerWrap = document.getElementById('composerWrap');
   const modeLabel = document.getElementById('composerModeLabel');
   setExclusiveAgentPanels(mode);
-  if (mode === 'report' && typeof loadReportTemplates === 'function') loadReportTemplates();
+  if (mode === 'report' && typeof loadReportTypes === 'function') {
+    loadReportTypes();
+    if (typeof loadAgentSkillsPack === 'function') loadAgentSkillsPack('report-prompt');
+  }
   syncMainControls();
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   const classificationFields = document.getElementById('classificationFields');
@@ -4131,15 +4148,22 @@ setComposerMode('chat');
 transcript.addEventListener('click', (e) => {
   const chip = e.target.closest('.ask-chip');
   if (!chip) return;
-  if (chip.dataset.reportTemplate) {
-    const tplId = chip.dataset.reportTemplate;
+  if (chip.dataset.reportType) {
+    const typeKey = chip.dataset.reportType;
     setComposerMode('report');
-    const sel = document.getElementById('reportTemplateSelect');
+    const sel = document.getElementById('reportTypeSelect');
     if (sel) {
-      sel.value = tplId;
+      sel.value = typeKey;
       sel.dispatchEvent(new Event('change'));
     }
-    sendReportPlanJob();
+    const examples = {
+      all_workflows: 'Awaiting for your action',
+      specific_workflow: 'Total Approved with Score',
+      all_repositories: 'Total Archived Documents',
+      specific_repository: 'Total Signed Documents',
+    };
+    const desc = document.getElementById('reportDescription');
+    if (desc) desc.value = examples[typeKey] || '';
     return;
   }
   if (!chip.dataset.ask) return;
@@ -4243,7 +4267,7 @@ function setSummarySkillsStatus(kind, text) {
   el.textContent = text;
 }
 
-const PACK_AGENTS = ['summary', 'classification', 'document_intelligent', 'ocr', 'insight', 'prompt', 'pdf', 'ap', 'ftl_qualifier', 'ftl_quote_estimator'];
+const PACK_AGENTS = ['summary', 'classification', 'document_intelligent', 'ocr', 'insight', 'prompt', 'pdf', 'ap', 'ftl_qualifier', 'ftl_quote_estimator', 'report-prompt', 'report-run'];
 const PACK_AGENT_LABELS = {
   summary: 'Summary',
   classification: 'Classification',
@@ -4255,6 +4279,8 @@ const PACK_AGENT_LABELS = {
   ap: 'AP',
   ftl_qualifier: 'FTL Qualifier',
   ftl_quote_estimator: 'FTL Quote Estimator',
+  'report-prompt': 'Report Prompt',
+  'report-run': 'Report Run',
 };
 const PACK_TENANT_FIELDS = {
   summary: 'summaryTenant',
@@ -8017,203 +8043,141 @@ async function sendDashboardJob(forcedPhase) {
   }
 }
 
-const BUILTIN_REPORT_TEMPLATES = [
-  { id: 'tpl-accounts-payable-aging', title: 'Accounts Payable Aging', domain: 'Accounts Payable', description: 'Outstanding AP requests bucketed by age.' },
-  { id: 'tpl-pending-workflow-requests', title: 'Pending Workflow Requests', domain: 'Workflow Automation', description: 'Open workflow requests awaiting action.' },
-  // { id: 'tpl-workflow-sla-compliance', title: 'Workflow SLA Compliance', domain: 'Workflow Automation', description: 'Completed workflows within vs. outside SLA.' },
-  // { id: 'tpl-documents-without-recent-access', title: 'Documents Without Recent Access', domain: 'Document Management', description: 'Documents with no views in the selected period.' },
-  // { id: 'tpl-document-retention-status', title: 'Document Retention Status', domain: 'Document Management', description: 'Active, archived, and scheduled-deletion counts.' },
-  // { id: 'tpl-document-version-activity', title: 'Document Version Activity', domain: 'Document Management', description: 'Version history and access counts by document.' },
-  // { id: 'tpl-portal-submission-performance', title: 'Portal Submission Performance', domain: 'External Portal', description: 'Submission volume and completion rate trends.' },
-  // { id: 'tpl-user-login-and-security-activity', title: 'User Login and Security Activity', domain: 'User Sessions & Security', description: 'Login activity, failures and anomalies.' },
-  // { id: 'tpl-ai-credit-consumption', title: 'AI Credit Consumption', domain: 'Report Agent Impact & ROI', description: 'Monthly AI credit usage vs. allocation.' },
-  // { id: 'tpl-report-agent-roi', title: 'Report Agent ROI', domain: 'Report Agent Impact & ROI', description: 'Net business value and ROI% by report.' },
+const BUILTIN_REPORT_TYPES = [
+  { key: 'all_workflows', name: 'All Workflows', description: 'Report across all workflows based on the user description.', scope: 'workflows', requiredParams: [], exampleDescription: 'Awaiting for your action' },
+  { key: 'specific_workflow', name: 'Specified Workflow', description: 'Report for one workflow. Requires workflow name.', scope: 'workflows', requiredParams: ['workflowName'], exampleDescription: 'Total Approved with Score' },
+  { key: 'all_repositories', name: 'All Repositories', description: 'Report across all repositories based on the user description.', scope: 'repositories', requiredParams: [], exampleDescription: 'Total Archived Documents' },
+  { key: 'specific_repository', name: 'Specified Repository', description: 'Report for one repository. Requires repository name.', scope: 'repositories', requiredParams: ['repositoryName'], exampleDescription: 'Total Signed Documents' },
 ];
-let reportTemplatesCache = BUILTIN_REPORT_TEMPLATES;
-
-let reportPlanTimer;
-let reportPlanController;
-let reportPlanRevision = 0;
+let reportTypesCache = BUILTIN_REPORT_TYPES;
 
 function setReportPromptStatus(text) {
   const el = document.getElementById('reportPromptStatus');
   if (el) el.textContent = text;
 }
 
-function queueReportPlanRefresh() {
-  clearTimeout(reportPlanTimer);
-  setReportPromptStatus('Waiting for typing to stop…');
-  reportPlanTimer = setTimeout(refreshReportPlan, 600);
+function currentReportType() {
+  const select = document.getElementById('reportTypeSelect');
+  const key = select ? select.value : 'all_workflows';
+  return reportTypesCache.find(t => t.key === key) || reportTypesCache[0] || { key: 'all_workflows', name: 'All Workflows', scope: 'workflows', requiredParams: [] };
 }
 
-function renderPlanEmptyState() {
+function syncReportScopeFields() {
+  const t = currentReportType();
+  const req = t.requiredParams || t.required_params || [];
+  const wfWrap = document.getElementById('reportWorkflowWrap');
+  const repoWrap = document.getElementById('reportRepoWrap');
+  if (wfWrap) wfWrap.hidden = !(req.includes('workflowName') || t.key === 'specific_workflow');
+  if (repoWrap) repoWrap.hidden = !(req.includes('repositoryName') || t.key === 'specific_repository');
+  const nameEl = document.getElementById('reportTypeInfoName');
+  const descEl = document.getElementById('reportTypeInfoDesc');
+  if (nameEl) nameEl.textContent = t.name || t.key;
+  if (descEl) descEl.textContent = t.description || '';
+  const descInput = document.getElementById('reportDescription');
+  if (descInput && !descInput.value.trim() && (t.exampleDescription || t.example_description)) {
+    descInput.placeholder = t.exampleDescription || t.example_description;
+  }
+}
+
+async function loadReportScopeOptions(scope) {
+  const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
+  const listId = scope === 'workflows' ? 'reportWorkflowList' : 'reportRepoList';
+  const list = document.getElementById(listId);
+  if (!list) return;
+  list.innerHTML = '';
+  try {
+    const qs = new URLSearchParams({ scope });
+    if (tenantId) qs.set('tenantId', tenantId);
+    const res = await fetch('/api/report-agent/scope-options?' + qs.toString());
+    if (!res.ok) return;
+    const rows = await res.json();
+    (rows || []).forEach(row => {
+      const opt = document.createElement('option');
+      opt.value = row.name || row.id;
+      list.appendChild(opt);
+    });
+  } catch (_) {}
+}
+
+function renderReportTable(result) {
   const container = document.getElementById('reportPlanPreview');
-  if (container) {
-    container.innerHTML = '<div style="color:var(--ink-3);font-style:italic;padding:12px;">Edit the prompt to generate the report plan.</div>';
+  if (!container) return;
+  const cols = result.columns || [];
+  const rows = result.rows || [];
+  const warnings = result.warnings || [];
+  let html = '';
+  if (warnings.length) {
+    html += '<div class="report-warning-box"><strong>Warnings</strong><ul>' + warnings.map(w => '<li>' + escapeHtml(String(w)) + '</li>').join('') + '</ul></div>';
   }
-  setReportPromptStatus('Ready');
-}
-
-function renderPlanError(errorMsg) {
-  const container = document.getElementById('reportPlanPreview');
-  if (container) {
-    container.innerHTML = `<div class="report-warning-box" style="margin:0;">
-      <strong>Plan generation failed:</strong><br>${escapeHtml(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg))}
-    </div>`;
-  }
-  setReportPromptStatus('Error updating plan');
-}
-
-async function refreshReportPlan() {
-  clearTimeout(reportPlanTimer);
-  const revision = ++reportPlanRevision;
-  if (reportPlanController) {
-    reportPlanController.abort();
-  }
-  reportPlanController = new AbortController();
-
-  const promptOverride = document.getElementById('reportPromptOverride');
-  const prompt = promptOverride ? promptOverride.value.trim() : '';
-  if (!prompt) {
-    renderPlanEmptyState();
+  html += '<div style="margin-bottom:8px;font-size:12px;color:var(--ink-3);">' + escapeHtml(result.title || 'Report') + ' · ' + (result.totalCount ?? result.total_count ?? rows.length) + ' rows</div>';
+  if (!cols.length) {
+    html += '<div style="color:var(--ink-3);font-style:italic;padding:12px;">No columns/rows returned.</div>';
+    container.innerHTML = html;
     return;
   }
-
-  setReportPromptStatus('Updating plan…');
-  const templateSelect = document.getElementById('reportTemplateSelect');
-  const templateId = (templateSelect ? templateSelect.value : '') || 'tpl-accounts-payable-aging';
-  const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
-  const limitInput = document.getElementById('reportLimit');
-  const limit = limitInput ? parseInt(limitInput.value, 10) || 20 : 20;
-
-  try {
-    const response = await fetch('/api/report-agent/generate-report-plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: reportPlanController.signal,
-      body: JSON.stringify({
-        templateId,
-        tenantId: tenantId || undefined,
-        limit,
-        prompt,
-      }),
+  html += '<div class="report-table-wrap"><table class="report-table"><thead><tr>';
+  cols.forEach(c => { html += '<th>' + escapeHtml(c.label || c.key) + '</th>'; });
+  html += '</tr></thead><tbody>';
+  rows.forEach(r => {
+    html += '<tr>';
+    cols.forEach(c => {
+      const v = r[c.key];
+      html += '<td>' + escapeHtml(v == null ? '' : String(v)) + '</td>';
     });
-
-    const result = await readResponseJson(response);
-    if (revision !== reportPlanRevision) return;
-
-    if (!response.ok) {
-      const detail = typeof result.detail === 'string' ? result.detail : (result.error || JSON.stringify(result));
-      renderPlanError(detail);
-      return;
-    }
-
-    renderLiveReportPlan(result);
-    setReportPromptStatus('Plan is up to date');
-  } catch (err) {
-    if (err.name === 'AbortError') return;
-    if (revision !== reportPlanRevision) return;
-    renderPlanError(err && err.message ? err.message : 'Network error');
-  }
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
 }
 
-async function loadReportTemplates() {
-  const select = document.getElementById('reportTemplateSelect');
+async function loadReportTypes() {
+  const select = document.getElementById('reportTypeSelect');
   if (!select) return;
   try {
-    const res = await fetch('/api/report-agent/templates');
+    const res = await fetch('/api/report-agent/types');
     if (res.ok) {
-      const templates = await res.json();
-      if (Array.isArray(templates) && templates.length) {
-        reportTemplatesCache = templates;
-      }
+      const types = await res.json();
+      if (Array.isArray(types) && types.length) reportTypesCache = types;
     }
   } catch (_) {}
-
   select.innerHTML = '';
-  reportTemplatesCache.forEach(tpl => {
+  reportTypesCache.forEach(t => {
     const opt = document.createElement('option');
-    opt.value = tpl.id;
-    opt.textContent = `${tpl.title} (${tpl.domain})`;
+    opt.value = t.key;
+    opt.textContent = t.name || t.key;
     select.appendChild(opt);
   });
-
-  function updateInfo() {
-    const current = reportTemplatesCache.find(t => t.id === select.value) || reportTemplatesCache[0];
-    if (current) {
-      const titleEl = document.getElementById('reportTemplateInfoTitle');
-      const domainEl = document.getElementById('reportTemplateInfoDomain');
-      const descEl = document.getElementById('reportTemplateInfoDesc');
-      if (titleEl) titleEl.textContent = current.title;
-      if (domainEl) domainEl.textContent = current.domain;
-      if (descEl) descEl.textContent = current.description;
-    }
-  }
-
-  async function handleTemplateChange(triggerPlan = true) {
-    updateInfo();
-    const templateId = select.value;
-    const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
-    setReportPromptStatus('Generating dynamic prompt…');
-    try {
-      const res = await fetch('/api/report-agent/generate-prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId, tenantId: tenantId || undefined }),
-      });
-      if (res.ok) {
-        const data = await readResponseJson(res);
-        const promptOverride = document.getElementById('reportPromptOverride');
-        if (promptOverride && data.prompt) {
-          promptOverride.value = data.prompt;
-          setReportPromptStatus('Prompt generated');
-          if (triggerPlan) {
-            refreshReportPlan();
-          }
-        }
-      } else {
-        setReportPromptStatus('Ready');
-      }
-    } catch (_) {
-      setReportPromptStatus('Ready');
-    }
-  }
-
-  select.addEventListener('change', () => handleTemplateChange(true));
-  updateInfo();
-  handleTemplateChange(true);
+  select.onchange = () => {
+    syncReportScopeFields();
+    const t = currentReportType();
+    if ((t.scope || '').includes('workflow')) loadReportScopeOptions('workflows');
+    if ((t.scope || '').includes('repositor')) loadReportScopeOptions('repositories');
+  };
+  syncReportScopeFields();
+  loadReportScopeOptions('workflows');
+  loadReportScopeOptions('repositories');
 }
-loadReportTemplates();
-
-// Event listeners for live Prompt editing and Refresh button
-const reportPromptEl = document.getElementById('reportPromptOverride');
-if (reportPromptEl) {
-  reportPromptEl.addEventListener('input', queueReportPlanRefresh);
-  reportPromptEl.addEventListener('paste', () => {
-    setReportPromptStatus('Pasted prompt — refreshing plan…');
-    setTimeout(refreshReportPlan, 80);
-  });
-}
-const reportRefreshBtnEl = document.getElementById('reportPlanRefreshBtn');
-if (reportRefreshBtnEl) {
-  reportRefreshBtnEl.addEventListener('click', refreshReportPlan);
-}
+loadReportTypes();
 
 async function sendReportPromptJob() {
-  const templateSelect = document.getElementById('reportTemplateSelect');
-  const templateId = (templateSelect ? templateSelect.value : '') || 'tpl-accounts-payable-aging';
+  const t = currentReportType();
   const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
-  const currentTpl = reportTemplatesCache.find(t => t.id === templateId) || { title: templateId };
-
-  addUserMessage(`Generate prompt for Report: ${currentTpl.title}`);
+  const description = (document.getElementById('reportDescription') ? document.getElementById('reportDescription').value.trim() : '') || (t.exampleDescription || t.example_description || '');
+  const workflowName = document.getElementById('reportWorkflowName') ? document.getElementById('reportWorkflowName').value.trim() : '';
+  const repositoryName = document.getElementById('reportRepositoryName') ? document.getElementById('reportRepositoryName').value.trim() : '';
+  addUserMessage('Generate report prompt: ' + t.name + ' — ' + description);
   const btn = document.getElementById('reportPromptBtn');
-  const origText = btn ? btn.textContent : 'Generate Prompt only';
+  const origText = btn ? btn.textContent : 'Generate Prompt';
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner dark"></span> Generating…'; }
-  const processing = addProcessingMessage('Discovering schema & generating prompt…');
-
-  const payload = { templateId, tenantId: tenantId || undefined };
+  const processing = addProcessingMessage('Phase 1: Primary Model generating report prompt…');
+  const payload = {
+    reportType: t.key,
+    description,
+    workflowName: workflowName || undefined,
+    repositoryName: repositoryName || undefined,
+    tenantId: tenantId || undefined,
+  };
   const request = { intent: 'report_prompt', kind: 'json', body: payload };
-
   try {
     const res = await fetch('/api/report-agent/generate-prompt', {
       method: 'POST',
@@ -8224,12 +8188,13 @@ async function sendReportPromptJob() {
     removeProcessingMessage(processing);
     if (res.ok) {
       const promptOverride = document.getElementById('reportPromptOverride');
-      if (promptOverride && data.prompt) promptOverride.value = data.prompt;
-      renderAssistantMessage({ report_prompt_result: data, reply: `Dynamic prompt generated for "${data.title || currentTpl.title}".` }, sessionIdInput.value.trim() || newSessionId(), request);
-      refreshReportPlan();
+      const promptText = data.reportPrompt || data.report_prompt || data.prompt || '';
+      if (promptOverride && promptText) promptOverride.value = promptText;
+      setReportPromptStatus('Prompt generated');
+      renderAssistantMessage({ report_result: data, reply: 'Report prompt generated for "' + (data.title || t.name) + '".' }, sessionIdInput.value.trim() || newSessionId(), request);
     } else {
       const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
-      addSystemMessage(`${res.status}: ${detail || 'Prompt generation failed'}`);
+      addSystemMessage(res.status + ': ' + (detail || 'Prompt generation failed'));
     }
   } catch (e) {
     removeProcessingMessage(processing);
@@ -8240,31 +8205,36 @@ async function sendReportPromptJob() {
 }
 
 async function sendReportPlanJob() {
-  const templateSelect = document.getElementById('reportTemplateSelect');
-  const templateId = (templateSelect ? templateSelect.value : '') || 'tpl-accounts-payable-aging';
+  const t = currentReportType();
   const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
-  const limitInput = document.getElementById('reportLimit');
-  const limit = limitInput ? parseInt(limitInput.value, 10) || 20 : 20;
+  const pageSizeInput = document.getElementById('reportPageSize');
+  const pageSize = pageSizeInput ? parseInt(pageSizeInput.value, 10) || 25 : 25;
   const promptOverride = document.getElementById('reportPromptOverride') ? document.getElementById('reportPromptOverride').value.trim() : '';
-  const currentTpl = reportTemplatesCache.find(t => t.id === templateId) || { title: templateId };
-
-  addUserMessage(`Run Report Agent: ${currentTpl.title}`);
+  const workflowName = document.getElementById('reportWorkflowName') ? document.getElementById('reportWorkflowName').value.trim() : '';
+  const repositoryName = document.getElementById('reportRepositoryName') ? document.getElementById('reportRepositoryName').value.trim() : '';
+  if (!promptOverride) {
+    addSystemMessage('Generate a report prompt first (Phase 1), then run.');
+    return;
+  }
+  addUserMessage('Run report: ' + t.name);
   const btn = document.getElementById('reportPlanBtn');
-  const origText = btn ? btn.textContent : 'Generate Plan & Run';
+  const origText = btn ? btn.textContent : 'Run Report';
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Running…'; }
   sendBtn.disabled = true;
-  const processing = addProcessingMessage('Building report plan, safe SQL & fetching data…');
-
+  const processing = addProcessingMessage('Phase 2: interpreting prompt and executing read-only report…');
   const payload = {
-    templateId,
+    reportPrompt: promptOverride,
+    reportType: t.key,
+    workflowName: workflowName || undefined,
+    repositoryName: repositoryName || undefined,
     tenantId: tenantId || undefined,
-    limit,
-    prompt: promptOverride || undefined,
+    page: 1,
+    pageSize,
+    includeDebug: true,
   };
-  const request = { intent: 'report_plan', kind: 'json', body: payload };
-
+  const request = { intent: 'report_run', kind: 'json', body: payload };
   try {
-    const res = await fetch('/api/report-agent/generate-report-plan', {
+    const res = await fetch('/api/report-agent/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -8272,17 +8242,16 @@ async function sendReportPlanJob() {
     const data = await readResponseJson(res);
     removeProcessingMessage(processing);
     if (res.ok) {
-      const planTitle = (data.reportPlan && data.reportPlan.title) || (data.report_plan && data.report_plan.title) || (data.plan && data.plan.reportTitle) || currentTpl.title;
       renderAssistantMessage({
-        report_plan_result: data,
-        reply: `Report generated for "${planTitle}" with ${((data.data && data.data.rows) || []).length} rows.`,
-        latency_ms: data.total_pipeline_time_ms || data.execution_time_ms,
-        token_usage: data.token_usage,
+        report_result: data,
+        reply: 'Report "' + (data.title || t.name) + '" returned ' + (data.totalCount ?? data.total_count ?? (data.rows || []).length) + ' rows.',
+        latency_ms: data.durationMs || data.duration_ms,
       }, sessionIdInput.value.trim() || newSessionId(), request);
-      renderLiveReportPlan(data);
+      renderReportTable(data);
+      setReportPromptStatus('Report complete');
     } else {
       const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
-      addSystemMessage(`${res.status}: ${detail || 'Report plan failed'}`);
+      addSystemMessage(res.status + ': ' + (detail || 'Report run failed'));
     }
   } catch (e) {
     removeProcessingMessage(processing);

@@ -1,0 +1,14 @@
+---
+description: Never invent schema — use only approved live tables and columns
+alwaysApply: true
+---
+
+# Schema grounding
+
+- Use only tables and columns present in the approved schema slice in the user message.
+- Every `table`, `column`, join key, filter field, sort field, and output `source` must exist in that slice.
+- Prefer real workflow / instance / mailbox / task tables for workflow-scoped reports.
+- Prefer real repository / items tables for repository-scoped reports.
+- Soft-delete and system columns must only be referenced when present in the schema.
+- If the Phase 1 prompt mentions a field that is not in the schema, omit it and add a `warnings` entry.
+- Never include credentials, connection strings, or unrestricted raw dumps.

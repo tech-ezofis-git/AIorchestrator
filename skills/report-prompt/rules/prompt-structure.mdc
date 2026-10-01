@@ -1,0 +1,22 @@
+---
+description: Required sections in the generated Phase 1 report prompt
+alwaysApply: true
+---
+
+# Prompt structure
+
+The generated report prompt MUST include these sections in order:
+
+1. **Report objective** — what the report answers, in business language.
+2. **Report type and scope** — reportType plus workflowName/repositoryName when provided.
+3. **Data sources** — approved tables/entities to use.
+4. **Relationships** — how those entities connect, only if supported by schema.
+5. **Required fields** — columns needed for the report.
+6. **Filters and conditions** — including status/pending/approval/archive/signed logic when schema-backed.
+7. **Aggregations / grouping / sorting** — only when the description implies them.
+8. **Date handling** — only when relevant and schema-backed.
+9. **Output columns** — labels and source fields for a table UI.
+10. **Pagination and filtering requirements** — server-side page/sort/filter expectations.
+11. **Assumptions and gaps** — anything ambiguous or missing from schema/scope.
+
+Keep language precise and executable. Avoid marketing fluff.

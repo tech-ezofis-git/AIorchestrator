@@ -1,0 +1,14 @@
+---
+description: Read-only and tenant-safe report planning
+alwaysApply: true
+---
+
+# Safety
+
+- Reports are read-only. Never request inserts, updates, deletes, DDL, or stored-procedure side effects.
+- Never request `SELECT *`; choose explicit columns needed for the table UI.
+- Prefer the minimum tables/joins required for the report objective.
+- Respect report type scope: do not broaden `specific_workflow` / `specific_repository` beyond the given name when schema can enforce it.
+- Do not request full-table dumps; definitions must be compatible with server-side pagination and limits.
+- Do not include secrets, PII beyond requested report fields, or cross-tenant identifiers.
+- If a safe schema-backed definition cannot be formed, return empty `columns`/`sources` and explain in `warnings`.

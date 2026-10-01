@@ -1,0 +1,14 @@
+---
+description: Table-ready columns, filters, and summary expectations
+alwaysApply: true
+---
+
+# Formatting
+
+- `title` should be concise and match the business objective from the Phase 1 prompt.
+- `columns[].key` must be stable camelCase (or snake_case) identifiers suitable for UI table binding.
+- `columns[].label` must be human-readable.
+- `availableFilters` should list only filters that are useful for this report and schema-backed.
+- When UI filters/page/sort are provided, incorporate them into `filters` / `orderBy` when schema-backed.
+- `summary` may include simple totals keys (for example `totalCount` expectation) but must not invent metrics unsupported by the definition.
+- Keep `warnings` short and actionable.
