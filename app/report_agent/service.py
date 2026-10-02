@@ -13,6 +13,7 @@ from app.models.report_agent import (
     GeneratePromptRequest,
     GeneratePromptResponse,
     ReportColumnOut,
+    ReportSpec,
     ReportTypeInfo,
     RunReportRequest,
     RunReportResponse,
@@ -27,6 +28,13 @@ from app.report_agent.definition_lock import (
 from app.report_agent.definition_sql import generate_definition_sql
 from app.report_agent.metadata_service import get_database_schema
 from app.report_agent.pack import report_system_prompt
+from app.report_agent.report_spec import (
+    enrich_spec_with_schema,
+    fallback_report_spec,
+    normalize_report_spec,
+    parse_report_spec_json,
+    report_spec_to_prompt,
+)
 from app.report_agent.report_types import (
     get_report_type,
     list_report_types,
@@ -42,8 +50,8 @@ from app.report_agent.sql_validator import validate_read_only_sql
 logger = logging.getLogger("orchestrator.report_agent")
 
 _FALLBACK_PROMPT_SYSTEM = (
-    "You are the EZOFIS Report Agent Phase 1. Return executable report prompt text only. "
-    "Never invent schema. Never write SQL."
+    "You are the EZOFIS Report Agent Phase 1. Return ONLY one valid reportSpec JSON object "
+    "for the client short prompt UI. Never invent schema. Never write SQL."
 )
 _FALLBACK_RUN_SYSTEM = (
     "You are the EZOFIS Report Agent Phase 2. Return locked reportDefinition JSON only. "
@@ -182,33 +190,99 @@ class ReportAgentService:
             "repositoryName": (request.repository_name or "").strip() or None,
         }
         user = (
-            "Build an executable report-generation prompt for Phase 2.\n\n"
+            "Build a client-facing short reportSpec JSON for the Report Builder UI.\n"
+            "Return ONLY one valid JSON object with keys: title, objective, reportType, "
+            "columns[{key,label,formula?}], filters[{field,op,value}], groupBy, sort{field,direction}, "
+            "availableColumns, warnings.\n"
+            "No markdown fences, no commentary, no SQL.\n"
+            "Use only columns from the approved schema slice. Prefer simple formulas like "
+            "PO_Amount + Invoice_Amount or SUM(Amount) when the description asks for totals.\n\n"
             f"Input:\n{json.dumps(user_payload, indent=2)}\n\n"
             f"{schema_block}\n"
         )
-        content, _usage = await self._chat(
-            system=system,
-            user=user,
-            tenant_id=request.tenant_id,
-            model=request.model,
-        )
-        prompt_text = (content or "").strip()
-        if prompt_text.startswith("```"):
-            prompt_text = prompt_text.strip("`")
-            if prompt_text.lower().startswith("text"):
-                prompt_text = prompt_text[4:].lstrip()
         warnings: list[str] = []
         if not tables:
             warnings.append("No schema tables matched this report type/scope.")
-        if not prompt_text:
-            raise RuntimeError("Model returned an empty report prompt.")
-        title = (request.description or "").strip() or rt.name
+
+        spec: Optional[ReportSpec] = None
+        try:
+            content, _usage = await self._chat(
+                system=system,
+                user=user,
+                tenant_id=request.tenant_id,
+                model=request.model,
+            )
+            try:
+                spec = parse_report_spec_json(content)
+            except ValueError:
+                # Model may still return long prompt text — wrap as objective
+                text = (content or "").strip()
+                if text.startswith("```"):
+                    text = text.strip("`")
+                    if text.lower().startswith("text"):
+                        text = text[4:].lstrip()
+                if text:
+                    spec = normalize_report_spec(
+                        {"title": (request.description or "").strip() or rt.name, "objective": text[:500]},
+                        report_type=rt.key,
+                        description=request.description or "",
+                    )
+                    warnings.append("Model returned text; converted into short prompt fields.")
+        except Exception as exc:
+            logger.warning("report_agent_prompt_llm_failed", extra={"error": str(exc)[:200]})
+            warnings.append(f"Prompt model failed ({exc}); used schema-backed short prompt.")
+
+        if spec is None:
+            spec = fallback_report_spec(
+                description=request.description or "",
+                report_type=rt.key,
+                tables=tables,
+                warnings=warnings,
+            )
+        else:
+            if not spec.report_type:
+                spec = spec.model_copy(update={"report_type": rt.key})
+            if not spec.columns:
+                fb = fallback_report_spec(
+                    description=request.description or "",
+                    report_type=rt.key,
+                    tables=tables,
+                )
+                spec = spec.model_copy(
+                    update={
+                        "columns": fb.columns,
+                        "filters": spec.filters or fb.filters,
+                        "sort": spec.sort or fb.sort,
+                        "available_columns": fb.available_columns,
+                    }
+                )
+            spec = enrich_spec_with_schema(spec, schema, tables)
+            for w in warnings:
+                if w not in spec.warnings:
+                    spec.warnings.append(w)
+
+        if not spec.available_columns:
+            from app.report_agent.report_spec import available_columns_from_tables
+
+            spec = spec.model_copy(
+                update={"available_columns": available_columns_from_tables(tables)}
+            )
+
+        prompt_text = report_spec_to_prompt(
+            spec,
+            workflow_name=request.workflow_name,
+            repository_name=request.repository_name,
+        )
+        if not prompt_text.strip():
+            raise RuntimeError("Failed to build report prompt from reportSpec.")
+        title = (spec.title or request.description or "").strip() or rt.name
         duration_ms = round((time.perf_counter() - t0) * 1000, 2)
         logger.info(
             "report_agent_prompt_generated",
             extra={
                 "report_type": rt.key,
                 "tables": len(tables),
+                "columns": len(spec.columns),
                 "duration_ms": duration_ms,
             },
         )
@@ -216,7 +290,8 @@ class ReportAgentService:
             report_type=rt.key,
             title=title,
             report_prompt=prompt_text,
-            warnings=warnings,
+            report_spec=spec,
+            warnings=list(spec.warnings or []),
             schema_tables=[
                 f"{t.schema_name + '.' if t.schema_name else ''}{t.table}" for t in tables
             ],
@@ -226,8 +301,17 @@ class ReportAgentService:
     async def run_report(self, request: RunReportRequest) -> RunReportResponse:
         t0 = time.perf_counter()
         prompt = (request.report_prompt or "").strip()
+        spec = request.report_spec
+        if spec is not None and not isinstance(spec, ReportSpec):
+            spec = normalize_report_spec(spec)
+        if not prompt and spec is not None:
+            prompt = report_spec_to_prompt(
+                spec,
+                workflow_name=request.workflow_name,
+                repository_name=request.repository_name,
+            )
         if not prompt:
-            raise ValueError("reportPrompt is required.")
+            raise ValueError("reportPrompt or reportSpec is required.")
 
         rt = None
         if request.report_type:

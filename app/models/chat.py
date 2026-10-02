@@ -182,6 +182,11 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("report_prompt", "reportPrompt"),
         description="Phase 1 generated prompt text for Report Agent phase=run.",
     )
+    report_spec: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("report_spec", "reportSpec"),
+        description="Client-edited short reportSpec for Report Agent phase=run.",
+    )
     description: Optional[str] = Field(
         default=None,
         description="Report Builder user description for Report Agent phase=prompt.",

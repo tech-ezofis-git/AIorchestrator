@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from app.models.report_agent import GeneratePromptRequest, ReportSortSpec, RunReportRequest
+from app.models.report_agent import GeneratePromptRequest, ReportSortSpec, ReportSpec, RunReportRequest
 
 logger = logging.getLogger("orchestrator.report_agent.handler")
 
@@ -31,12 +31,13 @@ class ReportAgent:
         workflow_name = job.get("workflow_name")
         repository_name = job.get("repository_name")
         report_prompt = job.get("report_prompt") or job.get("prompt")
+        report_spec_raw = job.get("report_spec") or job.get("reportSpec")
 
         try:
             if phase in ("run", "execute", "data"):
-                if not report_prompt:
+                if not report_prompt and not report_spec_raw:
                     return {
-                        "reply": "reportPrompt is required for phase=run.",
+                        "reply": "reportPrompt or reportSpec is required for phase=run.",
                         "report_result": None,
                     }
                 sort_raw = job.get("sort")
@@ -48,9 +49,16 @@ class ReportAgent:
                     )
                 elif sort_raw is not None:
                     sort_spec = sort_raw
+                spec = None
+                if report_spec_raw:
+                    try:
+                        spec = ReportSpec.model_validate(report_spec_raw)
+                    except Exception:
+                        spec = None
                 result = await self._service.run_report(
                     RunReportRequest(
                         report_prompt=report_prompt,
+                        report_spec=spec,
                         report_type=report_type,
                         workflow_name=workflow_name,
                         repository_name=repository_name,

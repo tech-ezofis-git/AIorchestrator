@@ -2116,8 +2116,8 @@
   }
   #reportPromptOverride {
     flex: 1 1 auto;
-    min-height: 240px;
-    height: 100%;
+    min-height: 120px;
+    height: auto;
     resize: vertical;
     font-family: var(--mono);
     font-size: 11.5px;
@@ -2129,6 +2129,110 @@
     border-radius: var(--radius-xs);
     padding: 10px;
     color: var(--ink);
+  }
+  .report-spec-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .report-spec-form label {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-3);
+  }
+  .report-spec-form input[type=text],
+  .report-spec-form textarea,
+  .report-spec-form select {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    padding: 8px 10px;
+    font: inherit;
+    background: #fff;
+    color: var(--ink);
+  }
+  .report-spec-form textarea { min-height: 54px; resize: vertical; }
+  .report-spec-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .report-spec-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 36px;
+    padding: 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xs);
+    background: #fff;
+  }
+  .report-spec-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(79, 107, 237, 0.08);
+    font-size: 12px;
+    color: var(--ink);
+  }
+  .report-spec-chip.formula {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.35);
+  }
+  .report-spec-chip button {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    color: var(--ink-3);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+  }
+  .report-spec-chip .chip-formula {
+    display: block;
+    font-size: 10px;
+    color: var(--ink-3);
+  }
+  .report-spec-formula-row,
+  .report-spec-filter-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .report-spec-formula-row input,
+  .report-spec-filter-row input,
+  .report-spec-filter-row select {
+    flex: 1;
+  }
+  .report-spec-warnings {
+    margin-top: 4px;
+    padding: 8px 10px;
+    border-radius: var(--radius-xs);
+    background: #fff8e6;
+    border: 1px solid #f0d78c;
+    color: #7a5b00;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .report-advanced-fold {
+    margin-top: 10px;
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+  .report-advanced-fold > summary {
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-3);
+    margin-bottom: 6px;
   }
   #reportPlanPreview {
     flex: 1 1 auto;
@@ -2664,11 +2768,60 @@ vendor_validate</textarea>
         <section class="report-workspace span-all" aria-label="Live report workspace">
           <div class="report-workspace-pane">
             <div class="report-workspace-heading">
-              <label for="reportPromptOverride" style="margin:0;font-weight:600;">Generated Prompt</label>
+              <span style="font-weight:600;">Short Prompt</span>
               <span id="reportPromptStatus" role="status" style="font-size:11px;color:var(--ink-3);">Generate a prompt to start</span>
             </div>
-            <textarea id="reportPromptOverride"
-              placeholder="Phase 1 generates an executable report prompt here…"></textarea>
+            <div id="reportSpecForm" class="report-spec-form">
+              <label for="reportSpecTitle">Title</label>
+              <input type="text" id="reportSpecTitle" placeholder="Report title" />
+
+              <label for="reportSpecObjective">Objective</label>
+              <textarea id="reportSpecObjective" rows="2" placeholder="Short business objective…"></textarea>
+
+              <div class="report-spec-label-row">
+                <label style="margin:0">Columns</label>
+                <button type="button" class="btn-ghost" id="reportSpecAddColBtn" style="padding:2px 8px;font-size:11px">+ Add</button>
+              </div>
+              <div id="reportSpecColumns" class="report-spec-chips" aria-label="Editable columns"></div>
+              <datalist id="reportSpecColList"></datalist>
+
+              <label for="reportSpecFormula">Formula (optional)</label>
+              <div class="report-spec-formula-row">
+                <input type="text" id="reportSpecFormulaKey" placeholder="Total_Amount" style="max-width:140px" />
+                <span style="color:var(--ink-3)">=</span>
+                <input type="text" id="reportSpecFormulaExpr" placeholder="PO_Amount + Invoice_Amount" />
+                <button type="button" class="btn-ghost" id="reportSpecApplyFormulaBtn" style="padding:4px 8px;font-size:11px">Apply</button>
+              </div>
+
+              <label for="reportSpecFilterField">Filter</label>
+              <div class="report-spec-filter-row">
+                <input type="text" id="reportSpecFilterField" list="reportSpecColList" placeholder="Matched_Status" />
+                <select id="reportSpecFilterOp">
+                  <option value="eq">equals</option>
+                  <option value="neq">not equals</option>
+                  <option value="contains">contains</option>
+                  <option value="not_null">is not null</option>
+                </select>
+                <input type="text" id="reportSpecFilterValue" placeholder="Approved" />
+              </div>
+
+              <label for="reportSpecSortField">Sort</label>
+              <div class="report-spec-filter-row">
+                <input type="text" id="reportSpecSortField" list="reportSpecColList" placeholder="Total_Amount" />
+                <select id="reportSpecSortDir">
+                  <option value="desc">desc</option>
+                  <option value="asc">asc</option>
+                </select>
+              </div>
+
+              <div id="reportSpecWarnings" class="report-spec-warnings" hidden></div>
+            </div>
+
+            <details class="report-advanced-fold" id="reportAdvancedFold">
+              <summary>Advanced (engine prompt)</summary>
+              <textarea id="reportPromptOverride"
+                placeholder="Built automatically from the short prompt. Edit only if needed…"></textarea>
+            </details>
           </div>
 
           <div class="report-workspace-pane">
@@ -8084,6 +8237,248 @@ function setReportPromptStatus(text) {
   if (el) el.textContent = text;
 }
 
+let reportSpecState = {
+  title: '',
+  objective: '',
+  reportType: null,
+  columns: [],
+  filters: [],
+  groupBy: [],
+  sort: null,
+  availableColumns: [],
+  warnings: [],
+};
+
+function reportSpecFromApi(spec) {
+  if (!spec || typeof spec !== 'object') return null;
+  return {
+    title: spec.title || '',
+    objective: spec.objective || '',
+    reportType: spec.reportType || spec.report_type || null,
+    columns: Array.isArray(spec.columns) ? spec.columns.map(c => ({
+      key: c.key,
+      label: c.label || c.key,
+      formula: c.formula || null,
+      editable: c.editable !== false,
+    })) : [],
+    filters: Array.isArray(spec.filters) ? spec.filters.map(f => ({
+      field: f.field,
+      op: f.op || 'eq',
+      value: f.value,
+      editable: f.editable !== false,
+    })) : [],
+    groupBy: Array.isArray(spec.groupBy || spec.group_by) ? (spec.groupBy || spec.group_by) : [],
+    sort: spec.sort || null,
+    availableColumns: Array.isArray(spec.availableColumns || spec.available_columns)
+      ? (spec.availableColumns || spec.available_columns)
+      : [],
+    warnings: Array.isArray(spec.warnings) ? spec.warnings : [],
+  };
+}
+
+function fillReportSpecColList(available) {
+  const list = document.getElementById('reportSpecColList');
+  if (!list) return;
+  list.innerHTML = '';
+  (available || []).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    list.appendChild(opt);
+  });
+}
+
+function renderReportSpecColumns() {
+  const wrap = document.getElementById('reportSpecColumns');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (reportSpecState.columns || []).forEach((col, idx) => {
+    const chip = document.createElement('span');
+    chip.className = 'report-spec-chip' + (col.formula ? ' formula' : '');
+    const label = document.createElement('span');
+    label.textContent = col.label || col.key;
+    chip.appendChild(label);
+    if (col.formula) {
+      const f = document.createElement('span');
+      f.className = 'chip-formula';
+      f.textContent = col.formula;
+      chip.appendChild(f);
+    }
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Remove ' + (col.label || col.key));
+    btn.textContent = '×';
+    btn.onclick = () => {
+      reportSpecState.columns.splice(idx, 1);
+      renderReportSpecColumns();
+      syncReportPromptFromSpec();
+    };
+    chip.appendChild(btn);
+    wrap.appendChild(chip);
+  });
+  if (!(reportSpecState.columns || []).length) {
+    wrap.innerHTML = '<span style="color:var(--ink-3);font-size:12px;font-style:italic;">No columns yet — Generate Prompt or Add</span>';
+  }
+}
+
+function applyReportSpecToForm(spec) {
+  reportSpecState = reportSpecFromApi(spec) || reportSpecState;
+  const titleEl = document.getElementById('reportSpecTitle');
+  const objEl = document.getElementById('reportSpecObjective');
+  if (titleEl) titleEl.value = reportSpecState.title || '';
+  if (objEl) objEl.value = reportSpecState.objective || '';
+  fillReportSpecColList(reportSpecState.availableColumns);
+  renderReportSpecColumns();
+
+  const f = (reportSpecState.filters && reportSpecState.filters[0]) || null;
+  const ff = document.getElementById('reportSpecFilterField');
+  const fo = document.getElementById('reportSpecFilterOp');
+  const fv = document.getElementById('reportSpecFilterValue');
+  if (ff) ff.value = f ? (f.field || '') : '';
+  if (fo) fo.value = f ? (f.op || 'eq') : 'eq';
+  if (fv) {
+    fv.value = f && f.value != null ? String(f.value) : '';
+    fv.disabled = fo && fo.value === 'not_null';
+  }
+
+  const formulaCol = (reportSpecState.columns || []).find(c => c.formula);
+  const fk = document.getElementById('reportSpecFormulaKey');
+  const fe = document.getElementById('reportSpecFormulaExpr');
+  if (fk) fk.value = formulaCol ? formulaCol.key : '';
+  if (fe) fe.value = formulaCol ? formulaCol.formula : '';
+
+  const sf = document.getElementById('reportSpecSortField');
+  const sd = document.getElementById('reportSpecSortDir');
+  if (sf) sf.value = reportSpecState.sort && reportSpecState.sort.field ? reportSpecState.sort.field : '';
+  if (sd) sd.value = reportSpecState.sort && reportSpecState.sort.direction ? reportSpecState.sort.direction : 'desc';
+
+  const warn = document.getElementById('reportSpecWarnings');
+  if (warn) {
+    if (reportSpecState.warnings && reportSpecState.warnings.length) {
+      warn.hidden = false;
+      warn.innerHTML = '<strong>Note</strong><ul style="margin:4px 0 0;padding-left:18px">' +
+        reportSpecState.warnings.map(w => '<li>' + escapeHtml(String(w)) + '</li>').join('') +
+        '</ul>';
+    } else {
+      warn.hidden = true;
+      warn.innerHTML = '';
+    }
+  }
+}
+
+function readReportSpecFromForm() {
+  const title = (document.getElementById('reportSpecTitle') || {}).value || '';
+  const objective = (document.getElementById('reportSpecObjective') || {}).value || '';
+  const columns = (reportSpecState.columns || []).map(c => ({
+    key: c.key,
+    label: c.label || c.key,
+    formula: c.formula || null,
+    editable: true,
+  }));
+  const ff = (document.getElementById('reportSpecFilterField') || {}).value || '';
+  const fo = (document.getElementById('reportSpecFilterOp') || {}).value || 'eq';
+  const fv = (document.getElementById('reportSpecFilterValue') || {}).value;
+  const filters = [];
+  if (ff.trim()) {
+    filters.push({
+      field: ff.trim(),
+      op: fo,
+      value: fo === 'not_null' ? null : (fv || null),
+      editable: true,
+    });
+  }
+  const sf = (document.getElementById('reportSpecSortField') || {}).value || '';
+  const sd = (document.getElementById('reportSpecSortDir') || {}).value || 'desc';
+  const sort = sf.trim() ? { field: sf.trim(), direction: sd || 'desc' } : null;
+  return {
+    title: title.trim() || 'Report',
+    objective: objective.trim() || title.trim() || 'Report',
+    reportType: reportSpecState.reportType || (currentReportType().key),
+    columns,
+    filters,
+    groupBy: reportSpecState.groupBy || [],
+    sort,
+    availableColumns: reportSpecState.availableColumns || [],
+    warnings: reportSpecState.warnings || [],
+  };
+}
+
+function syncReportPromptFromSpec() {
+  const spec = readReportSpecFromForm();
+  reportSpecState = { ...reportSpecState, ...spec };
+  const lines = [];
+  lines.push('Report objective: ' + spec.objective);
+  if (spec.reportType) lines.push('Report type and scope: Report type is ' + spec.reportType + '.');
+  if (spec.columns.length) {
+    lines.push('Output columns: ' + spec.columns.map(c => c.formula ? (c.key + ' (formula: ' + c.formula + ')') : c.key).join(', ') + '.');
+    lines.push('Required fields: ' + spec.columns.map(c => c.key).join(', ') + '.');
+  }
+  if (spec.filters.length) {
+    lines.push('Filters and conditions: ' + spec.filters.map(f => {
+      if (f.op === 'not_null') return f.field + ' is not null';
+      return f.field + ' ' + f.op + ' ' + (f.value == null ? '' : f.value);
+    }).join('; ') + '.');
+  }
+  if (spec.sort && spec.sort.field) {
+    lines.push('Sort the results by ' + spec.sort.field + ' in ' + ((spec.sort.direction || '').startsWith('desc') ? 'descending' : 'ascending') + ' order.');
+  }
+  const formulas = spec.columns.filter(c => c.formula);
+  if (formulas.length) {
+    lines.push('Formulas: ' + formulas.map(c => c.key + ' = ' + c.formula).join('; ') + '.');
+  }
+  const box = document.getElementById('reportPromptOverride');
+  if (box) box.value = lines.join('\n\n');
+}
+
+function bindReportSpecFormEvents() {
+  ['reportSpecTitle', 'reportSpecObjective', 'reportSpecFilterField', 'reportSpecFilterOp', 'reportSpecFilterValue', 'reportSpecSortField', 'reportSpecSortDir'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.bound) return;
+    el.dataset.bound = '1';
+    el.addEventListener('change', syncReportPromptFromSpec);
+    el.addEventListener('input', () => {
+      if (id === 'reportSpecFilterOp') {
+        const fv = document.getElementById('reportSpecFilterValue');
+        if (fv) fv.disabled = el.value === 'not_null';
+      }
+    });
+  });
+  const addBtn = document.getElementById('reportSpecAddColBtn');
+  if (addBtn && !addBtn.dataset.bound) {
+    addBtn.dataset.bound = '1';
+    addBtn.addEventListener('click', () => {
+      const avail = reportSpecState.availableColumns || [];
+      const used = new Set((reportSpecState.columns || []).map(c => (c.key || '').toLowerCase()));
+      const next = avail.find(a => !used.has(String(a).toLowerCase())) || prompt('Column key to add');
+      if (!next) return;
+      reportSpecState.columns.push({ key: next, label: String(next).replace(/_/g, ' '), formula: null, editable: true });
+      renderReportSpecColumns();
+      syncReportPromptFromSpec();
+    });
+  }
+  const applyFormula = document.getElementById('reportSpecApplyFormulaBtn');
+  if (applyFormula && !applyFormula.dataset.bound) {
+    applyFormula.dataset.bound = '1';
+    applyFormula.addEventListener('click', () => {
+      const key = ((document.getElementById('reportSpecFormulaKey') || {}).value || '').trim();
+      const expr = ((document.getElementById('reportSpecFormulaExpr') || {}).value || '').trim();
+      if (!key || !expr) {
+        addSystemMessage('Enter formula column key and expression (e.g. Total_Amount = PO_Amount + Invoice_Amount).');
+        return;
+      }
+      const existing = reportSpecState.columns.find(c => (c.key || '').toLowerCase() === key.toLowerCase());
+      if (existing) {
+        existing.formula = expr;
+        existing.label = existing.label || key;
+      } else {
+        reportSpecState.columns.push({ key, label: key.replace(/_/g, ' '), formula: expr, editable: true });
+      }
+      renderReportSpecColumns();
+      syncReportPromptFromSpec();
+    });
+  }
+}
+bindReportSpecFormEvents();
+
 function currentReportType() {
   const select = document.getElementById('reportTypeSelect');
   const key = select ? select.value : 'all_workflows';
@@ -8217,9 +8612,23 @@ async function sendReportPromptJob() {
     if (res.ok) {
       const promptOverride = document.getElementById('reportPromptOverride');
       const promptText = data.reportPrompt || data.report_prompt || data.prompt || '';
-      if (promptOverride && promptText) promptOverride.value = promptText;
-      setReportPromptStatus('Prompt generated');
-      renderAssistantMessage({ report_result: data, reply: 'Report prompt generated for "' + (data.title || t.name) + '".' }, sessionIdInput.value.trim() || newSessionId(), request);
+      const spec = data.reportSpec || data.report_spec;
+      if (spec) {
+        applyReportSpecToForm(spec);
+        syncReportPromptFromSpec();
+      } else if (promptOverride && promptText) {
+        promptOverride.value = promptText;
+        applyReportSpecToForm({
+          title: data.title || t.name,
+          objective: promptText.split('\n')[0].replace(/^Report objective:\s*/i, '').slice(0, 240),
+          reportType: t.key,
+          columns: [],
+          filters: [],
+          warnings: data.warnings || [],
+        });
+      }
+      setReportPromptStatus('Short prompt ready');
+      renderAssistantMessage({ report_result: data, reply: 'Short report prompt ready for "' + (data.title || t.name) + '".' }, sessionIdInput.value.trim() || newSessionId(), request);
     } else {
       const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
       addSystemMessage(res.status + ': ' + (detail || 'Prompt generation failed'));
@@ -8237,21 +8646,24 @@ async function sendReportPlanJob() {
   const tenantId = (document.getElementById('reportTenant') ? document.getElementById('reportTenant').value.trim() : '') || consoleTenantId();
   const pageSizeInput = document.getElementById('reportPageSize');
   const pageSize = pageSizeInput ? parseInt(pageSizeInput.value, 10) || 25 : 25;
+  syncReportPromptFromSpec();
+  const reportSpec = readReportSpecFromForm();
   const promptOverride = document.getElementById('reportPromptOverride') ? document.getElementById('reportPromptOverride').value.trim() : '';
   const workflowName = document.getElementById('reportWorkflowName') ? document.getElementById('reportWorkflowName').value.trim() : '';
   const repositoryName = document.getElementById('reportRepositoryName') ? document.getElementById('reportRepositoryName').value.trim() : '';
-  if (!promptOverride) {
-    addSystemMessage('Generate a report prompt first (Phase 1), then run.');
+  if (!promptOverride && !(reportSpec.columns && reportSpec.columns.length)) {
+    addSystemMessage('Generate a short prompt first (Phase 1), then run.');
     return;
   }
-  addUserMessage('Run report: ' + t.name);
+  addUserMessage('Run report: ' + (reportSpec.title || t.name));
   const btn = document.getElementById('reportPlanBtn');
   const origText = btn ? btn.textContent : 'Run Report';
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Running…'; }
   sendBtn.disabled = true;
-  const processing = addProcessingMessage('Phase 2: interpreting prompt and executing read-only report…');
+  const processing = addProcessingMessage('Phase 2: interpreting short prompt and executing read-only report…');
   const payload = {
-    reportPrompt: promptOverride,
+    reportPrompt: promptOverride || undefined,
+    reportSpec,
     reportType: t.key,
     workflowName: workflowName || undefined,
     repositoryName: repositoryName || undefined,

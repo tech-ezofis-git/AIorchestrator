@@ -1,14 +1,23 @@
 ---
-description: Phase 1 returns executable report prompt text only
+description: Phase 1 returns client-facing reportSpec JSON only
 alwaysApply: true
 ---
 
 # Output contract
 
-- Return plain text only: the executable report-generation prompt.
-- Do not wrap the prompt in markdown code fences.
-- Do not return JSON, SQL, YAML, or tool calls.
-- Do not add a preamble like "Here is the prompt:".
-- Do not include commentary after the prompt.
-- The prompt must be self-contained so Phase 2 can execute it with schema + tenant context.
-- Prefer concrete Matched_Status / status values only when they appear in the approved schema or sampled values; otherwise say the exact allowed values are unknown and ask Phase 2 to use only schema-backed filters.
+- Return **one JSON object only** (reportSpec). No markdown fences. No commentary.
+- Do not return free-form essay prompt text.
+- Do not write SQL, YAML, or tool calls.
+- Required keys:
+  - `title` (short)
+  - `objective` (1–2 short business sentences)
+  - `reportType`
+  - `columns` — array of `{ "key", "label", "formula?" }`
+  - `filters` — array of `{ "field", "op", "value" }` (omit when none)
+  - `groupBy` — array of field keys (may be empty)
+  - `sort` — `{ "field", "direction" }` or null
+  - `availableColumns` — schema-backed column keys the UI may add
+  - `warnings` — client-visible gaps only (e.g. missing Score)
+- Keep objective and titles short for client display.
+- Prefer concrete Matched_Status / status values only when they appear in the approved schema; otherwise use a safe schema-backed filter or leave a warning.
+- Formulas must be simple (`A + B`, `SUM(Amount)`, `COUNT(*)`) and reference schema-backed fields only.

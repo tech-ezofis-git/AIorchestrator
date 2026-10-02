@@ -2526,6 +2526,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "workflow_name": getattr(p, "workflow_name", None) if p else None,
             "repository_name": getattr(p, "repository_name", None) if p else None,
             "report_prompt": getattr(p, "report_prompt", None) if p else None,
+            "report_spec": getattr(p, "report_spec", None) if p else None,
             "prompt": getattr(p, "prompt", None) if p else None,
             "filters": getattr(p, "filters", None) if p else None,
             "page": getattr(p, "page", None) if p else None,

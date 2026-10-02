@@ -54,10 +54,58 @@ class GeneratePromptRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class ReportSpecColumn(BaseModel):
+    key: str
+    label: str = ""
+    formula: Optional[str] = None
+    editable: bool = True
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ReportSpecFilter(BaseModel):
+    field: str
+    op: str = "eq"
+    value: Optional[Any] = None
+    editable: bool = True
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ReportSpecSort(BaseModel):
+    field: str
+    direction: str = "asc"
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ReportSpec(BaseModel):
+    """Client-facing short editable report brief (Phase 1 UI)."""
+
+    title: str = "Report"
+    objective: str = ""
+    report_type: Optional[str] = Field(default=None, serialization_alias="reportType")
+    columns: list[ReportSpecColumn] = Field(default_factory=list)
+    filters: list[ReportSpecFilter] = Field(default_factory=list)
+    group_by: list[str] = Field(default_factory=list, serialization_alias="groupBy")
+    sort: Optional[ReportSpecSort] = None
+    available_columns: list[str] = Field(
+        default_factory=list,
+        serialization_alias="availableColumns",
+    )
+    warnings: list[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class GeneratePromptResponse(BaseModel):
     report_type: str = Field(..., serialization_alias="reportType")
     title: str
     report_prompt: str = Field(..., serialization_alias="reportPrompt")
+    report_spec: Optional[ReportSpec] = Field(
+        default=None,
+        serialization_alias="reportSpec",
+    )
     warnings: list[str] = Field(default_factory=list)
     schema_tables: list[str] = Field(default_factory=list, serialization_alias="schemaTables")
     duration_ms: Optional[float] = Field(default=None, serialization_alias="durationMs")
@@ -71,9 +119,13 @@ class ReportSortSpec(BaseModel):
 
 
 class RunReportRequest(BaseModel):
-    report_prompt: str = Field(
-        ...,
+    report_prompt: Optional[str] = Field(
+        default=None,
         validation_alias=AliasChoices("reportPrompt", "report_prompt", "prompt"),
+    )
+    report_spec: Optional[ReportSpec] = Field(
+        default=None,
+        validation_alias=AliasChoices("reportSpec", "report_spec", "spec"),
     )
     report_type: Optional[str] = Field(
         default=None,

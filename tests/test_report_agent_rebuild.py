@@ -174,6 +174,53 @@ def test_fallback_definition_from_prompt_uses_named_table():
     assert raw["warnings"]
 
 
+def test_report_spec_to_prompt_includes_formula():
+    from app.models.report_agent import ReportSpec, ReportSpecColumn, ReportSpecFilter
+    from app.report_agent.report_spec import report_spec_to_prompt
+
+    spec = ReportSpec(
+        title="Total Approved",
+        objective="Sum approved amounts",
+        report_type="specific_workflow",
+        columns=[
+            ReportSpecColumn(key="Invoice_No", label="Invoice No"),
+            ReportSpecColumn(key="Total_Amount", label="Total Amount", formula="PO_Amount + Invoice_Amount"),
+        ],
+        filters=[ReportSpecFilter(field="Matched_Status", op="not_null")],
+    )
+    prompt = report_spec_to_prompt(spec, workflow_name="Accounts Payable Form")
+    assert "Sum approved amounts" in prompt
+    assert "Total_Amount" in prompt
+    assert "PO_Amount + Invoice_Amount" in prompt
+    assert "Matched_Status is not null" in prompt
+    assert "Accounts Payable Form" in prompt
+
+
+def test_fallback_report_spec_adds_total_formula():
+    from app.models.report_agent import SchemaColumnSlice, SchemaTableSlice
+    from app.report_agent.report_spec import fallback_report_spec
+
+    tables = [
+        SchemaTableSlice(
+            schema_name="dbo",
+            table="ezfb_items",
+            columns=[
+                SchemaColumnSlice(name="Invoice_No", type="text"),
+                SchemaColumnSlice(name="PO_Amount", type="numeric"),
+                SchemaColumnSlice(name="Invoice_Amount", type="numeric"),
+                SchemaColumnSlice(name="Matched_Status", type="text"),
+            ],
+        )
+    ]
+    spec = fallback_report_spec(
+        description="Total Approved with Score",
+        report_type="specific_workflow",
+        tables=tables,
+    )
+    assert any(c.key == "Total_Amount" and c.formula for c in spec.columns)
+    assert any("Score" in w for w in spec.warnings)
+
+
 def test_parse_definition_json_strips_fences():
     payload = parse_definition_json('```json\n{"title":"T","sources":[],"columns":[]}\n```')
     assert payload["title"] == "T"
@@ -228,6 +275,8 @@ async def test_generate_prompt_retries_fallback_on_timeout(monkeypatch):
     )
     assert llm.calls == 2
     assert "Recovered prompt text" in resp.report_prompt
+    assert resp.report_spec is not None
+    assert resp.report_spec.objective
 
 
 class _FakeLLMSimple:
@@ -277,8 +326,10 @@ async def test_generate_prompt_uses_llm(monkeypatch):
             tenant_id="tenant-1",
         )
     )
-    assert "inbox_aaaaaaaa" in resp.report_prompt or "Report objective" in resp.report_prompt
     assert resp.report_type == "all_workflows"
+    assert resp.report_spec is not None
+    assert resp.report_spec.columns or "Report objective" in resp.report_prompt
+    assert "inbox_aaaaaaaa" in resp.report_prompt or "Report objective" in resp.report_prompt or resp.report_spec.objective
 
 
 @pytest.mark.asyncio
