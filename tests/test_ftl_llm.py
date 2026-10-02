@@ -106,3 +106,93 @@ async def test_adapter_resolves_a_preset_id_model(monkeypatch):
     assert captured["model"] == "openai/qwen3.5-9b"
     assert captured["api_base"] == "http://gpu-box.test:8080/v1"
     assert captured["api_key"] == "gpu-test-key"
+
+
+def test_resolve_fallback_llm_config_finds_azure_preset(monkeypatch):
+    from app.ftl.llm import resolve_fallback_llm_config, resolve_llm_config
+
+    get_settings = _fresh_settings(
+        monkeypatch,
+        QWEN_MAC_API_KEY="gpu-test-key",
+        QWEN_MAC_API_BASE="http://gpu-box.test:8080/v1",
+        AZURE_SOUTH_INDIA_API_KEY="south-india-test-key",
+    )
+    try:
+        primary = resolve_llm_config(None)
+        fallback = resolve_fallback_llm_config(primary)
+    finally:
+        get_settings.cache_clear()
+
+    assert fallback is not None
+    assert fallback["api_key"] == "south-india-test-key"
+    assert fallback["model"] in ("azure/gpt-4.1-mini", "azure/gpt-4.1-nano")
+
+
+def test_resolve_fallback_llm_config_respects_explicit_overrides():
+    from app.ftl.llm import resolve_fallback_llm_config
+
+    custom_fb = {
+        "model": "azure/gpt-4.1-mini",
+        "api_base": "https://tenant.openai.azure.com",
+        "api_key": "tenant-fb-key",
+        "api_version": "2025-01-01-preview",
+    }
+    fallback = resolve_fallback_llm_config(
+        primary_config={"model": "openai/qwen3.5-9b"},
+        fallback_overrides=custom_fb,
+    )
+    assert fallback is not None
+    assert fallback["api_key"] == "tenant-fb-key"
+    assert fallback["model"] == "azure/gpt-4.1-mini"
+
+
+def test_qualifier_fallback_when_primary_fails(monkeypatch):
+    from app.ftl.qualifier.agent import run_qualification
+
+    calls = []
+
+    def fake_open_client(config, **kwargs):
+        model = str(config.get("model") or "")
+        calls.append(model)
+        if "qwen" in model:
+            raise ConnectionError("Primary ACI container unreachable")
+
+        class FakeMessage:
+            content = '{"action": "submit_qualification_decision", "decision": {"qualify": "qualify", "project_name": "Test Fallback", "matched_items": []}}'
+
+        class FakeChoice:
+            message = FakeMessage()
+
+        class FakeResponse:
+            choices = [FakeChoice()]
+            usage = None
+
+        class FakeChatCompletions:
+            def create(self, **kwargs):
+                return FakeResponse()
+
+        class FakeChat:
+            completions = FakeChatCompletions()
+
+        class FakeClient:
+            chat = FakeChat()
+
+        return FakeClient(), model
+
+    progress_reports = []
+
+    def on_progress(msg, pct):
+        progress_reports.append((msg, pct))
+
+    monkeypatch.setattr("app.ftl.llm.open_client", fake_open_client)
+    res, tokens = run_qualification(
+        skill={},
+        candidate_text="Elevator door modernizations",
+        llm_overrides={"model": "openai/qwen3.5-9b", "api_key": "test", "api_base": "http://dead-host/v1"},
+        progress_callback=on_progress,
+    )
+    assert res["project_name"] == "Test Fallback"
+    assert any("Switching to backup AI model" in m[0] for m in progress_reports)
+    assert len(calls) == 2
+    assert "qwen" in calls[0]
+

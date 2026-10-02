@@ -8,13 +8,16 @@ DB-free: search_pricelist reads pricelist_store.py's local JSON index instead of
 from __future__ import annotations
 
 import json
+import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from openai import OpenAI
+
+logger = logging.getLogger("orchestrator.ftl.qualifier")
 
 try:
     from app.ftl.qualifier.pricelist_store import search_pricelist
@@ -630,7 +633,13 @@ def _normalize_decision_dict(decision: Dict[str, Any]) -> Dict[str, Any]:
     return decision
 
 
-def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[str, Any], candidate_text: str) -> Tuple[Dict[str, Any], int]:
+def _run_qualification_json_mode(
+    client: OpenAI,
+    model_name: str,
+    skill: Dict[str, Any],
+    candidate_text: str,
+    progress_callback: Optional[Callable[[str, int], Any]] = None,
+) -> Tuple[Dict[str, Any], int]:
     system_prompt = build_system_prompt(skill, is_json_mode=True)
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
@@ -639,6 +648,18 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
     total_tokens = 0
 
     for round_num in range(MAX_LOOKUP_ROUNDS + 1):
+        if progress_callback:
+            try:
+                if round_num == 0:
+                    progress_callback("Analyzing RFQ specifications against rules", 82)
+                else:
+                    progress_callback(
+                        f"Evaluating qualification requirements (step {round_num + 1})",
+                        min(89, 82 + round_num * 2),
+                    )
+            except Exception:
+                pass
+
         force_final = round_num == MAX_LOOKUP_ROUNDS
         if force_final:
             messages.append(
@@ -671,6 +692,11 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
         action = data.get("action")
         # Check if decision was returned directly or via action
         if action == "submit_qualification_decision" or "qualify" in data or (isinstance(data.get("decision"), dict) and "qualify" in data["decision"]):
+            if progress_callback:
+                try:
+                    progress_callback("Synthesizing qualification decision", 88)
+                except Exception:
+                    pass
             decision = data.get("decision") if (isinstance(data.get("decision"), dict) and "qualify" in data["decision"]) else data
             decision = _normalize_decision_dict(decision)
             decision = _apply_policy_overrides(decision, candidate_text)
@@ -678,6 +704,11 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
 
         if action == "search_pricelist":
             query = data.get("query", "")
+            if progress_callback and query:
+                try:
+                    progress_callback(f"Searching catalog for '{str(query)[:30]}'", 85)
+                except Exception:
+                    pass
             result = _run_tool_call("search_pricelist", {"query": query})
             messages.append({"role": "assistant", "content": content})
             messages.append({"role": "user", "content": f"Tool search_pricelist result for '{query}':\n{result}"})
@@ -694,7 +725,13 @@ def _run_qualification_json_mode(client: OpenAI, model_name: str, skill: Dict[st
     raise RuntimeError(f"Model did not submit a decision within {MAX_LOOKUP_ROUNDS} rounds.")
 
 
-def _run_qualification_native_tools(client: Any, model_name: str, skill: Dict[str, Any], candidate_text: str) -> Tuple[Dict[str, Any], int]:
+def _run_qualification_native_tools(
+    client: Any,
+    model_name: str,
+    skill: Dict[str, Any],
+    candidate_text: str,
+    progress_callback: Optional[Callable[[str, int], Any]] = None,
+) -> Tuple[Dict[str, Any], int]:
     system_prompt = build_system_prompt(skill, is_json_mode=False)
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
@@ -704,6 +741,18 @@ def _run_qualification_native_tools(client: Any, model_name: str, skill: Dict[st
     total_tokens = 0
 
     for round_num in range(MAX_LOOKUP_ROUNDS + 1):
+        if progress_callback:
+            try:
+                if round_num == 0:
+                    progress_callback("Analyzing RFQ specifications against rules", 82)
+                else:
+                    progress_callback(
+                        f"Evaluating qualification requirements (step {round_num + 1})",
+                        min(89, 82 + round_num * 2),
+                    )
+            except Exception:
+                pass
+
         force_final = round_num == MAX_LOOKUP_ROUNDS
         resp = client.chat.completions.create(
             model=model_name,
@@ -750,6 +799,11 @@ def _run_qualification_native_tools(client: Any, model_name: str, skill: Dict[st
 
         decision_call = next((tc for tc in tool_calls if tc.function.name == "submit_qualification_decision"), None)
         if decision_call is not None:
+            if progress_callback:
+                try:
+                    progress_callback("Synthesizing qualification decision", 88)
+                except Exception:
+                    pass
             try:
                 decision = json.loads(decision_call.function.arguments)
             except json.JSONDecodeError as e:
@@ -763,6 +817,13 @@ def _run_qualification_native_tools(client: Any, model_name: str, skill: Dict[st
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
+            if tc.function.name == "search_pricelist" and progress_callback:
+                try:
+                    q_val = str(args.get("query", ""))[:30]
+                    if q_val:
+                        progress_callback(f"Searching catalog for '{q_val}'", 85)
+                except Exception:
+                    pass
             result = _run_tool_call(tc.function.name, args)
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
@@ -773,24 +834,67 @@ def run_qualification(
     skill: Dict[str, Any],
     candidate_text: str,
     llm_overrides: Optional[Dict[str, Any]] = None,
+    fallback_overrides: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[Callable[[str, int], Any]] = None,
 ) -> Tuple[Dict[str, Any], int]:
     """Runs the bounded agentic loop and returns (decision_dict, total_tokens).
 
     Model and API key come from the same preset overrides other agents use
     (catalog / tenant selection, or the process default ezofis-gpu-box).
+    Automatically falls back to a secondary/Azure LLM if the primary model fails or is unreachable.
     """
-    from app.ftl.llm import open_client, prefers_json_mode, resolve_llm_config
+    from app.ftl.llm import (
+        open_client,
+        prefers_json_mode,
+        resolve_fallback_llm_config,
+        resolve_llm_config,
+    )
 
     config = resolve_llm_config(llm_overrides)
-    client, deploy_model = open_client(config)
-    model_name = str(config.get("model") or deploy_model)
 
-    if prefers_json_mode(model_name):
-        return _run_qualification_json_mode(client, deploy_model, skill, candidate_text)
+    def _execute_loop(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+        client, deploy_model = open_client(cfg)
+        model_name = str(cfg.get("model") or deploy_model)
+
+        if prefers_json_mode(model_name):
+            return _run_qualification_json_mode(
+                client, deploy_model, skill, candidate_text, progress_callback=progress_callback
+            )
+        try:
+            return _run_qualification_native_tools(
+                client, deploy_model, skill, candidate_text, progress_callback=progress_callback
+            )
+        except Exception as e:
+            if "tool" in str(e).lower() or "400" in str(e):
+                return _run_qualification_json_mode(
+                    client, deploy_model, skill, candidate_text, progress_callback=progress_callback
+                )
+            raise
+
     try:
-        return _run_qualification_native_tools(client, deploy_model, skill, candidate_text)
-    except Exception as e:
-        if "tool" in str(e).lower() or "400" in str(e):
-            return _run_qualification_json_mode(client, deploy_model, skill, candidate_text)
-        raise
+        return _execute_loop(config)
+    except Exception as primary_exc:
+        primary_model = str(config.get("model") or "")
+        logger.warning(
+            "Primary LLM %s failed in qualifier loop: %s. Attempting fallback...",
+            primary_model,
+            primary_exc,
+            extra={"primary_model": primary_model, "error": str(primary_exc)},
+        )
+        fb_config = resolve_fallback_llm_config(config, fallback_overrides)
+        if fb_config:
+            if progress_callback:
+                try:
+                    progress_callback("Switching to backup AI model...", 83)
+                except Exception:
+                    pass
+            try:
+                return _execute_loop(fb_config)
+            except Exception as fb_exc:
+                logger.error(
+                    "Fallback LLM %s also failed in qualifier loop: %s",
+                    fb_config.get("model"),
+                    fb_exc,
+                )
+        raise primary_exc
 

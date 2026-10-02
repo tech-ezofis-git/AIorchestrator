@@ -145,6 +145,7 @@ class FtlQualifierAgent:
         raw_text: Optional[str] = None,
         model_override: Optional[str] = None,
         llm_overrides: Optional[Dict[str, Any]] = None,
+        llm_fallback_overrides: Optional[Dict[str, Any]] = None,
         tenant_id: Optional[str] = None,
         ap_agent_job_id: Optional[str] = None,
         ezofis: Any = None,
@@ -191,8 +192,25 @@ class FtlQualifierAgent:
             # --- 80%: Applying qualification rules (LLM call runs here) ---
             await progress.update("PROCESSING", "Applying qualification rules", 80)
 
+            loop = asyncio.get_running_loop()
+
+            def _on_progress(msg: str, pct: int) -> None:
+                if progress.enabled:
+                    asyncio.run_coroutine_threadsafe(
+                        progress.update("PROCESSING", msg, pct),
+                        loop,
+                    )
+
             def _run() -> Tuple[Dict[str, Any], int]:
-                return qualifier_agent.run_qualification(skill, rendered, llm_overrides=overrides or None)
+                fn = qualifier_agent.run_qualification
+                import inspect
+                sig = inspect.signature(fn)
+                kwargs: Dict[str, Any] = {"llm_overrides": overrides or None}
+                if "fallback_overrides" in sig.parameters:
+                    kwargs["fallback_overrides"] = llm_fallback_overrides or None
+                if "progress_callback" in sig.parameters:
+                    kwargs["progress_callback"] = _on_progress
+                return fn(skill, rendered, **kwargs)
 
             decision, total_tokens = await asyncio.to_thread(_run)
 
@@ -226,8 +244,9 @@ class FtlQualifierAgent:
 
         except Exception as exc:
             # Report failure to the Hangfire job before re-raising.
-            # The percent reflects approximately where in the pipeline the error occurred.
-            await progress.update("FAILED", f"Qualification failed: {exc}", 60)
+            # Setting 100% on FAILED ensures Hangfire and the client progress loader
+            # complete their cycle cleanly with the error message.
+            await progress.update("FAILED", f"Qualification failed: {exc}", 100)
             raise
 
     async def handle(
@@ -273,6 +292,7 @@ class FtlQualifierAgent:
                 raw_text=raw_text,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
+                llm_fallback_overrides=job.get("llm_fallback_overrides"),
                 tenant_id=tenant_id,
                 ap_agent_job_id=ap_agent_job_id,
                 ezofis=ezofis,

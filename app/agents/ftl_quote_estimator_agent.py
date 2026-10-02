@@ -236,6 +236,7 @@ class FtlQuoteEstimatorAgent:
         template_type: str = "inflow",
         model_override: Optional[str] = None,
         llm_overrides: Optional[Dict[str, Any]] = None,
+        llm_fallback_overrides: Optional[Dict[str, Any]] = None,
         tenant_id: Optional[str] = None,
         ap_agent_job_id: Optional[str] = None,
         ezofis: Any = None,
@@ -283,8 +284,25 @@ class FtlQuoteEstimatorAgent:
             # --- 60%: Calculating prices (LLM call runs here) ---
             await progress.update("PROCESSING", "Calculating prices", 60)
 
+            loop = asyncio.get_running_loop()
+
+            def _on_progress(msg: str, pct: int) -> None:
+                if progress.enabled:
+                    asyncio.run_coroutine_threadsafe(
+                        progress.update("PROCESSING", msg, pct),
+                        loop,
+                    )
+
             def _run() -> Tuple[Dict[str, Any], int]:
-                return quote_agent.run_quote_estimation(skill, rendered, llm_overrides=overrides or None)
+                fn = quote_agent.run_quote_estimation
+                import inspect
+                sig = inspect.signature(fn)
+                kwargs: Dict[str, Any] = {"llm_overrides": overrides or None}
+                if "fallback_overrides" in sig.parameters:
+                    kwargs["fallback_overrides"] = llm_fallback_overrides or None
+                if "progress_callback" in sig.parameters:
+                    kwargs["progress_callback"] = _on_progress
+                return fn(skill, rendered, **kwargs)
 
             quote_result, total_tokens = await asyncio.to_thread(_run)
 
@@ -357,7 +375,9 @@ class FtlQuoteEstimatorAgent:
 
         except Exception as exc:
             # Report failure to the Hangfire job before re-raising.
-            await progress.update("FAILED", f"Quote generation failed: {exc}", 60)
+            # Setting 100% on FAILED ensures Hangfire and the client progress loader
+            # complete their cycle cleanly with the error message.
+            await progress.update("FAILED", f"Quote generation failed: {exc}", 100)
             raise
 
     async def handle(
@@ -457,6 +477,7 @@ class FtlQuoteEstimatorAgent:
                 template_type=template_type,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
+                llm_fallback_overrides=job.get("llm_fallback_overrides"),
                 tenant_id=tenant_id,
                 ap_agent_job_id=ap_agent_job_id,
                 ezofis=ezofis,
