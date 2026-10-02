@@ -49,25 +49,29 @@ def _openai_client() -> Union[OpenAI, AzureOpenAI]:
         openai_key = os.getenv("OPENAI_API_KEY")
 
         if openai_key and openai_key.startswith("sk-"):
-            _client = OpenAI(api_key=openai_key)
+            _client = OpenAI(api_key=openai_key, timeout=8.0, max_retries=1)
         elif azure_ep and (azure_key or (openai_key and not openai_key.startswith("sk-"))):
             api_ver = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
             _client = AzureOpenAI(
                 azure_endpoint=azure_ep,
                 api_key=azure_key or openai_key,
                 api_version=api_ver,
+                timeout=8.0,
+                max_retries=1,
             )
         elif openai_key:
-            _client = OpenAI(api_key=openai_key)
+            _client = OpenAI(api_key=openai_key, timeout=8.0, max_retries=1)
         elif azure_key:
             api_ver = os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview")
             _client = AzureOpenAI(
                 azure_endpoint=azure_ep,
                 api_key=azure_key,
                 api_version=api_ver,
+                timeout=8.0,
+                max_retries=1,
             )
         else:
-            _client = OpenAI()
+            _client = OpenAI(timeout=8.0, max_retries=1)
     return _client
 
 

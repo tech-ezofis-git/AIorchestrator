@@ -10,11 +10,14 @@ quote_template.py so it can never be wrong or inconsistent from run to run.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 load_dotenv()
+
+logger = logging.getLogger("orchestrator.ftl.quote_estimator")
 
 try:
     from app.ftl.quote_estimator.pricelist_store import (
@@ -2851,7 +2854,11 @@ def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any
 
 
 def _run_quote_json_mode(
-    client: Any, model_name: str, skill: Dict[str, Any], candidate_text: str
+    client: Any,
+    model_name: str,
+    skill: Dict[str, Any],
+    candidate_text: str,
+    progress_callback: Optional[Callable[[str, int], Any]] = None,
 ) -> Tuple[Dict[str, Any], int]:
     system_prompt = build_system_prompt(skill, is_json_mode=True)
     messages: List[Dict[str, Any]] = [
@@ -2861,6 +2868,18 @@ def _run_quote_json_mode(
     total_tokens = 0
 
     for round_num in range(MAX_LOOKUP_ROUNDS + 1):
+        if progress_callback:
+            try:
+                if round_num == 0:
+                    progress_callback("Analyzing line items and pricing formulas", 62)
+                else:
+                    progress_callback(
+                        f"Refining quote specifications (step {round_num + 1})",
+                        min(78, 62 + round_num * 3),
+                    )
+            except Exception:
+                pass
+
         force_final = round_num == MAX_LOOKUP_ROUNDS
         if force_final:
             messages.append(
@@ -2935,6 +2954,12 @@ def _run_quote_json_mode(
                     "line item(s)). Please try again."
                 )
 
+            if progress_callback:
+                try:
+                    progress_callback("Calculating final line items and unit prices", 76)
+                except Exception:
+                    pass
+
             quote = _finalize_quote(quote, candidate_text)
             return quote, total_tokens
 
@@ -2946,6 +2971,12 @@ def _run_quote_json_mode(
                 query = data["search_pricelist"].get("query", "")
             if not query:
                 query = ""
+
+            if progress_callback and query:
+                try:
+                    progress_callback(f"Looking up catalog pricing for '{str(query)[:30]}'", 68)
+                except Exception:
+                    pass
 
             result = _run_tool_call("search_pricelist", {"query": query})
             messages.append({"role": "assistant", "content": content})
@@ -2966,7 +2997,11 @@ def _run_quote_json_mode(
 
 
 def _run_quote_native_tools(
-    client: Any, model_name: str, skill: Dict[str, Any], candidate_text: str
+    client: Any,
+    model_name: str,
+    skill: Dict[str, Any],
+    candidate_text: str,
+    progress_callback: Optional[Callable[[str, int], Any]] = None,
 ) -> Tuple[Dict[str, Any], int]:
     system_prompt = build_system_prompt(skill, is_json_mode=False)
     messages: List[Dict[str, Any]] = [
@@ -2977,6 +3012,18 @@ def _run_quote_native_tools(
     total_tokens = 0
 
     for round_num in range(MAX_LOOKUP_ROUNDS + 1):
+        if progress_callback:
+            try:
+                if round_num == 0:
+                    progress_callback("Analyzing line items and pricing formulas", 62)
+                else:
+                    progress_callback(
+                        f"Refining quote specifications (step {round_num + 1})",
+                        min(78, 62 + round_num * 3),
+                    )
+            except Exception:
+                pass
+
         force_final = round_num == MAX_LOOKUP_ROUNDS
         resp = client.chat.completions.create(
             model=model_name,
@@ -3021,6 +3068,11 @@ def _run_quote_native_tools(
 
         quote_call = next((tc for tc in tool_calls if tc.function.name == "submit_quote"), None)
         if quote_call is not None:
+            if progress_callback:
+                try:
+                    progress_callback("Calculating final line items and unit prices", 76)
+                except Exception:
+                    pass
             try:
                 quote = json.loads(quote_call.function.arguments)
             except json.JSONDecodeError as e:
@@ -3039,6 +3091,13 @@ def _run_quote_native_tools(
                 args = json.loads(tc.function.arguments or "{}")
             except json.JSONDecodeError:
                 args = {}
+            if tc.function.name == "search_pricelist" and progress_callback:
+                try:
+                    q_val = str(args.get("query", ""))[:30]
+                    if q_val:
+                        progress_callback(f"Looking up catalog pricing for '{q_val}'", 68)
+                except Exception:
+                    pass
             result = _run_tool_call(tc.function.name, args)
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
@@ -3049,29 +3108,73 @@ def run_quote_estimation(
     skill: Dict[str, Any],
     candidate_text: str,
     llm_overrides: Optional[Dict[str, Any]] = None,
+    fallback_overrides: Optional[Dict[str, Any]] = None,
+    progress_callback: Optional[Callable[[str, int], Any]] = None,
 ) -> Tuple[Dict[str, Any], int]:
     """Runs the bounded agentic loop and returns (quote_dict, total_tokens).
 
     Model and API key come from the same preset overrides other agents use.
+    Automatically falls back to a secondary/Azure LLM if the primary model fails or is unreachable.
     """
-    from app.ftl.llm import open_client, prefers_json_mode, resolve_llm_config
+    from app.ftl.llm import (
+        open_client,
+        prefers_json_mode,
+        resolve_fallback_llm_config,
+        resolve_llm_config,
+    )
 
     config = resolve_llm_config(llm_overrides)
-    client, deploy_model = open_client(config)
-    model_name = str(config.get("model") or deploy_model)
 
-    if prefers_json_mode(model_name):
-        return _run_quote_json_mode(client, deploy_model, skill, candidate_text)
+    def _execute_loop(cfg: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+        client, deploy_model = open_client(cfg)
+        model_name = str(cfg.get("model") or deploy_model)
+
+        if prefers_json_mode(model_name):
+            return _run_quote_json_mode(
+                client, deploy_model, skill, candidate_text, progress_callback=progress_callback
+            )
+        try:
+            return _run_quote_native_tools(
+                client, deploy_model, skill, candidate_text, progress_callback=progress_callback
+            )
+        except Exception as e:
+            message = str(e).lower()
+            tool_schema_error = (
+                "tool" in message
+                and any(
+                    term in message
+                    for term in ("unsupported", "not support", "invalid", "schema", "function")
+                )
+            ) or ("400" in message and "tool" in message)
+            if tool_schema_error:
+                return _run_quote_json_mode(
+                    client, deploy_model, skill, candidate_text, progress_callback=progress_callback
+                )
+            raise
+
     try:
-        return _run_quote_native_tools(client, deploy_model, skill, candidate_text)
-    except Exception as e:
-        message = str(e).lower()
-        tool_schema_error = (
-            "tool" in message
-            and any(term in message for term in (
-                "unsupported", "not support", "invalid", "schema", "function"
-            ))
-        ) or ("400" in message and "tool" in message)
-        if tool_schema_error:
-            return _run_quote_json_mode(client, deploy_model, skill, candidate_text)
-        raise
+        return _execute_loop(config)
+    except Exception as primary_exc:
+        primary_model = str(config.get("model") or "")
+        logger.warning(
+            "Primary LLM %s failed in quote estimator loop: %s. Attempting fallback...",
+            primary_model,
+            primary_exc,
+            extra={"primary_model": primary_model, "error": str(primary_exc)},
+        )
+        fb_config = resolve_fallback_llm_config(config, fallback_overrides)
+        if fb_config:
+            if progress_callback:
+                try:
+                    progress_callback("Switching to backup AI model...", 63)
+                except Exception:
+                    pass
+            try:
+                return _execute_loop(fb_config)
+            except Exception as fb_exc:
+                logger.error(
+                    "Fallback LLM %s also failed in quote estimator loop: %s",
+                    fb_config.get("model"),
+                    fb_exc,
+                )
+        raise primary_exc

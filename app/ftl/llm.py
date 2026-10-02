@@ -52,7 +52,41 @@ def resolve_llm_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, 
     return preset
 
 
-def open_client(config: dict[str, Any]) -> tuple[Any, str]:
+def resolve_fallback_llm_config(
+    primary_config: Optional[dict[str, Any]] = None,
+    fallback_overrides: Optional[dict[str, Any]] = None,
+) -> Optional[dict[str, Any]]:
+    """Resolve a secondary/fallback LLM config when the primary fails.
+
+    If fallback_overrides is passed (e.g. catalog tenant fallback), resolve that.
+    Otherwise, picks an available Azure preset (gpt-4.1-mini, gpt-4.1-nano, gpt-4o-mini)
+    different from the primary model that has an active API key.
+    """
+    if fallback_overrides:
+        try:
+            resolved = resolve_llm_config(fallback_overrides)
+            if resolved and resolved.get("api_key"):
+                return resolved
+        except Exception:
+            pass
+
+    primary_model = str((primary_config or {}).get("model") or "").strip().lower()
+    fallback_candidates = ["gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o-mini"]
+    for pid in fallback_candidates:
+        candidate = resolve_preset_overrides(pid)
+        if not candidate or not candidate.get("api_key"):
+            continue
+        c_model = str(candidate.get("model") or "").strip().lower()
+        if c_model != primary_model and pid != primary_model:
+            return candidate
+    return None
+
+
+def open_client(
+    config: dict[str, Any],
+    timeout: float = 35.0,
+    max_retries: int = 1,
+) -> tuple[Any, str]:
     """Return (sdk client, deployment name) for one FTL tool-loop."""
     model = str(config.get("model") or "").strip()
     api_base = str(config.get("api_base") or "").strip()
@@ -71,14 +105,17 @@ def open_client(config: dict[str, Any]) -> tuple[Any, str]:
             azure_endpoint=endpoint,
             api_key=api_key,
             api_version=api_version,
+            timeout=timeout,
+            max_retries=max_retries,
         )
         return client, deploy
 
     deploy = model[len("openai/"):] if model.startswith("openai/") else model
     if api_base:
-        return OpenAI(base_url=api_base, api_key=api_key), deploy
-    return OpenAI(api_key=api_key), deploy
+        return OpenAI(base_url=api_base, api_key=api_key, timeout=timeout, max_retries=max_retries), deploy
+    return OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries), deploy
 
 
 def prefers_json_mode(model: str) -> bool:
     return "qwen" in (model or "").lower()
+
