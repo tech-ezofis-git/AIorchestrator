@@ -228,6 +228,7 @@ class DashboardAgent:
                 "table": target["qualified_table"],
                 "columns": columns,
                 "message": message,
+                "prompt": message,
                 "kpis": kpis,
                 "charts": charts,
                 "data": None,
@@ -330,7 +331,7 @@ class DashboardAgent:
             "insights": insights,
             "data_source": data_source,
         }
-        html = render_dashboard_html(result, message=message)
+        html = render_dashboard_html(result, message=message, rows=rows)
         return {"reply": _DATA_REPLY, "dashboard_result": result, "html": html}
 
 

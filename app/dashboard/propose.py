@@ -1,6 +1,7 @@
 """Propose KPIs/charts from user message + repository columns (LLM, with generic fallback)."""
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 from typing import Any, Optional
@@ -8,7 +9,19 @@ from typing import Any, Optional
 from app.dashboard.llm import LLMError, chat_json
 from app.dashboard.pack import dashboard_system_prompt
 from app.dashboard.tokens import ACCENT_PRIMARY, CHART_PALETTE, ERROR_MAIN, INFO_MAIN, PRIMARY, SUCCESS_MAIN, WARNING_MAIN
-from app.dashboard.widgets import rebind_sparse_group_columns, repair_live_spec
+from app.dashboard.widgets import (
+    AMOUNT_ALIASES,
+    CURRENCY_ALIASES,
+    DUE_ALIASES,
+    INVOICE_DATE_ALIASES,
+    MATCH_ALIASES,
+    PAID_ALIASES,
+    STATUS_ALIASES,
+    SUPPLIER_ALIASES,
+    bind_columns,
+    rebind_sparse_group_columns,
+    repair_live_spec,
+)
 
 logger = logging.getLogger("v6_dashboard.propose")
 
@@ -17,6 +30,8 @@ ALLOWED_AGGS = {
     "count",
     "sum",
     "avg",
+    "min",
+    "max",
     "distinct",
     "overdue_sum",
     "overdue_count",
@@ -27,14 +42,93 @@ ALLOWED_AGGS = {
 }
 SKIP_GROUP = {
     "id", "tenantid", "repositoryid", "folderid", "ocrtext", "ocrjson", "summaryjson",
-    "filepath", "filename", "storageproviderid", "workflowinstanceid",
+    "filepath", "storageproviderid", "workflowinstanceid",
+}
+
+AGG_SYNONYMS: dict[str, str] = {
+    "sum": "sum",
+    "total": "sum",
+    "amount": "sum",
+    "avg": "avg",
+    "average": "avg",
+    "mean": "avg",
+    "count": "count",
+    "records": "count",
+    "num": "count",
+    "distinct": "distinct",
+    "unique": "distinct",
+    "distinct_count": "distinct",
+    "unique_count": "distinct",
+    "min": "min",
+    "minimum": "min",
+    "lowest": "min",
+    "max": "max",
+    "maximum": "max",
+    "highest": "max",
+    "paid": "paid_sum",
+    "paid_sum": "paid_sum",
+    "outstanding": "outstanding_sum",
+    "outstanding_sum": "outstanding_sum",
+    "outstanding_count": "outstanding_count",
+    "overdue": "overdue_sum",
+    "overdue_sum": "overdue_sum",
+    "overdue_count": "overdue_count",
+    "current": "current_sum",
+    "current_sum": "current_sum",
+}
+
+CHART_TYPE_SYNONYMS: dict[str, str] = {
+    "bar": "bar",
+    "barchart": "bar",
+    "bar_chart": "bar",
+    "horizontal_bar": "bar",
+    "hbar": "bar",
+    "column": "column",
+    "columnchart": "column",
+    "column_chart": "column",
+    "vertical_bar": "column",
+    "col": "column",
+    "line": "line",
+    "linechart": "line",
+    "line_chart": "line",
+    "donut": "donut",
+    "donutchart": "donut",
+    "donut_chart": "donut",
+    "doughnut": "donut",
+    "doughnutchart": "donut",
+    "pie": "pie",
+    "piechart": "pie",
+    "pie_chart": "pie",
+    "radar": "radar",
+    "radarchart": "radar",
+    "radar_chart": "radar",
+    "area": "area",
+    "areachart": "area",
+    "area_chart": "area",
+    "gauge": "gauge",
+    "gaugechart": "gauge",
+    "gauge_chart": "gauge",
+    "lollipop": "lollipop",
+    "lollipopchart": "lollipop",
+    "lollipop_chart": "lollipop",
+    "heatmap": "heatmap",
+    "heat_map": "heatmap",
+    "funnel": "bar",
+    "pipeline": "column",
+    "table": "column",
+    "details": "column",
+    "matching": "lollipop",
 }
 
 _SYSTEM = """You design one dashboard from the user request plus this EZOFIS items table.
 
-The user request is the spec. Different requests MUST produce different KPIs and charts.
+The user request is the spec. You MUST faithfully implement ALL features, metrics, and chart requests in the prompt.
+Different requests MUST produce different KPIs and charts tailored specifically to the prompt.
+Do not omit features, metrics, groups, or charts explicitly requested by the user.
+If the user specifies particular chart types (e.g. bar, column, line, pie, donut, area, radar, lollipop, gauge, heatmap), use those exact types.
 Do not emit a canned Accounts Payable pack (total invoices + payable + paid + outstanding + overdue + the five standard AP charts) unless the user asked for a full AP overview.
 If they asked only for KPIs (`only kpis`, `kpis only`, `just kpis`, `no charts`), return `"charts": []`. Do not add charts anyway.
+If they asked for a specific number of KPIs (e.g. 2 KPIs, 10 KPIs), return that exact quantity.
 If they asked only for risk, overdue, vendors, aging, match status, or files/HR, return only widgets that serve that ask.
 Repository name is context, not an instruction. Do not assume Accounts Payable just because the repository is named that.
 
@@ -44,30 +138,31 @@ Money vs files:
 - Use FileType / FileSize only when the user asked about files, documents, or size.
 
 Grouping:
-- Group by a column with non-empty values in the occupancy list.
+- Group by a column with non-empty values in the occupancy list, or by columns explicitly requested by the user.
 - If Status/AiStatus is empty and MatchedStatus has values, group invoice/match charts by MatchedStatus.
 - Do not invent an Unknown bucket.
 
 Aggregations you may use:
-- KPIs: count, sum, avg, distinct, overdue_sum, overdue_count, paid_sum, outstanding_sum
-- Charts: count, sum, avg, outstanding_sum, paid_sum
+- KPIs: count, sum, avg, min, max, distinct, overdue_sum, overdue_count, paid_sum, outstanding_sum, current_sum
+- Charts: count, sum, avg, min, max, outstanding_sum, paid_sum
 - paid_sum / outstanding_sum need column=InvoiceAmount (or Amount) and match_column=MatchedStatus
   (Matched/Approved = paid; Not Matched/Partially Matched = outstanding).
 - overdue_* need money column + date_column (DueDate) and match_column. Overdue is unpaid AND past due, so it cannot exceed outstanding.
-- Never create KPIs named 1-30 / 31-60 / 61-90 / 90+. Aging is exactly one chart: grain=aging, group=DueDate, value=InvoiceAmount. Those buckets are computed from DueDate, not separate overdue_sum KPIs.
+- Never create KPIs named 1-30 / 31-60 / 61-90 / 90+ unless specifically asked. Aging chart is grain=aging, group=DueDate, value=InvoiceAmount.
 - Payment status is grain=payment (Paid vs Outstanding amounts), never a second MatchedStatus count.
 
 Layout: honor order, left/right/top/bottom/full, and colors from the user.
 KPIs stay on top unless the user wants them at the bottom. If charts should be above KPIs, every KPI position=bottom.
 If they do not mention layout, omit position/color/order.
 
-Limits: for a general dashboard / overview / AP-style ask, return **4–6 KPIs** and 2–5 charts. Do not return a single KPI unless the user clearly asked for one metric only (e.g. "only overdue").
-KPI-only asks (`only kpis`) still need several KPI cards (4–6), with `"charts": []`.
+Limits:
+- For general overview asks without a specified widget count, return 4–6 KPIs and 2–5 charts.
+- When the user asks for a specific list or number of KPI cards or charts/sections (e.g. 10 KPIs, 10 sections), generate an entry for EVERY single requested item. Do not truncate, cap at 8, or drop any requested item.
 Every widget needs a one-sentence description with no numbers. Return JSON only.
 
 {
-  "kpis": [{"id":"snake_id","label":"SHORT LABEL","description":"What this KPI measures","agg":"count|sum|avg|distinct|overdue_sum|overdue_count|paid_sum|outstanding_sum","column":"ExactColumn or null","date_column":"ExactColumn or null","match_column":"ExactColumn or null","enabled":true,"order":1,"position":"top or bottom","color":"#7c5cff or red"}],
-  "charts": [{"id":"snake_id","title":"Title","description":"What this chart shows","type":"donut|pie|radar|lollipop|column|line|area|gauge","group":"ExactColumn","value":"ExactColumn or null","agg":"count|sum|avg|outstanding_sum|paid_sum","grain":"none|month|aging|payment","match_column":"ExactColumn or null","enabled":true,"order":1,"position":"left|right|full|top","color":"#7c5cff or blue"}]
+  "kpis": [{"id":"snake_id","label":"SHORT LABEL","description":"What this KPI measures","agg":"count|sum|avg|min|max|distinct|overdue_sum|overdue_count|paid_sum|outstanding_sum","column":"ExactColumn or null","date_column":"ExactColumn or null","match_column":"ExactColumn or null","enabled":true,"order":1,"position":"top or bottom","color":"#7c5cff or red"}],
+  "charts": [{"id":"snake_id","title":"Title","description":"What this chart shows","type":"donut|pie|radar|lollipop|column|bar|line|area|gauge|heatmap","group":"ExactColumn","value":"ExactColumn or null","agg":"count|sum|avg|min|max|outstanding_sum|paid_sum","grain":"none|month|aging|payment","match_column":"ExactColumn or null","enabled":true,"order":1,"position":"left|right|full|top","color":"#7c5cff or blue"}]
 }
 """
 
@@ -81,12 +176,54 @@ def _col_map(columns: list[str]) -> dict[str, str]:
 
 
 def resolve_column(columns: list[str], name: Optional[str]) -> Optional[str]:
-    if not name:
+    if not name or not columns:
         return None
+    raw = str(name).strip()
+    if raw in columns:
+        return raw
+
     by_norm = _col_map(columns)
-    if name in columns:
-        return name
-    return by_norm.get(_norm(name))
+    norm_name = _norm(raw)
+    if norm_name in by_norm:
+        return by_norm[norm_name]
+
+    # Semantic alias groups
+    alias_groups = (
+        AMOUNT_ALIASES,
+        DUE_ALIASES,
+        SUPPLIER_ALIASES,
+        MATCH_ALIASES,
+        INVOICE_DATE_ALIASES,
+        CURRENCY_ALIASES,
+        STATUS_ALIASES,
+        PAID_ALIASES,
+    )
+    for group in alias_groups:
+        if norm_name in group:
+            for alias in group:
+                if alias in by_norm:
+                    return by_norm[alias]
+
+    # Substring / containment match
+    candidates = []
+    for c in columns:
+        c_norm = _norm(c)
+        if norm_name and (norm_name in c_norm or c_norm in norm_name):
+            candidates.append(c)
+    if len(candidates) == 1:
+        return candidates[0]
+    elif len(candidates) > 1:
+        candidates.sort(key=lambda c: abs(len(_norm(c)) - len(norm_name)))
+        return candidates[0]
+
+    # Fuzzy match as last resort
+    close = difflib.get_close_matches(raw.lower(), [c.lower() for c in columns], n=1, cutoff=0.6)
+    if close:
+        for c in columns:
+            if c.lower() == close[0]:
+                return c
+
+    return None
 
 
 def _slug(text: str, fallback: str) -> str:
@@ -136,13 +273,26 @@ _SINGULAR_KPI_ASK = re.compile(
     r"\b(only|just)\s+(the\s+)?(overdue|risk|aging|vendor|supplier|match(?:ed)?|paid|outstanding|dpo)\b",
     re.I,
 )
+_GENERIC_DASHBOARD_ASKS = {
+    "", "dashboard", "dashboards", "overview", "i need a dashboard",
+    "i need a dashboard.", "build a dashboard", "create a dashboard",
+    "build an ap dashboard", "i need an ap dashboard", "ap dashboard",
+    "general dashboard", "full dashboard", "summary dashboard",
+}
+_SPECIFIC_COUNT_RE = re.compile(
+    r"\b(only\s+\d+|\d+\s+kpis?|\d+\s+metrics?|one\s+kpi|two\s+kpis?|three\s+kpis?|four\s+kpis?|single\s+kpi)\b",
+    re.I,
+)
 
 
 def _should_enrich_kpis(message: str, kpis: list[dict[str, Any]]) -> bool:
-    """Pad thin proposals so overview dashboards show several KPI cards."""
+    """Pad thin proposals only for broad/overview requests without specific metric constraints."""
     if len(kpis) >= 4:
         return False
-    if _SINGULAR_KPI_ASK.search(message or ""):
+    msg = (message or "").strip().lower()
+    if _SINGULAR_KPI_ASK.search(msg) or _SPECIFIC_COUNT_RE.search(msg):
+        return False
+    if len(kpis) >= 2 and msg not in _GENERIC_DASHBOARD_ASKS and not any(kw in msg for kw in ("overview", "general", "full", "all")):
         return False
     return True
 
@@ -167,7 +317,7 @@ def enrich_sparse_kpis(
         if len(kpis) >= 6:
             break
     apply_default_layout(kpis, charts)
-    return kpis[:8], charts
+    return kpis, charts
 
 
 def parse_color(value: Any) -> Optional[str]:
@@ -310,7 +460,7 @@ def apply_default_layout(kpis: list[dict[str, Any]], charts: list[dict[str, Any]
 
 
 def overlay_layout_from_message(message: str, kpis: list[dict[str, Any]], charts: list[dict[str, Any]]) -> None:
-    """Force charts-above-KPIs when the user said so in plain language."""
+    """Force charts-above-KPIs or user-specified chart types when the user said so in plain language."""
     blob = re.sub(r"\s+", " ", (message or "").lower())
     if not blob:
         return
@@ -334,14 +484,33 @@ def overlay_layout_from_message(message: str, kpis: list[dict[str, Any]], charts
             "kpi below",
         )
     )
-    if not charts_first:
-        return
-    for item in kpis:
-        item["position"] = "bottom"
-    for item in charts:
-        if item.get("position") not in {"left", "right"}:
-            item["position"] = "top"
-            item["span"] = 2
+    if charts_first:
+        for item in kpis:
+            item["position"] = "bottom"
+        for item in charts:
+            if item.get("position") not in {"left", "right"}:
+                item["position"] = "top"
+                item["span"] = 2
+
+    # Check for user-specified chart types in the prompt
+    chart_type_hints = [
+        ("bar", ("bar chart", "horizontal bar", "barchart")),
+        ("column", ("column chart", "vertical bar", "columnchart")),
+        ("pie", ("pie chart", "piechart")),
+        ("donut", ("donut chart", "donutchart", "doughnut")),
+        ("line", ("line chart", "linechart", "trend line")),
+        ("area", ("area chart", "areachart")),
+        ("radar", ("radar chart", "radarchart")),
+        ("gauge", ("gauge chart", "gaugechart")),
+        ("lollipop", ("lollipop chart", "lollipopchart")),
+        ("heatmap", ("heatmap", "heat map")),
+    ]
+    for target_type, hints in chart_type_hints:
+        if any(hint in blob for hint in hints):
+            for chart in charts:
+                if chart.get("type") in {"donut", "column", "bar"} and chart.get("type") != target_type:
+                    chart["type"] = target_type
+                    break
 
 
 async def propose_dashboard(
@@ -423,8 +592,11 @@ def _user_prompt(message: str, target: dict[str, Any], columns: list[str], sampl
     omitted = len(sample_rows) - len(rows)
     occupancy = _occupancy(columns, sample_rows)
     return (
-        f"Design a dashboard for this user request. Do not reuse a default widget list.\n"
+        f"Design a dashboard strictly for this user request. Do not reuse a default widget list.\n"
         f"User request:\n{message or 'Build a dashboard for this repository.'}\n"
+        f"CRITICAL REQUIREMENT: You MUST include widgets for EVERY feature, metric, grouping, and chart type specifically requested in the user prompt. Do not omit any requested feature.\n"
+        f"If the user asks for specific chart types (e.g. bar, column, line, pie, donut, area, gauge, radar), use those exact types.\n"
+        f"If the user asks for specific metrics or a specific number of KPIs, generate exactly what was asked.\n"
         f"Repository: {target.get('repository_name') or target.get('repository_id')}\n"
         f"Workflow: {target.get('workflow_name') or target.get('workflow_id') or ''}\n"
         f"Table: {target.get('qualified_table')}\n"
@@ -443,23 +615,32 @@ def _normalize_kpis(items: Any, columns: list[str]) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return out
     seen: set[str] = set()
-    for raw in items[:8]:
+    bound = bind_columns(columns)
+    for raw in (items or []):
         if not isinstance(raw, dict):
             continue
         label = str(raw.get("label") or raw.get("id") or "KPI").strip()
         widget_id = _slug(str(raw.get("id") or label), f"kpi_{len(out)+1}")
         if widget_id in seen:
             continue
-        agg = str(raw.get("agg") or "count").lower()
+        raw_agg = str(raw.get("agg") or "count").lower()
+        agg = AGG_SYNONYMS.get(raw_agg, raw_agg)
         if agg not in ALLOWED_AGGS:
             agg = "count"
-        column = resolve_column(columns, raw.get("column"))
+        column = resolve_column(columns, raw.get("column") or raw.get("value"))
         date_column = resolve_column(columns, raw.get("date_column") or raw.get("due") or raw.get("date"))
         match_column = resolve_column(columns, raw.get("match_column") or raw.get("match"))
-        if agg in {"sum", "avg", "paid_sum", "outstanding_sum", "current_sum"} and not column:
-            continue
-        if agg.startswith("overdue") and (not column or not date_column):
-            continue
+        if agg in {"sum", "avg", "min", "max", "paid_sum", "outstanding_sum", "current_sum"} and not column:
+            column = bound.get("amount")
+            if not column:
+                continue
+        if agg.startswith("overdue"):
+            if not column:
+                column = bound.get("amount")
+            if not date_column:
+                date_column = bound.get("due")
+            if not column and not date_column:
+                continue
         seen.add(widget_id)
         cols: dict[str, str] = {}
         if column:
@@ -486,22 +667,27 @@ def _normalize_charts(items: Any, columns: list[str]) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return out
     seen: set[str] = set()
-    for raw in items[:8]:
+    bound = bind_columns(columns)
+    for raw in (items or []):
         if not isinstance(raw, dict):
             continue
         title = str(raw.get("title") or raw.get("label") or raw.get("id") or "Chart").strip()
         widget_id = _slug(str(raw.get("id") or title), f"chart_{len(out)+1}")
         if widget_id in seen:
             continue
-        chart_type = str(raw.get("type") or "donut").lower()
+        raw_type = str(raw.get("type") or "donut").lower()
+        chart_type = CHART_TYPE_SYNONYMS.get(raw_type, raw_type)
         if chart_type not in ALLOWED_TYPES:
             chart_type = "donut"
         group = resolve_column(columns, raw.get("group") or raw.get("category"))
         if not group or _norm(group) in SKIP_GROUP:
-            continue
+            group = bound.get("supplier") or bound.get("status") or bound.get("invoice_date") or bound.get("currency")
+            if not group:
+                continue
         value = resolve_column(columns, raw.get("value") or raw.get("column"))
-        agg = str(raw.get("agg") or ("sum" if value else "count")).lower()
-        if agg not in {"count", "sum", "avg", "outstanding_sum", "paid_sum"}:
+        raw_agg = str(raw.get("agg") or ("sum" if value else "count")).lower()
+        agg = AGG_SYNONYMS.get(raw_agg, raw_agg)
+        if agg not in {"count", "sum", "avg", "min", "max", "outstanding_sum", "paid_sum"}:
             agg = "count"
         grain = str(raw.get("grain") or "none").lower()
         if grain not in {"month", "none", "aging", "payment"}:
@@ -535,7 +721,7 @@ def _normalize_charts(items: Any, columns: list[str]) -> list[dict[str, Any]]:
 
 
 def propose_generic(columns: list[str], *, message: str = "") -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Column-driven widgets when the model is unavailable."""
+    """Column-driven widgets when the model is unavailable, guided by user message keywords."""
     by_norm = _col_map(columns)
 
     def pick(*hints: str) -> Optional[str]:
@@ -578,13 +764,22 @@ def propose_generic(columns: list[str], *, message: str = "") -> tuple[list[dict
     if entity and _norm(entity) in SKIP_GROUP:
         entity = None
 
-    kpis: list[dict[str, Any]] = [
-        {"id": "record_count", "label": "RECORDS", "enabled": True, "agg": "count", "columns": {}},
-    ]
-    if numeric:
+    msg = (message or "").lower()
+    kpis: list[dict[str, Any]] = []
+
+    wants_count = any(kw in msg for kw in ("count", "number of", "records", "open", "invoices", "total files")) or not msg
+    wants_total = any(kw in msg for kw in ("total", "sum", "amount", "spend", "value", "payable"))
+    wants_avg = any(kw in msg for kw in ("avg", "average", "mean"))
+    wants_overdue = any(kw in msg for kw in ("overdue", "past due", "late", "aging"))
+    wants_paid = any(kw in msg for kw in ("paid", "settled", "cleared"))
+    wants_outstanding = any(kw in msg for kw in ("outstanding", "unpaid", "pending", "open"))
+    wants_entity = any(kw in msg for kw in ("supplier", "vendor", "customer", "employee"))
+
+    if numeric and wants_total:
         kpis.append({"id": "total_value", "label": "TOTAL", "enabled": True, "agg": "sum", "columns": {"value": numeric}})
+    if numeric and wants_avg:
         kpis.append({"id": "average_value", "label": "AVERAGE", "enabled": True, "agg": "avg", "columns": {"value": numeric}})
-    if numeric and match:
+    if numeric and match and wants_outstanding:
         kpis.append(
             {
                 "id": "outstanding",
@@ -594,6 +789,7 @@ def propose_generic(columns: list[str], *, message: str = "") -> tuple[list[dict
                 "columns": {"value": numeric, "match": match},
             }
         )
+    if numeric and match and wants_paid:
         kpis.append(
             {
                 "id": "total_paid",
@@ -603,40 +799,55 @@ def propose_generic(columns: list[str], *, message: str = "") -> tuple[list[dict
                 "columns": {"value": numeric, "match": match},
             }
         )
-    if numeric and due:
+    if numeric and due and wants_overdue:
         kpis.append({"id": "overdue", "label": "OVERDUE", "enabled": True, "agg": "overdue_sum", "columns": {"value": numeric, "date": due, **({"match": match} if match else {})}})
-        kpis.append({"id": "overdue_count", "label": "OVERDUE COUNT", "enabled": True, "agg": "overdue_count", "columns": {"value": numeric, "date": due, **({"match": match} if match else {})}})
-        if match:
-            kpis.append(
-                {
-                    "id": "current_ap",
-                    "label": "CURRENT / DUE",
-                    "enabled": True,
-                    "agg": "current_sum",
-                    "columns": {"value": numeric, "date": due, "match": match},
-                }
-            )
-    if entity:
+    if entity and wants_entity:
         kpis.append({"id": "entity_count", "label": "SUPPLIERS", "enabled": True, "agg": "distinct", "columns": {"value": entity}})
-    if category and not match:
-        kpis.append({"id": "status_count", "label": "CATEGORIES", "enabled": True, "agg": "distinct", "columns": {"value": category}})
+
+    # If no specific KPI filtered or general ask, add standard metrics
+    if not kpis or wants_count:
+        kpis.insert(0, {"id": "record_count", "label": "RECORDS", "enabled": True, "agg": "count", "columns": {}})
+    if numeric and not any(k["id"] == "total_value" for k in kpis):
+        kpis.append({"id": "total_value", "label": "TOTAL", "enabled": True, "agg": "sum", "columns": {"value": numeric}})
+    if numeric and not any(k["id"] == "average_value" for k in kpis):
+        kpis.append({"id": "average_value", "label": "AVERAGE", "enabled": True, "agg": "avg", "columns": {"value": numeric}})
+    if numeric and match and not any(k["id"] == "outstanding" for k in kpis):
+        kpis.append(
+            {
+                "id": "outstanding",
+                "label": "OUTSTANDING",
+                "enabled": True,
+                "agg": "outstanding_sum",
+                "columns": {"value": numeric, "match": match},
+            }
+        )
+    if numeric and due and not any(k["id"] == "overdue" for k in kpis):
+        kpis.append({"id": "overdue", "label": "OVERDUE", "enabled": True, "agg": "overdue_sum", "columns": {"value": numeric, "date": due, **({"match": match} if match else {})}})
+    if entity and not any(k["id"] == "entity_count" for k in kpis):
+        kpis.append({"id": "entity_count", "label": "SUPPLIERS", "enabled": True, "agg": "distinct", "columns": {"value": entity}})
 
     charts: list[dict[str, Any]] = []
+    pref_type = None
+    for ct in ("bar", "column", "pie", "donut", "line", "area", "radar"):
+        if ct in msg:
+            pref_type = ct
+            break
+
     if category:
-        charts.append(_chart("by_category", "By status", "donut", category, None, "count"))
+        charts.append(_chart("by_category", "By status", pref_type or "donut", category, None, "count"))
     if entity and numeric:
-        charts.append(_chart("by_entity", "By group", "lollipop", entity, numeric, "sum"))
+        charts.append(_chart("by_entity", "By group", pref_type or "lollipop", entity, numeric, "sum"))
     elif entity:
-        charts.append(_chart("by_entity", "By group", "donut", entity, None, "count"))
+        charts.append(_chart("by_entity", "By group", pref_type or "donut", entity, None, "count"))
     if date_col:
-        charts.append(_chart("by_month", "By month", "line", date_col, None, "count", grain="month"))
+        charts.append(_chart("by_month", "By month", pref_type or "line", date_col, None, "count", grain="month"))
         if numeric:
-            charts.append(_chart("value_by_month", "Value by month", "area", date_col, numeric, "sum", grain="month"))
+            charts.append(_chart("value_by_month", "Value by month", pref_type or "area", date_col, numeric, "sum", grain="month"))
     if numeric and due:
-        charts.append(_chart("aging", "Aging", "column", due, numeric, "sum", grain="aging"))
+        charts.append(_chart("aging", "Aging", pref_type or "column", due, numeric, "sum", grain="aging"))
     if category and numeric:
-        charts.append(_chart("value_by_category", "Value by status", "column", category, numeric, "sum"))
-    kpis, charts = kpis[:8], charts[:8]
+        charts.append(_chart("value_by_category", "Value by status", pref_type or "column", category, numeric, "sum"))
+    kpis, charts = kpis, charts
     apply_default_layout(kpis, charts)
     overlay_layout_from_message(message, kpis, charts)
     ensure_widget_descriptions(kpis, charts)
