@@ -212,9 +212,14 @@ def repair_live_spec(
     had_fake_aging = False
     for kpi in kpis:
         if _FAKE_AGING_KPI.search(_item_blob(kpi)):
-            had_fake_aging = True
-            continue
-        kept.append(kpi)
+            cols = _ensure_cols(kpi)
+            if cols.get("date") or cols.get("due") or str(kpi.get("agg") or "").startswith("overdue"):
+                kept.append(kpi)
+            else:
+                had_fake_aging = True
+                continue
+        else:
+            kept.append(kpi)
     kpis[:] = kept
 
     for chart in charts:
@@ -257,7 +262,9 @@ def repair_live_spec(
         attach_money(chart)
         text = _item_blob(chart)
         if "radar" in text or ("supplier" in text and "risk" in text):
-            chart["type"] = "radar"
+            # Preserve user-requested chart type unless radar was explicitly requested or unset
+            if chart.get("type") not in {"bar", "column", "pie", "donut", "line", "area"} or "radar" in text:
+                chart["type"] = "radar"
             cols = _ensure_cols(chart)
             if supplier:
                 cols["group"] = supplier
@@ -919,6 +926,12 @@ def _hydrate_kpi_spec(rows: list[Any], item: dict[str, Any], today: date) -> dic
         vals = [v for v in (_amount_at(row, value_col) for row in rows) if v is not None]
         avg = (sum(vals) / len(vals)) if vals else 0.0
         return {"value": round(avg, 2)}
+    if agg == "min":
+        vals = [v for v in (_amount_at(row, value_col) for row in rows) if v is not None]
+        return {"value": round(min(vals), 2) if vals else 0.0}
+    if agg == "max":
+        vals = [v for v in (_amount_at(row, value_col) for row in rows) if v is not None]
+        return {"value": round(max(vals), 2) if vals else 0.0}
     if agg == "distinct":
         names = {str(_row_get(row, value_col) or "").strip() for row in rows}
         names.discard("")
@@ -1050,6 +1063,10 @@ def _hydrate_chart_spec(rows: list[Any], item: dict[str, Any], today: date) -> d
         pairs = [(name, float(value)) for name, value in counts.items()]
     elif agg == "avg":
         pairs = [(name, sum(vals) / len(vals)) for name, vals in grouped.items() if vals]
+    elif agg == "min":
+        pairs = [(name, min(vals)) for name, vals in grouped.items() if vals]
+    elif agg == "max":
+        pairs = [(name, max(vals)) for name, vals in grouped.items() if vals]
     else:
         pairs = [(name, sum(vals)) for name, vals in grouped.items()]
 
