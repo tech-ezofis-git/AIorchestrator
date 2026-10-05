@@ -102,10 +102,16 @@ _DOCUMENT_KINDS = {"P": "Passport", "V": "Visa", "I": "Identity Card", "A": "Ide
 
 
 def mrz_document_kind(mrz: Optional[dict[str, Any]]) -> Optional[str]:
-    """Passport / Visa / Identity Card from a fully valid MRZ's document code, else None."""
-    if not mrz or not mrz.get("valid"):
+    """Passport / Visa / Identity Card from an MRZ's document code, else None."""
+    if not mrz:
         return None
-    return _DOCUMENT_KINDS.get(str(mrz.get("document_type") or "")[:1])
+    return _DOCUMENT_KINDS.get(str(mrz.get("document_type") or "").strip().upper()[:1])
+
+
+def document_kind_name(value: Any) -> Any:
+    """A bare MRZ document code ("P", "V", "I", "A", "C", optionally "P<") becomes its name; anything else is kept."""
+    code = str(value or "").strip().upper().rstrip("<")
+    return _DOCUMENT_KINDS.get(code, value) if len(code) == 1 else value
 
 
 def check_digit(value: str) -> int:

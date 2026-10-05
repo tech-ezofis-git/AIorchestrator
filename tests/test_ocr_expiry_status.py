@@ -75,7 +75,7 @@ def test_first_readable_expiry_field_is_renamed():
     assert out[2]["status"] == "Active · 10 years"
 
 
-def test_requested_document_status_is_filled_from_hidden_expiry(client, monkeypatch):
+def test_requested_retention_end_date_is_filled_from_hidden_expiry(client, monkeypatch):
     td3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
     prompts = []
 
@@ -83,16 +83,16 @@ def test_requested_document_status_is_filled_from_hidden_expiry(client, monkeypa
         prompts.append(messages[-1]["content"])
         return {
             "content": json.dumps({"ocrResult": [
-                {"name": "CustomerName", "value": "ANNA MARIA ERIKSSON", "type": "SHORT_TEXT"},
-                {"name": "DocumentStatus", "value": None, "type": "SINGLE_SELECT"},
-                {"name": "VerificationDate", "value": None, "type": "DATE"},
+                {"name": "DocumentType", "value": "P", "type": "SHORT_TEXT"},
+                {"name": "DocumentStatus", "value": "2021-04-15", "type": "SHORT_TEXT"},
+                {"name": "RetentionEndDate", "value": None, "type": "DATE"},
                 {"name": "Expiry Date", "value": "2021-04-15", "type": "DATE"},
             ]}),
             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
         }
 
     monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", fake_completion)
-    params = json.dumps(["CustomerName,SHORT_TEXT", "DocumentStatus,SINGLE_SELECT", "VerificationDate,DATE"])
+    params = json.dumps(["DocumentType,SHORT_TEXT", "DocumentStatus,SHORT_TEXT", "RetentionEndDate,DATE"])
     response = client.post(
         "/chat",
         data={"session_id": "s-docstatus", "intent": "ocr", "pageno": "1", "parameters": params, "tableparameters": "[]"},
@@ -100,13 +100,17 @@ def test_requested_document_status_is_filled_from_hidden_expiry(client, monkeypa
     )
 
     assert response.status_code == 200, response.text
-    fields = response.json()["ocr_result"]["ocrResult"]
-    assert [f["name"] for f in fields] == ["CustomerName", "DocumentStatus", "VerificationDate"]
-    status = fields[1]
+    result = response.json()["ocr_result"]
+    fields = result["ocrResult"]
+    assert [f["name"] for f in fields] == ["DocumentType", "DocumentStatus", "RetentionEndDate"]
+    doc_type, doc_status, retention = fields
+    assert result["document_type"] == "Passport"
+    assert doc_type["value"] == "Passport"
+    assert "status" not in doc_status
     # The check-digit-verified MRZ expiry wins over the model's reading.
-    assert status["value"] == "2012-04-15"
-    assert status["type"] == "SINGLE_SELECT"
-    assert status["status"].startswith("Expired · ")
+    assert retention["value"] == "2012-04-15"
+    assert retention["type"] == "DATE"
+    assert retention["status"].startswith("Expired · ")
     assert "Expiry Date" in prompts[0]
 
 
@@ -133,7 +137,7 @@ def test_chat_ocr_adds_status_to_expiry_field(client, monkeypatch):
     issue, expiry = json.loads(response.json()["reply"])["ocrResult"]
     assert "status" not in issue
     # The check-digit-verified MRZ expiry (2012-04-15) replaces the LLM's value before the status.
-    assert expiry["name"] == "DocumentStatus"
+    assert expiry["name"] == "RetentionEndDate"
     assert expiry["value"] == "2012-04-15"
     assert expiry["status"].startswith("Expired · ")
     assert set(expiry) == {"name", "value", "type", "status"}
