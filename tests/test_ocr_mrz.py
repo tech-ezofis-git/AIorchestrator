@@ -496,8 +496,19 @@ def test_mrz_document_kind():
     assert mrz_document_kind(find_mrz(TD3)) == "Passport"
     assert mrz_document_kind(find_mrz(MRV_A)) == "Visa"
     assert mrz_document_kind(find_mrz(TD1)) == "Identity Card"
-    assert mrz_document_kind(find_mrz(TD3.replace("F1204159", "F1204158"))) is None
+    assert mrz_document_kind(find_mrz(TD3.replace("F1204159", "F1204158"))) == "Passport"
     assert mrz_document_kind(None) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("P", "Passport"), ("p", "Passport"), ("P<", "Passport"), ("V", "Visa"), ("I", "Identity Card"),
+     ("Passport", "Passport"), ("Driving License", "Driving License"), (None, None), ("X", "X")],
+)
+def test_document_kind_name(value, expected):
+    from app.integrations.mrz_parse import document_kind_name
+
+    assert document_kind_name(value) == expected
 
 
 @pytest.fixture

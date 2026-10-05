@@ -18,7 +18,7 @@ from app.agents.reference_extraction import extract_reference
 from app.config import Settings
 from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
-from app.integrations.mrz_parse import apply_mrz_to_fields, find_mrz, mrz_document_kind
+from app.integrations.mrz_parse import apply_mrz_to_fields, document_kind_name, find_mrz, mrz_document_kind
 from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import resolve_preset_overrides
@@ -36,6 +36,7 @@ logger = logging.getLogger("orchestrator.ocr_agent")
 
 # Asked of the model, never returned, when a status field is requested without an expiry field.
 _HIDDEN_EXPIRY_FIELD = "Expiry Date"
+_DOCUMENT_TYPE_FIELD = "DocumentType"
 
 
 class OcrAgent:
@@ -224,6 +225,8 @@ class OcrAgent:
             fields = fill_status_field(apply_expiry_status(fields, today=today), name=status_name, expiry=expiry, today=today)
         else:
             fields = apply_expiry_status(fields, today=today, rename_to=status_name or None)
+        document_type = document_kind_name(mrz_document_kind(mrz) or synthesized.get("documentType"))
+        fields = _align_document_type(fields, document_type)
         table_result = synthesized.get("tableResult")
         usage = synthesized.get("usage") or {}
         body = _locked_body(
@@ -232,7 +235,7 @@ class OcrAgent:
             table_result=table_result,
             qr_codes=qr_codes,
             mrz=mrz,
-            document_type=mrz_document_kind(mrz) or synthesized.get("documentType"),
+            document_type=document_type,
         )
         body["source_reference"] = source
         body["ocr_status"] = ocr_status
@@ -312,6 +315,16 @@ class OcrAgent:
             )
 
         raise error
+
+
+def _align_document_type(fields: list[dict[str, Any]], document_type: Any) -> list[dict[str, Any]]:
+    """A requested DocumentType field matches the top-level document_type; bare MRZ codes become names."""
+    out = []
+    for field in fields:
+        if isinstance(field, dict) and same_field_name(field.get("name"), _DOCUMENT_TYPE_FIELD):
+            field = {**field, "value": document_type or document_kind_name(field.get("value"))}
+        out.append(field)
+    return out
 
 
 def _today(timezone: str) -> date:
