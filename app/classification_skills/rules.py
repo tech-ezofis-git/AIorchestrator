@@ -17,22 +17,18 @@ EMPTY_CLASSIFICATION_TEXT = (
     "I couldn't extract any text from that document, so I can't classify it."
 )
 
-USER_PROMPT_PREFIX = (
-    "Infer the document type from the source data. Do not assume it is an invoice."
-)
+USER_PROMPT_PREFIX = "Classify this document."
 
 
 def system_prompt(*, settings=None, tenant_id: Optional[str] = None) -> str:
-    """LLM system prompt = Classification SKILL.md + rules/*.mdc (sync/disk)."""
+    """LLM system prompt = skills/classification SKILL.md + rules/*.mdc (disk)."""
     return get_skill("classification", settings=settings).system_prompt
 
 
 async def async_system_prompt(*, settings=None, tenant_id: Optional[str] = None) -> str:
-    """Prefer Catalog DB packs when seeded; fallback to disk/SQLite."""
-    from app.agent_packs.overlay import get_agent_skill
-
-    skill = await get_agent_skill("classification", tenant_id=tenant_id, settings=settings)
-    return skill.system_prompt
+    """Always the skills/classification folder on disk — the client-approved
+    prompt must not be overridden by Catalog DB / tenant pack copies."""
+    return system_prompt(settings=settings, tenant_id=tenant_id)
 
 
 def __getattr__(name: str):

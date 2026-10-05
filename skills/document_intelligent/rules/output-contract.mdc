@@ -5,8 +5,8 @@ alwaysApply: true
 
 # Output contract
 
-- `repository_id` is a UUID copied from the catalog, or null.
-- `repository_name` is the catalog name for that id, or null.
-- `confidence_score` is 0–100.
-- `candidates` is an array of `{repository_id, repository_name, score}` from the catalog only (max 5).
-- JSON keys stay exactly: `confidence_score`, `repository_id`, `repository_name`, `candidates`.
+- `ref` is a catalog ref (R1, R2, ...) copied exactly from the catalog, or null.
+- `repository_name` is the catalog name for that ref, or null.
+- `confidence_score` is 0–100: confidence that the document belongs in the chosen repository.
+- `candidates` is an array of `{ref, repository_name, score, matched_fields}` from the catalog only (max 5), best first.
+- JSON keys stay exactly: `confidence_score`, `ref`, `repository_name`, `candidates`.

@@ -2441,6 +2441,108 @@
           </div>
         </details>
       </div>
+      <div class="mode-fields" id="ramcoOcrFields" hidden>
+        <div>
+          <label for="ramcoFile">File</label>
+          <input type="file" id="ramcoFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" />
+        </div>
+        <div>
+          <label for="ramcoFilepath">Blob path</label>
+          <input type="text" id="ramcoFilepath" placeholder="folder/file.pdf" />
+        </div>
+        <div>
+          <label for="ramcoTenant">Tenant ID</label>
+          <input type="text" id="ramcoTenant" value="11" placeholder="tenant id" />
+        </div>
+        <div>
+          <label for="ramcoModel">Model</label>
+          <input type="text" id="ramcoModel" value="OpenAI GPT-4.1" />
+        </div>
+        <div class="span-all">
+          <label for="ramcoOcrText">OCR text</label>
+          <textarea id="ramcoOcrText" placeholder="Paste layout-preserved OCR text (e.g. classification ocr_text) — skips OCR…"></textarea>
+        </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
+        <div>
+          <label for="ramcoDocumentType">Document type</label>
+          <input type="text" id="ramcoDocumentType" value="UNKNOWN" />
+        </div>
+        <div>
+          <label for="ramcoEnvType">Env type</label>
+          <input type="text" id="ramcoEnvType" value="live" />
+        </div>
+        <div>
+          <label for="ramcoWorkflowId">Workflow ID</label>
+          <input type="text" id="ramcoWorkflowId" value="81" />
+        </div>
+        <div>
+          <label for="ramcoRepositoryId">Repository ID</label>
+          <input type="text" id="ramcoRepositoryId" value="9" />
+        </div>
+        <div>
+          <label for="ramcoInstanceId">Instance ID</label>
+          <input type="text" id="ramcoInstanceId" value="INS-7f3a9c21" />
+        </div>
+        <div>
+          <label for="ramcoPageno">Page</label>
+          <input type="text" id="ramcoPageno" value="-1" placeholder="1 or -1 (all)" />
+        </div>
+          </div>
+        </details>
+      </div>
+      <div class="mode-fields" id="ftpFields" hidden>
+        <div>
+          <label for="ftpFile">File</label>
+          <input type="file" id="ftpFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff" />
+        </div>
+        <div>
+          <label for="ftpFilepath">Blob path</label>
+          <input type="text" id="ftpFilepath" placeholder="Monitor/MJB-33814/MJB-33814.pdf" />
+        </div>
+        <div>
+          <label for="ftpTenant">Tenant ID</label>
+          <input type="text" id="ftpTenant" value="11" />
+        </div>
+        <div>
+          <label for="ftpModel">Model</label>
+          <input type="text" id="ftpModel" value="OpenAI GPT-4.1" />
+        </div>
+        <div class="span-all">
+          <label for="ftpOcrJson">ocr_json</label>
+          <textarea id="ftpOcrJson" placeholder='{"invoice_header": {...}, "line_items": [...]}'></textarea>
+        </div>
+        <div class="span-all">
+          <label for="ftpRemarks">remarks</label>
+          <textarea id="ftpRemarks" placeholder='{"unique ref no": "MJB-33814", "From": "...", "Email_Subject": "...", "Received Filename": "..."}'></textarea>
+        </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
+        <div>
+          <label for="ftpDocumentType">Document type</label>
+          <input type="text" id="ftpDocumentType" value="UNKNOWN" />
+        </div>
+        <div>
+          <label for="ftpEnvType">Env type</label>
+          <input type="text" id="ftpEnvType" value="live" />
+        </div>
+        <div>
+          <label for="ftpWorkflowId">Workflow ID</label>
+          <input type="text" id="ftpWorkflowId" value="2" />
+        </div>
+        <div>
+          <label for="ftpRepositoryId">Repository ID</label>
+          <input type="text" id="ftpRepositoryId" value="1" />
+        </div>
+        <div>
+          <label for="ftpInstanceId">Instance ID</label>
+          <input type="text" id="ftpInstanceId" value="INS-7f3a9c21" />
+        </div>
+          </div>
+        </details>
+      </div>
       <div class="mode-fields" id="documentIntelligentFields" hidden>
         <div>
           <label for="diFile">File</label>
@@ -3654,6 +3756,8 @@ const ICONS = {
   ocr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 12h5M8 15h3"/></svg>',
   summary: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 4h8l4 4v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M9 12h6M9 16h4"/></svg>',
   classification: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h7"/><circle cx="18" cy="16" r="3"/></svg>',
+  ftp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg>',
+  ramco_ocr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/><path d="M15 16h1"/></svg>',
   document_intelligent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h5"/></svg>',
   insight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 18V9l5 4 5-8 6 10"/></svg>',
   ap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18M8 6V4h8v2"/></svg>',
@@ -3671,6 +3775,8 @@ const CAP_ACTIONS = [
   { slug: 'ocr', label: 'OCR', mode: 'ocr' },
   { slug: 'summary', label: 'Summary', mode: 'summary' },
   { slug: 'classification', label: 'Classification', mode: 'classification' },
+  { slug: 'ramco_ocr', label: 'Ramco OCR', mode: 'ramco_ocr', alwaysShow: true },
+  { slug: 'ftp', label: 'FTP', mode: 'ftp', alwaysShow: true },
   { slug: 'document_intelligent', label: 'Document Intelligent', mode: 'document_intelligent' },
   { slug: 'insight', label: 'Insight', mode: 'insight' },
   { slug: 'ap', label: 'AP', mode: 'ap' },
@@ -3689,6 +3795,8 @@ const MODE_LABELS = {
   ocr: 'OCR agent',
   summary: 'Summary agent',
   classification: 'Classification agent',
+  ramco_ocr: 'Ramco OCR agent',
+  ftp: 'FTP agent',
   document_intelligent: 'Document Intelligent',
   insight: 'Insight agent',
   ap: 'AP agent',
@@ -3927,7 +4035,7 @@ async function refreshConsoleAgents() {
   capActionsEl.innerHTML = '';
   let visibleCount = 0;
   CAP_ACTIONS.forEach(item => {
-    if (enabledSlugs && !enabledSlugs.has(item.slug)) return;
+    if (enabledSlugs && !enabledSlugs.has(item.slug) && !item.alwaysShow) return;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'cap-btn';
@@ -4011,6 +4119,8 @@ const EMPTY_SPECS = {
   ocr: { title: 'OCR', sub: 'Add a file or blob path, then send.', chips: '' },
   summary: { title: 'Summary', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   classification: { title: 'Classification', sub: 'Add a file, blob path, or pasted text.', chips: '' },
+  ramco_ocr: { title: 'Ramco OCR', sub: 'Upload an invoice, enter a blob path (needs tenant), or paste OCR text, then send.', chips: '' },
+  ftp: { title: 'FTP', sub: 'File or blob path + ocr_json + remarks. Delivered over SFTP to processed / unprocessed.', chips: '' },
   document_intelligent: { title: 'Document Intelligent', sub: 'Tenant required. File, blob path, or pasted text.', chips: '' },
   insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   ap: { title: 'AP', sub: 'Add an invoice file or JSON, then Run AP.', chips: '' },
@@ -4089,7 +4199,7 @@ function syncMainControls() {
 
 function setExclusiveAgentPanels(mode) {
   const docPanel = document.getElementById('docPanel');
-  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'document_intelligent'
+  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'ramco_ocr' || mode === 'ftp' || mode === 'document_intelligent'
     || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
   if (docPanel) {
     docPanel.hidden = !showDoc;
@@ -4160,7 +4270,7 @@ function initPanelCollapseControls() {
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.classification_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)) return;
+  if (!(body.summary_result || body.classification_result || body.ramco_ocr_result || body.ftp_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
@@ -4181,7 +4291,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'classification' || mode === 'document_intelligent' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report' || mode === 'ftl_qualifier' || mode === 'ftl_quote_estimator')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'classification' || mode === 'ramco_ocr' || mode === 'ftp' || mode === 'document_intelligent' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report' || mode === 'ftl_qualifier' || mode === 'ftl_quote_estimator')) {
     mode = 'chat';
   }
   const prevMode = composerMode;
@@ -4200,6 +4310,10 @@ function setComposerMode(mode) {
   document.getElementById('summaryFields').hidden = mode !== 'summary';
   const classificationFields = document.getElementById('classificationFields');
   if (classificationFields) classificationFields.hidden = mode !== 'classification';
+  const ramcoOcrFields = document.getElementById('ramcoOcrFields');
+  if (ramcoOcrFields) ramcoOcrFields.hidden = mode !== 'ramco_ocr';
+  const ftpFields = document.getElementById('ftpFields');
+  if (ftpFields) ftpFields.hidden = mode !== 'ftp';
   const diFields = document.getElementById('documentIntelligentFields');
   if (diFields) diFields.hidden = mode !== 'document_intelligent';
   document.getElementById('insightFields').hidden = mode !== 'insight';
@@ -4243,6 +4357,12 @@ function setComposerMode(mode) {
     banner.textContent = 'Classification';
     messageInput.placeholder = 'Optional note';
     loadAgentSkillsPack('classification');
+  } else if (mode === 'ramco_ocr') {
+    banner.textContent = 'Ramco OCR';
+    messageInput.placeholder = 'Optional note';
+  } else if (mode === 'ftp') {
+    banner.textContent = 'FTP';
+    messageInput.placeholder = 'Optional note';
   } else if (mode === 'document_intelligent') {
     banner.textContent = 'Document Intelligent';
     messageInput.placeholder = 'Optional note';
@@ -5673,17 +5793,20 @@ function renderSummaryResult(summary, request) {
 }
 
 function renderClassificationResult(result, request) {
-  const labels = Array.isArray(result.suggested_labels) ? result.suggested_labels : [];
-  const labelChips = labels.map(l => `<span class="summary-chip">${escapeHtml(String(l))}</span>`).join('');
-  const score = Number(result.confidence_score);
-  const hasScore = Number.isFinite(score);
-  const confClass = !hasScore ? '' : (score >= 80 ? '' : score >= 50 ? 'mid' : 'low');
-  const width = hasScore ? Math.max(0, Math.min(100, score)) : 0;
-  const title = result.document_type || 'Document classification';
+  const cls = result.classification || {};
+  const status = result['Classification Status'] || '';
+  const error = result['ERROR CODE'];
+  const source = (result.source || {}).blobPath;
+  const env = result.environment || {};
+  const confidence = Number(cls.confidence);
+  const hasScore = Number.isFinite(confidence);
+  const pct = hasScore ? Math.round(confidence * 100) : 0;
+  const confClass = !hasScore ? '' : (pct >= 80 ? '' : pct >= 50 ? 'mid' : 'low');
+  const title = cls.documentType || 'Document classification';
   const chips = [
-    result.document_type ? `<span class="summary-chip">${escapeHtml(result.document_type)}</span>` : '',
-    result.source_reference ? `<span class="summary-chip source">${escapeHtml(result.source_reference)}</span>` : '',
-    labelChips,
+    status ? `<span class="summary-chip">${escapeHtml(status)}</span>` : '',
+    cls.model ? `<span class="summary-chip lang">${escapeHtml(cls.model)}</span>` : '',
+    source ? `<span class="summary-chip source">${escapeHtml(source)}</span>` : '',
   ].join('');
   const resultJson = JSON.stringify(result, null, 2);
   const curlText = buildClassificationCurl(request);
@@ -5696,18 +5819,152 @@ function renderClassificationResult(result, request) {
   if (hasScore) {
     html += `<div class="summary-conf">
       <span class="summary-conf-label">Confidence</span>
-      <div class="summary-conf-bar ${confClass}"><span style="width:${width}%"></span></div>
-      <span class="summary-conf-score">${escapeHtml(String(result.confidence_score))}</span>
+      <div class="summary-conf-bar ${confClass}"><span style="width:${pct}%"></span></div>
+      <span class="summary-conf-score">${escapeHtml(String(cls.confidence))}</span>
     </div>`;
   }
   html += `</div><div class="summary-card-body">`;
-  if (result.rationale) {
-    html += `<div class="summary-prose">${escapeHtml(result.rationale)}</div>`;
+  if (error) {
+    html += `<div class="summary-prose">${escapeHtml(String(error))}</div>`;
   }
-  if (result.ocr_text) {
-    html += `<details class="summary-ocr"><summary>Show extracted text</summary>
-      <div class="ocr-text-preview">${escapeHtml(result.ocr_text)}</div></details>`;
+  const envRows = ['envType', 'tenantId', 'workflowId', 'repositoryId', 'instanceId']
+    .filter(k => env[k] !== null && env[k] !== undefined && env[k] !== '')
+    .map(k => `${k}: ${escapeHtml(String(env[k]))}`);
+  if (envRows.length) {
+    html += `<div class="summary-prose">${envRows.join(' · ')}</div>`;
   }
+  if (result['Classification Completed']) {
+    html += `<div class="summary-prose">Completed: ${escapeHtml(result['Classification Completed'])}</div>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson, curlText };
+}
+
+function renderRamcoOcrResult(result, request) {
+  const ext = result.extraction || {};
+  const status = result['Extraction Status'] || '';
+  const error = result['ERROR CODE'];
+  const source = (result.source || {}).blobPath;
+  const env = result.environment || {};
+  const header = ext.invoiceHeader || null;
+  const items = Array.isArray(ext.lineItems) ? ext.lineItems : [];
+  const confidence = Number(ext.confidence);
+  const hasScore = Number.isFinite(confidence);
+  const pct = hasScore ? Math.round(confidence * 100) : 0;
+  const confClass = !hasScore ? '' : (pct >= 80 ? '' : pct >= 50 ? 'mid' : 'low');
+  const title = (header && (header['Company Name'] || header['invoice No'])) || result.documentType || 'Invoice extraction';
+  const chips = [
+    status ? `<span class="summary-chip">${escapeHtml(status)}</span>` : '',
+    result.documentType ? `<span class="summary-chip">${escapeHtml(result.documentType)}</span>` : '',
+    ext.model ? `<span class="summary-chip lang">${escapeHtml(ext.model)}</span>` : '',
+    source ? `<span class="summary-chip source">${escapeHtml(source)}</span>` : '',
+  ].join('');
+  const resultJson = JSON.stringify(result, null, 2);
+  const curlText = buildChatCurl(request && { ...request, intent: 'ramco_ocr' }, 'ramco_ocr');
+
+  let html = `<div class="summary-card">
+    <div class="summary-card-header">
+      <div class="summary-card-kicker">Ramco OCR</div>
+      <div class="summary-card-title">${escapeHtml(String(title))}</div>
+      <div class="summary-meta">${chips}</div>`;
+  if (hasScore) {
+    html += `<div class="summary-conf">
+      <span class="summary-conf-label">Confidence</span>
+      <div class="summary-conf-bar ${confClass}"><span style="width:${pct}%"></span></div>
+      <span class="summary-conf-score">${escapeHtml(String(ext.confidence))}</span>
+    </div>`;
+  }
+  html += `</div><div class="summary-card-body">`;
+  if (error) {
+    html += `<div class="summary-prose">${escapeHtml(String(error))}</div>`;
+  }
+  if (header) {
+    const rows = Object.entries(header)
+      .filter(([, v]) => v !== null && v !== undefined && v !== '')
+      .map(([k, v]) => `<li><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v))}</li>`)
+      .join('');
+    if (rows) html += `<div class="summary-section-label">Invoice header</div><ul class="summary-facts">${rows}</ul>`;
+  }
+  if (items.length) {
+    const rows = items.map(it => {
+      const parts = ['Item Number', 'Item description', 'quantity', 'UOM', 'Rate', 'Line Amount']
+        .filter(k => it[k] !== null && it[k] !== undefined && it[k] !== '')
+        .map(k => `${escapeHtml(k)}: ${escapeHtml(String(it[k]))}`);
+      return `<li>#${escapeHtml(String(it.lineNo ?? ''))} ${parts.join(' · ')}</li>`;
+    }).join('');
+    html += `<div class="summary-section-label">Line items (${items.length})</div><ul class="summary-facts">${rows}</ul>`;
+  }
+  const envRows = ['envType', 'tenantId', 'workflowId', 'repositoryId', 'instanceId']
+    .filter(k => env[k] !== null && env[k] !== undefined && env[k] !== '')
+    .map(k => `${k}: ${escapeHtml(String(env[k]))}`);
+  if (envRows.length) {
+    html += `<div class="summary-prose">${envRows.join(' · ')}</div>`;
+  }
+  if (result['Extraction Completed']) {
+    html += `<div class="summary-prose">Completed: ${escapeHtml(result['Extraction Completed'])}</div>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson, curlText };
+}
+
+function renderFtpResult(result, request) {
+  const ext = result.extraction || {};
+  const status = result['FTP status'] || '';
+  const error = result.ERROR;
+  const src = result.source || {};
+  const env = result.environment || {};
+  const header = ext.invoiceHeader || {};
+  const items = Array.isArray(ext.lineItems) ? ext.lineItems : [];
+  const confidence = Number(ext.confidence);
+  const hasScore = Number.isFinite(confidence);
+  const pct = hasScore ? Math.round(confidence * 100) : 0;
+  const confClass = !hasScore ? '' : (pct >= 80 ? '' : pct >= 50 ? 'mid' : 'low');
+  const title = header.vendorName || header.invoiceNumber || src.fileName || 'FTP delivery';
+  const chips = [
+    status ? `<span class="summary-chip">${escapeHtml(status)}</span>` : '',
+    result.documentType ? `<span class="summary-chip">${escapeHtml(result.documentType)}</span>` : '',
+    ext.model ? `<span class="summary-chip lang">${escapeHtml(ext.model)}</span>` : '',
+    src.blobPath ? `<span class="summary-chip source">${escapeHtml(src.blobPath)}</span>` : '',
+  ].join('');
+  const resultJson = JSON.stringify(result, null, 2);
+  const curlText = buildChatCurl(request && { ...request, intent: 'ftp' }, 'ftp');
+
+  let html = `<div class="summary-card">
+    <div class="summary-card-header">
+      <div class="summary-card-kicker">FTP delivery</div>
+      <div class="summary-card-title">${escapeHtml(String(title))}</div>
+      <div class="summary-meta">${chips}</div>`;
+  if (hasScore) {
+    html += `<div class="summary-conf">
+      <span class="summary-conf-label">Confidence</span>
+      <div class="summary-conf-bar ${confClass}"><span style="width:${pct}%"></span></div>
+      <span class="summary-conf-score">${escapeHtml(String(ext.confidence))}</span>
+    </div>`;
+  }
+  html += `</div><div class="summary-card-body">`;
+  if (error) {
+    html += `<div class="summary-prose">${escapeHtml(String(error))}</div>`;
+  }
+  const headerRows = Object.entries(header)
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => `<li><strong>${escapeHtml(k)}:</strong> ${escapeHtml(String(v))}</li>`)
+    .join('');
+  if (headerRows) html += `<div class="summary-section-label">Invoice header</div><ul class="summary-facts">${headerRows}</ul>`;
+  if (items.length) {
+    const rows = items.map(it => `<li>#${escapeHtml(String(it.lineNo ?? ''))} ${escapeHtml(String(it.description ?? ''))} · qty ${escapeHtml(String(it.quantity ?? ''))} · ${escapeHtml(String(it.unitPrice ?? ''))} · ${escapeHtml(String(it.lineAmount ?? ''))}</li>`).join('');
+    html += `<div class="summary-section-label">Line items (${items.length})</div><ul class="summary-facts">${rows}</ul>`;
+  }
+  const srcRows = ['fileName', 'emailFrom', 'emailSubject']
+    .filter(k => src[k])
+    .map(k => `${k}: ${escapeHtml(String(src[k]))}`);
+  if (srcRows.length) html += `<div class="summary-prose">${srcRows.join(' · ')}</div>`;
+  const envRows = ['envType', 'tenantId', 'workflowId', 'repositoryId', 'instanceId']
+    .filter(k => env[k] !== null && env[k] !== undefined && env[k] !== '')
+    .map(k => `${k}: ${escapeHtml(String(env[k]))}`);
+  if (envRows.length) html += `<div class="summary-prose">${envRows.join(' · ')}</div>`;
+  html += `<div class="summary-prose">Processed: ${escapeHtml(result.processedAt || '')} · Delivered: ${escapeHtml(result.deliveredAt || '—')}</div>`;
   html += codePanelHtml();
   html += `</div></div>`;
   return { html, resultJson, curlText };
@@ -5715,9 +5972,10 @@ function renderClassificationResult(result, request) {
 
 function renderDocumentIntelligentResult(result, request) {
   const candidates = Array.isArray(result.candidates) ? result.candidates : [];
-  const title = candidates.length ? 'Suggested folders' : 'No repository match';
+  const title = result.error ? 'Folder match failed' : (candidates.length ? 'Suggested folders' : 'No repository match');
   const chips = [
     result.source_reference ? `<span class="summary-chip source">${escapeHtml(result.source_reference)}</span>` : '',
+    result.model ? `<span class="summary-chip">${escapeHtml(result.model)}</span>` : '',
   ].join('');
   const candHtml = candidates.map(c => `<li>${escapeHtml(c.repository_name || '')} · ${escapeHtml(String(c.score ?? ''))}${c.rationale ? `<div class="summary-prose">${escapeHtml(c.rationale)}</div>` : ''}</li>`).join('');
   const resultJson = JSON.stringify(result, null, 2);
@@ -5729,6 +5987,11 @@ function renderDocumentIntelligentResult(result, request) {
       <div class="summary-card-title">${escapeHtml(title)}</div>
       <div class="summary-meta">${chips}</div>`;
   html += `</div><div class="summary-card-body">`;
+  if (result.error) {
+    html += `<div class="summary-section-label">Error</div><div class="summary-prose">${escapeHtml(result.error)}</div>`;
+  } else if (result.model_note) {
+    html += `<div class="summary-section-label">Model note</div><div class="summary-prose">${escapeHtml(result.model_note)}</div>`;
+  }
   if (candHtml) {
     html += `<div class="summary-section-label">Candidates</div><ul class="summary-facts">${candHtml}</ul>`;
   }
@@ -6713,7 +6976,7 @@ function renderQuoteResult(rawQuote, request, body) {
   clearEmptyState();
   const div = document.createElement('div');
   const dashBody = dashboardResultFromBody(body);
-  div.className = (body.summary_result || body.classification_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)
+  div.className = (body.summary_result || body.classification_result || body.ramco_ocr_result || body.ftp_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -6725,7 +6988,7 @@ function renderQuoteResult(rawQuote, request, body) {
   if (body.chunk_ids && body.chunk_ids.length) {
     details += `<div class="detail-block"><div class="dt-title">Sources</div>${body.chunk_ids.map(id => escapeHtml(String(id))).join(', ')}</div>`;
   }
-  if (body.document_id && !body.summary_result && !body.classification_result && !body.document_intelligent_result) {
+  if (body.document_id && !body.summary_result && !body.classification_result && !body.ramco_ocr_result && !body.ftp_result && !body.document_intelligent_result) {
     details += `<div class="detail-block"><div class="dt-title">Document</div>${escapeHtml(body.document_id)}</div>`;
   }
   if (body.cited_data_points && body.cited_data_points.length) {
@@ -6751,6 +7014,16 @@ function renderQuoteResult(rawQuote, request, body) {
     const classCode = renderClassificationResult(body.classification_result, request);
     details += classCode.html;
     codeBlocks.push(classCode);
+  }
+  if (body.ramco_ocr_result) {
+    const ramcoCode = renderRamcoOcrResult(body.ramco_ocr_result, request);
+    details += ramcoCode.html;
+    codeBlocks.push(ramcoCode);
+  }
+  if (body.ftp_result) {
+    const ftpCode = renderFtpResult(body.ftp_result, request);
+    details += ftpCode.html;
+    codeBlocks.push(ftpCode);
   }
   if (body.document_intelligent_result) {
     const diCode = renderDocumentIntelligentResult(body.document_intelligent_result, request);
@@ -6807,7 +7080,7 @@ function renderQuoteResult(rawQuote, request, body) {
     details += dashCode.html;
     codeBlocks.push(dashCode);
   }
-  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result && !body.classification_result && !body.document_intelligent_result
+  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result && !body.classification_result && !body.ramco_ocr_result && !body.ftp_result && !body.document_intelligent_result
     && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !dashBody && !body.report_plan_result && !body.report_prompt_result && !body.qualifier_result && !body.quote_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
@@ -6839,7 +7112,7 @@ function renderQuoteResult(rawQuote, request, body) {
     bubbleText = body.reply || `Summary ready — ${kind}.`;
   }
   if (body.classification_result) {
-    const kind = body.classification_result.document_type || 'document';
+    const kind = (body.classification_result.classification || {}).documentType || 'document';
     bubbleText = body.reply || `Classification ready — ${kind}.`;
   }
   if (body.document_intelligent_result) {
@@ -7227,6 +7500,187 @@ async function sendClassificationJob() {
           intent: 'classification',
           payload,
         }),
+      });
+    }
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
+async function sendRamcoOcrJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const val = id => (document.getElementById(id).value || '').trim();
+  const fileInput = document.getElementById('ramcoFile');
+  const file = fileInput.files && fileInput.files[0];
+  const blobPath = val('ramcoFilepath');
+  // Not trimmed: the layout spacing must reach the API unchanged.
+  const ocrTextRaw = document.getElementById('ramcoOcrText').value || '';
+  const ocrText = ocrTextRaw.trim() ? ocrTextRaw : '';
+  const fields = {
+    agent: 'OCR',
+    model: val('ramcoModel'),
+    documentType: val('ramcoDocumentType'),
+    envType: val('ramcoEnvType'),
+    tenantId: val('ramcoTenant'),
+    workflowId: val('ramcoWorkflowId'),
+    repositoryId: val('ramcoRepositoryId'),
+    instanceId: val('ramcoInstanceId'),
+    pageno: val('ramcoPageno') || '-1',
+  };
+  Object.keys(fields).forEach(k => { if (!fields[k]) delete fields[k]; });
+
+  if (!file && !blobPath && !ocrText) {
+    addSystemMessage('Ramco OCR needs a file upload, a blob path, or OCR text.');
+    return;
+  }
+  if (!ocrText && !file && !fields.tenantId) {
+    addSystemMessage('Ramco OCR blob path needs a tenant id (container ezts{tenantid}).');
+    return;
+  }
+
+  addUserMessage(
+    ocrText
+      ? `Ramco OCR text (${ocrText.length} chars)`
+      : (file ? `Ramco OCR file: ${file.name}` : `Ramco OCR blob: ${blobPath}`)
+  );
+  const processing = addProcessingMessage(
+    ocrText ? 'Extracting the invoice from the OCR text…' : 'Running OCR and extracting the invoice… this can take a minute.'
+  );
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Extracting';
+
+  try {
+    let res;
+    let request;
+    if (ocrText) {
+      const payload = { ...fields, ocr_text: ocrText };
+      if (blobPath) payload.blobPath = blobPath;
+      request = { intent: 'ramco_ocr', kind: 'ocr_text', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, intent: 'ramco_ocr', payload }),
+      });
+    } else if (file) {
+      request = { intent: 'ramco_ocr', kind: 'file', session_id: sessionId, filename: file.name, form: fields };
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'ramco_ocr');
+      Object.entries(fields).forEach(([k, v]) => form.append(k, v));
+      form.append('file', file, file.name);
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      const payload = { ...fields, blobPath };
+      request = { intent: 'ramco_ocr', kind: 'filepath', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, intent: 'ramco_ocr', payload }),
+      });
+    }
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
+async function sendFtpJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const val = id => (document.getElementById(id).value || '').trim();
+  const fileInput = document.getElementById('ftpFile');
+  const file = fileInput.files && fileInput.files[0];
+  const blobPath = val('ftpFilepath');
+  const parseJson = (id, label) => {
+    const raw = val(id);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch (_) { /* reported below */ }
+    throw new Error(`${label} must be a JSON object.`);
+  };
+  let ocrJson;
+  let remarks;
+  try {
+    ocrJson = parseJson('ftpOcrJson', 'ocr_json');
+    remarks = parseJson('ftpRemarks', 'remarks');
+  } catch (e) {
+    addSystemMessage(e.message);
+    return;
+  }
+  const fields = {
+    agent: 'FTP',
+    model: val('ftpModel'),
+    documentType: val('ftpDocumentType'),
+    envType: val('ftpEnvType'),
+    tenantId: val('ftpTenant'),
+    workflowId: val('ftpWorkflowId'),
+    repositoryId: val('ftpRepositoryId'),
+    instanceId: val('ftpInstanceId'),
+  };
+  Object.keys(fields).forEach(k => { if (!fields[k]) delete fields[k]; });
+
+  if (!file && !blobPath) {
+    addSystemMessage('FTP needs a file upload or a blob path.');
+    return;
+  }
+  if (!file && !fields.tenantId) {
+    addSystemMessage('FTP blob path needs a tenant id (container ezts{tenantid}).');
+    return;
+  }
+
+  addUserMessage(file ? `FTP deliver file: ${file.name}` : `FTP deliver blob: ${blobPath}`);
+  const processing = addProcessingMessage('Scoring the invoice data and uploading over SFTP…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Delivering';
+
+  try {
+    let res;
+    let request;
+    if (file) {
+      request = { intent: 'ftp', kind: 'file', session_id: sessionId, filename: file.name, form: fields };
+      const form = new FormData();
+      form.append('session_id', sessionId);
+      form.append('intent', 'ftp');
+      Object.entries(fields).forEach(([k, v]) => form.append(k, v));
+      if (ocrJson) form.append('ocr_json', JSON.stringify(ocrJson));
+      if (remarks) form.append('remarks', JSON.stringify(remarks));
+      form.append('file', file, file.name);
+      res = await fetch('/chat', { method: 'POST', body: form });
+    } else {
+      const payload = { ...fields, blobPath };
+      if (ocrJson) payload.ocr_json = ocrJson;
+      if (remarks) payload.remarks = remarks;
+      request = { intent: 'ftp', kind: 'filepath', session_id: sessionId, payload };
+      res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, intent: 'ftp', payload }),
       });
     }
     const data = await readResponseJson(res);
@@ -8833,6 +9287,8 @@ async function sendFtlQuoteJob() {
     async function sendMessage() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'classification') return sendClassificationJob();
+  if (composerMode === 'ramco_ocr') return sendRamcoOcrJob();
+  if (composerMode === 'ftp') return sendFtpJob();
   if (composerMode === 'document_intelligent') return sendDocumentIntelligentJob();
   if (composerMode === 'insight') return sendInsightJob();
   if (composerMode === 'ocr') return sendOcrJob();

@@ -1,0 +1,75 @@
+---
+description: STAGE 2 - Strict transformation rules and final output schema
+alwaysApply: true
+---
+
+STRICT TRANSFORMATION RULES:
+- Map supplier_name to "Company Name".
+- Map supplier_address to "Company Address".
+- "Company Address" must never contain a payment label such as "Please Remit To:", "Remit To:", or "Make Checks Payable To:". Strip the label and keep only the address lines.
+- "Company Address" must contain address lines only. It must never repeat the company name.
+- Map bill_to_name to "BuyerName Billto".
+- Map bill_to_address to "BuyerAddress Billto".
+- Map ship_to_name and ship_to_address to the Shipto fields.
+- Map invoice_number, invoice_date, purchase_order_number, order_date, delivery_doc_no, delivery_doc_date, currency, total_before_tax, tax_amount, discount, shipping_charges, total_due, payment_terms, due_date, notes, bank_account_number, and bank name only to their matching output fields.
+- Do not reverse supplier and buyer.
+- Do not create values that are null in the input.
+- Do not use supplier_name as Bank Account Name unless explicitly shown as the bank account holder.
+- Assign lineNo sequentially starting from 1.
+- Output only the exact final schema and valid JSON.
+
+FINAL OUTPUT SCHEMA:
+{
+  "confidence": 0.0,
+  "invoice_header": {
+    "Document Type": "string or null",
+    "FID number": "string or null",
+    "Company Name": "string or null",
+    "Company Address": "string or null",
+    "BuyerName Billto": "string or null",
+    "BuyerAddress Billto": "string or null",
+    "BuyerName Shipto": "string or null",
+    "BuyerAddress Shipto": "string or null",
+    "invoice No": "string or null",
+    "invoice Date": "string or null",
+    "Due Date": "string or null",
+    "purchase_order_number": "string or null",
+    "purchase_order_Date": "string or null",
+    "Delivery Doc No": "string or null",
+    "Delivery Doc Date": "string or null",
+    "Currency": "string or null",
+    "Taxable Amount": "string or null",
+    "Tax Amount": "string or null",
+    "discount": "string or null",
+    "Charge": "string or null",
+    "Round Off": "string or null",
+    "Grand Total": "string or null",
+    "Payment Terms": "string or null",
+    "Notes_Remarks": "string or null",
+    "Bank Account Name": "string or null",
+    "bank Account No": "string or null",
+    "Bank Name": "string or null"
+  },
+  "line_items": [
+    {
+      "lineNo": "string or null",
+      "Item Number": "string or null",
+      "Item description": "string or null",
+      "quantity": "string or null",
+      "UOM": "string or null",
+      "Rate": "string or null",
+      "Rate Per": "string or null",
+      "Discount Amt": "string or null",
+      "Discount %": "string or null",
+      "Line Amount": "string or null"
+    }
+  ]
+}
+
+CONFIDENCE:
+- "confidence" is a number from 0.0 to 1.0 for how reliably the invoice header and line items were extracted from the OCR text.
+- Use 0.8 or higher when the document is clearly an invoice and the key fields (Company Name, invoice No, invoice Date, Grand Total, line items) are clearly readable.
+- Go below 0.8 only when the OCR text is garbled, key fields are missing or ambiguous, or the document does not look like an invoice.
+- "confidence" is a top-level key, never inside invoice_header.
+
+Return ONLY a valid JSON object strictly - no explanation, no markdown, no extra characters, no trailing commas. Output the entire JSON with this correction applied.

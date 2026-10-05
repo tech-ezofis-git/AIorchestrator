@@ -78,13 +78,27 @@ def parse_classification_json_content(content: Any, *, ocr_text: str) -> dict:
     return payload_from_parsed(data, ocr_text=ocr_text)
 
 
+def _confidence_score_from(data: dict) -> Any:
+    """0–100 score; the classifier skill returns `confidence` on a 0–1 scale."""
+    if data.get("confidence_score") is not None:
+        return data["confidence_score"]
+    raw = data.get("confidence")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    return value * 100 if 0 <= value <= 1 else value
+
+
 def payload_from_parsed(data: dict, *, ocr_text: str) -> dict:
-    dtype = data.get("document_type") or data.get("type") or data.get("class") or ""
+    dtype = (
+        data.get("label") or data.get("document_type") or data.get("type") or data.get("class") or ""
+    )
     rationale = data.get("rationale") or data.get("reason") or data.get("explanation") or ""
     labels = data.get("suggested_labels") or data.get("labels") or data.get("categories")
     return locked_classification_payload(
         ocr_text=ocr_text,
-        confidence_score=data.get("confidence_score", data.get("confidence", 0.0)),
+        confidence_score=_confidence_score_from(data),
         document_type=str(dtype or ""),
         rationale=str(rationale or ""),
         suggested_labels=labels,

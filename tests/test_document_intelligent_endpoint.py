@@ -145,7 +145,65 @@ def test_document_intelligent_rejects_unknown_repo(client, monkeypatch):
     result = body["document_intelligent_result"]
     assert result["candidates"] == []
     assert "rationale" not in result
-    assert body["reply"] == "This document doesn't match any of your folders."
+    assert "did not return any folder from this tenant's catalog" in result["error"]
+    assert body["reply"] == result["error"]
+
+
+def _post_di(client, session_id: str):
+    return client.post(
+        "/chat",
+        json={
+            "session_id": session_id,
+            "intent": "document_intelligent",
+            "payload": {
+                "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+                "ocr_text": "Bill of Lading BL-99 Vessel Ocean Star",
+            },
+        },
+    )
+
+
+def test_empty_model_reply_is_reported_without_guessing(client, monkeypatch):
+    _install_fake_llm(monkeypatch, "")
+    _install_catalog(monkeypatch)
+
+    response = _post_di(client, "s-di-empty")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    result = body["document_intelligent_result"]
+    assert result["candidates"] == []
+    assert result["keywords"] == []
+    assert "returned an empty response" in result["error"]
+    assert result["model"]
+    assert body["reply"] == result["error"]
+
+
+def test_invalid_json_model_reply_is_reported(client, monkeypatch):
+    _install_fake_llm(monkeypatch, "Sorry, I cannot help with that.")
+    _install_catalog(monkeypatch)
+
+    result = _post_di(client, "s-di-badjson").json()["document_intelligent_result"]
+
+    assert result["candidates"] == []
+    assert "not valid JSON: 'Sorry, I cannot help with that.'" in result["error"]
+
+
+def test_unreachable_model_is_reported(client, monkeypatch):
+    from app.llm.adapter import LLMAdapterError
+
+    async def failing_chat_completion(self, messages, **_kwargs):
+        raise LLMAdapterError("The language model provider is currently unavailable.")
+
+    monkeypatch.setattr("app.llm.adapter.LLMAdapter.chat_completion", failing_chat_completion)
+    _install_catalog(monkeypatch)
+
+    response = _post_di(client, "s-di-down")
+
+    assert response.status_code == 200, response.text
+    result = response.json()["document_intelligent_result"]
+    assert result["candidates"] == []
+    assert "is unreachable: The language model provider is currently unavailable." in result["error"]
 
 
 def test_rationale_lines_name_the_shared_details():
@@ -175,35 +233,27 @@ def test_rationale_lines_name_the_shared_details():
     assert [c["keywords"] for c in result["candidates"]] == [
         ["Bill of Lading", "Shipper", "Receiver Name", "Freight Charge", "Vessel"],
         ["Freight Charge"],
-        [],
     ]
     assert result["keywords"] == ["Bill of Lading", "Shipper", "Receiver Name", "Freight Charge", "Vessel"]
     assert [c["rationale"] for c in result["candidates"]] == [
         "This document has Bill of Lading, Shipper and Receiver Name details that match Shipping Agency.",
         "This document has Freight Charge details that match Freight Billing.",
-        "This document shares no specific details with Contracts; it was suggested from its overall content.",
     ]
 
 
-def test_no_match_still_suggests_closest_folders():
+def test_code_never_suggests_folders_the_model_did_not_pick():
     from app.document_intelligent_skills.lock import locked_payload
 
     catalog = [
         {"repository_id": _REPO, "repository_name": "Shipping Agency", "fields": ["Vessel", "Shipper"]},
         {"repository_id": "22222222-2222-2222-2222-222222222222", "repository_name": "Invoices",
          "fields": ["Invoice Number", "Total", "Due Date"]},
-        {"repository_id": "33333333-3333-3333-3333-333333333333", "repository_name": "Contracts", "fields": ["Party"]},
     ]
     text = "Invoice Number: 42\nDue Date: 2026-10-01\nTotal: 900\nShipped by vessel"
     result = locked_payload(ocr_text=text, catalog=catalog, confidence_score=30, candidates=[])
 
-    assert "repository_id" not in result
-    assert "confidence_score" not in result
-    assert [c["repository_name"] for c in result["candidates"]] == ["Invoices", "Shipping Agency"]
-    assert all(c["score"] < 55 for c in result["candidates"])
-    assert result["candidates"][0]["rationale"] == (
-        "This document has Invoice Number, Due Date and Total details that match Invoices."
-    )
+    assert result["candidates"] == []
+    assert result["keywords"] == []
 
 
 def test_score_agrees_with_rationale_for_non_english_text():
@@ -232,8 +282,7 @@ def test_score_agrees_with_rationale_for_non_english_text():
     assert shipping["keywords"] == ["ETA", "ETD", "Vessel", "IMO Number"]
     assert shipping["rationale"] == "This document has ETA, ETD and Vessel details that match Shipping Agency Files."
     assert ftl["keywords"] == []
-    assert ftl["score"] == 30.0
-    assert "shares no specific details" in ftl["rationale"]
+    assert ftl["rationale"] == "This document may also fit FTL, the model's next closest folder."
 
 
 def test_store_loads_fields_from_repository_fields_table():
@@ -269,8 +318,107 @@ def test_empty_text_has_no_candidates():
     assert "rationale" not in result
 
 
-def test_document_intelligent_multipart(client, monkeypatch):
+def test_model_pick_by_ref_and_loose_name_is_kept_even_with_low_confidence():
+    from app.document_intelligent_skills.lock import locked_payload
+
+    result = locked_payload(
+        ocr_text="Invoice No 42 Total 900 Vessel Ocean Star",
+        catalog=_CATALOG,
+        confidence_score=40,
+        ref="R2",
+        candidates=[
+            {"ref": "R2", "score": 40, "matched_fields": ["Invoice No"]},
+            {"repository_name": "shipping agency file", "score": 10},
+        ],
+    )
+
+    names = [c["repository_name"] for c in result["candidates"]]
+    assert names == ["Invoices", "Shipping Agency Files"]
+
+
+def test_model_pick_with_no_shared_fields_is_skipped(client, monkeypatch):
+    _install_fake_llm(
+        monkeypatch,
+        json.dumps(
+            {
+                "ref": "R2",
+                "confidence_score": 20,
+                "candidates": [{"ref": "R2", "repository_name": "Invoices", "score": 20}],
+            }
+        ),
+    )
+    _install_catalog(monkeypatch)
+
+    body = _post_di(client, "s-di-noevidence").json()
+
+    assert body["document_intelligent_result"]["candidates"] == []
+    assert "error" not in body["document_intelligent_result"]
+    assert body["reply"] == "This document doesn't match any of your folders."
+
+
+def test_keyword_match_accepts_common_abbreviations():
+    from app.document_intelligent_skills.lock import locked_payload
+
+    catalog = [
+        {"repository_id": _REPO, "repository_name": "AP Bills",
+         "fields": ["Invoice Number", "Quantity Ordered", "Purchase Order"]},
+    ]
+    result = locked_payload(
+        ocr_text="Inv No: 42\nQty ordered: 5", catalog=catalog, candidates=[{"repository_id": _REPO, "score": 80}]
+    )
+
+    assert result["candidates"][0]["keywords"] == ["Invoice Number", "Quantity Ordered"]
+
+
+def test_lone_number_field_does_not_match_the_word_no():
+    from app.document_intelligent_skills.lock import locked_payload
+
+    catalog = [{"repository_id": _REPO, "repository_name": "Misc", "fields": ["Number"]}]
+    result = locked_payload(
+        ocr_text="There is no data here", catalog=catalog, candidates=[{"repository_id": _REPO, "score": 20}]
+    )
+
+    assert result["candidates"] == []
+
+
+def test_ocr_failure_is_reported(client, monkeypatch):
     _install_fake_llm(monkeypatch)
+    _install_catalog(monkeypatch)
+
+    async def failing_dispatch(self, tool, args):
+        raise RuntimeError("Paddle OCR timed out")
+
+    monkeypatch.setattr("app.core.dispatcher.Dispatcher.dispatch", failing_dispatch)
+
+    response = client.post(
+        "/chat",
+        data={
+            "session_id": "s-di-ocrfail",
+            "intent": "document_intelligent",
+            "tenant_id": "2e3b7b37-38a3-4f94-878e-a006dad93230",
+            "pageno": "1",
+        },
+        files={"file": ("scan.png", b"\x89PNG fake", "image/png")},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["reply"].startswith("Text could not be extracted")
+    assert body["document_intelligent_result"]["error"] == "OCR failed: Paddle OCR timed out"
+    assert body["document_intelligent_result"]["candidates"] == []
+
+
+def test_document_intelligent_multipart(client, monkeypatch):
+    _install_fake_llm(
+        monkeypatch,
+        json.dumps(
+            {
+                "confidence_score": 88.0,
+                "ref": "R1",
+                "candidates": [{"ref": "R1", "score": 88.0, "matched_fields": ["BL Number"]}],
+            }
+        ),
+    )
     _install_catalog(monkeypatch)
 
     response = client.post(

@@ -61,6 +61,8 @@ class Intent(str, Enum):
     FTL_QUALIFIER = "ftl_qualifier"
     FTL_QUOTE_ESTIMATOR = "ftl_quote_estimator"
     REPORT = "report"
+    RAMCO_OCR = "ramco_ocr"
+    FTP = "ftp"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the

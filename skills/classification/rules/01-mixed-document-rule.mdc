@@ -1,0 +1,18 @@
+---
+description: Mixed-document rule (critical) — invoice plus attachments is still an invoice
+alwaysApply: true
+---
+
+Many files are an invoice PLUS attachments.
+
+If ANY page is a true invoice or credit note, classify from that commercial document.
+Ignore later supporting pages when choosing the label.
+
+Examples that MUST be INVOICE (not BOL / PACKING_LIST / TERMS / OTHER):
+- Page 1 is an invoice, page 2 is a Bill of Lading.
+- Invoice followed by packing list, delivery receipt, POD, or shipping papers.
+- Invoice followed by terms & conditions, warranty, or legal pages.
+- Invoice followed by rate confirmation, load confirmation, or carrier paperwork.
+
+Do NOT switch the label to BOL, PACKING_LIST, or TERMS just because those words appear on page 2 or later.
+Only use BOL / PACKING_LIST / TERMS when there is NO invoice and NO credit note in the OCR text.

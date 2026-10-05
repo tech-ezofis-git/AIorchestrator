@@ -1,0 +1,20 @@
+---
+description: Output contract — required JSON schema, allowed labels, confidence and reason
+alwaysApply: true
+---
+
+Required output schema:
+{"label":"...","confidence":0.0,"reason":"..."}
+
+label must be exactly one of:
+INVOICE, CREDIT_NOTE, STATEMENT, TERMS, BOL, PACKING_LIST, BLANK, OTHER
+
+confidence is a number from 0 to 1 for how sure you are that the chosen label is correct.
+It applies to every label, including OTHER and BLANK: a document that is clearly not commercial
+(for example a passport or a letter) labelled OTHER should still get a high confidence.
+Use a value below 0.8 only when the evidence is weak or conflicting and another label could also fit
+(for example 0.97 for a clear invoice heading, number and amount due).
+
+reason must be one short sentence stating the strongest evidence,
+including whether later pages were ignored as attachments (for example:
+"Page 1 is a freight invoice with amount due; page 2 BOL ignored as attachment.").

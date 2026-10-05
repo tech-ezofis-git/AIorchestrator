@@ -1,0 +1,51 @@
+---
+description: STAGE 1 - Extraction rules (multiple invoices, tables, currency, PO number, filtering, charges, discounts, header vs line items)
+alwaysApply: true
+---
+
+MULTIPLE INVOICE RULE:
+- If multiple invoices are found in the document, extract data only from the first invoice.
+- Ignore any subsequent invoices and do not process them.
+
+EXTRACTION RULES:
+- Extract data according to the visible table structure and column headers in the invoice.
+- For every line item, only extract fields that correspond to the table columns for that row. Do not include header/shipment fields in line items.
+- Most likely the line item will start from first page.
+- Merge all multi-line content within a single cell into that field, especially for the "description" and "notes".
+- Do not guess or invent a name if no reasonable candidate exists.
+- For bill_to_name and bill_to_address try to extract the buyers details.
+
+CURRENCY RULE:
+- If the currency is not mentioned in the invoice, use only clear country or region information from the supplier_address to infer the "currency" field.
+- If the country or region is ambiguous or missing, leave the "currency" as null.
+- Do not add any additional details to the "currency" value.
+
+PURCHASE ORDER NUMBER RULE:
+- When extracting the "purchase_order_number", if there is no field explicitly labeled "purchase order number", "PO number", "Your Purchase Order" or similar, then extract the value from fields labeled "reference number", "reference", "ref #", or "reference #" and map it to "purchase_order_number", even if the label does not mention "purchase order".
+- Assume that these are used as the purchase order number unless it is clear they refer to something else.
+
+DOCUMENT FILTERING RULE:
+- Ignore all other pages such as Bills of Lading, packing lists, rate confirmations, or any document that is not the invoice.
+- Line items must come only from tables on the invoice page (e.g., "RATES AND CHARGES").
+
+SINGLE CHARGE RULE:
+- If the invoice shows a single charge instead of a detailed table, create one line item using only the explicitly visible description and amount.
+- Set quantity, units, and price to null unless they are explicitly shown.
+
+SHIPPING CHARGES RULE:
+- If miscellaneous or additional charges (e.g., fuel surcharge, packaging, insurance, logistics fees, handling) are listed separately and are clearly related to transportation, delivery, or handling, sum them and return the total as shipping_charges in the invoice_header.
+- Do not map a single total invoice charge or general service fee (e.g., "Full Truckload") to shipping_charges unless it is explicitly labeled as a shipping-related fee.
+- If the charges are unrelated to shipping or unclear, treat them as separate line_items with their own description and amount, and do not guess or reclassify them.
+
+DISCOUNT HANDLING LOGIC:
+- If discount information is only conditionally based on payment terms:
+  - Examples of discount-related phrases to handle:
+    - "CASH DISCOUNT ... IF PAID BY ..."
+    - "Early payment discount ..."
+    - "X% OFF TOTAL DUE if settled before due date"
+    - "Rebate applied if paid before 10th"
+- Do NOT include it in `discountAmount`.
+- Instead, capture the entire discount statement inside the field: `additional_info`.
+
+HEADER AND LINE ITEM SEPARATION RULE:
+- Shipment/invoice-level fields such as CAR NUMBER, SHIPPING POINT, SHIPMENT NUMBER, CURRENCY, etc., must go ONLY into the "invoice_header", not as line item fields.

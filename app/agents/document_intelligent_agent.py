@@ -6,14 +6,14 @@ from typing import Any, Optional
 
 from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
 from app.document_intelligent.store import DocumentIntelligentStore
-from app.document_intelligent_skills.lock import locked_payload
+from app.document_intelligent_skills.lock import ModelResponseError, locked_payload
 from app.document_intelligent_skills.match_repository import run as match_repository_skill
-from app.document_intelligent_skills.rules import EMPTY_TEXT, NO_MATCH
+from app.document_intelligent_skills.rules import EMPTY_TEXT, NO_MATCH, OCR_FAILED
 from app.config import Settings
 from app.core.dispatcher import Dispatcher, ToolExecutionError
 from app.core.response_composer import ResponseComposer
 from app.integrations.ocr_engine import OcrEngineError
-from app.llm.adapter import LLMAdapter
+from app.llm.adapter import LLMAdapter, LLMAdapterError
 from app.llm.model_presets import resolve_preset_overrides
 from app.llm.runtime_models import RuntimeModelSelection
 
@@ -81,6 +81,7 @@ class DocumentIntelligentAgent:
         content = ""
         source = "upload"
         page_label = ""
+        ocr_error: Optional[str] = None
 
         if direct_text := (job.get("ocr_text") or "").strip():
             content = direct_text
@@ -121,12 +122,21 @@ class DocumentIntelligentAgent:
                     extra={"error_type": type(exc).__name__},
                 )
                 content = ""
+                ocr_error = str(exc).strip() or type(exc).__name__
 
         if not content:
-            return _result(locked_payload(ocr_text="", catalog=catalog), source=source, usage=None)
+            return _result(
+                locked_payload(ocr_text="", catalog=catalog),
+                source=source,
+                usage=None,
+                ocr_error=ocr_error,
+            )
 
         overrides = dict(job.get("llm_overrides") or {})
         fallback_overrides = job.get("llm_fallback_overrides")
+        primary = overrides.get("model") or model or self._default_model_name()
+        failures: list[str] = []
+        answered_by = primary
         try:
             synthesis = await match_repository_skill(
                 llm=self._llm_for_skill(),
@@ -139,20 +149,30 @@ class DocumentIntelligentAgent:
                 llm_overrides=overrides,
             )
         except Exception as exc:
+            failures.append(_model_failure(primary, exc))
             logger.warning(
                 "document_intelligent_primary_failed",
-                extra={"model": overrides.get("model") or model or "default"},
+                extra={"model": primary, "error_type": type(exc).__name__},
             )
-            synthesis = await self._match_with_fallback(
+            synthesis, answered_by = await self._match_with_fallback(
                 text=content,
                 source=source,
                 catalog=catalog,
                 page_label=page_label,
-                primary=overrides.get("model") or model,
-                error=exc,
+                primary=primary,
+                failures=failures,
                 tenant_id=tenant_id,
                 catalog_fallback_preset=job.get("catalog_fallback_preset"),
                 fallback_overrides=fallback_overrides if isinstance(fallback_overrides, dict) else None,
+            )
+
+        if synthesis is None:
+            return _result(
+                locked_payload(ocr_text=content, catalog=catalog),
+                source=source,
+                usage=None,
+                model=answered_by,
+                model_error=" ".join(failures),
             )
 
         usage = synthesis.get("usage") or {}
@@ -164,7 +184,15 @@ class DocumentIntelligentAgent:
                 "completion_tokens": usage.get("completion_tokens") or 0,
                 "total_tokens": usage.get("total_tokens") or 0,
             },
+            model=answered_by,
+            model_note=f"{' '.join(failures)} Answered by {answered_by}." if failures else None,
         )
+
+    def _default_model_name(self) -> str:
+        try:
+            return str(self._llm_for_skill().describe().get("model") or "default model")
+        except Exception:
+            return "default model"
 
     async def _match_with_fallback(
         self,
@@ -173,12 +201,13 @@ class DocumentIntelligentAgent:
         source: str,
         catalog: list[dict[str, Any]],
         page_label: str,
-        primary: Optional[str],
-        error: Exception,
+        primary: str,
+        failures: list[str],
         tenant_id: Optional[str] = None,
         catalog_fallback_preset: Optional[str] = None,
         fallback_overrides: Optional[dict[str, Any]] = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[Optional[dict[str, Any]], str]:
+        """Try the fallback models in order; return (synthesis, model) or (None, last model tried)."""
         settings = self._cfg()
         if not fallback_overrides:
             fallback_preset = catalog_fallback_preset or (
@@ -187,28 +216,41 @@ class DocumentIntelligentAgent:
             fallback_overrides = resolve_preset_overrides(fallback_preset) if fallback_preset else None
         env_fallback = (settings.ocr_fallback_model or "").strip() or None
 
+        attempts: list[tuple[str, Optional[str], Optional[dict[str, Any]]]] = []
         if fallback_overrides:
-            return await match_repository_skill(
-                llm=self._llm_for_skill(),
-                text=text,
-                source=source,
-                catalog=catalog,
-                page_label=page_label,
-                model=None,
-                tenant_id=tenant_id,
-                llm_overrides=fallback_overrides,
-            )
-        if env_fallback and env_fallback != primary:
-            return await match_repository_skill(
-                llm=self._llm_for_skill(),
-                text=text,
-                source=source,
-                catalog=catalog,
-                page_label=page_label,
-                model=env_fallback,
-                tenant_id=tenant_id,
-            )
-        raise error
+            attempts.append((str(fallback_overrides.get("model") or "fallback model"), None, fallback_overrides))
+        if env_fallback and env_fallback != primary and all(name != env_fallback for name, _, _ in attempts):
+            attempts.append((env_fallback, env_fallback, None))
+
+        last = primary
+        for name, model, call_overrides in attempts:
+            last = name
+            try:
+                synthesis = await match_repository_skill(
+                    llm=self._llm_for_skill(),
+                    text=text,
+                    source=source,
+                    catalog=catalog,
+                    page_label=page_label,
+                    model=model,
+                    tenant_id=tenant_id,
+                    llm_overrides=call_overrides,
+                )
+                return synthesis, name
+            except Exception as exc:
+                failures.append(_model_failure(name, exc))
+                logger.warning(
+                    "document_intelligent_fallback_failed",
+                    extra={"model": name, "error_type": type(exc).__name__},
+                )
+        return None, last
+
+
+def _model_failure(model: str, exc: Exception) -> str:
+    if isinstance(exc, ModelResponseError):
+        return f"The model ({model}) {exc}."
+    reason = str(exc).strip() if isinstance(exc, LLMAdapterError) else type(exc).__name__
+    return f"The model ({model}) is unreachable: {reason.rstrip('.')}."
 
 
 def _result(
@@ -216,11 +258,27 @@ def _result(
     *,
     source: str,
     usage: Optional[dict[str, Any]],
+    ocr_error: Optional[str] = None,
+    model: Optional[str] = None,
+    model_error: Optional[str] = None,
+    model_note: Optional[str] = None,
 ) -> dict[str, Any]:
     body = dict(payload)
     body["source_reference"] = source
+    if model:
+        body["model"] = model
+    if model_note:
+        body["model_note"] = model_note
     has_text = bool((body.get("ocr_text") or "").strip())
-    if not has_text:
+    if ocr_error:
+        body["error"] = f"OCR failed: {ocr_error}"
+        reply = OCR_FAILED
+    elif model_error:
+        body["candidates"] = []
+        body["keywords"] = []
+        body["error"] = model_error
+        reply = model_error
+    elif not has_text:
         reply = _FAIL_REPLY
     elif body.get("candidates"):
         reply = _SUCCESS_REPLY

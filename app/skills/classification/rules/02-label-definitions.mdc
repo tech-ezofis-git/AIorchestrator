@@ -1,0 +1,48 @@
+---
+description: Label definitions
+alwaysApply: true
+---
+
+INVOICE
+A bill requesting payment for goods or services.
+Typical signals (any strong subset is enough):
+- Title or heading: Invoice, INV, Tax Invoice, Freight Invoice, Carrier Invoice, Billing Invoice
+- Invoice / INV / PRO / billing number
+- Bill To / Invoice To / Customer
+- Line items with amounts
+- Subtotal, tax, freight, total due, amount due, balance due
+- Payment terms, due date
+A PRO number plus billed amounts is still an invoice, even if a BOL is attached.
+
+CREDIT_NOTE
+Credit memo / credit invoice / credit note reducing what is owed.
+Look for: Credit Note, Credit Memo, Credit Invoice, CM number, amount credited.
+If it is clearly issuing a credit, use CREDIT_NOTE even if "invoice" also appears.
+
+STATEMENT
+Account statement, aging, open-invoices listing, balance listing, or monthly statement.
+It lists several invoices or a running balance. It is NOT a single invoice requesting payment for one job/shipment.
+Do NOT call a single freight invoice a STATEMENT just because it shows previous balance or aging lines, if the main page is still one invoice.
+
+BOL
+Bill of Lading / BOL / B/L / Waybill used as the MAIN document.
+Shipping contract: shipper, consignee, carrier, commodity, pieces/weight, no request for payment as the primary purpose.
+Use BOL ONLY if there is no invoice and no credit note in the file.
+A BOL attached behind an invoice does NOT make the file a BOL.
+
+PACKING_LIST
+Packing slip / packing list / pick list / contents list as the MAIN document.
+Item list for shipping/receiving, usually without amount due / total due as the purpose of the page.
+Use PACKING_LIST ONLY if there is no invoice and no credit note.
+A packing list behind an invoice does NOT make the file a PACKING_LIST.
+
+TERMS
+Terms and conditions, legal, warranty, or rate-tariff legal text as the MAIN document.
+Use TERMS ONLY if there is no invoice and no credit note.
+
+BLANK
+Empty, unreadable, or no meaningful commercial content (logos/headers only, garbage OCR, whitespace).
+
+OTHER
+Anything else: correspondence, quote, PO only, check stub, screenshot, unrelated form.
+Use OTHER when it is clearly not one of the labels above.

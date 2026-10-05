@@ -96,7 +96,7 @@ class DocumentPayload(BaseModel):
     ocr_text: Optional[str] = Field(
         default=None,
         description=(
-            "Pre-extracted OCR text. When set on intent=summary, classification, document_intelligent, or insight, blob "
+            "Pre-extracted OCR text. When set on intent=summary, classification, document_intelligent, insight, or ramco_ocr, blob "
             "download and Paddle extract are skipped. Wins over file/filepath "
             "(summary_json / insight_json still win over ocr_text)."
         ),
@@ -268,7 +268,18 @@ class DocumentPayload(BaseModel):
         ),
     )
 
-    @field_validator("qualifier_result", "quote_result", mode="before")
+    ocr_json: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("ocr_json", "ocrJson", "OcrJson"),
+        description="intent=ftp: extracted invoice data {invoice_header, line_items, confidence?}.",
+    )
+    remarks: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("remarks", "Remarks"),
+        description='intent=ftp: mail metadata ("unique ref no", From, Email_Subject, "Received Filename").',
+    )
+
+    @field_validator("qualifier_result", "quote_result", "ocr_json", "remarks", mode="before")
     @classmethod
     def _parse_qualifier_result(cls, value: Any) -> Any:
         if value is None or isinstance(value, dict):
@@ -369,6 +380,16 @@ class DocumentPayload(BaseModel):
             "repository_id", "repositoryId", "repository", "RepositoryId", "specificId", "specific_id"
         ),
         description="Repository UUID (move-next or Global Search specificId).",
+    )
+    env_type: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("env_type", "envType", "EnvType"),
+        description="Environment label (e.g. live) echoed in the classification_result environment block.",
+    )
+    document_type: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("document_type", "documentType", "DocumentType"),
+        description="Document type hint for intent=ramco_ocr (e.g. UNKNOWN, INVOICE); echoed in ramco_ocr_result.",
     )
     transaction_id: Optional[str] = Field(
         default=None,
@@ -489,6 +510,10 @@ class DocumentPayload(BaseModel):
         "matter_master_id",
         "item_id",
         "form_id",
+        "tenant_id",
+        "workflow_id",
+        "repository_id",
+        "instance_id",
         mode="before",
     )
     @classmethod
@@ -768,6 +793,8 @@ class ChatRequest(BaseModel):
                 "dashboard",
                 "ftl_qualifier",
                 "ftl_quote_estimator",
+                "ramco_ocr",
+                "ftp",
             }:
                 return self
             raise ValueError(
@@ -821,8 +848,9 @@ class ChatResponse(BaseModel):
     classification_result: Optional[dict[str, Any]] = Field(
         default=None,
         description=(
-            "Classification document-job output — confidence_score, document_type, "
-            "rationale, suggested_labels, ocr_text (plus optional source_reference). "
+            "Classification contract — agent, Classification Status (SUCCEEDED/FAILED), "
+            "Classification Completed, source, environment, classification "
+            "{model, documentType, confidence 0–1}, ERROR CODE. "
             "`reply` is a short status line. Token counts live in token_usage."
         ),
     )
@@ -925,6 +953,21 @@ class ChatResponse(BaseModel):
     quote_result: Optional[dict[str, Any]] = Field(
         default=None,
         description="FTL Quote Estimator output — line items, quantities, pricing, totals, and notes.",
+    )
+    ftp_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "FTP contract (intent=ftp) — agent, FTP status (SUCCESS/QUEUED), documentType, processedAt, "
+            "source, environment, extraction {model, confidence, invoiceHeader, lineItems}, deliveredAt, ERROR."
+        ),
+    )
+    ramco_ocr_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Ramco OCR contract (intent=ramco_ocr) — agent, Extraction Status (SUCCEEDED/FAILED), "
+            "documentType, Extraction Completed, source, environment, extraction "
+            "{model, confidence 0–1, invoiceHeader, lineItems}, ERROR CODE."
+        ),
     )
     pdf_download_url: Optional[str] = Field(
         default=None,

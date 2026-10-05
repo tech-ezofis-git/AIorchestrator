@@ -43,9 +43,9 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     message = _form_str(form.get("message"))
     intent = _form_str(form.get("intent"))
     instruction = _form_str(form.get("instruction"))
-    filepath = _form_str(form.get("filepath"))
+    filepath = _form_str(form.get("filepath")) or _form_str(form.get("blobPath"))
     pageno = _form_str(form.get("pageno"))
-    ocr_text = _form_str(form.get("ocr_text"))
+    ocr_text = _form_raw_str(form.get("ocr_text"))
     candidate_text = (
         _form_str(form.get("candidate_text"))
         or _form_str(form.get("candidateText"))
@@ -90,6 +90,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or _form_str(form.get("tenantid"))
         or _form_str(form.get("TenantId"))
     )
+    env_type = _form_str(form.get("env_type")) or _form_str(form.get("envType"))
+    document_type = _form_str(form.get("document_type")) or _form_str(form.get("documentType"))
+    ocr_json = _form_str(form.get("ocr_json")) or _form_str(form.get("ocrJson"))
+    remarks = _form_str(form.get("remarks"))
     ap_agent_job_id = (
         _form_str(form.get("ap_agent_job_id"))
         or _form_str(form.get("apAgentJobId"))
@@ -208,6 +212,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     payload = None
     has_ap_fields = bool(
         tenant_id
+        or env_type
+        or document_type
+        or ocr_json
+        or remarks
         or ap_agent_job_id
         or item_id
         or skills_raw is not None
@@ -285,6 +293,10 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             workflow_id=workflow_id,
             instance_id=instance_id,
             repository_id=repository_id,
+            env_type=env_type,
+            document_type=document_type,
+            ocr_json=ocr_json,
+            remarks=remarks,
             transaction_id=transaction_id,
             form_entry_id=form_entry_id,
             process_id=process_id,
@@ -323,6 +335,14 @@ def _form_str(value: Any) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _form_raw_str(value: Any) -> Optional[str]:
+    """Like _form_str but keeps the text untouched (OCR layout spacing)."""
+    if value is None or isinstance(value, UploadFile):
+        return None
+    text = str(value)
+    return text if text.strip() else None
 
 
 def _parse_optional_string_list(form: Any, field: str) -> Optional[list[str]]:

@@ -1,0 +1,97 @@
+---
+description: STAGE 1 - Strict extraction rules and intermediate schema (internal use only, never printed)
+alwaysApply: true
+---
+
+STRICT EXTRACTION RULES:
+- supplier_name is the invoice issuer/service provider; bill_to_name is the customer/account holder.
+- A prominent logo or brand name is strong supplier evidence.
+- Do not treat the first visible company/address block as the supplier without checking its role.
+- Extract only values explicitly visible or clearly labeled.
+- If a field is not shown, return null.
+- Do not assume quantity = 1.
+- Do not invent UOM values such as "service", "each", or "unit".
+- Do not copy the line amount into price unless it is explicitly labeled as price/rate.
+- Preserve item descriptions exactly as printed; do not expand or rewrite them.
+- For a single visible service charge, create one line item with only the visible description and amount; keep quantity, units, and price null unless explicitly shown.
+- Map "Please pay by", "Due date", or "Payment due" to due_date, not payment_terms.
+- Use the STAGE 1 intermediate schema below.
+- If a field is missing for a line item or header, use null.
+- Do not invent fields.
+- Do not add any header or shipment data to any line item.
+
+STAGE 1 INTERMEDIATE SCHEMA (internal use only, never printed):
+{
+  "header": {
+    "car_number": "string or null",
+    "fid_number": "string or null",
+    "shipment_number": "string or null",
+    "shipping_point": "string or null",
+    "currency": "string or null",
+    "invoice_number": "string or null",
+    "invoice_date": "string or null",
+    "order_number": "string or null",
+    "customer_order_number": "string or null",
+    "our_order_number": "string or null",
+    "sales_order_number": "string or null",
+    "purchase_order_number": "string or null",
+    "order_date": "string or null",
+    "supplier_name": "string or null",
+    "supplier_address": "string or null",
+    "supplier_phone": "string or null",
+    "supplier_email": "string or null",
+    "supplier_tax_id": "string or null",
+    "customer_name": "string or null",
+    "customer_address": "string or null",
+    "customer_phone": "string or null",
+    "customer_email": "string or null",
+    "customer_tax_id": "string or null",
+    "ship_to_name": "string or null",
+    "ship_to_address": "string or null",
+    "bill_to_name": "string or null",
+    "bill_to_address": "string or null",
+    "remit_to_name": "string or null",
+    "remit_to_address": "string or null",
+    "delivery_doc_no": "string or null",
+    "delivery_doc_date": "string or null",
+    "tax_id": "string or null",
+    "tax_registration_number": "string or null",
+    "vat_number": "string or null",
+    "payment_terms": "string or null",
+    "payment_method": "string or null",
+    "payment_reference": "string or null",
+    "bank_account_number": "string or null",
+    "bank name": "string or null",
+    "iban": "string or null",
+    "swift_code": "string or null",
+    "total_before_tax": "string or null",
+    "tax_amount": "string or null",
+    "tax_rate": "string or null",
+    "shipping_charges": "string or null",
+    "discount": "string or null",
+    "total_due": "string or null",
+    "amount_paid": "string or null",
+    "balance_due": "string or null",
+    "due_date": "string or null",
+    "invoice_status": "string or null",
+    "reference_number": "string or null",
+    "project_code": "string or null",
+    "department": "string or null",
+    "contact_person": "string or null",
+    "notes": "string or null",
+    "additional_info": "string or null"
+  },
+  "line_items": [
+    {
+      "Line No": "string or null",
+      "Item Number": "string or null",
+      "quantity": "string or null",
+      "units": "string or null",
+      "description": "string or null",
+      "footage": "string or null",
+      "price": "string or null",
+      "amount": "string or null",
+      "notes": "string or null"
+    }
+  ]
+}

@@ -98,6 +98,28 @@ class Settings(BaseSettings):
     ocr_default_model: Optional[str] = None
     ocr_fallback_model: Optional[str] = None
     ocr_max_pages: int = 5
+    # Document Intelligent model when neither the request nor the tenant's
+    # catalog picks one. Folder matching over a large catalog needs more than
+    # the nano default. Empty = use the console default model.
+    document_intelligent_model: str = "gpt-4.1-mini"
+    # POST /chat intent=classification: below this confidence (0–1) the
+    # document type is reported as UNKNOWN and the classification as FAILED.
+    classification_min_confidence: float = 0.80
+    # POST /chat intent=ramco_ocr: below this extraction confidence (0–1)
+    # the result is reported as FAILED.
+    ramco_ocr_min_confidence: float = 0.80
+
+    # POST /chat intent=ftp: SFTP delivery of the document + invoice JSON.
+    ftp_host: str = ""
+    ftp_username: str = ""
+    ftp_password: str = ""
+    ftp_sftp_port: int = 22
+    ftp_ftps_port: int = 21
+    ftp_timeout_seconds: float = 20.0
+    ftp_processed_dir: str = "/OCR_Process/processed"
+    ftp_unprocessed_dir: str = "/OCR_Process/Unprocessed"
+    # Share of null/empty invoice values above which a document is unprocessed.
+    ftp_unprocessed_null_ratio: float = 0.80
     # FTL qualifier / quote estimator only. Caps how many image or scan pages
     # in one RFQ are sent to Paddle. Text pages are never counted against it.
     ftl_ocr_max_pages: int = 40
