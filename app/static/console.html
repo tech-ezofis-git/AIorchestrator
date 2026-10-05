@@ -104,7 +104,7 @@
     box-shadow: none;
     position: relative;
     flex: 0 0 auto;
-    z-index: 20;
+    z-index: 10001;
   }
   header::after { display: none; }
   header .brand-lockup {
@@ -1679,6 +1679,7 @@
   }
   .catalog-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); }
   .catalog-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 14px; }
+  .catalog-form[hidden] { display: none !important; }
   .catalog-form label { font-size: 12px; color: var(--ink-2); display: block; margin-bottom: 4px; }
   .catalog-form input, .catalog-form textarea, .catalog-form select {
     width: 100%; padding: 8px 10px; font-size: 13px; font-family: inherit;
@@ -9397,6 +9398,16 @@ const reportPlanBtn = document.getElementById('reportPlanBtn');
 if (reportPlanBtn) reportPlanBtn.addEventListener('click', () => sendReportPlanJob());
 const reportPromptBtn = document.getElementById('reportPromptBtn');
 if (reportPromptBtn) reportPromptBtn.addEventListener('click', () => sendReportPromptJob());
+let reportPlanRefreshTimer = null;
+function queueReportPlanRefresh() {
+  if (reportPlanRefreshTimer) clearTimeout(reportPlanRefreshTimer);
+  reportPlanRefreshTimer = setTimeout(() => {
+    reportPlanRefreshTimer = null;
+    loadReportScopeOptions('workflows');
+    loadReportScopeOptions('repositories');
+  }, 250);
+}
+
 const reportTenantEl = document.getElementById('reportTenant');
 if (reportTenantEl) {
   reportTenantEl.addEventListener('input', queueReportPlanRefresh);
@@ -9436,15 +9447,19 @@ const viewCatalogBtn = document.getElementById('viewCatalogBtn');
 
 function setView(name) {
   const catalog = name === 'catalog';
+  const chatEl = document.getElementById('chatView');
+  const catalogEl = document.getElementById('catalogView');
+  const chatBtn = document.getElementById('viewChatBtn');
+  const catalogBtn = document.getElementById('viewCatalogBtn');
   document.body.classList.toggle('catalog-open', catalog);
-  if (chatView) chatView.style.display = catalog ? 'none' : '';
-  if (catalogView) catalogView.classList.toggle('visible', catalog);
-  viewChatBtn.classList.toggle('active', !catalog);
-  viewCatalogBtn.classList.toggle('active', catalog);
+  if (chatEl) chatEl.style.display = catalog ? 'none' : '';
+  if (catalogEl) catalogEl.classList.toggle('visible', catalog);
+  if (chatBtn) chatBtn.classList.toggle('active', !catalog);
+  if (catalogBtn) catalogBtn.classList.toggle('active', catalog);
   if (catalog) {
     chatGateResolved = false;
     closeTenantGate();
-    catalogView.scrollTop = 0;
+    if (catalogEl) catalogEl.scrollTop = 0;
     loadCatalog();
   } else {
     maybeShowTenantGate();
