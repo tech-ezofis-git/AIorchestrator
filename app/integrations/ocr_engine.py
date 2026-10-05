@@ -62,6 +62,7 @@ class OcrEngineClient:
         tenant_id: Optional[str] = None,
         scan_qr: bool = False,
         scan_mrz: bool = False,
+        layout: bool = False,
     ) -> dict[str, Any]:
         """Extract text for a document job or legacy reference string.
 
@@ -71,7 +72,9 @@ class OcrEngineClient:
         With scan_qr, the same pages are scanned for QR codes concurrently
         with text extraction and returned as `qr_codes`. With scan_mrz, MRZ
         bands are located on the page images, OCR'd on their own and the
-        best-validated result is returned as `mrz`.
+        best-validated result is returned as `mrz`. With layout, PDFs skip the
+        local embedded-text shortcut so the OCR service's column-aligned text
+        is returned exactly as the service sent it.
         """
         settings = self._cfg()
         pages = page_selection or PageSelection(start=1, end=1, raw="1")
@@ -135,7 +138,8 @@ class OcrEngineClient:
             )
         try:
             result = await self._extract_text(
-                data=data, name=name, ctype=ctype, pages=pages, source=source, extract_url=extract_url
+                data=data, name=name, ctype=ctype, pages=pages, source=source, extract_url=extract_url,
+                layout=layout,
             )
         except OcrEngineError as exc:
             qr_codes = await qr_task if qr_task is not None else []
@@ -243,6 +247,7 @@ class OcrEngineClient:
         pages: PageSelection,
         source: str,
         extract_url: str,
+        layout: bool = False,
     ) -> dict[str, Any]:
         settings = self._cfg()
         local_text = self._extract_local_text(
@@ -250,6 +255,7 @@ class OcrEngineClient:
             filename=name,
             content_type=ctype,
             page_selection=pages,
+            allow_pdf=not layout,
         )
         if local_text:
             return {
@@ -281,6 +287,7 @@ class OcrEngineClient:
                 content_type=ctype,
                 page_selection=pages,
                 timeout=settings.ocr_download_timeout_seconds,
+                preserve_layout=layout,
             )
         except OcrEngineError:
             raise
@@ -304,6 +311,7 @@ class OcrEngineClient:
         filename: str,
         content_type: str,
         page_selection: PageSelection,
+        allow_pdf: bool = True,
     ) -> Optional[str]:
         lowered = (filename or "").strip().lower()
         ctype = (content_type or "").strip().lower()
@@ -312,7 +320,7 @@ class OcrEngineClient:
             text = data.decode("utf-8-sig", errors="replace").strip()
             return text or None
 
-        if lowered.endswith(".pdf") or ctype == "application/pdf":
+        if allow_pdf and (lowered.endswith(".pdf") or ctype == "application/pdf"):
             text = _extract_pdf_text(data, page_selection=page_selection)
             if text and embedded_pdf_text_is_usable(text):
                 return text
@@ -458,6 +466,7 @@ class OcrEngineClient:
         content_type: str,
         page_selection: PageSelection,
         timeout: float,
+        preserve_layout: bool = False,
     ) -> str:
         if not data and not (self._cfg().ocr_extract_url or "").strip():
             return ""
@@ -481,7 +490,7 @@ class OcrEngineClient:
         except httpx.HTTPError as exc:
             raise OcrEngineError("OCR extract_text request failed.") from exc
 
-        text = _extract_text_from_response(payload, response_text=body_text)
+        text = _extract_text_from_response(payload, response_text=body_text, preserve=preserve_layout)
         if text is None:
             raise OcrEngineError("OCR extract_text returned no text.")
         return text
@@ -512,19 +521,24 @@ class OcrEngineClient:
         }
 
 
-def _extract_text_from_response(payload: Any, *, response_text: str) -> Optional[str]:
+def _extract_text_from_response(payload: Any, *, response_text: str, preserve: bool = False) -> Optional[str]:
+    """preserve=True keeps the service text byte-for-byte (leading column spaces included)."""
     if payload is None:
-        text = (response_text or "").strip()
-        return text or None
+        text = response_text or ""
+        if not text.strip():
+            return None
+        return text if preserve else text.strip()
     if isinstance(payload, str):
-        return payload.strip() or None
+        if not payload.strip():
+            return None
+        return payload if preserve else payload.strip()
     if isinstance(payload, dict):
         for key in ("text", "ocr_text", "content", "result", "data"):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
-                return value.strip()
+                return value if preserve else value.strip()
             if isinstance(value, dict):
-                nested = _extract_text_from_response(value, response_text="")
+                nested = _extract_text_from_response(value, response_text="", preserve=preserve)
                 if nested:
                     return nested
             if isinstance(value, list):

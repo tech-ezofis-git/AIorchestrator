@@ -128,7 +128,13 @@ from app.agents.document_intelligent_agent import DocumentIntelligentAgent
 from app.document_intelligent.store import DocumentIntelligentStore
 from app.agents.ftl_qualifier_agent import FtlQualifierAgent
 from app.agents.ftl_quote_estimator_agent import FtlQuoteEstimatorAgent
+from app.classification_skills.contract import (
+    model_id_from_display_name,
+    with_contract as with_classification_contract,
+)
 from app.ftl.api import router as ftl_router
+from app.agents.ramco_ocr_agent import RamcoOcrAgent
+from app.agents.ftp_agent import FtpAgent
 from app.agents.global_search_agent import GlobalSearchAgent
 from app.agents.chatbot_agent import ChatbotAgent
 from app.agents.dashboard_agent import DashboardAgent
@@ -596,6 +602,8 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.SEARCH, search_agent.handle)
     agent_router.register(Intent.SUMMARY, summary_agent.handle)
     agent_router.register(Intent.CLASSIFICATION, classification_agent.handle)
+    agent_router.register(Intent.RAMCO_OCR, RamcoOcrAgent(dispatcher, llm_adapter, settings).handle)
+    agent_router.register(Intent.FTP, FtpAgent(settings).handle)
     agent_router.register(Intent.DOCUMENT_INTELLIGENT, document_intelligent_agent.handle)
     agent_router.register(Intent.INSIGHT, insight_agent.handle)
     agent_router.register(Intent.OCR, ocr_agent.handle)
@@ -2364,12 +2372,18 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 "pdf",
                 "ftl_qualifier",
                 "ftl_quote_estimator",
+                "ramco_ocr",
+                "ftp",
             }
         ):
             if explicit == "summary":
                 message = "Summarize the document."
             elif explicit == "classification":
                 message = "Classify the document."
+            elif explicit == "ramco_ocr":
+                message = "Extract the invoice."
+            elif explicit == "ftp":
+                message = "Deliver the document over FTP."
             elif explicit == "document_intelligent":
                 message = "Match the document to a tenant repository."
             elif explicit == "ftl_qualifier":
@@ -2602,6 +2616,65 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "model": payload.payload.model if payload.payload else None,
             "tenant_id": payload.payload.tenant_id if payload.payload else None,
         }
+    elif intent == Intent.RAMCO_OCR:
+        if not has_document and not has_ocr_text:
+            raise HTTPException(
+                status_code=422,
+                detail="intent=ramco_ocr requires a file upload, payload.blobPath, or payload.ocr_text.",
+            )
+        if not has_ocr_text and parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        p = payload.payload
+        pageno = (p.pageno if p else None) or "-1"
+        if not has_ocr_text:
+            try:
+                resolve_pageno(pageno, max_pages=get_settings().ocr_max_pages)
+            except InvalidOcrPageError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        document_job = {
+            "instruction": payload.instruction,
+            # Not stripped: Paddle's layout spacing must reach the model unchanged.
+            "ocr_text": (p.ocr_text or "") if has_ocr_text else "",
+            "filepath": None if parsed.file_bytes is not None else (p.filepath if p else None),
+            "file_bytes": parsed.file_bytes,
+            "filename": parsed.filename if parsed.file_bytes is not None else None,
+            "content_type": parsed.content_type if parsed.file_bytes is not None else None,
+            "pageno": pageno,
+            "model": model_id_from_display_name(p.model if p else None),
+            "model_display": p.model if p else None,
+            "document_type": p.document_type if p else None,
+            "env_type": p.env_type if p else None,
+            "tenant_id": p.tenant_id if p else None,
+            "workflow_id": p.workflow_id if p else None,
+            "repository_id": p.repository_id if p else None,
+            "instance_id": p.instance_id if p else None,
+        }
+    elif intent == Intent.FTP:
+        if not has_document:
+            raise HTTPException(
+                status_code=422,
+                detail="intent=ftp requires a file upload or payload.blobPath.",
+            )
+        if parsed.file_bytes is not None and len(parsed.file_bytes) == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+        p = payload.payload
+        document_job = {
+            "instruction": payload.instruction,
+            "filepath": None if parsed.file_bytes is not None else (p.filepath if p else None),
+            "file_bytes": parsed.file_bytes,
+            "filename": parsed.filename if parsed.file_bytes is not None else None,
+            "content_type": parsed.content_type if parsed.file_bytes is not None else None,
+            "ocr_json": p.ocr_json if p else None,
+            "remarks": p.remarks if p else None,
+            "model": None,
+            "model_display": p.model if p else None,
+            "document_type": p.document_type if p else None,
+            "env_type": p.env_type if p else None,
+            "tenant_id": p.tenant_id if p else None,
+            "workflow_id": p.workflow_id if p else None,
+            "repository_id": p.repository_id if p else None,
+            "instance_id": p.instance_id if p else None,
+        }
     elif intent in {Intent.SUMMARY, Intent.CLASSIFICATION, Intent.DOCUMENT_INTELLIGENT, Intent.INSIGHT} and has_ocr_text:
         # Direct OCR text: skip blob download and Paddle. Wins over file/filepath.
         document_job = {
@@ -2723,6 +2796,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     explicit_model = (payload.payload.model if payload.payload else None) or ""
     if document_job is not None and document_job.get("model"):
         explicit_model = str(document_job.get("model") or explicit_model)
+    if intent == Intent.CLASSIFICATION:
+        explicit_model = model_id_from_display_name(explicit_model) or ""
 
     # Resolve this request's tenant/agent model selection once, up front.
     # Document-job agents (AP, OCR, Summary) get a frozen override dict carried on
@@ -2766,6 +2841,10 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         # the non-document-job intents that still need it.
         if document_job is None and resolved_tenant_llm["default_slug"]:
             apply_preset(llm_adapter, resolved_tenant_llm["default_slug"])
+    if llm_overrides is None and intent == Intent.DOCUMENT_INTELLIGENT:
+        di_model = (get_settings().document_intelligent_model or "").strip()
+        if di_model and preset_has_api_key(di_model):
+            llm_overrides = preset_call_overrides(di_model)
     if llm_overrides is None:
         # No explicit/tenant selection — freeze the adapter's current
         # process-wide default so a document-job request's LLM call(s) are
@@ -2786,6 +2865,29 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 history=history,
                 catalog_agent=custom_agent,
             )
+        elif intent == Intent.CLASSIFICATION:
+            try:
+                result = await agent_router.route(
+                    intent,
+                    session_id=payload.session_id,
+                    message=message,
+                    history=history,
+                    document_job=document_job,
+                    ezofis=getattr(request.app.state, "ezofis_client", None),
+                )
+            except ValueError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "classification_chat_failed", extra={"error_type": type(exc).__name__}
+                )
+                result = {
+                    "reply": "",
+                    "usage": None,
+                    "document_id": None,
+                    "classification_error": f"Classification failed: {exc}",
+                }
+            result = with_classification_contract(result, payload.payload, document_job)
         else:
             result = await agent_router.route(
                 intent,
@@ -2876,6 +2978,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         ocr_result=result.get("ocr_result"),
         summary_result=result.get("summary_result"),
         classification_result=result.get("classification_result"),
+        ramco_ocr_result=result.get("ramco_ocr_result"),
+        ftp_result=result.get("ftp_result"),
         document_intelligent_result=result.get("document_intelligent_result"),
         insight_result=result.get("insight_result"),
         forecast_result=result.get("forecast_result"),

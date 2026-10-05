@@ -1,8 +1,10 @@
 """Lock Document Intelligent model output to the tenant catalog.
 
-The model picks the folder; each candidate's `rationale` is built here from the folder fields that
-appear in the document text, so it always states the real reason in one plain line. When the model
-returns too few candidates, folders whose fields or name appear in the text are added as suggestions.
+Only the model picks folders and scores; code never adds its own suggestions. Each candidate's
+`rationale` is built here from the folder fields that appear in the document text, so it always
+states the real reason in one plain line. A pick with no shared fields is dropped unless it is
+needed as the model's next closest alternative to reach two candidates. An empty, unreadable or off-catalog model reply raises
+ModelResponseError instead of being replaced by a guess.
 """
 from __future__ import annotations
 
@@ -10,15 +12,34 @@ import re
 from typing import Any, Optional
 
 from app.dashboard.ids import normalize_guid
-from app.document_intelligent_skills.rules import MIN_CONFIDENCE, NO_EVIDENCE_MAX_SCORE
+from app.document_intelligent_skills.rules import catalog_ref
 from app.summary_skills.lock import loads_json_object, normalize_json_text
 
 _MAX_DETAILS = 3
 _MIN_DETAIL_CHARS = 3
 _MAX_CANDIDATES = 5
-_MIN_SUGGESTIONS = 3
-_MIN_NAME_WORD_CHARS = 4
+# With at least one evidence-backed pick, the model's next picks fill up to this many candidates.
+_MIN_CANDIDATES = 2
+_MAX_SNIPPET_CHARS = 80
 _SMALL_WORDS = {"of", "and", "or", "the", "to", "for", "in", "on", "by", "at"}
+# Common label abbreviations ("Inv No" for "Invoice Number"). Only applied to
+# multi-word fields so a lone "Number" field never matches the word "no".
+_WORD_ALTERNATIVES: dict[str, tuple[str, ...]] = {
+    "number": ("number", "no", "num", "nbr", "#"),
+    "invoice": ("invoice", "inv"),
+    "quantity": ("quantity", "qty"),
+    "amount": ("amount", "amt"),
+    "reference": ("reference", "ref"),
+    "account": ("account", "acct", "a/c"),
+    "description": ("description", "desc"),
+    "address": ("address", "addr"),
+    "telephone": ("telephone", "tel", "phone"),
+}
+_CANONICAL_WORD = {alt: word for word, alts in _WORD_ALTERNATIVES.items() for alt in alts}
+
+
+class ModelResponseError(ValueError):
+    """The model answered, but not with a usable folder pick (empty, not JSON, or off-catalog)."""
 
 
 def _coerce_confidence(value: Any) -> float:
@@ -35,7 +56,7 @@ def _coerce_confidence(value: Any) -> float:
 
 def _index_catalog(catalog: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     by_id: dict[str, dict[str, Any]] = {}
-    for row in catalog or []:
+    for index, row in enumerate(catalog or []):
         raw_id = str(row.get("repository_id") or "").strip()
         if not raw_id:
             continue
@@ -44,8 +65,29 @@ def _index_catalog(catalog: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "repository_id": raw_id,
             "repository_name": str(row.get("repository_name") or "").strip() or raw_id,
             "fields": [str(f) for f in (row.get("fields") or []) if str(f or "").strip()],
+            "ref": catalog_ref(index).lower(),
         }
     return by_id
+
+
+def _name_key(name: Any) -> str:
+    """'Invoices ' / 'invoice' / 'INVOICE-S' all -> 'invoice' for tolerant name lookup."""
+    key = re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+    return re.sub(r"s$", "", key) if len(key) > 4 else key
+
+
+def _canonical_key(label: Any) -> str:
+    """'Inv No' and 'InvoiceNumber' both -> 'invoicenumber'."""
+    words = [w.lower() for w in _field_words(str(label or ""))]
+    return "".join(_CANONICAL_WORD.get(w, w) for w in words)
+
+
+def _word_pattern(word: str, *, allow_alternatives: bool) -> str:
+    alts = _WORD_ALTERNATIVES.get(word.lower()) if allow_alternatives else None
+    if not alts:
+        plural = "s?" if word.isalpha() and len(word) > 3 else ""
+        return re.escape(word) + plural
+    return "(?:" + "|".join(re.escape(a) for a in sorted(alts, key=len, reverse=True)) + ")"
 
 
 def _field_words(field: str) -> list[str]:
@@ -66,7 +108,9 @@ def _all_matched_details(fields: list[str], text: str) -> list[str]:
     """Every field name of the folder found in the document text, in the order they appear."""
     found: list[tuple[int, str]] = []
     for field, words in _usable_fields(fields).values():
-        pattern = r"(?<![A-Za-z0-9])" + r"[\s_\-.:/]*".join(map(re.escape, words)) + r"(?![A-Za-z0-9])"
+        multi = len(words) > 1
+        body = r"[\s_\-.:/]*".join(_word_pattern(w, allow_alternatives=multi) for w in words)
+        pattern = r"(?<![A-Za-z0-9])" + body + r"(?![A-Za-z0-9])"
         match = re.search(pattern, text, re.I)
         if match:
             found.append((match.start(), _detail_label(field, words)))
@@ -75,51 +119,16 @@ def _all_matched_details(fields: list[str], text: str) -> list[str]:
 
 def _model_matched_details(fields: list[str], named: Any) -> list[str]:
     """Field names the model reported for this folder, kept only when they are real fields of it."""
-    by_key = {key.replace(" ", ""): (field, words) for key, (field, words) in _usable_fields(fields).items()}
+    by_key = {_canonical_key(field): (field, words) for field, words in _usable_fields(fields).values()}
     out: list[str] = []
     for name in named if isinstance(named, list) else []:
-        key = re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+        key = _canonical_key(name)
         if key in by_key:
             field, words = by_key[key]
             label = _detail_label(field, words)
             if label not in out:
                 out.append(label)
     return out
-
-
-def _name_in_text(name: str, text: str) -> bool:
-    """True when a meaningful word of the folder name ("Invoices" -> "invoice") is in the text."""
-    for word in _field_words(name):
-        word = word.lower()
-        if len(word) < _MIN_NAME_WORD_CHARS or word in _SMALL_WORDS:
-            continue
-        stem = re.sub(r"(es|s)$", "", word) if len(word) > _MIN_NAME_WORD_CHARS else word
-        if re.search(r"(?<![A-Za-z0-9])" + re.escape(stem) + r"(?:es|s)?(?![A-Za-z0-9])", text, re.I):
-            return True
-    return False
-
-
-def _suggested_folders(
-    catalog_index: dict[str, dict[str, Any]], text: str, exclude: set[str]
-) -> list[dict[str, Any]]:
-    """Folders ranked by how many of their fields (and name) show up in the text; code-side fallback."""
-    ceiling = MIN_CONFIDENCE - 5
-    scored: list[tuple[float, int, str, dict[str, Any]]] = []
-    for key, folder in catalog_index.items():
-        if key in exclude:
-            continue
-        hits = len(_all_matched_details(folder["fields"], text))
-        name_hit = _name_in_text(folder["repository_name"], text)
-        if not hits and not name_hit:
-            continue
-        total = len(_usable_fields(folder["fields"])) + 1
-        score = round(ceiling * (hits + int(name_hit)) / total, 1)
-        scored.append((score, hits, folder["repository_name"].lower(), folder))
-    scored.sort(key=lambda item: (-item[0], -item[1], item[2]))
-    return [
-        {"repository_id": folder["repository_id"], "repository_name": folder["repository_name"], "score": score}
-        for score, _, _, folder in scored
-    ]
 
 
 def _detail_label(field: str, words: list[str]) -> str:
@@ -143,12 +152,27 @@ def _join(items: list[str]) -> str:
 
 def _folder_rationale(name: str, keywords: list[str]) -> str:
     """One line on why the folder fits this document, built from the details they share."""
-    if keywords:
-        return f"This document has {_join(keywords[:_MAX_DETAILS])} details that match {name}."
-    return f"This document shares no specific details with {name}; it was suggested from its overall content."
+    return f"This document has {_join(keywords[:_MAX_DETAILS])} details that match {name}."
 
 
-def _lookup(catalog_index: dict[str, dict[str, Any]], repo_id: Any, repo_name: Any) -> Optional[dict[str, Any]]:
+def _alternative_rationale(name: str) -> str:
+    return f"This document may also fit {name}, the model's next closest folder."
+
+
+def _lookup(
+    catalog_index: dict[str, dict[str, Any]],
+    repo_id: Any,
+    repo_name: Any,
+    ref: Any = None,
+) -> Optional[dict[str, Any]]:
+    """Resolve a model pick by catalog ref (R3), GUID, exact name, then tolerant name."""
+    refs = [str(v or "").strip().lower() for v in (ref, repo_id) if str(v or "").strip()]
+    for value in refs:
+        if re.fullmatch(r"r?\d+", value):
+            wanted = value if value.startswith("r") else f"r{value}"
+            for row in catalog_index.values():
+                if row.get("ref") == wanted:
+                    return row
     rid = normalize_guid(str(repo_id or "")) or str(repo_id or "").strip()
     if rid and rid.lower() in catalog_index:
         return catalog_index[rid.lower()]
@@ -158,6 +182,11 @@ def _lookup(catalog_index: dict[str, dict[str, Any]], repo_id: Any, repo_name: A
     for row in catalog_index.values():
         if row["repository_name"].strip().lower() == name:
             return row
+    key = _name_key(name)
+    if key:
+        for row in catalog_index.values():
+            if _name_key(row["repository_name"]) == key:
+                return row
     return None
 
 
@@ -168,7 +197,12 @@ def _candidates_from(value: Any, catalog_index: dict[str, dict[str, Any]]) -> li
     for item in raw:
         if not isinstance(item, dict):
             continue
-        hit = _lookup(catalog_index, item.get("repository_id") or item.get("id"), item.get("repository_name") or item.get("name"))
+        hit = _lookup(
+            catalog_index,
+            item.get("repository_id") or item.get("id"),
+            item.get("repository_name") or item.get("name"),
+            item.get("ref"),
+        )
         if not hit:
             continue
         key = hit["repository_id"].lower()
@@ -196,19 +230,18 @@ def locked_payload(
     repository_id: Any = None,
     repository_name: Any = None,
     candidates: Any = None,
+    ref: Any = None,
 ) -> dict:
     text = (ocr_text or "").strip()
     catalog_index = _index_catalog(catalog or [])
     score = _coerce_confidence(confidence_score)
-    hit = _lookup(catalog_index, repository_id, repository_name) if catalog_index else None
+    hit = _lookup(catalog_index, repository_id, repository_name, ref) if catalog_index else None
     if not text:
         return {
             "keywords": [],
             "candidates": [],
             "ocr_text": ocr_text or "",
         }
-    if not hit or score < MIN_CONFIDENCE:
-        hit = None
     ranked = _candidates_from(candidates, catalog_index)
     if hit and not any(c["repository_id"].lower() == hit["repository_id"].lower() for c in ranked):
         ranked.insert(
@@ -220,20 +253,24 @@ def locked_payload(
             },
         )
         ranked = ranked[:_MAX_CANDIDATES]
-    if len(ranked) < _MIN_SUGGESTIONS:
-        taken = {c["repository_id"].lower() for c in ranked}
-        extra = _suggested_folders(catalog_index, text, taken)
-        ranked.extend(extra[: _MIN_SUGGESTIONS - len(ranked)])
+    supported: list[dict[str, Any]] = []
+    alternatives: list[dict[str, Any]] = []
     for candidate in ranked:
         folder = _lookup(catalog_index, candidate["repository_id"], candidate["repository_name"])
         fields = folder.get("fields") or []
         found = _all_matched_details(fields, text)
         found += [k for k in _model_matched_details(fields, candidate.pop("_model_fields", None)) if k not in found]
-        candidate["rationale"] = _folder_rationale(folder["repository_name"], found)
         candidate["keywords"] = found
-        if not found:
-            candidate["score"] = min(candidate["score"], NO_EVIDENCE_MAX_SCORE)
-    ranked.sort(key=lambda c: -c["score"])
+        if found:
+            candidate["rationale"] = _folder_rationale(folder["repository_name"], found)
+            supported.append(candidate)
+        else:
+            candidate["rationale"] = _alternative_rationale(folder["repository_name"])
+            alternatives.append(candidate)
+    if supported and len(supported) < _MIN_CANDIDATES:
+        alternatives.sort(key=lambda c: -c["score"])
+        supported.extend(alternatives[: _MIN_CANDIDATES - len(supported)])
+    ranked = sorted(supported, key=lambda c: -c["score"])
     keywords: list[str] = []
     seen: set[str] = set()
     for candidate in ranked:
@@ -248,16 +285,39 @@ def locked_payload(
     }
 
 
+def _snippet(text: str) -> str:
+    flat = " ".join(text.split())
+    return flat if len(flat) <= _MAX_SNIPPET_CHARS else flat[:_MAX_SNIPPET_CHARS] + "..."
+
+
 def parse_json_content(content: Any, *, ocr_text: str, catalog: list[dict[str, Any]]) -> dict:
-    text = normalize_json_text(content)
-    data = loads_json_object(text)
+    """Lock the model reply to the catalog; raise ModelResponseError when it is unusable."""
+    raw = str(content or "")
+    if not raw.strip():
+        raise ModelResponseError("returned an empty response")
+    data = loads_json_object(normalize_json_text(raw))
     if not isinstance(data, dict):
-        return locked_payload(ocr_text=ocr_text, catalog=catalog)
-    return locked_payload(
+        raise ModelResponseError(f"returned a response that is not valid JSON: '{_snippet(raw)}'")
+    repository_id = data.get("repository_id") or data.get("id")
+    repository_name = data.get("repository_name") or data.get("name")
+    ref = data.get("ref")
+    candidates = data.get("candidates")
+    payload = locked_payload(
         ocr_text=ocr_text,
         catalog=catalog,
         confidence_score=data.get("confidence_score", data.get("confidence", 0.0)),
-        repository_id=data.get("repository_id") or data.get("id"),
-        repository_name=data.get("repository_name") or data.get("name"),
-        candidates=data.get("candidates"),
+        repository_id=repository_id,
+        repository_name=repository_name,
+        candidates=candidates,
+        ref=ref,
     )
+    named = bool(repository_id or repository_name or ref) or any(
+        isinstance(item, dict) for item in (candidates if isinstance(candidates, list) else [])
+    )
+    catalog_index = _index_catalog(catalog or [])
+    resolved = bool(_candidates_from(candidates, catalog_index)) or bool(
+        _lookup(catalog_index, repository_id, repository_name, ref)
+    )
+    if named and not resolved:
+        raise ModelResponseError("did not return any folder from this tenant's catalog")
+    return payload

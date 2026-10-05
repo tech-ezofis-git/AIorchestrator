@@ -47,7 +47,7 @@ async def run(
         **overrides,
     )
 
-    payload = parse_classification_json_content(result["content"], ocr_text=body)
+    payload = parse_classification_json_content(result["content"], ocr_text=text)
     return {
         "payload": payload,
         "usage": result.get("usage"),

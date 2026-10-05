@@ -1,0 +1,79 @@
+---
+description: STAGE 2 - TRANSFORMATION (THIS IS THE ONLY OUTPUT) — currency, JSON rules, renaming, supplier conditions, field cleanup
+alwaysApply: true
+---
+
+Take the STAGE 1 invoice JSON and perform the following transformations strictly according to the rules below.
+
+Currency Extraction & Mapping:
+- Detect the currency from the invoice (using symbols, currency names, or context).
+- Identify the country corresponding to the detected currency, using invoice context (company address, phone, bank, or other regional indicators if the symbol is ambiguous).
+- Output the currency code using the official ISO 4217 standard only for the currency field.
+- Don't include currency type for other fields.
+- Output only the pure numeric value for any amount or total field, with no currency code or symbol.
+- DO NOT extract or return any fields that are not explicitly listed in the schema.
+
+Mandatory JSON Rules:
+- The JSON output must match the schema below, with no extra or missing fields.
+- Normalize field names case-insensitively.
+- Do not return markdown, comments, extra text, or trailing commas.
+- Output only a clean, compact JSON object.
+- Do not mix company name with address in any field.
+
+Field Renaming Rules (Strict, Case-Insensitive):
+- If a field is named "purchase_order_number", "Bill_of_LADING" (any capitalization or spacing), rename it to "PO No." in the output.
+- Do not include "purchase_order_number" or any variation (different case or spacing) in the output; output only "PO No.".
+- If "purchase_order_number" = null in the text, then the value of the "order_number" = "PO No.".
+- If a field is named "purchase order Date" (any capitalization or spacing), rename it to "PO Date".
+- If a field is named "PRO_number" (any capitalization or spacing), rename it to "invoice No".
+- For the field named "Taxable Amount" or "Total Before Tax" (any capitalization or spacing), rename it to "Gross Amount".
+
+Strict Gross Amount Rule:
+- "Gross Amount" must be only the Taxable Amount OR the Total Before Tax.
+- If both exist, use only one - follow the invoice's explicit label.
+- If neither Taxable Amount nor Total Before Tax is present, set "Gross Amount" = null.
+
+- If a field is named "grand total" (any capitalization or spacing), rename it to "Invoice Total (net)".
+- Rename remit_to_address -> pay to address.
+
+Conditional Logic by Supplier Name:
+- If multiple supplier rules match, only apply the first one in the order below.
+- If "supplier_name" contains "dell" (case-insensitive):
+  - Set "PO No." = order number
+  - Set "PO Date" = order date
+  - Do not return order number or order date
+- If "supplier_name" contains "specialized" (case-insensitive):
+  - Set "PayTermCharges" = Finance Charge
+  - Do not return Finance Charge or remit to address
+- If "supplier_name" contains "RoseBurg" (case-insensitive):
+  - Set "PO No." = customer_order_number
+  - Do not return customer_order_number
+- If "supplier_name" contains "Alabama Power" (case-insensitive):
+  - Set "invoice No" = account_number
+- If "supplier_name" contains "EL DORADO WATER UTILITIES" (case-insensitive):
+  - Set "invoice No" = location_number
+- If "supplier_name" contains "EGGER Wood Products LLC" (case-insensitive):
+  - Set "PO No." = order number
+
+For the field "document_type" (case-insensitive):
+- Scan the entire document for any of the following keywords or labels (in any casing): "Invoice", "Tax Invoice", "Sales Invoice", "Proforma Invoice".
+- If any of these keywords are found anywhere in the document, set "document_type" to "Invoice".
+- If the field is missing, empty, null, or contains any unrecognized value, default the output to "Invoice".
+- If another recognized document type is clearly identified (such as "Credit Note" or "Purchase Order"), set "document_type" to that value instead.
+
+For the field "Bank_account_number" (case-insensitive):
+- Remove all spaces from the value, including leading, trailing, and any spaces in the middle of the number.
+- Output the cleaned value with no spaces at all.
+- Do not return the original, uncleaned value.
+
+Charges Classification:
+- Combine fields labeled (case-insensitively) such as: admin fee, freight Charges, ACA admin fee into a single field "charge".
+- Charges found in the line items table must not be duplicated into the field "charge".
+
+Bank Name Fallback:
+- If "Bank Account Name" is null, set its value = "supplier_name".
+
+Final Output Requirement:
+- Output ONLY the cleaned and transformed JSON, without newlines (\n) inside values or formatting symbols.
+- Output only the fields explicitly listed in the Valid schema below.
+- Assign "line_no" to each line item as an incrementing integer, starting at 1, based on its order in the output. Disregard any extracted values for "line_no".

@@ -1,0 +1,14 @@
+---
+description: STAGE 1 - Supplier address vs remit-to address
+alwaysApply: true
+---
+
+SUPPLIER ADDRESS vs REMIT-TO ADDRESS RULE:
+- supplier_address is the supplier's own business/mailing address, normally printed in the branded letterhead, header, or footer next to the logo or company name.
+- A payment address is any address block introduced by a label such as "Please Remit To", "Remit To", "Remittance Address", "Remit Payment To", "Send Payment To", "Mail Payment To", "Make Checks Payable To", or "Pay To".
+- A payment address always belongs in remit_to_name and remit_to_address. Do not put it in supplier_address whenever a separate letterhead address exists, even if the payment address is printed closer to the supplier name.
+- A P.O. Box, lockbox, or bank/processing-center address appearing under a payment label is a payment address, not the supplier's business address.
+- Prefer the letterhead address for supplier_address whenever one is visible. Only if NO letterhead/header/footer address exists anywhere on the invoice, and the payment address is the only address printed for the supplier, use that payment address as supplier_address as a last resort, with the payment label stripped off. In that case keep the same address in remit_to_address as well.
+- When a letterhead address IS visible, never overwrite it with the payment address.
+- Never include the label text itself (for example "Please Remit To:") inside any address value. Extract only the address lines that follow the label.
+- The same rule applies in reverse: do not place the supplier's letterhead address into remit_to_address unless it is the address given under a payment label.

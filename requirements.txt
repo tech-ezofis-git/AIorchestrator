@@ -32,6 +32,8 @@ psycopg2-binary==2.9.10
 reportlab==4.2.5
 pdfplumber>=0.11.0
 python-docx>=1.1.0
+# FTP agent SFTP delivery (app/agents/ftp_agent.py).
+paramiko>=3.4,<4
 
 # Testing
 pytest==9.0.3
@@ -49,3 +51,4 @@ PyYAML==6.0.2
 # Monitoring (Phase 5d) — GET /metrics in Prometheus text-exposition
 # format; see app/control/metrics.py.
 prometheus-client==0.21.0
+

@@ -90,8 +90,8 @@ class ClassificationAgent:
         source = "upload"
         page_label = ""
 
-        if direct_text := (job.get("ocr_text") or "").strip():
-            content = direct_text
+        if (job.get("ocr_text") or "").strip():
+            content = job["ocr_text"]
             source = "ocr_text"
             page_label = "supplied text"
         else:
@@ -120,9 +120,10 @@ class ClassificationAgent:
                         "page_start": pages.start,
                         "page_end": pages.end,
                         "page_raw": pages.raw,
+                        "layout": True,
                     },
                 )
-                content = (ocr_tool.get("text") or "").strip()
+                content = ocr_tool.get("text") or ""
             except (ToolExecutionError, OcrEngineError, Exception) as exc:
                 logger.warning(
                     "classification_document_extract_failed",
@@ -130,7 +131,7 @@ class ClassificationAgent:
                 )
                 content = ""
 
-        if not content:
+        if not content.strip():
             empty = await classify_document_skill(
                 llm=self._llm_for_skill(),
                 text="",

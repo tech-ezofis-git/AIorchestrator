@@ -1,0 +1,19 @@
+---
+description: STAGE 1 - EXTRACTION (INTERNAL ONLY, DO NOT OUTPUT) — terminology normalization and party roles
+alwaysApply: true
+---
+
+IMPORTANT TERMINOLOGY NORMALIZATION RULE:
+- If any line item description contains terminology that may be ambiguous outside of logistics, normalize it to a logistics-safe description before returning the JSON.
+- Preserve quantities, rates, and amounts exactly.
+- Do NOT output the original ambiguous term verbatim in the JSON.
+
+CRITICAL PARTY-ROLE RULE:
+- supplier_name is the company issuing the invoice and requesting payment.
+- customer_name and bill_to_name are the company or account holder receiving the invoice.
+- A large logo, brand name, website, support phone number, payment portal, or service-provider branding identifies the supplier.
+- A company name printed beside a postal address, account number, billing date, or mailing block usually identifies the customer/account holder.
+- Do not assign the addressed recipient as supplier_name merely because its full address is visible.
+- Supplier phone numbers shown in the branded header or footer belong to the supplier.
+- For telecom, utility, internet, insurance, subscription, and service invoices, the branded service provider is the supplier and the named account holder is the buyer.
+- Never assign the same entity as both supplier and buyer unless the document explicitly supports it.

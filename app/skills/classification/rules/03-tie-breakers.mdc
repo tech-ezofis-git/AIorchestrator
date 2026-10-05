@@ -1,0 +1,12 @@
+---
+description: Tie-breakers
+alwaysApply: true
+---
+
+1. Invoice or credit note anywhere in the OCR → INVOICE or CREDIT_NOTE. Attachments do not override this.
+2. Prefer CREDIT_NOTE over INVOICE when the document's purpose is a credit, not a charge.
+3. Prefer INVOICE over STATEMENT when there is one billed job/shipment with a total due.
+4. Prefer STATEMENT when the page is a list of many invoices / aging / account balance with no single invoice body.
+5. Prefer BOL / PACKING_LIST / TERMS only when those are the only document types present.
+6. If truly empty → BLANK.
+7. Do not invent an invoice from a BOL, packing list, statement, or terms page.
