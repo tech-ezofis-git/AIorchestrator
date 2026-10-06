@@ -11,12 +11,13 @@ tools serve any agent without changing their output.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from typing import Any, Callable, Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Mapping, Optional, Sequence
 
 from app.tools.file_fetcher import fetch_file_by_path
 from app.tools.llm_reasoner import run_llm_reasoning
 from app.tools.ocr_tool import run_ocr_tool
+from app.tools.progress_reporter import InstanceProgress
 from app.tools.prompt_builder import build_llm_prompt
 
 logger = logging.getLogger("orchestrator.tools.pipeline")
@@ -24,6 +25,7 @@ logger = logging.getLogger("orchestrator.tools.pipeline")
 NO_INPUT_ERROR = "Provide OCR text, a file upload, or a file path."
 
 Adapter = Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+StepHook = Callable[[str], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -33,12 +35,18 @@ class AgentProfile:
     `adapter(pipeline_result, document_job)` returns the agent's response dict.
     `user_template` shapes the Prompt Builder's user message ({text}, {source},
     {page_label}, {page_suffix}, {instruction}); None keeps the builder default.
+    `progress_steps` maps a step name to its (message, percent) workflow update;
+    `response_error(response)` reports a failure the adapter found after the
+    pipeline itself succeeded (e.g. unparseable LLM JSON).
     """
 
     intent: str
     adapter: Adapter
     user_template: Optional[str] = None
     default_pageno: Optional[str] = None
+    progress_steps: Mapping[str, tuple[str, int]] = field(default_factory=dict)
+    progress_done: str = "Completed"
+    response_error: Optional[Callable[[dict[str, Any]], Optional[str]]] = None
 
 
 _PROFILES: dict[str, AgentProfile] = {}
@@ -122,17 +130,23 @@ async def run_document_pipeline(
     default_pageno: Optional[str] = None,
     llm_overrides: Optional[dict[str, Any]] = None,
     fallback_overrides: Sequence[dict[str, Any]] = (),
+    on_step: Optional[StepHook] = None,
 ) -> dict[str, Any]:
     """Run the tools the input needs and return every step's output.
 
     `job` keys used: ocr_text, file_bytes, filename, content_type, filepath,
     pageno, tenant_id, instruction, login_email, login_password. Never raises; `failed_step` + `error` say
     where it stopped. `fallback_overrides` are tried in order if the LLM call fails.
+    `on_step(name)` is awaited just before each tool that actually runs.
     """
     result = _new_result(intent)
     steps = result["steps"]
     tenant_id = (job.get("tenant_id") or "").strip() or None
     pageno = job.get("pageno") or default_pageno
+
+    async def starting(step: str) -> None:
+        if on_step is not None:
+            await on_step(step)
 
     ocr_text = job.get("ocr_text") or ""
     if ocr_text.strip():
@@ -147,6 +161,7 @@ async def run_document_pipeline(
             result["source"] = filename or "upload"
         elif filepath:
             result["source"] = filepath
+            await starting("file_fetcher")
             fetched = await fetch_file_by_path(
                 tenant_id=tenant_id or "",
                 path=filepath,
@@ -162,6 +177,7 @@ async def run_document_pipeline(
         else:
             return _fail(result, "input", NO_INPUT_ERROR)
 
+        await starting("ocr")
         ocr = await run_ocr_tool(
             ocr_engine,
             file_bytes=file_bytes,
@@ -179,6 +195,7 @@ async def run_document_pipeline(
     result["ocr_text"] = ocr_text
 
     page_label = result["page_label"]
+    await starting("prompt_builder")
     prepared = await build_llm_prompt(
         intent,
         ocr_text,
@@ -195,6 +212,7 @@ async def run_document_pipeline(
     if prepared["status"] != "SUCCEEDED":
         return _fail(result, "prompt_builder", prepared["error"])
 
+    await starting("llm_reasoner")
     reasoning = await run_llm_reasoning(llm, prepared, llm_overrides=llm_overrides)
     for overrides in fallback_overrides:
         if reasoning["status"] == "SUCCEEDED":
@@ -220,8 +238,19 @@ async def run_agent_pipeline(
     llm_overrides: Optional[dict[str, Any]] = None,
     fallback_overrides: Sequence[dict[str, Any]] = (),
 ) -> dict[str, Any]:
-    """Run the pipeline with the intent's registered profile and return its adapted response."""
+    """Run the pipeline with the intent's registered profile and return its adapted response.
+
+    When the job carries tenant_id + workflow_id + instance_id, each step and the
+    final outcome are also reported to the workflow instance (best-effort).
+    """
     profile = get_profile(intent)
+    progress = InstanceProgress.from_job(job)
+
+    async def on_step(step: str) -> None:
+        entry = profile.progress_steps.get(step)
+        if entry:
+            await progress.update("PROCESSING", entry[0], entry[1])
+
     result = await run_document_pipeline(
         intent=intent,
         job=job,
@@ -231,5 +260,18 @@ async def run_agent_pipeline(
         default_pageno=profile.default_pageno,
         llm_overrides=llm_overrides,
         fallback_overrides=fallback_overrides,
+        on_step=on_step if progress.enabled else None,
     )
-    return profile.adapter(result, job)
+    try:
+        response = profile.adapter(result, job)
+    except Exception as exc:
+        await progress.update("FAILED", str(exc) or type(exc).__name__, 100)
+        raise
+    error = result.get("error") if result["status"] != "SUCCEEDED" else None
+    if error is None and profile.response_error is not None:
+        error = profile.response_error(response)
+    if error:
+        await progress.update("FAILED", error, 100)
+    else:
+        await progress.update("COMPLETED", profile.progress_done, 100)
+    return response

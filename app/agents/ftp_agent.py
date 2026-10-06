@@ -26,6 +26,7 @@ from app.tools.invoice_mapping import (
     remark,
 )
 from app.tools.invoice_scorer import score_invoice
+from app.tools.progress_reporter import InstanceProgress
 
 logger = logging.getLogger("orchestrator.ftp_agent")
 
@@ -41,10 +42,13 @@ class FtpAgent:
     def _cfg(self) -> Settings:
         return self._settings or get_settings()
 
-    async def _document(self, job: dict[str, Any]) -> tuple[Optional[bytes], Optional[str], Optional[str], Optional[str]]:
+    async def _document(
+        self, job: dict[str, Any], progress: InstanceProgress
+    ) -> tuple[Optional[bytes], Optional[str], Optional[str], Optional[str]]:
         """(bytes, file name, content type, error) — the multipart upload, else the File Fetcher."""
         if job.get("file_bytes") is not None:
             return job["file_bytes"], job.get("filename"), job.get("content_type"), None
+        await progress.update("PROCESSING", "Fetching the document", 35)
         fetched = await fetch_file_by_path(
             tenant_id=str(job.get("tenant_id") or ""),
             path=job.get("filepath"),
@@ -69,7 +73,9 @@ class FtpAgent:
         ocr_json = job.get("ocr_json") or {}
         remarks = job.get("remarks") or {}
         processed_at = now_iso()
+        progress = InstanceProgress.from_job(job, settings=self._cfg())
 
+        await progress.update("PROCESSING", "Scoring the invoice data", 15)
         scored = score_invoice(ocr_json, settings=self._cfg())
         processed = scored["valid"]
         ratio = scored["null_ratio"]
@@ -82,8 +88,9 @@ class FtpAgent:
         ref_no: Optional[str] = None
         remote_dir: Optional[str] = None
         try:
-            data, file_name, content_type, error = await self._document(job)
+            data, file_name, content_type, error = await self._document(job, progress)
             if error is None:
+                await progress.update("PROCESSING", "Preparing the files", 60)
                 prepared = prepare_files(
                     ocr_json,
                     valid=processed,
@@ -102,6 +109,9 @@ class FtpAgent:
                     model_display=job.get("model_display"),
                 )
                 ref_no = prepared["unique_ref"]
+                await progress.update(
+                    "PROCESSING", f"Uploading to the {'processed' if processed else 'unprocessed'} folder", 85
+                )
                 moved = await move_to_folder(
                     files=prepared["files"], valid=processed, sftp=job.get("sftp"), settings=self._cfg()
                 )
@@ -154,6 +164,10 @@ class FtpAgent:
             "ERROR": error,
         }
         folder = "processed" if processed else "unprocessed"
+        if error is None:
+            await progress.update("COMPLETED", f"Delivered {ref_no} to the {folder} folder", 100)
+        else:
+            await progress.update("FAILED", error, 100)
         reply = (
             f"Delivered {ref_no} to the {folder} folder."
             if error is None

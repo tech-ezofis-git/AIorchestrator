@@ -141,7 +141,21 @@ def adapt_pipeline_result(result: dict[str, Any], job: dict[str, Any]) -> dict[s
     }
 
 
-register_profile(AgentProfile(intent=SKILL_AGENT, adapter=adapt_pipeline_result, user_template=USER_TEMPLATE))
+register_profile(
+    AgentProfile(
+        intent=SKILL_AGENT,
+        adapter=adapt_pipeline_result,
+        user_template=USER_TEMPLATE,
+        progress_steps={
+            "file_fetcher": ("Fetching the invoice", 10),
+            "ocr": ("Reading the invoice", 35),
+            "prompt_builder": ("Preparing the extraction prompt", 55),
+            "llm_reasoner": ("Extracting invoice fields", 75),
+        },
+        progress_done="Invoice extracted",
+        response_error=lambda response: response["ramco_ocr_result"]["ERROR CODE"],
+    )
+)
 
 
 class RamcoOcrAgent:

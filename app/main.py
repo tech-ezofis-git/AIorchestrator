@@ -2968,6 +2968,11 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         if intent in {Intent.CLASSIFICATION, Intent.RAMCO_OCR, Intent.FTP, Intent.FILE_FETCHER}:
             document_job["login_email"] = p.login_email
             document_job["login_password"] = p.login_password
+        if intent in {Intent.CLASSIFICATION, Intent.RAMCO_OCR, Intent.FTP}:
+            # Workflow progress updates need all three; missing ones skip progress.
+            for key in ("tenant_id", "workflow_id", "instance_id"):
+                if not document_job.get(key):
+                    document_job[key] = getattr(p, key, None)
         if intent in {Intent.FTP, Intent.FOLDER_MOVER}:
             document_job["sftp"] = {
                 "host": p.sftp_host,
