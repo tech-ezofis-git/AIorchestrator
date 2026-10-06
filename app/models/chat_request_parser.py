@@ -198,6 +198,22 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     query = _form_str(form.get("query"))
     workspace_id = _form_str(form.get("workspace_id")) or _form_str(form.get("workspaceId"))
     action_from = _form_str(form.get("action_from")) or _form_str(form.get("actionFrom"))
+    login_email = _form_str(form.get("login_email")) or _form_str(form.get("loginEmail"))
+    login_password = _form_raw_str(form.get("login_password")) or _form_raw_str(form.get("loginPassword"))
+    sftp_host = _form_str(form.get("sftp_host")) or _form_str(form.get("sftpHost"))
+    sftp_port_raw = _form_str(form.get("sftp_port")) or _form_str(form.get("sftpPort"))
+    try:
+        sftp_port = int(sftp_port_raw) if sftp_port_raw else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="sftp_port must be an integer.") from exc
+    sftp_username = _form_str(form.get("sftp_username")) or _form_str(form.get("sftpUsername"))
+    sftp_password = _form_raw_str(form.get("sftp_password")) or _form_raw_str(form.get("sftpPassword"))
+    sftp_processed_dir = _form_str(form.get("sftp_processed_dir")) or _form_str(form.get("sftpProcessedDir"))
+    sftp_unprocessed_dir = _form_str(form.get("sftp_unprocessed_dir")) or _form_str(form.get("sftpUnprocessedDir"))
+    has_credentials = bool(
+        login_email or login_password or sftp_host or sftp_port or sftp_username or sftp_password
+        or sftp_processed_dir or sftp_unprocessed_dir
+    )
 
     upload = form.get("file")
     file_bytes = None
@@ -261,6 +277,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or template_json
         or pdf_title
         or pdf_theme
+        or has_credentials
     ):
         payload = DocumentPayload(
             filepath=filepath,
@@ -311,6 +328,14 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             master_form_id=master_form_id,
             matter_master_id=matter_master_id,
             form_id=form_id,
+            login_email=login_email,
+            login_password=login_password,
+            sftp_host=sftp_host,
+            sftp_port=sftp_port,
+            sftp_username=sftp_username,
+            sftp_password=sftp_password,
+            sftp_processed_dir=sftp_processed_dir,
+            sftp_unprocessed_dir=sftp_unprocessed_dir,
         )
 
     try:
