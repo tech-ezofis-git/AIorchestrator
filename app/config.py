@@ -188,6 +188,13 @@ class Settings(BaseSettings):
     ezofis_login_password: Optional[str] = None
     ezofis_env: str = "trial"
     ezofis_timeout_seconds: float = 30.0
+    # File Fetcher tool (GET /uploadAndIndex/files/by-path). Empty API base
+    # falls back to EZOFIS_API_BASE.
+    file_fetcher_api_base: Optional[str] = None
+    file_fetcher_default_folder: str = "monitor/Ramco_mjb"
+    # Separate from EZOFIS_LOGIN_*, which also switches the AP client to live mode.
+    file_fetcher_login_email: str = ""
+    file_fetcher_login_password: str = ""
     ap_llm_planner: bool = False
     ap_amount_tolerance: float = 0.02
     ap_approved_threshold: int = 80

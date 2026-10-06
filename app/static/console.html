@@ -2325,6 +2325,17 @@
       <div class="cap-actions" id="capActions"></div>
     </div>
 
+    <div class="sidebar-section">
+      <div class="sidebar-head-row">
+        <h2>Tools</h2>
+        <div class="sidebar-head-meta">
+          <span class="agents-count" id="toolsCount">0</span>
+        </div>
+      </div>
+      <div class="cap-actions" id="toolActions"></div>
+      <div class="field-hint" id="toolsEmpty">No tools yet.</div>
+    </div>
+
     <details class="sidebar-section settings-fold">
       <summary>Settings</summary>
       <label for="sessionId">Session</label>
@@ -2494,6 +2505,185 @@
           </div>
         </details>
       </div>
+      <div class="mode-fields" id="fileFetcherFields" hidden>
+        <div>
+          <label for="ffTenant">Tenant id</label>
+          <input type="text" id="ffTenant" placeholder="e.g. 0470d932-31f1-46e6-b124-9070b1bc15fb" />
+        </div>
+        <div>
+          <label for="ffPath">Path</label>
+          <input type="text" id="ffPath" placeholder="monitor/Ramco_mjb/20261005123000123/invoice.pdf" />
+        </div>
+        <details class="more-options">
+          <summary>Or build the path from parts</summary>
+          <div class="more-grid">
+        <div>
+          <label for="ffFolder">Folder</label>
+          <input type="text" id="ffFolder" placeholder="monitor/Ramco_mjb (default)" />
+        </div>
+        <div>
+          <label for="ffTimestamp">Timestamp</label>
+          <input type="text" id="ffTimestamp" placeholder="20261005123000123" />
+        </div>
+        <div>
+          <label for="ffFileName">File name</label>
+          <input type="text" id="ffFileName" placeholder="invoice.pdf" />
+        </div>
+          </div>
+        </details>
+      </div>
+      <div class="mode-fields" id="ocrToolFields" hidden>
+        <div>
+          <label for="ocrToolFile">File <button type="button" class="btn-ghost" id="ocrToolUseFetched" style="margin-left:8px;padding:2px 8px;font-size:11px">Use last fetched file</button></label>
+          <input type="file" id="ocrToolFile" accept=".pdf,.docx,.png,.jpg,.jpeg,.tif,.tiff" />
+          <div id="ocrToolFetchedNote" class="hint" hidden></div>
+        </div>
+        <div>
+          <label for="ocrToolFilepath">Blob path</label>
+          <input type="text" id="ocrToolFilepath" placeholder="folder/file.pdf" />
+        </div>
+        <div>
+          <label for="ocrToolPageno">Page</label>
+          <input type="text" id="ocrToolPageno" value="1" placeholder="1 or -1 (all)" />
+        </div>
+        <div>
+          <label for="ocrToolLayout">Keep layout</label>
+          <select id="ocrToolLayout">
+            <option value="true" selected>Yes — exactly as Paddle returns it</option>
+            <option value="false">No — trimmed text</option>
+          </select>
+        </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
+        <div>
+          <label for="ocrToolTenant">Tenant</label>
+          <input type="text" id="ocrToolTenant" placeholder="needed for tenant blob paths" />
+        </div>
+          </div>
+        </details>
+      </div>
+      <div class="mode-fields" id="promptBuilderFields" hidden>
+        <div>
+          <label for="pbIntent">Agent intent</label>
+          <input type="text" id="pbIntent" list="pbIntentOptions" value="ramco_ocr" placeholder="ramco_ocr, summary, classification…" />
+          <datalist id="pbIntentOptions">
+            <option value="ramco_ocr"></option>
+            <option value="ocr"></option>
+            <option value="summary"></option>
+            <option value="classification"></option>
+            <option value="document_intelligent"></option>
+            <option value="insight"></option>
+            <option value="ap"></option>
+            <option value="ftl_qualifier"></option>
+            <option value="ftl_quote_estimator"></option>
+            <option value="prompt"></option>
+            <option value="pdf"></option>
+          </datalist>
+        </div>
+        <div>
+          <label for="pbInstruction">Instruction</label>
+          <input type="text" id="pbInstruction" placeholder="optional, e.g. Extract the invoice." />
+        </div>
+        <div class="span-all">
+          <label for="pbOcrText">OCR text <button type="button" class="btn-ghost" id="pbUseLastOcr" style="margin-left:8px;padding:2px 8px;font-size:11px">Use last OCR tool result</button></label>
+          <textarea id="pbOcrText" placeholder="Paste OCR text, or run the OCR tool first and click “Use last OCR tool result”…"></textarea>
+        </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
+        <div>
+          <label for="pbTenant">Tenant</label>
+          <input type="text" id="pbTenant" placeholder="adds the tenant's own skills / rules" />
+        </div>
+          </div>
+        </details>
+      </div>
+      <div class="mode-fields" id="llmReasonerFields" hidden>
+        <div>
+          <label for="lrModel">Model</label>
+          <input type="text" id="lrModel" placeholder="optional, e.g. OpenAI GPT-4.1 (default model if empty)" />
+        </div>
+        <div class="span-all">
+          <label for="lrPrepared">Prepared prompt (JSON) <button type="button" class="btn-ghost" id="lrUseLastPrepared" style="margin-left:8px;padding:2px 8px;font-size:11px">Use last Prompt Builder result</button></label>
+          <textarea id="lrPrepared" placeholder='Paste the prompt_builder_result JSON — {"intent": "...", "messages": [{"role": "system", ...}, {"role": "user", ...}]}'></textarea>
+        </div>
+      </div>
+      <div class="mode-fields" id="invoiceScorerFields" hidden>
+        <div class="span-all">
+          <label for="isJson">Invoice extraction JSON <button type="button" class="btn-ghost" id="isUseLastLlm" style="margin-left:8px;padding:2px 8px;font-size:11px">Use last LLM Reasoner JSON</button></label>
+          <textarea id="isJson" placeholder='{"invoice_header": {"invoice No": "INV-1", ...}, "line_items": [{"Item description": "...", ...}]}'></textarea>
+        </div>
+      </div>
+      <div class="mode-fields" id="filePreparationFields" hidden>
+        <div>
+          <label for="ijFile">Document <button type="button" class="btn-ghost" id="ijUseFetched" style="margin-left:8px;padding:2px 8px;font-size:11px">Use last fetched file</button></label>
+          <input type="file" id="ijFile" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.docx" />
+          <div id="ijFetchedNote" class="hint" hidden></div>
+        </div>
+        <div class="span-all">
+          <label for="ijJson">Invoice extraction JSON <button type="button" class="btn-ghost" id="ijUseLastScored" style="margin-left:8px;padding:2px 8px;font-size:11px">Use last scored JSON</button></label>
+          <textarea id="ijJson" placeholder='{"invoice_header": {...}, "line_items": [...]}'></textarea>
+        </div>
+        <div>
+          <label for="ijValid">Valid</label>
+          <select id="ijValid">
+            <option value="" selected>Score it now</option>
+            <option value="true">Valid</option>
+            <option value="false">Not valid</option>
+          </select>
+        </div>
+        <div>
+          <label for="ijRef">Unique ref no</label>
+          <input type="text" id="ijRef" placeholder="e.g. MJB-33814 (else the file name)" />
+        </div>
+        <details class="more-options">
+          <summary>More options</summary>
+          <div class="more-grid">
+        <div class="span-all">
+          <label for="ijRemarks">Remarks (JSON)</label>
+          <textarea id="ijRemarks" placeholder='{"unique ref no": "MJB-33814", "From": "ap@vendor.com", "Email_Subject": "Invoice", "Received Filename": "invoice.pdf"}'></textarea>
+        </div>
+        <div>
+          <label for="ijFilepath">Source file path</label>
+          <input type="text" id="ijFilepath" placeholder="Monitor/MJB-33814/MJB-33814.pdf" />
+        </div>
+        <div>
+          <label for="ijTenant">Tenant ID</label>
+          <input type="text" id="ijTenant" placeholder="11" />
+        </div>
+        <div>
+          <label for="ijWorkflow">Workflow ID</label>
+          <input type="text" id="ijWorkflow" />
+        </div>
+        <div>
+          <label for="ijRepository">Repository ID</label>
+          <input type="text" id="ijRepository" />
+        </div>
+        <div>
+          <label for="ijInstance">Instance ID</label>
+          <input type="text" id="ijInstance" />
+        </div>
+        <div>
+          <label for="ijEnvType">Env type</label>
+          <input type="text" id="ijEnvType" placeholder="UAT / PROD" />
+        </div>
+          </div>
+        </details>
+      </div>
+      <div class="mode-fields" id="folderMoverFields" hidden>
+        <div>
+          <label for="fmValid">Folder</label>
+          <select id="fmValid">
+            <option value="true" selected>Valid → /OCR_Process/processed</option>
+            <option value="false">Not valid → /OCR_Process/Unprocessed</option>
+          </select>
+        </div>
+        <div class="span-all">
+          <label for="fmFiles">Files (JSON list) <button type="button" class="btn-ghost" id="fmUseLastPrepared" style="margin-left:8px;padding:2px 8px;font-size:11px">Use last prepared files</button></label>
+          <textarea id="fmFiles" placeholder='[{"name": "MJB-33814.pdf", "base64": "..."}, {"name": "MJB-33814.json", "json": {...}}]'></textarea>
+        </div>
+      </div>
       <div class="mode-fields" id="ftpFields" hidden>
         <div>
           <label for="ftpFile">File</label>
@@ -2505,7 +2695,7 @@
         </div>
         <div>
           <label for="ftpTenant">Tenant ID</label>
-          <input type="text" id="ftpTenant" value="11" />
+          <input type="text" id="ftpTenant" value="0470d932-31f1-46e6-b124-9070b1bc15fb" />
         </div>
         <div>
           <label for="ftpModel">Model</label>
@@ -3812,6 +4002,32 @@ const MODE_LABELS = {
   ftl_quote_estimator: 'FTL Quote Estimator',
 };
 const capActionsEl = document.getElementById('capActions');
+// Each tool: { slug, label, mode, icon (inline SVG) } — mode is the composer mode its form uses.
+const TOOL_ACTIONS = [
+  { slug: 'file_fetcher', label: 'File Fetcher', mode: 'file_fetcher', icon: ICONS.summary },
+  { slug: 'ocr', label: 'OCR', mode: 'ocr_tool', icon: ICONS.ocr },
+  { slug: 'prompt_builder', label: 'Prompt Builder', mode: 'prompt_builder', icon: ICONS.summary },
+  { slug: 'llm_reasoner', label: 'LLM Reasoner', mode: 'llm_reasoner', icon: ICONS.prompt },
+  { slug: 'invoice_scorer', label: 'Invoice Scorer', mode: 'invoice_scorer', icon: ICONS.summary },
+  { slug: 'file_preparation', label: 'File Preparation', mode: 'file_preparation', icon: ICONS.summary },
+  { slug: 'folder_mover', label: 'Folder Mover', mode: 'folder_mover', icon: ICONS.summary },
+];
+ICONS.invoice_scorer = ICONS.summary;
+ICONS.file_preparation = ICONS.summary;
+ICONS.folder_mover = ICONS.summary;
+MODE_LABELS.invoice_scorer = 'Invoice Scorer';
+MODE_LABELS.file_preparation = 'File Preparation';
+MODE_LABELS.folder_mover = 'Folder Mover';
+ICONS.ocr_tool = ICONS.ocr;
+ICONS.file_fetcher = ICONS.summary;
+MODE_LABELS.file_fetcher = 'File Fetcher';
+ICONS.prompt_builder = ICONS.summary;
+ICONS.llm_reasoner = ICONS.prompt;
+MODE_LABELS.ocr_tool = 'OCR tool';
+MODE_LABELS.prompt_builder = 'Prompt Builder';
+MODE_LABELS.llm_reasoner = 'LLM Reasoner';
+// Chaining between tools: File Fetcher → OCR tool → Prompt Builder → LLM Reasoner.
+const lastToolOutputs = { fetchedFile: null, useFetchedForOcr: false, ocrText: '', preparedPrompt: null, llmJson: null, invoiceScore: null, preparedFiles: null, useFetchedForPrep: false };
 const apPanel = document.getElementById('apPanel');
 const gsPanel = document.getElementById('gsPanel');
 const cbPanel = document.getElementById('cbPanel');
@@ -4076,11 +4292,37 @@ async function refreshConsoleAgents() {
   }
 }
 
+function renderConsoleTools() {
+  const listEl = document.getElementById('toolActions');
+  if (!listEl) return;
+  listEl.innerHTML = '';
+  TOOL_ACTIONS.forEach(tool => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cap-btn';
+    btn.dataset.tool = tool.slug;
+    btn.dataset.mode = tool.mode;
+    btn.innerHTML = '<span class="cap-ico">' + (tool.icon || ICONS.chat || '') + '</span><span class="cap-label">' + escapeHtml(tool.label) + '</span>' + CAP_CHECK_SVG;
+    btn.addEventListener('click', () => {
+      window.activeCustomIntent = '';
+      setComposerMode(tool.mode);
+    });
+    listEl.appendChild(btn);
+  });
+  const countEl = document.getElementById('toolsCount');
+  if (countEl) countEl.textContent = String(TOOL_ACTIONS.length);
+  const emptyEl = document.getElementById('toolsEmpty');
+  if (emptyEl) emptyEl.hidden = TOOL_ACTIONS.length > 0;
+}
+
 function syncCapButtonActiveState() {
   document.querySelectorAll('#capActions .cap-btn').forEach(btn => {
     const custom = btn.dataset.intent && window.activeCustomIntent === btn.dataset.intent;
     const builtin = !btn.dataset.intent && btn.dataset.mode === composerMode && !window.activeCustomIntent;
     btn.classList.toggle('active', custom || builtin);
+  });
+  document.querySelectorAll('#toolActions .cap-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === composerMode);
   });
 }
 
@@ -4122,6 +4364,13 @@ const EMPTY_SPECS = {
   summary: { title: 'Summary', sub: 'Add a file, JSON, or pasted text.', chips: '' },
   classification: { title: 'Classification', sub: 'Add a file, blob path, or pasted text.', chips: '' },
   ramco_ocr: { title: 'Ramco OCR', sub: 'Upload an invoice, enter a blob path (needs tenant), or paste OCR text, then send.', chips: '' },
+  file_fetcher: { title: 'File Fetcher', sub: 'Tenant id + Ezofis path (or timestamp + file name). Logs in, downloads the file as base64 and decodes it.', chips: '' },
+  ocr_tool: { title: 'OCR tool', sub: 'Upload a file, enter a blob path, or use the last fetched file, then send. Returns the Paddle OCR text.', chips: '' },
+  prompt_builder: { title: 'Prompt Builder', sub: 'Pick an agent intent and add OCR text. Loads that agent\'s skill + rules and prepares the LLM messages — no LLM call.', chips: '' },
+  llm_reasoner: { title: 'LLM Reasoner', sub: 'Send a Prompt Builder result to the LLM and get its reply (raw text + parsed JSON).', chips: '' },
+  invoice_scorer: { title: 'Invoice Scorer', sub: 'Paste the invoice extraction JSON. More than 80% null fields = not valid.', chips: '' },
+  file_preparation: { title: 'File Preparation', sub: 'Renames the document and the invoice JSON to the unique ref: {ref}.pdf + {ref}.json.', chips: '' },
+  folder_mover: { title: 'Folder Mover', sub: 'Uploads the prepared files over SFTP: valid → /OCR_Process/processed, not valid → /OCR_Process/Unprocessed.', chips: '' },
   ftp: { title: 'FTP', sub: 'File or blob path + ocr_json + remarks. Delivered over SFTP to processed / unprocessed.', chips: '' },
   document_intelligent: { title: 'Document Intelligent', sub: 'Tenant required. File, blob path, or pasted text.', chips: '' },
   insight: { title: 'Insights', sub: 'Add a file, JSON, or pasted text.', chips: '' },
@@ -4201,7 +4450,7 @@ function syncMainControls() {
 
 function setExclusiveAgentPanels(mode) {
   const docPanel = document.getElementById('docPanel');
-  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'ramco_ocr' || mode === 'ftp' || mode === 'document_intelligent'
+  const showDoc = mode === 'summary' || mode === 'classification' || mode === 'ramco_ocr' || mode === 'ocr_tool' || mode === 'file_fetcher' || mode === 'prompt_builder' || mode === 'llm_reasoner' || mode === 'invoice_scorer' || mode === 'file_preparation' || mode === 'folder_mover' || mode === 'ftp' || mode === 'document_intelligent'
     || mode === 'ocr' || mode === 'insight' || mode === 'pdf';
   if (docPanel) {
     docPanel.hidden = !showDoc;
@@ -4272,7 +4521,7 @@ function initPanelCollapseControls() {
 }
 
 function collapseFormsAfterResult(body) {
-  if (!(body.summary_result || body.classification_result || body.ramco_ocr_result || body.ftp_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)) return;
+  if (!(body.summary_result || body.classification_result || body.ramco_ocr_result || body.ocr_tool_result || body.file_fetcher_result || body.prompt_builder_result || body.llm_reasoner_result || body.invoice_scorer_result || body.file_preparation_result || body.folder_mover_result || body.ftp_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.pdf_result || body.global_search_result || body.chatbot_result || body.dashboard_result || dashboardResultFromBody(body) || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)) return;
   const panel = document.getElementById('docPanel');
   if (panel) panel.open = false;
   if (apPanel) apPanel.open = false;
@@ -4293,7 +4542,7 @@ function collapseFormsAfterResult(body) {
 }
 
 function setComposerMode(mode) {
-  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'classification' || mode === 'ramco_ocr' || mode === 'ftp' || mode === 'document_intelligent' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report' || mode === 'ftl_qualifier' || mode === 'ftl_quote_estimator')) {
+  if (mode === composerMode && mode !== 'chat' && (mode === 'ocr' || mode === 'summary' || mode === 'classification' || mode === 'ramco_ocr' || mode === 'ocr_tool' || mode === 'file_fetcher' || mode === 'prompt_builder' || mode === 'llm_reasoner' || mode === 'invoice_scorer' || mode === 'file_preparation' || mode === 'folder_mover' || mode === 'ftp' || mode === 'document_intelligent' || mode === 'insight' || mode === 'ap' || mode === 'prompt' || mode === 'pdf' || mode === 'global_search' || mode === 'chatbot' || mode === 'dashboard' || mode === 'report' || mode === 'ftl_qualifier' || mode === 'ftl_quote_estimator')) {
     mode = 'chat';
   }
   const prevMode = composerMode;
@@ -4314,6 +4563,20 @@ function setComposerMode(mode) {
   if (classificationFields) classificationFields.hidden = mode !== 'classification';
   const ramcoOcrFields = document.getElementById('ramcoOcrFields');
   if (ramcoOcrFields) ramcoOcrFields.hidden = mode !== 'ramco_ocr';
+  const ocrToolFields = document.getElementById('ocrToolFields');
+  if (ocrToolFields) ocrToolFields.hidden = mode !== 'ocr_tool';
+  const fileFetcherFields = document.getElementById('fileFetcherFields');
+  if (fileFetcherFields) fileFetcherFields.hidden = mode !== 'file_fetcher';
+  const promptBuilderFields = document.getElementById('promptBuilderFields');
+  if (promptBuilderFields) promptBuilderFields.hidden = mode !== 'prompt_builder';
+  const llmReasonerFields = document.getElementById('llmReasonerFields');
+  if (llmReasonerFields) llmReasonerFields.hidden = mode !== 'llm_reasoner';
+  const invoiceScorerFields = document.getElementById('invoiceScorerFields');
+  if (invoiceScorerFields) invoiceScorerFields.hidden = mode !== 'invoice_scorer';
+  const filePreparationFields = document.getElementById('filePreparationFields');
+  if (filePreparationFields) filePreparationFields.hidden = mode !== 'file_preparation';
+  const folderMoverFields = document.getElementById('folderMoverFields');
+  if (folderMoverFields) folderMoverFields.hidden = mode !== 'folder_mover';
   const ftpFields = document.getElementById('ftpFields');
   if (ftpFields) ftpFields.hidden = mode !== 'ftp';
   const diFields = document.getElementById('documentIntelligentFields');
@@ -4361,6 +4624,21 @@ function setComposerMode(mode) {
     loadAgentSkillsPack('classification');
   } else if (mode === 'ramco_ocr') {
     banner.textContent = 'Ramco OCR';
+    messageInput.placeholder = 'Optional note';
+  } else if (mode === 'ocr_tool') {
+    banner.textContent = 'OCR tool';
+    messageInput.placeholder = 'Optional note';
+  } else if (mode === 'file_fetcher') {
+    banner.textContent = 'File Fetcher';
+    messageInput.placeholder = 'Optional note';
+  } else if (mode === 'prompt_builder') {
+    banner.textContent = 'Prompt Builder';
+    messageInput.placeholder = 'Optional note';
+  } else if (mode === 'llm_reasoner') {
+    banner.textContent = 'LLM Reasoner';
+    messageInput.placeholder = 'Optional note';
+  } else if (mode === 'invoice_scorer' || mode === 'file_preparation' || mode === 'folder_mover') {
+    banner.textContent = MODE_LABELS[mode];
     messageInput.placeholder = 'Optional note';
   } else if (mode === 'ftp') {
     banner.textContent = 'FTP';
@@ -4446,6 +4724,7 @@ window.proceedToFtlQuote = function(target) {
 };
 
 refreshConsoleAgents();
+renderConsoleTools();
 initPanelCollapseControls();
 setComposerMode('chat');
 
@@ -5651,6 +5930,562 @@ function shQuote(value) {
   if (/^[A-Za-z0-9._/@+-]+$/.test(text)) return text;
   return "'" + text.replace(/'/g, `'\\''`) + "'";
 }
+
+function renderOcrToolResult(result, request) {
+  const ok = result.status === 'SUCCEEDED';
+  const chips = [
+    result.filename ? `<span class="summary-chip source">${escapeHtml(result.filename)}</span>` : '',
+    result.pages ? `<span class="summary-chip">${escapeHtml(result.pages)}</span>` : '',
+    `<span class="summary-chip">${escapeHtml(String(result.chars ?? 0))} chars</span>`,
+    result.latency_ms != null ? `<span class="summary-chip">${escapeHtml(String(result.latency_ms))} ms</span>` : '',
+  ].join('');
+  let html = `<div class="summary-card">
+    <div class="summary-card-header">
+      <div class="summary-card-kicker">OCR tool</div>
+      <div class="summary-card-title">${ok ? 'Text extracted' : 'OCR failed'}</div>
+      <div class="summary-meta">${chips}</div>
+    </div><div class="summary-card-body">`;
+  if (result.error) {
+    html += `<div class="summary-section-label">Error</div><div class="summary-prose">${escapeHtml(result.error)}</div>`;
+  }
+  if (result.text) {
+    html += `<div class="summary-section-label">Extracted text <button type="button" class="btn-ghost ocr-tool-copy" style="margin-left:8px;padding:2px 8px;font-size:11px">Copy</button></div>
+      <pre class="ocr-text-preview ocr-tool-text">${escapeHtml(result.text)}</pre>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson: JSON.stringify(result, null, 2), curlText: buildChatCurl(request, 'ocr_tool') };
+}
+
+async function sendOcrToolJob() {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const val = id => (document.getElementById(id).value || '').trim();
+  const fileInput = document.getElementById('ocrToolFile');
+  const fetched = lastToolOutputs.useFetchedForOcr ? lastToolOutputs.fetchedFile : null;
+  const file = (fileInput.files && fileInput.files[0])
+    || (fetched ? base64ToFile(fetched.base64, fetched.fileName, fetched.contentType) : null);
+  const filepath = val('ocrToolFilepath');
+  if (!file && !filepath) {
+    addSystemMessage('OCR tool needs a file upload, a blob path, or the last fetched file.');
+    return;
+  }
+  const fields = {
+    pageno: val('ocrToolPageno') || '1',
+    layout: val('ocrToolLayout') || 'true',
+    tenant_id: val('ocrToolTenant') || consoleTenantId() || '',
+  };
+  if (!file) fields.filepath = filepath;
+  Object.keys(fields).forEach(k => { if (!fields[k]) delete fields[k]; });
+
+  addUserMessage(file ? `OCR tool file: ${file.name}` : `OCR tool blob: ${filepath}`);
+  const processing = addProcessingMessage('Running Paddle OCR…');
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Extracting';
+  const request = file
+    ? { intent: 'ocr_tool', kind: 'file', session_id: sessionId, filename: file.name, form: fields }
+    : { intent: 'ocr_tool', kind: 'filepath', session_id: sessionId, payload: fields };
+  try {
+    const form = new FormData();
+    form.append('session_id', sessionId);
+    form.append('intent', 'ocr_tool');
+    Object.entries(fields).forEach(([k, v]) => form.append(k, v));
+    if (file) form.append('file', file, file.name);
+    const res = await fetch('/chat', { method: 'POST', body: form });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok && data && data.ocr_tool_result) {
+      const result = data.ocr_tool_result;
+      if (result.status === 'SUCCEEDED') lastToolOutputs.ocrText = result.text || '';
+      renderAssistantMessage(data, sessionId, request);
+      const last = transcript.lastElementChild;
+      const copyBtn = last && last.querySelector('.ocr-tool-copy');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          navigator.clipboard.writeText(result.text || '').then(() => { copyBtn.textContent = 'Copied'; });
+        });
+      }
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
+function toolStatusCard(kicker, title, chips) {
+  return `<div class="summary-card">
+    <div class="summary-card-header">
+      <div class="summary-card-kicker">${escapeHtml(kicker)}</div>
+      <div class="summary-card-title">${escapeHtml(title)}</div>
+      <div class="summary-meta">${chips.filter(Boolean).join('')}</div>
+    </div><div class="summary-card-body">`;
+}
+
+function base64ToFile(b64, fileName, contentType) {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new File([bytes], fileName || 'file', { type: contentType || 'application/octet-stream' });
+}
+
+function renderFileFetcherResult(result, request) {
+  const ok = result.status === 'SUCCEEDED';
+  let html = toolStatusCard('File Fetcher', ok ? 'File fetched' : 'Fetch failed', [
+    result.fileName ? `<span class="summary-chip source">${escapeHtml(result.fileName)}</span>` : '',
+    result.contentType ? `<span class="summary-chip">${escapeHtml(result.contentType)}</span>` : '',
+    result.fileSize != null ? `<span class="summary-chip">${escapeHtml(String(result.fileSize))} bytes</span>` : '',
+    result.latency_ms != null ? `<span class="summary-chip">${escapeHtml(String(result.latency_ms))} ms</span>` : '',
+  ]);
+  if (result.error) {
+    html += `<div class="summary-section-label">Error</div><div class="summary-prose">${escapeHtml(result.error)}</div>`;
+  }
+  if (result.path) {
+    html += `<div class="summary-section-label">Path</div><div class="summary-prose">${escapeHtml(result.path)}${result.tenant_id ? ` · tenant ${escapeHtml(result.tenant_id)}` : ''}</div>`;
+  }
+  if (ok && result.base64) {
+    const href = `data:${result.contentType || 'application/octet-stream'};base64,${result.base64}`;
+    html += `<div class="summary-section-label">File</div><div class="summary-prose">
+      <a class="btn-ghost" href="${escapeHtml(href)}" download="${escapeHtml(result.fileName || 'file')}" style="padding:2px 8px;font-size:12px">Download</a>
+      <span style="margin-left:8px;color:var(--text-muted)">Switch to the OCR tool and click “Use last fetched file” to read it.</span></div>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  const shown = { ...result };
+  if (shown.base64 && shown.base64.length > 200) shown.base64 = `${shown.base64.slice(0, 200)}… (${result.base64.length} chars)`;
+  return { html, resultJson: JSON.stringify(shown, null, 2), curlText: buildChatCurl(request, 'file_fetcher') };
+}
+
+async function sendFileFetcherJob() {
+  const val = id => (document.getElementById(id).value || '').trim();
+  const tenant = val('ffTenant') || consoleTenantId() || '';
+  const path = val('ffPath');
+  const timestamp = val('ffTimestamp');
+  const fileName = val('ffFileName');
+  if (!tenant) {
+    addSystemMessage('File Fetcher needs a tenant id.');
+    return;
+  }
+  if (!path && !(timestamp && fileName)) {
+    addSystemMessage('File Fetcher needs a path, or a timestamp and file name.');
+    return;
+  }
+  const payload = { tenant_id: tenant };
+  if (path) payload.path = path;
+  else {
+    payload.timestamp = timestamp;
+    payload.file_name = fileName;
+    const folder = val('ffFolder');
+    if (folder) payload.folder = folder;
+  }
+  addUserMessage(`File Fetcher: ${path || `${val('ffFolder') || 'monitor/Ramco_mjb'}/${timestamp}/${fileName}`}`);
+  await postToolChat('file_fetcher', payload, 'Logging in and downloading the file…', data => {
+    const result = data.file_fetcher_result;
+    if (result && result.status === 'SUCCEEDED' && result.base64) {
+      lastToolOutputs.fetchedFile = { base64: result.base64, fileName: result.fileName, contentType: result.contentType };
+    }
+  });
+}
+
+function renderPromptBuilderResult(result, request) {
+  const ok = result.status === 'SUCCEEDED';
+  const skill = result.skill || {};
+  const rules = skill.rules || [];
+  let html = toolStatusCard('Prompt Builder', ok ? 'Prompt prepared' : 'Preparation failed', [
+    result.intent ? `<span class="summary-chip source">${escapeHtml(result.intent)}</span>` : '',
+    skill.name ? `<span class="summary-chip">skill: ${escapeHtml(skill.name)}</span>` : '',
+    ok ? `<span class="summary-chip">${rules.length} rule(s)</span>` : '',
+    `<span class="summary-chip">${escapeHtml(String(result.chars ?? 0))} chars</span>`,
+  ]);
+  if (result.error) {
+    html += `<div class="summary-section-label">Error</div><div class="summary-prose">${escapeHtml(result.error)}</div>`;
+  }
+  if (rules.length) {
+    html += `<div class="summary-section-label">Rules applied</div><div class="summary-prose">${rules.map(r => escapeHtml(r)).join('<br>')}</div>`;
+  }
+  (result.messages || []).forEach(m => {
+    html += `<div class="summary-section-label">${escapeHtml(m.role)} message</div>
+      <pre class="ocr-text-preview">${escapeHtml(m.content)}</pre>`;
+  });
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson: JSON.stringify(result, null, 2), curlText: buildChatCurl(request, 'prompt_builder') };
+}
+
+function renderLlmReasonerResult(result, request) {
+  const ok = result.status === 'SUCCEEDED';
+  const usage = result.usage || {};
+  let html = toolStatusCard('LLM Reasoner', ok ? 'LLM replied' : 'LLM reasoning failed', [
+    result.intent ? `<span class="summary-chip source">${escapeHtml(result.intent)}</span>` : '',
+    usage.total_tokens != null ? `<span class="summary-chip">${escapeHtml(String(usage.total_tokens))} tokens</span>` : '',
+    result.latency_ms != null ? `<span class="summary-chip">${escapeHtml(String(result.latency_ms))} ms</span>` : '',
+    ok ? `<span class="summary-chip">${result.json ? 'JSON reply' : 'text reply'}</span>` : '',
+  ]);
+  if (result.error) {
+    html += `<div class="summary-section-label">Error</div><div class="summary-prose">${escapeHtml(result.error)}</div>`;
+  }
+  if (result.json) {
+    html += `<div class="summary-section-label">Parsed JSON</div>
+      <pre class="ocr-text-preview">${escapeHtml(JSON.stringify(result.json, null, 2))}</pre>`;
+  } else if (result.content) {
+    html += `<div class="summary-section-label">Reply</div>
+      <pre class="ocr-text-preview">${escapeHtml(result.content)}</pre>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson: JSON.stringify(result, null, 2), curlText: buildChatCurl(request, 'llm_reasoner') };
+}
+
+async function postToolChat(intent, payload, processingText, onResult, extra) {
+  const sessionId = sessionIdInput.value.trim() || newSessionId();
+  sessionIdInput.value = sessionId;
+  const processing = addProcessingMessage(processingText);
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spinner"></span> Working';
+  const body = { session_id: sessionId, intent, ...(extra || {}), payload };
+  const request = { intent, kind: 'json', session_id: sessionId, payload, body };
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await readResponseJson(res);
+    removeProcessingMessage(processing);
+    if (res.ok) {
+      if (onResult) onResult(data);
+      renderAssistantMessage(data, sessionId, request);
+    } else {
+      const detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail || data);
+      addSystemMessage(`${res.status}: ${detail || 'request failed'}`);
+    }
+  } catch (e) {
+    removeProcessingMessage(processing);
+    addSystemMessage(e && e.message ? String(e.message) : 'Network error — is the API reachable?');
+  } finally {
+    sendBtn.disabled = false;
+    syncSendBtn();
+  }
+}
+
+async function sendPromptBuilderJob() {
+  const val = id => (document.getElementById(id).value || '').trim();
+  const targetIntent = val('pbIntent');
+  // Not trimmed: the layout spacing must reach the LLM unchanged.
+  const ocrRaw = document.getElementById('pbOcrText').value || '';
+  if (!targetIntent) {
+    addSystemMessage('Prompt Builder needs an agent intent (e.g. ramco_ocr).');
+    return;
+  }
+  if (!ocrRaw.trim()) {
+    addSystemMessage('Prompt Builder needs OCR text — paste it or use the last OCR tool result.');
+    return;
+  }
+  const payload = { target_intent: targetIntent, ocr_text: ocrRaw };
+  const tenant = val('pbTenant') || consoleTenantId() || '';
+  if (tenant) payload.tenant_id = tenant;
+  const instruction = val('pbInstruction');
+  addUserMessage(`Prompt Builder: ${targetIntent} (${ocrRaw.length} chars of OCR text)`);
+  await postToolChat(
+    'prompt_builder',
+    payload,
+    'Loading skill + rules and preparing the prompt…',
+    data => {
+      const result = data.prompt_builder_result;
+      if (result && result.status === 'SUCCEEDED') lastToolOutputs.preparedPrompt = result;
+    },
+    instruction ? { instruction } : null,
+  );
+}
+
+async function sendLlmReasonerJob() {
+  const raw = (document.getElementById('lrPrepared').value || '').trim();
+  if (!raw) {
+    addSystemMessage('LLM Reasoner needs a prepared prompt — run the Prompt Builder first or paste its JSON.');
+    return;
+  }
+  let prepared;
+  try {
+    prepared = JSON.parse(raw);
+  } catch (_) {
+    addSystemMessage('Prepared prompt must be valid JSON.');
+    return;
+  }
+  if (prepared && prepared.prompt_builder_result) prepared = prepared.prompt_builder_result;
+  if (!prepared || !Array.isArray(prepared.messages) || !prepared.messages.length) {
+    addSystemMessage('Prepared prompt JSON needs a non-empty "messages" list.');
+    return;
+  }
+  const payload = { prepared_prompt: prepared };
+  const model = (document.getElementById('lrModel').value || '').trim();
+  if (model) payload.model = model;
+  addUserMessage(`LLM Reasoner: ${prepared.intent || 'prompt'} (${prepared.messages.length} messages)`);
+  await postToolChat('llm_reasoner', payload, 'Calling the LLM…', data => {
+    const result = data.llm_reasoner_result;
+    if (result && result.json) lastToolOutputs.llmJson = result.json;
+  });
+}
+
+function parseJsonField(id, label, { optional = false } = {}) {
+  const raw = (document.getElementById(id).value || '').trim();
+  if (!raw) {
+    if (!optional) addSystemMessage(`${label} is required.`);
+    return { ok: optional, value: null };
+  }
+  try {
+    return { ok: true, value: JSON.parse(raw) };
+  } catch (_) {
+    addSystemMessage(`${label} must be valid JSON.`);
+    return { ok: false, value: null };
+  }
+}
+
+function toolJsonSection(label, value) {
+  return `<div class="summary-section-label">${escapeHtml(label)}</div>
+    <pre class="summary-prose" style="white-space:pre-wrap;max-height:320px;overflow:auto">${escapeHtml(JSON.stringify(value, null, 2))}</pre>`;
+}
+
+function renderInvoiceScorerResult(result, request) {
+  const ok = result.status === 'SUCCEEDED';
+  let html = toolStatusCard('Invoice Scorer', ok ? (result.valid ? 'Valid' : 'Not valid') : 'Scoring failed', [
+    `<span class="summary-chip source">${escapeHtml(result.decision || '')}</span>`,
+    `<span class="summary-chip">${escapeHtml(String(result.null_count ?? 0))} / ${escapeHtml(String(result.total_fields ?? 0))} null</span>`,
+    `<span class="summary-chip">${escapeHtml(String(result.null_percent ?? 0))}% (limit ${escapeHtml(String(result.threshold_percent ?? 80))}%)</span>`,
+  ]);
+  if (result.error) {
+    html += `<div class="summary-section-label">Error</div><div class="summary-prose">${escapeHtml(result.error)}</div>`;
+  }
+  if ((result.null_fields || []).length) {
+    html += `<div class="summary-section-label">Null fields</div><div class="summary-prose">${result.null_fields.map(f => escapeHtml(f)).join('<br>')}</div>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson: JSON.stringify(result, null, 2), curlText: buildChatCurl(request, 'invoice_scorer') };
+}
+
+function renderFilePreparationResult(result, request) {
+  const ok = result.status === 'SUCCEEDED';
+  const files = result.files || [];
+  let html = toolStatusCard('File Preparation', ok ? `Prepared ${files.length} file(s)` : 'Preparation failed', [
+    result.unique_ref ? `<span class="summary-chip source">${escapeHtml(result.unique_ref)}</span>` : '',
+    `<span class="summary-chip">${result.valid ? 'valid' : 'not valid'}</span>`,
+  ]);
+  if (result.error) {
+    html += `<div class="summary-section-label">Error</div><div class="summary-prose">${escapeHtml(result.error)}</div>`;
+  }
+  if (files.length) {
+    html += `<div class="summary-section-label">Files</div><div class="summary-prose">${files.map(f => {
+      const href = `data:${f.content_type || 'application/octet-stream'};base64,${f.base64 || ''}`;
+      return `<a href="${escapeHtml(href)}" download="${escapeHtml(f.name)}">${escapeHtml(f.name)}</a> (${escapeHtml(String(f.size))} bytes)`;
+    }).join('<br>')}</div>`;
+  }
+  if (ok) {
+    html += toolJsonSection('JSON', result.json);
+    html += `<div class="summary-prose">Switch to the Folder Mover and click “Use last prepared files” to upload them.</div>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  const shown = { ...result, files: files.map(f => ({ ...f, base64: f.base64 && f.base64.length > 80 ? `${f.base64.slice(0, 80)}… (${f.base64.length} chars)` : f.base64 })) };
+  return { html, resultJson: JSON.stringify(shown, null, 2), curlText: buildChatCurl(request, 'file_preparation') };
+}
+
+function renderFolderMoverResult(result, request) {
+  const ok = result.status === 'SUCCEEDED';
+  const files = result.files || [];
+  let html = toolStatusCard('Folder Mover', ok ? `Moved to ${result.folder}` : 'Move failed', [
+    `<span class="summary-chip source">${escapeHtml(result.folder || '')}</span>`,
+    `<span class="summary-chip">${files.length} file(s)</span>`,
+    result.latency_ms != null ? `<span class="summary-chip">${escapeHtml(String(result.latency_ms))} ms</span>` : '',
+  ]);
+  if (result.error) {
+    html += `<div class="summary-section-label">Error</div><div class="summary-prose">${escapeHtml(result.error)}</div>`;
+  }
+  html += `<div class="summary-section-label">Destination</div><div class="summary-prose">${escapeHtml(result.remote_dir || '')}</div>`;
+  if (files.length) {
+    html += `<div class="summary-section-label">Files</div><div class="summary-prose">${files.map(f =>
+      `${escapeHtml(f.remote_path || f.name)} (${escapeHtml(String(f.size))} bytes)`).join('<br>')}</div>`;
+  }
+  html += codePanelHtml();
+  html += `</div></div>`;
+  return { html, resultJson: JSON.stringify(result, null, 2), curlText: buildChatCurl(request, 'folder_mover') };
+}
+
+async function sendInvoiceScorerJob() {
+  const parsed = parseJsonField('isJson', 'Invoice extraction JSON');
+  if (!parsed.ok) return;
+  addUserMessage('Invoice Scorer');
+  await postToolChat('invoice_scorer', { ocr_json: parsed.value }, 'Scoring the invoice…', data => {
+    const result = data.invoice_scorer_result;
+    if (result && result.status === 'SUCCEEDED') lastToolOutputs.invoiceScore = { json: parsed.value, valid: result.valid };
+  });
+}
+
+async function sendFilePreparationJob() {
+  const val = id => (document.getElementById(id).value || '').trim();
+  const parsed = parseJsonField('ijJson', 'Invoice extraction JSON');
+  if (!parsed.ok) return;
+  const remarksField = parseJsonField('ijRemarks', 'Remarks', { optional: true });
+  if (!remarksField.ok) return;
+  const remarks = remarksField.value && typeof remarksField.value === 'object' ? { ...remarksField.value } : {};
+  if (val('ijRef')) remarks['unique ref no'] = val('ijRef');
+  const payload = { ocr_json: parsed.value };
+  if (Object.keys(remarks).length) payload.remarks = remarks;
+  if (val('ijValid')) payload.valid = val('ijValid') === 'true';
+  const optional = { filepath: 'ijFilepath', tenant_id: 'ijTenant', workflow_id: 'ijWorkflow', repository_id: 'ijRepository', instance_id: 'ijInstance', env_type: 'ijEnvType' };
+  Object.entries(optional).forEach(([key, id]) => { if (val(id)) payload[key] = val(id); });
+  const fileInput = document.getElementById('ijFile');
+  const fetched = lastToolOutputs.useFetchedForPrep ? lastToolOutputs.fetchedFile : null;
+  const file = fileInput.files && fileInput.files[0];
+  if (file) {
+    payload.file_base64 = await fileToBase64(file);
+    payload.file_name = file.name;
+    payload.file_content_type = file.type || undefined;
+  } else if (fetched) {
+    payload.file_base64 = fetched.base64;
+    payload.file_name = fetched.fileName;
+    payload.file_content_type = fetched.contentType || undefined;
+  }
+  addUserMessage(`File Preparation${remarks['unique ref no'] ? `: ${remarks['unique ref no']}` : ''}${payload.file_name ? ` (${payload.file_name})` : ''}`);
+  await postToolChat('file_preparation', payload, 'Preparing the files…', data => {
+    const result = data.file_preparation_result;
+    if (result && result.status === 'SUCCEEDED') {
+      lastToolOutputs.preparedFiles = { files: result.files, valid: result.valid };
+    }
+  });
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function sendFolderMoverJob() {
+  const parsed = parseJsonField('fmFiles', 'Files');
+  if (!parsed.ok) return;
+  const files = Array.isArray(parsed.value) ? parsed.value : [];
+  if (!files.length || files.some(f => !f || !f.name || !(f.base64 || f.json !== undefined))) {
+    addSystemMessage('Folder Mover needs a list of files, each with a name and base64 or json.');
+    return;
+  }
+  const valid = document.getElementById('fmValid').value === 'true';
+  addUserMessage(`Folder Mover: ${files.map(f => f.name).join(', ')} → ${valid ? 'processed' : 'unprocessed'}`);
+  await postToolChat('folder_mover', { prepared_files: files, valid }, 'Uploading over SFTP…');
+}
+
+(function wireToolChaining() {
+  const useFetched = document.getElementById('ocrToolUseFetched');
+  const fetchedNote = document.getElementById('ocrToolFetchedNote');
+  const ocrFileInput = document.getElementById('ocrToolFile');
+  if (useFetched) {
+    useFetched.addEventListener('click', () => {
+      const fetched = lastToolOutputs.fetchedFile;
+      if (!fetched) {
+        addSystemMessage('No fetched file yet — run the File Fetcher first.');
+        return;
+      }
+      lastToolOutputs.useFetchedForOcr = true;
+      if (ocrFileInput) ocrFileInput.value = '';
+      if (fetchedNote) {
+        fetchedNote.textContent = `Using fetched file: ${fetched.fileName || 'file'}`;
+        fetchedNote.hidden = false;
+      }
+    });
+  }
+  if (ocrFileInput) {
+    ocrFileInput.addEventListener('change', () => {
+      lastToolOutputs.useFetchedForOcr = false;
+      if (fetchedNote) fetchedNote.hidden = true;
+    });
+  }
+  const useOcr = document.getElementById('pbUseLastOcr');
+  if (useOcr) {
+    useOcr.addEventListener('click', () => {
+      if (!lastToolOutputs.ocrText) {
+        addSystemMessage('No OCR tool result yet — run the OCR tool first.');
+        return;
+      }
+      document.getElementById('pbOcrText').value = lastToolOutputs.ocrText;
+    });
+  }
+  const usePrepared = document.getElementById('lrUseLastPrepared');
+  if (usePrepared) {
+    usePrepared.addEventListener('click', () => {
+      if (!lastToolOutputs.preparedPrompt) {
+        addSystemMessage('No Prompt Builder result yet — run the Prompt Builder first.');
+        return;
+      }
+      document.getElementById('lrPrepared').value = JSON.stringify(lastToolOutputs.preparedPrompt, null, 2);
+    });
+  }
+  const useLlm = document.getElementById('isUseLastLlm');
+  if (useLlm) {
+    useLlm.addEventListener('click', () => {
+      if (!lastToolOutputs.llmJson) {
+        addSystemMessage('No LLM Reasoner JSON yet — run the LLM Reasoner first.');
+        return;
+      }
+      document.getElementById('isJson').value = JSON.stringify(lastToolOutputs.llmJson, null, 2);
+    });
+  }
+  const useScored = document.getElementById('ijUseLastScored');
+  if (useScored) {
+    useScored.addEventListener('click', () => {
+      const scored = lastToolOutputs.invoiceScore;
+      if (!scored) {
+        addSystemMessage('No Invoice Scorer result yet — run the Invoice Scorer first.');
+        return;
+      }
+      document.getElementById('ijJson').value = JSON.stringify(scored.json, null, 2);
+      document.getElementById('ijValid').value = scored.valid ? 'true' : 'false';
+    });
+  }
+  const useLastFiles = document.getElementById('fmUseLastPrepared');
+  if (useLastFiles) {
+    useLastFiles.addEventListener('click', () => {
+      const prepared = lastToolOutputs.preparedFiles;
+      if (!prepared) {
+        addSystemMessage('No File Preparation result yet — run File Preparation first.');
+        return;
+      }
+      const files = prepared.files.map(f => ({ name: f.name, content_type: f.content_type, base64: f.base64 }));
+      document.getElementById('fmFiles').value = JSON.stringify(files, null, 2);
+      document.getElementById('fmValid').value = prepared.valid ? 'true' : 'false';
+    });
+  }
+  const prepUseFetched = document.getElementById('ijUseFetched');
+  const prepFetchedNote = document.getElementById('ijFetchedNote');
+  const prepFileInput = document.getElementById('ijFile');
+  if (prepUseFetched) {
+    prepUseFetched.addEventListener('click', () => {
+      const fetched = lastToolOutputs.fetchedFile;
+      if (!fetched) {
+        addSystemMessage('No fetched file yet — run the File Fetcher first.');
+        return;
+      }
+      lastToolOutputs.useFetchedForPrep = true;
+      if (prepFileInput) prepFileInput.value = '';
+      if (prepFetchedNote) {
+        prepFetchedNote.textContent = `Using fetched file: ${fetched.fileName || 'file'}`;
+        prepFetchedNote.hidden = false;
+      }
+    });
+  }
+  if (prepFileInput) {
+    prepFileInput.addEventListener('change', () => {
+      lastToolOutputs.useFetchedForPrep = false;
+      if (prepFetchedNote) prepFetchedNote.hidden = true;
+    });
+  }
+})();
 
 function buildChatCurl(request, fallbackIntent) {
   const url = window.location.origin + '/chat';
@@ -6987,7 +7822,7 @@ function renderQuoteResult(rawQuote, request, body) {
   clearEmptyState();
   const div = document.createElement('div');
   const dashBody = dashboardResultFromBody(body);
-  div.className = (body.summary_result || body.classification_result || body.ramco_ocr_result || body.ftp_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)
+  div.className = (body.summary_result || body.classification_result || body.ramco_ocr_result || body.ocr_tool_result || body.file_fetcher_result || body.prompt_builder_result || body.llm_reasoner_result || body.invoice_scorer_result || body.file_preparation_result || body.folder_mover_result || body.ftp_result || body.document_intelligent_result || body.insight_result || body.ocr_result || body.ap_result || body.prompt_result || body.forecast_result || body.pdf_result || body.global_search_result || body.chatbot_result || dashBody || body.report_prompt_result || body.report_plan_result || body.qualifier_result || body.quote_result)
     ? 'msg assistant has-summary'
     : 'msg assistant';
 
@@ -7030,6 +7865,41 @@ function renderQuoteResult(rawQuote, request, body) {
     const ramcoCode = renderRamcoOcrResult(body.ramco_ocr_result, request);
     details += ramcoCode.html;
     codeBlocks.push(ramcoCode);
+  }
+  if (body.ocr_tool_result) {
+    const toolCode = renderOcrToolResult(body.ocr_tool_result, request);
+    details += toolCode.html;
+    codeBlocks.push(toolCode);
+  }
+  if (body.file_fetcher_result) {
+    const ffCode = renderFileFetcherResult(body.file_fetcher_result, request);
+    details += ffCode.html;
+    codeBlocks.push(ffCode);
+  }
+  if (body.invoice_scorer_result) {
+    const isCode = renderInvoiceScorerResult(body.invoice_scorer_result, request);
+    details += isCode.html;
+    codeBlocks.push(isCode);
+  }
+  if (body.file_preparation_result) {
+    const ijCode = renderFilePreparationResult(body.file_preparation_result, request);
+    details += ijCode.html;
+    codeBlocks.push(ijCode);
+  }
+  if (body.folder_mover_result) {
+    const fmCode = renderFolderMoverResult(body.folder_mover_result, request);
+    details += fmCode.html;
+    codeBlocks.push(fmCode);
+  }
+  if (body.prompt_builder_result) {
+    const pbCode = renderPromptBuilderResult(body.prompt_builder_result, request);
+    details += pbCode.html;
+    codeBlocks.push(pbCode);
+  }
+  if (body.llm_reasoner_result) {
+    const lrCode = renderLlmReasonerResult(body.llm_reasoner_result, request);
+    details += lrCode.html;
+    codeBlocks.push(lrCode);
   }
   if (body.ftp_result) {
     const ftpCode = renderFtpResult(body.ftp_result, request);
@@ -7091,7 +7961,7 @@ function renderQuoteResult(rawQuote, request, body) {
     details += dashCode.html;
     codeBlocks.push(dashCode);
   }
-  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result && !body.classification_result && !body.ramco_ocr_result && !body.ftp_result && !body.document_intelligent_result
+  const isChatOnly = !body.ocr_result && !body.ap_result && !body.summary_result && !body.classification_result && !body.ramco_ocr_result && !body.ocr_tool_result && !body.file_fetcher_result && !body.prompt_builder_result && !body.llm_reasoner_result && !body.invoice_scorer_result && !body.file_preparation_result && !body.folder_mover_result && !body.ftp_result && !body.document_intelligent_result
     && !body.insight_result && !body.prompt_result && !body.forecast_result && !body.pdf_result && !body.global_search_result && !body.chatbot_result && !dashBody && !body.report_plan_result && !body.report_prompt_result && !body.qualifier_result && !body.quote_result;
   if (body.forecast_result) {
     const f = body.forecast_result;
@@ -9299,6 +10169,13 @@ async function sendFtlQuoteJob() {
   if (composerMode === 'summary') return sendSummaryJob();
   if (composerMode === 'classification') return sendClassificationJob();
   if (composerMode === 'ramco_ocr') return sendRamcoOcrJob();
+  if (composerMode === 'ocr_tool') return sendOcrToolJob();
+  if (composerMode === 'file_fetcher') return sendFileFetcherJob();
+  if (composerMode === 'invoice_scorer') return sendInvoiceScorerJob();
+  if (composerMode === 'file_preparation') return sendFilePreparationJob();
+  if (composerMode === 'folder_mover') return sendFolderMoverJob();
+  if (composerMode === 'prompt_builder') return sendPromptBuilderJob();
+  if (composerMode === 'llm_reasoner') return sendLlmReasonerJob();
   if (composerMode === 'ftp') return sendFtpJob();
   if (composerMode === 'document_intelligent') return sendDocumentIntelligentJob();
   if (composerMode === 'insight') return sendInsightJob();

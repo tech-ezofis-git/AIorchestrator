@@ -6,6 +6,11 @@ BUILTIN_AGENTS: list[dict[str, str]] = [
     {"slug": "summary", "name": "Summary", "description": "Summarize a document."},
     {"slug": "classification", "name": "Classification", "description": "Classify a document type from OCR or a file."},
     {
+        "slug": "ramco_ocr",
+        "name": "Ramco OCR",
+        "description": "Extract the invoice header and line items from an invoice file or OCR text.",
+    },
+    {
         "slug": "document_intelligent",
         "name": "Document Intelligent",
         "description": "Infer which tenant repository a document belongs to from OCR text.",
