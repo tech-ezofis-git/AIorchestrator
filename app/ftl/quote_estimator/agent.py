@@ -2895,6 +2895,60 @@ def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any
     return quote
 
 
+def _incomplete_scope_nudge(quote: Dict[str, Any], candidate_text: str) -> str:
+    """Ask the model to continue when it priced one item from an RFQ that names the
+    full equipment set. The standalone estimator's quotes for the same emails (120
+    Bloor, 40 Baif) carry about 10-14 lines because the model keeps searching until
+    each named group is a line or an explicit scope-table exclusion. A one-line
+    submit is returned to the model once, then accepted if it still stands."""
+    from app.ftl.quote_estimator.extract import scope_groups_named
+
+    named = scope_groups_named(candidate_text)
+    if len(named) < 4:
+        return ""
+    blob_parts: List[str] = []
+    covered = set()
+    category_to_group = {
+        "door_operator": "door operator",
+        "clutch": "clutch",
+        "car_door_panel": "car door panel",
+        "panel_adaptor": "car door panel",
+        "door_tools": "door tools",
+        "door_protective_device": "door detector",
+        "roller_guide": "roller guide",
+        "car_safety": "car safety",
+        "governor": "governor",
+    }
+    for item in quote.get("line_items") or []:
+        category = str(item.get("category") or "")
+        if category in category_to_group:
+            covered.add(category_to_group[category])
+        blob_parts.append(
+            f"{item.get('product_code') or ''} {item.get('description') or ''} {item.get('note') or ''}"
+        )
+    blob = " ".join(blob_parts).lower()
+    if "restrictor" in blob:
+        covered.add("car door restrictor")
+    if "tension" in blob or "swingarm" in blob or "idler" in blob:
+        covered.add("tension sheave")
+    if len(covered) > 1:
+        return ""
+    missing = [name for name in named if name not in covered]
+    if len(missing) < 3:
+        return ""
+    return (
+        "This quote is incomplete. The RFQ names these equipment groups, and a full "
+        "estimate includes one line for each group that is in scope as new equipment: "
+        + ", ".join(missing)
+        + ". Search the pricelist for each of them and submit the full set (door operator, "
+        "clutch, car door restrictor, universal car door panel, door detector, door tools, "
+        "roller guides, car safeties, governor, and tension sheave when the spec calls for "
+        "them). If the equipment scope table marks a group Refurbish, Retain, or None, leave "
+        "that group off the quote and say so in assumptions. Do not submit a one-line quote "
+        "while the groups above are still unaddressed."
+    )
+
+
 def _run_quote_json_mode(
     client: Any,
     model_name: str,
@@ -2908,6 +2962,7 @@ def _run_quote_json_mode(
         {"role": "user", "content": candidate_text},
     ]
     total_tokens = 0
+    scope_nudge_used = False
 
     for round_num in range(MAX_LOOKUP_ROUNDS + 1):
         if progress_callback:
@@ -2996,6 +3051,14 @@ def _run_quote_json_mode(
                     "line item(s)). Please try again."
                 )
 
+            if not force_final and not scope_nudge_used:
+                nudge = _incomplete_scope_nudge(quote, candidate_text)
+                if nudge:
+                    scope_nudge_used = True
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": nudge})
+                    continue
+
             if progress_callback:
                 try:
                     progress_callback("Calculating final line items and unit prices", 76)
@@ -3052,6 +3115,7 @@ def _run_quote_native_tools(
     ]
     tools = [_SEARCH_PRICELIST_TOOL, _SUBMIT_QUOTE_TOOL]
     total_tokens = 0
+    scope_nudge_used = False
 
     for round_num in range(MAX_LOOKUP_ROUNDS + 1):
         if progress_callback:
@@ -3110,11 +3174,6 @@ def _run_quote_native_tools(
 
         quote_call = next((tc for tc in tool_calls if tc.function.name == "submit_quote"), None)
         if quote_call is not None:
-            if progress_callback:
-                try:
-                    progress_callback("Calculating final line items and unit prices", 76)
-                except Exception:
-                    pass
             try:
                 quote = json.loads(quote_call.function.arguments)
             except json.JSONDecodeError as e:
@@ -3125,6 +3184,29 @@ def _run_quote_native_tools(
                     f"forced to submit an incomplete quote ({len(quote.get('line_items') or [])} "
                     "line item(s)). Please try again."
                 )
+            if not force_final and not scope_nudge_used:
+                nudge = _incomplete_scope_nudge(quote, candidate_text)
+                if nudge:
+                    scope_nudge_used = True
+                    for tc in tool_calls:
+                        if tc.id == quote_call.id:
+                            content = json.dumps({"accepted": False, "reason": nudge})
+                        else:
+                            try:
+                                args = json.loads(tc.function.arguments or "{}")
+                            except json.JSONDecodeError:
+                                args = {}
+                            content = _run_tool_call(tc.function.name, args)
+                        messages.append(
+                            {"role": "tool", "tool_call_id": tc.id, "content": content}
+                        )
+                    messages.append({"role": "user", "content": nudge})
+                    continue
+            if progress_callback:
+                try:
+                    progress_callback("Calculating final line items and unit prices", 76)
+                except Exception:
+                    pass
             quote = _finalize_quote(quote, candidate_text)
             return quote, total_tokens
 

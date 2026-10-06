@@ -512,3 +512,103 @@ def test_quote_estimator_applies_git_consistency_checks():
 
     shaw = "2.01 Existing Equipment Information\nCar 1\nDoor Configuration: Two-speed\n"
     assert "Existing Equipment Information" in build_candidate_text(shaw)["subsections"]
+
+
+def test_short_parts_list_is_not_cut_down_to_one_window():
+    from app.ftl.quote_estimator.extract import build_candidate_text
+
+    products = [
+        "door operator",
+        "car door restrictor",
+        "clutch",
+        "universal car door panel",
+        "door tools",
+        "3D detector",
+        "counterweight roller guides",
+        "car roller guides",
+        "car safeties",
+        "governor",
+        "tension sheave",
+    ]
+    gap = " filler" * 90
+    body = gap.join(f"Provide a new {name} for each car." for name in products)
+    assert len(body.split()) <= 1200
+    candidate = build_candidate_text(body)
+    assert "tension sheave" in candidate["fallback_text"]
+    assert "door operator" in candidate["fallback_text"]
+
+
+def test_thin_attachment_does_not_hide_the_email_product_list():
+    from app.ftl.quote_estimator.extract import choose_eml_full_text
+
+    products = (
+        "door operator, clutch, car door restrictor, universal car door panel, "
+        "door tools, 3D detector, roller guides, car safeties, governor, tension sheave"
+    )
+    body = f"Please quote each of these: {products}."
+    thin_pdf = "Sheet 1. Door operator location only."
+    assert "tension sheave" in choose_eml_full_text(thin_pdf, body)
+
+    spec = (products + ". Confirm the existing equipment schedule before release. ") * 20
+    assert len(spec) >= 800
+    assert "please quote the clutch only" not in choose_eml_full_text(
+        spec, "Please quote the clutch only."
+    ).lower()
+
+
+def test_html_parts_table_survives_a_short_plain_part():
+    from email.message import EmailMessage
+
+    from app.ftl.quote_estimator.extract import parse_eml_bytes
+
+    msg = EmailMessage()
+    msg["From"] = "sales@ftl-distribution.com"
+    msg["Subject"] = "RFQ"
+    msg.set_content("Please quote.")
+    msg.add_alternative(
+        "<html><body><table><tr><td>door operator</td><td>clutch</td>"
+        "<td>car door restrictor</td><td>universal car door panel</td>"
+        "<td>door tools</td><td>3D detector</td><td>roller guides</td>"
+        "<td>car safeties</td><td>governor</td><td>tension sheave</td>"
+        "</tr></table></body></html>",
+        subtype="html",
+    )
+    parsed = parse_eml_bytes(msg.as_bytes())
+    assert "tension sheave" in parsed["body_text"]
+    assert "roller guides" in parsed["body_text"]
+
+
+def test_one_line_quote_is_sent_back_when_the_rfq_names_the_full_set():
+    from app.ftl.quote_estimator.agent import _incomplete_scope_nudge
+
+    text = (
+        "door operator, clutch, car door restrictor, universal car door panel, "
+        "door tools, 3D detector, roller guides, car safeties, governor, tension sheave"
+    )
+    nudge = _incomplete_scope_nudge(
+        {
+            "line_items": [
+                {
+                    "product_code": "SGV2_DOOR_OP_2C42_L",
+                    "category": "door_operator",
+                    "description": "operator",
+                }
+            ]
+        },
+        text,
+    )
+    assert "incomplete" in nudge.lower()
+    assert "governor" in nudge
+    assert "roller guide" in nudge
+
+    covered = _incomplete_scope_nudge(
+        {
+            "line_items": [
+                {"product_code": "OP", "category": "door_operator", "description": "operator"},
+                {"product_code": "CL", "category": "clutch", "description": "clutch"},
+                {"product_code": "RG", "category": "roller_guide", "description": "roller guide"},
+            ]
+        },
+        text,
+    )
+    assert covered == ""

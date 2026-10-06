@@ -88,24 +88,28 @@ def parse_eml_bytes(raw: bytes) -> Dict[str, Any]:
 
     walk(msg)
 
-    if body_text is None:
-        # fall back to text/html stripped of tags, best-effort
-        def find_html(m):
-            if m.is_multipart():
-                for p in m.iter_parts():
-                    r = find_html(p)
-                    if r:
-                        return r
-            elif m.get_content_type() == "text/html":
-                try:
-                    return m.get_content()
-                except Exception:
-                    return None
-            return None
+    def find_html(m):
+        if m.is_multipart():
+            for p in m.iter_parts():
+                found = find_html(p)
+                if found:
+                    return found
+        elif m.get_content_type() == "text/html" and m.get_content_disposition() != "attachment":
+            try:
+                return m.get_content()
+            except Exception:
+                return None
+        return None
 
-        html = find_html(msg)
-        if html:
-            body_text = re.sub(r"<[^>]+>", " ", html)
+    html = find_html(msg)
+    html_text = _html_to_text(html) if html else ""
+    # A parts table often lives only in the HTML part. Plain text can be a one-line
+    # cover ("please quote") while the HTML lists every product. Keep whichever
+    # names more equipment groups; if plain is missing, use the HTML text.
+    if html_text and len(scope_groups_named(html_text)) > len(scope_groups_named(body_text or "")):
+        body_text = ((body_text or "").strip() + "\n\n" + html_text).strip()
+    elif body_text is None and html_text:
+        body_text = html_text
 
     return {
         "from": msg.get("From", ""),
@@ -117,6 +121,55 @@ def parse_eml_bytes(raw: bytes) -> Dict[str, Any]:
         "attachments": attachments,
         "forwarded_sender": _find_forwarded_sender(body_text or ""),
     }
+
+
+def _html_to_text(html: str) -> str:
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", html or "")
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"[ \t]+\n", "\n", re.sub(r"[ \t]{2,}", " ", text)).strip()
+
+
+# Equipment groups a full modernization estimate carries when the RFQ names them
+# (the ~10-line set on real quotes such as 120 Bloor EST-261110). Used to decide
+# whether an attachment actually contains the spec, or only a cover note does.
+SCOPE_GROUP_KEYWORDS: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
+    ("door operator", ("door operator", "door operators")),
+    ("clutch", ("clutch",)),
+    ("car door restrictor", ("restrictor",)),
+    ("car door panel", ("door panel", "universal panel", "car door panels")),
+    ("door tools", ("door tool", "programming tool", "programming unit", "keypad")),
+    ("door detector", ("detector", "light curtain", "door protective")),
+    ("roller guide", ("roller guide", "roller guides")),
+    ("car safety", ("car safet", "safeties")),
+    ("governor", ("governor",)),
+    ("tension sheave", ("tension sheave", "tension weight", "swingarm", "idler")),
+)
+
+
+def scope_groups_named(text: str) -> List[str]:
+    lower = (text or "").lower()
+    return [name for name, keywords in SCOPE_GROUP_KEYWORDS if any(word in lower for word in keywords)]
+
+
+def choose_eml_full_text(spec_text: str, body_text: str) -> str:
+    """Pick the text the quote is built from.
+
+    A real spec attachment names at least as many equipment groups as the cover
+    email and is long enough to be the contract document — use it alone, matching
+    the standalone estimator. A thin attachment (a drawing, a logo PDF, a one-line
+    acknowledgement) must not replace an email that lists the products.
+    """
+    spec = (spec_text or "").strip()
+    body = (body_text or "").strip()
+    if not spec:
+        return body
+    if not body:
+        return spec
+    spec_groups = scope_groups_named(spec)
+    body_groups = scope_groups_named(body)
+    if len(spec_groups) >= len(body_groups) and len(spec) >= 800:
+        return spec
+    return f"{spec}\n\n{body}"
 
 
 _FORWARDED_FROM_RE = re.compile(
@@ -767,11 +820,13 @@ def build_candidate_text(full_text: str) -> Dict[str, Any]:
         # back to keyword-proximity windows so the agent still gets *something* rather than
         # nothing, and structure_signal already flags this as lower-confidence territory.
         used_fallback = True
-        fallback_text = _fallback_keyword_windows(full_text)
-        if not fallback_text.strip() and len(full_text.split()) <= 1200:
-            # Short inquiries with none of the modernization keywords would otherwise
-            # reach the model as an empty excerpt.
+        # A short RFQ (a parts email, a one-page schedule) must be handed over whole.
+        # Keyword windows of ~400 characters around the first hit otherwise keep a
+        # single product and drop the rest of the list.
+        if len(full_text.split()) <= 1200:
             fallback_text = full_text.strip()
+        else:
+            fallback_text = _fallback_keyword_windows(full_text)
     else:
         fallback_text = ""
 
@@ -817,7 +872,7 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
         body = (email_meta.get("body_text") or "").strip()
         if body:
             lines.append("")
-            lines.append(body[:3000])
+            lines.append(body[:8000])
         lines.append("")
 
     lines.append(f"## Detected structure signal: {candidate['structure_signal']}")

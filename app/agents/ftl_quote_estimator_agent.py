@@ -14,6 +14,7 @@ from app.ftl.page_text import (
     is_image_filename,
     ocr_image_file,
     prefer_spec_attachment,
+    text_is_usable,
 )
 from app.ftl.key_format import snake_keys, title_keys
 from app.ftl.qualifier.output_format import to_internal as qualifier_to_internal
@@ -184,10 +185,22 @@ class FtlQuoteEstimatorAgent:
         os.makedirs(PDF_DIR, exist_ok=True)
         self._ezofis = ezofis or kwargs.get("ezofis")
 
+    async def _pdf_text(self, content: bytes) -> str:
+        """Same page text as the standalone estimator (PyMuPDF, then pdfplumber).
+
+        OCR only when that text is missing. Replacing a readable spec page with a
+        scan result drops the equipment sections the quote is built from.
+        """
+        text = extract.extract_pdf_text(content)
+        if text_is_usable(text):
+            return text
+        scanned = (await extract_pdf_text_hybrid(content)).strip()
+        return scanned or text
+
     async def _text_from_attachment(self, filename: str, content: bytes) -> str:
         att_ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if att_ext == "pdf":
-            return await extract_pdf_text_hybrid(content)
+            return await self._pdf_text(content)
         if att_ext == "docx":
             return extract.extract_docx_text(content)
         if is_image_filename(filename):
@@ -204,15 +217,18 @@ class FtlQuoteEstimatorAgent:
             email_meta = {k: v for k, v in parsed.items() if k != "attachments"}
             attachments = parsed.get("attachments") or []
             spec_attachment = prefer_spec_attachment(attachments)
+            spec_text = ""
             if spec_attachment:
-                full_text = await self._text_from_attachment(
+                spec_text = await self._text_from_attachment(
                     spec_attachment.get("filename") or "",
                     spec_attachment["bytes"],
                 )
-            else:
-                full_text = parsed.get("body_text", "")
+            # A real spec PDF is quoted on its own, the same way the standalone
+            # estimator does. A thin attachment must not hide a product list that
+            # lives in the email.
+            full_text = extract.choose_eml_full_text(spec_text, parsed.get("body_text", ""))
         elif ext == "pdf":
-            full_text = await extract_pdf_text_hybrid(file_bytes)
+            full_text = await self._pdf_text(file_bytes)
         elif ext == "docx":
             full_text = extract.extract_docx_text(file_bytes)
         elif is_image_filename(filename):
