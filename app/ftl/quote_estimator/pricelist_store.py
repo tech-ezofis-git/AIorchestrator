@@ -158,6 +158,19 @@ def reindex_pricelist(pages: List[str], source_name: str = "wittur-pricelist") -
     return {"ok": True, "pages_indexed": len(new_pages), "pages_reembedded": processed, "total_chunks": total_chunks}
 
 
+def reindex_from_price_book(docx_path: str, write_overlay: bool = True) -> Dict[str, Any]:
+    """Index FTL's Contractor Price Book into this estimator's search index and the shared overlay."""
+    from app.ftl.qualifier import price_book
+
+    book = price_book.parse_price_book(docx_path)
+    pages = price_book.build_pages(book)
+    result = reindex_pricelist(pages, source_name=f"ftl-price-book {book['revision']}")
+    if write_overlay:
+        price_book.write_overlay(book)
+    result["price_book"] = price_book.price_book_summary(book)
+    return result
+
+
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -329,7 +342,8 @@ def governor_prices() -> List[Dict[str, Any]]:
     return list(seen.values())
 
 
-_DOOR_OP_CODE_RE = re.compile(r"^SGV2_DOOR_OP_(1S|2C|2T)(\d+)_(LH|RH)$", re.IGNORECASE)
+_DOOR_OP_CODE_RE = re.compile(r"^SGV2_DOOR_OP_(1S|2C|2T)(\d+)_(LH|RH|L|R)$", re.IGNORECASE)
+_HAND_NORMALIZE = {"L": "LH", "R": "RH", "LH": "LH", "RH": "RH"}
 
 
 def door_operator_prices() -> List[Dict[str, Any]]:
@@ -360,7 +374,7 @@ def door_operator_prices() -> List[Dict[str, Any]]:
                     "code": w,
                     "door_type": m.group(1).upper(),
                     "width": m.group(2),
-                    "hand": m.group(3).upper(),
+                    "hand": _HAND_NORMALIZE[m.group(3).upper()],
                     "price": price,
                 }
     return list(seen.values())
@@ -462,6 +476,12 @@ def known_product_codes() -> Set[str]:
     for page in index.get("pages", []):
         for c in page.get("chunks", []):
             codes.update(_PRODUCT_CODE_RE.findall(c.get("text", "") or ""))
+    try:
+        from app.ftl.quote_estimator import rules_engine
+
+        codes.update(rules_engine.all_known_codes())
+    except Exception:
+        pass
     return codes
 
 

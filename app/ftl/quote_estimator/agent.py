@@ -29,6 +29,7 @@ try:
         search_pricelist,
     )
     from app.ftl.quote_estimator import rules_engine
+    from app.ftl.qualifier import scope_rules
 except ImportError:
     from pricelist_store import (
         car_door_panel_prices,
@@ -39,6 +40,7 @@ except ImportError:
         search_pricelist,
     )
     import rules_engine
+    import scope_rules
 
 # Categories whose real product codes are clean single tokens found verbatim in the pricelist text
 # (so a whitelist check is meaningful). IMPORTANT — roller_guide belongs here: a direct check of the
@@ -308,16 +310,13 @@ _ABSENCE_CATEGORY_LABEL_KEYWORDS: Dict[str, Tuple[str, ...]] = {
 # named by the client as an error on EST-261132), and never once confirmed legitimately needed.
 # Stripped by keyword match on product_code/description whenever a real scope table is present,
 # same "auto-removed, re-add deliberately if genuinely needed" treatment as the row-based cases.
-_SUSPECT_KEYWORD_LINE_ITEMS: Tuple[Tuple[str, ...], ...] = (
-    ("swingarm",),
-    ("tension", "sheave"),
-    ("tension", "idler"),
-)
+# The keyword groups live in scope_rules so the qualifier applies the same list.
 
 
 def _line_item_matches_suspect_keywords(item: Dict[str, Any]) -> bool:
-    text = f"{item.get('product_code') or ''} {item.get('description') or ''}".lower()
-    return any(all(kw in text for kw in group) for group in _SUSPECT_KEYWORD_LINE_ITEMS)
+    return scope_rules.item_matches_suspect_keywords(
+        f"{item.get('product_code') or ''} {item.get('description') or ''}"
+    )
 
 
 def _parse_scope_table_rows(scope_text: str) -> List[Tuple[str, str]]:
@@ -531,6 +530,19 @@ def _check_door_package_completeness(quote: Dict[str, Any], candidate_text: str)
                     f"quote's {label} line(s) sum to {actual_total}. Please verify before releasing "
                     "this quote."
                 )
+        actual_restrictor_total = sum(
+            (item.get("qty") or 0)
+            for item in line_items
+            if item.get("category") == "other"
+            and "restrict" in f"{item.get('product_code') or ''} {item.get('description') or ''}".lower()
+        )
+        if actual_restrictor_total != expected_total:
+            missing_notes.append(
+                f"⚠ AUTO-CHECK: the computed door package breakdown expects {expected_total} total "
+                f"openings, so the car door restrictor quantity should sum to {expected_total}, but "
+                f"this quote's restrictor line(s) sum to {actual_restrictor_total} (or the line is "
+                "missing entirely). Please verify before releasing this quote."
+            )
 
     if not missing_notes:
         return quote
@@ -1243,13 +1255,26 @@ def _enforce_governor_tension_companions(quote: Dict[str, Any]) -> Dict[str, Any
     line if missing or correcting its quantity if it doesn't match 1:1. Also attaches the RT-010/
     I-006/I-007 citation whenever an OL100 governor is present — "no final SKU/BOM" and unhanded
     price-list codes are still open, so an OL100 line is never presented as fully resolved just
-    because a price number exists for it."""
+    because a price number exists for it.
+
+    Companion lines are matched on product_code alone, so a model line filed under "other" is not
+    added a second time. Companion codes are excluded from the governor tally so an OL35 tension
+    assembly is not counted as another OL35 governor.
+    """
     line_items = quote.get("line_items") or []
+    known_companion_codes = set()
+    for size in ("35", "100"):
+        row = rules_engine.governor_tension_companion(size)
+        if row and row.get("ftl_product_code"):
+            known_companion_codes.add(row["ftl_product_code"])
     gov_qty_by_size: Dict[str, float] = {}
     for it in line_items:
         if it.get("category") != "governor":
             continue
-        m = _GOVERNOR_SIZE_RE.search(str(it.get("product_code") or ""))
+        code = str(it.get("product_code") or "")
+        if code in known_companion_codes:
+            continue
+        m = _GOVERNOR_SIZE_RE.search(code)
         if not m:
             continue
         try:
@@ -1279,17 +1304,11 @@ def _enforce_governor_tension_companions(quote: Dict[str, Any]) -> Dict[str, Any
             )
             continue
         companion_code = companion_row["ftl_product_code"]
-        existing = [
-            it for it in working_items
-            if it.get("category") == "governor" and it.get("product_code") == companion_code
-        ]
+        existing = [it for it in working_items if it.get("product_code") == companion_code]
         existing_qty = sum(float(it.get("qty") or 0) for it in existing)
-        if existing and existing_qty == expected_qty:
+        if existing and existing_qty == expected_qty and all(it.get("category") == "governor" for it in existing):
             continue
-        working_items = [
-            it for it in working_items
-            if not (it.get("category") == "governor" and it.get("product_code") == companion_code)
-        ]
+        working_items = [it for it in working_items if it.get("product_code") != companion_code]
         working_items.append(
             {
                 "product_code": companion_code,
@@ -1588,7 +1607,7 @@ def _sanitize_quote(quote: Dict[str, Any]) -> Dict[str, Any]:
                 "correct for this project; it is NOT always bundled with a door operator purchase "
                 "(a real quote, EST-261132, billed it chargeable alongside 8 door operators), but "
                 "some historical orders have shown it supplied at $0. Verify against this "
-                "customer's record/quoting rules before release. ⚠ " + rules_engine.cite_conflict("I-001")
+                "customer's record/quoting rules before release. ℹ " + rules_engine.cite_conflict("I-001")
             )
             item["note"] = (item.get("note") + " " if item.get("note") else "") + note
 
@@ -1702,7 +1721,7 @@ def _sanitize_quote(quote: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
-_WRONG_DOOR_OP_CODE_RE = re.compile(r"^SGV2_DOOR_OP_2[CT](\d+)_(LH|RH)$", re.IGNORECASE)
+_WRONG_DOOR_OP_CODE_RE = re.compile(r"^SGV2_DOOR_OP_2[CT](\d+)_(LH|RH|L|R)$", re.IGNORECASE)
 _WRONG_PANEL_WIDTH_RE = re.compile(r"\b2[CT]_UNIVERSAL_CAR_DOOR[A-Z_]*\s*-\s*(\d+)\s*X\s*84", re.IGNORECASE)
 
 
@@ -1742,7 +1761,8 @@ def _autocorrect_ssso_1s_override(
             m = _WRONG_DOOR_OP_CODE_RE.match(code)
             if not m:
                 continue
-            match = op_by_key.get((m.group(1), m.group(2).upper()))
+            hand = {"L": "LH", "R": "RH"}.get(m.group(2).upper(), m.group(2).upper())
+            match = op_by_key.get((m.group(1), hand))
             if match is None:
                 continue
             old_code, old_price = item.get("product_code"), item.get("unit_price")
@@ -2233,7 +2253,7 @@ def _detect_car_count_and_single_entrance(candidate_text: str) -> Optional[Tuple
 # estimator's answer deterministic and flags it clearly, rather than leaving it to model sampling.
 _TWO_SPEED_CONFIG_RE = re.compile(r"\btwo[- ]speed\b|\b2[- ]speed\b", re.IGNORECASE)
 _CENTRE_OPENING_RE = re.compile(r"cent(er|re)\s*[- ]?\s*open", re.IGNORECASE)
-_DOOR_OP_2C_CODE_RE = re.compile(r"^(SGV2_DOOR_OP_)2C(\d+)_(LH|RH)$", re.IGNORECASE)
+_DOOR_OP_2C_CODE_RE = re.compile(r"^(SGV2_DOOR_OP_)2C(\d+)_(LH|RH|L|R)$", re.IGNORECASE)
 
 
 def _enforce_two_speed_door_type(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
@@ -2520,45 +2540,66 @@ _RESTRICTOR_CODE_RE = re.compile(r"restrictor", re.IGNORECASE)
 
 
 def _enforce_door_restrictor_bundling(quote: Dict[str, Any]) -> Dict[str, Any]:
-    """Every SGV2 door operator MOD kit install includes an integrated car door restrictor hardware
-    bundled at no extra charge. Rather than emitting an unpriced $0.00 standalone line item on the
-    estimate (which appears as a blank/zero item on customer PDFs and consoles), this function
-    ensures door operators are clearly annotated with the bundled restrictor and the $0 bundled
-    status is explicitly documented in quote assumptions."""
+    """Every SGV2 door operator MOD kit includes one car door restrictor at $0, quantity matching
+    the door operators. Adds the line when it is missing, and corrects quantity or a near-miss code."""
     line_items = quote.get("line_items") or []
-    op_items = [it for it in line_items if it.get("category") == "door_operator"]
-    if not op_items:
+    op_qty = sum(float(it.get("qty") or 0) for it in line_items if it.get("category") == "door_operator")
+    if op_qty <= 0:
+        return quote
+
+    existing = [it for it in line_items if _RESTRICTOR_CODE_RE.search(str(it.get("product_code") or ""))]
+    already_correct = (
+        len(existing) == 1
+        and existing[0].get("product_code") == _RESTRICTOR_CANONICAL_CODE
+        and float(existing[0].get("qty") or 0) == op_qty
+    )
+    if already_correct:
         return quote
 
     quote = dict(quote)
-    # Filter out any standalone zero-dollar restrictor line items so they do not show as $0.00 in the line items table
-    working_items = [
-        it for it in line_items
-        if not (
-            it.get("product_code") == _RESTRICTOR_CANONICAL_CODE
-            or (_RESTRICTOR_CODE_RE.search(str(it.get("product_code") or "")) and float(it.get("unit_price") or 0) == 0)
-        )
-    ]
-
-    # Annotate door operators so that the contractor knows restrictors are included
-    for it in working_items:
-        if it.get("category") == "door_operator":
-            note = str(it.get("note") or "").strip()
-            if "restrictor" not in note.lower():
-                bundled_note = "Includes bundled car door restrictor hardware with the SGV2 MOD kit."
-                it["note"] = f"{note} ({bundled_note})" if note else bundled_note
-
-    quote["line_items"] = working_items
-
-    # Document in assumptions
-    assumptions = list(quote.get("assumptions") or [])
-    restrictor_assumption = (
-        "Car door restrictor hardware is bundled and included with the SGV2 door operator package at no extra charge."
+    working_items = [it for it in line_items if it not in existing]
+    working_items.append(
+        {
+            "product_code": _RESTRICTOR_CANONICAL_CODE,
+            "description": "Car door restrictor (bundled with SGV2 door operator MOD kit)",
+            "category": "other",
+            "qty": op_qty,
+            "unit_price": 0,
+            "subtotal_override": 0,
+            "needs_engineering_review": False,
+            "note": (
+                "ℹ AUTO-ADDED/CORRECTED — every SGV2 door operator on this estimate bundles a "
+                "car door restrictor at no extra charge (qty set to match the door_operator qty); "
+                "not a separately priced Product Master SKU."
+            ),
+        }
     )
-    if not any("restrictor" in str(a).lower() for a in assumptions):
-        assumptions.append(restrictor_assumption)
-    quote["assumptions"] = assumptions
+    quote["line_items"] = working_items
+    return quote
 
+
+def _canonicalize_product_codes(quote: Dict[str, Any]) -> Dict[str, Any]:
+    """Rewrite old price-book spellings to the current code (operators/clutches _LH/_RH -> _L/_R,
+    adaptors _DP_ -> _PANEL_ADAPTOR_). Price is set afterwards by product-master reconcile."""
+    line_items = quote.get("line_items") or []
+    changed = False
+    for item in line_items:
+        code = item.get("product_code")
+        if not isinstance(code, str):
+            continue
+        new_code = rules_engine.canonical_code(code)
+        if new_code == code:
+            continue
+        item["product_code"] = new_code
+        if item.get("description") == code:
+            item["description"] = new_code
+        note = f"ℹ SKU is {new_code} in the current price book (previously {code})."
+        item["note"] = (item.get("note") + " " if item.get("note") else "") + note
+        changed = True
+    if not changed:
+        return quote
+    quote = dict(quote)
+    quote["line_items"] = line_items
     return quote
 
 
@@ -2824,6 +2865,7 @@ def _normalize_door_tools_code(quote: Dict[str, Any]) -> Dict[str, Any]:
 
 def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
     quote = _validate_quote_payload(quote)
+    quote = _canonicalize_product_codes(quote)
     quote = _enforce_scope_table(quote, candidate_text)
     quote = _check_door_package_completeness(quote, candidate_text)
     quote = _enforce_governor_presence(quote, candidate_text)

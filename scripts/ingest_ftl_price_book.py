@@ -107,11 +107,16 @@ def main(argv) -> int:
               f"    python scripts/ingest_ftl_price_book.py \"{path}\"")
         return 3
 
-    from app.ftl.qualifier import pricelist_store  # noqa: E402
+    from app.ftl.qualifier import pricelist_store as qualifier_pricelist  # noqa: E402
+    from app.ftl.quote_estimator import pricelist_store as estimator_pricelist  # noqa: E402
 
-    result = pricelist_store.reindex_from_price_book(path)
-    print(f"\nIndexed: {result['pages_indexed']} pages, {result['total_chunks']} chunks "
-          f"({result['pages_reembedded']} re-embedded). Overlay written to {price_book.OVERLAY_PATH}.")
+    qualifier_result = qualifier_pricelist.reindex_from_price_book(path)
+    estimator_result = estimator_pricelist.reindex_from_price_book(path, write_overlay=False)
+    print(
+        f"\nQualifier index: {qualifier_result['pages_indexed']} pages, {qualifier_result['total_chunks']} chunks. "
+        f"Estimator index: {estimator_result['pages_indexed']} pages, {estimator_result['total_chunks']} chunks. "
+        f"Overlay written to {price_book.OVERLAY_PATH}."
+    )
     return 0
 
 

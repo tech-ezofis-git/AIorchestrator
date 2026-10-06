@@ -478,9 +478,9 @@ def test_quote_estimator_applies_git_consistency_checks():
         }
     )
     restrictors = [it for it in bundled["line_items"] if it["product_code"] == "SGV2_CAR_DOOR_RESTRICTOR"]
-    assert len(restrictors) == 0
-    assert any("restrictor" in str(it.get("note", "")).lower() for it in bundled["line_items"] if it["category"] == "door_operator")
-    assert any("restrictor" in str(a).lower() for a in bundled.get("assumptions", []))
+    assert len(restrictors) == 1
+    assert restrictors[0]["qty"] == 2
+    assert restrictors[0]["unit_price"] == 0
 
     exclusive = _enforce_panel_vs_adaptor_exclusivity(
         {

@@ -242,9 +242,9 @@ duplicate yourself before calling submit_quote; don't ship it with a cleanup ins
 
 **Exactly one clutch line per door operator, and it must carry the clutch's own product code, never
 the operator's.** A door operator MOD kit (`SGV2_DOOR_OP_*`) and its companion clutch c/w interlock
-(`SGV2_CLUTCH_<OEM>_<hand>`, e.g. `SGV2_CLUTCH_G.M.D._LH`) are two separate pricelist rows with two
+(`SGV2_CLUTCH_<OEM>_<hand>`, e.g. `SGV2_CLUTCH_G.M.D._L`) are two separate pricelist rows with two
 separate codes and prices — never submit a line with `category: "clutch"` whose `product_code` is
-actually the door operator's own code (e.g. `SGV2_DOOR_OP_2C42_LH`) reused under a different
+actually the door operator's own code (e.g. `SGV2_DOOR_OP_2C42_L`) reused under a different
 category; that is the same clutch being billed twice under two disguises. If you're unsure of the
 exact OEM/clutch variant, search_pricelist for the clutch specifically and pick the closest match
 with `needs_engineering_review` — don't fall back to re-describing the operator line as the clutch.
@@ -265,7 +265,9 @@ DESCRIPTION, PRICE) with no column labels attached to each value, and it is easy
 one — this has happened repeatedly across real test runs, always the same way: the value taken as
 product_code was short, hyphenated (or bare), and had NO underscore, because it came from the TYPE,
 O.E.M., or DESCRIPTION column instead of PRODUCT NAME. Every real correct product code in this
-pricelist has an underscore in it: `SGV2_DOOR_OP_2C42_LH`, `SGV2_CLUTCH_G.M.D._LH`,
+pricelist has an underscore in it: `SGV2_DOOR_OP_2C42_L`, `SGV2_CLUTCH_G.M.D._L`,
+
+**Hand suffixes and adaptor codes — use exactly what search_pricelist returns today.** FTL's current price book (REV. 09.2026) writes the hand on door operators and clutches as `_L` / `_R` (e.g. `SGV2_DOOR_OP_1S42_L`, `SGV2_CLUTCH_OTIS_R`) and names panel adaptors `SGV2(1S)_PANEL_ADAPTOR_GAL42_LH`. Older invoices show `_LH` / `_RH` on operators and clutches and `_DP_` on adaptors for the same items; copy the code from the search result. The estimator rewrites a known old spelling to the current code before the quote is saved.
 `WRG_MOTION_GEAR150`, `WG_OL35_GOVERNOR_RC`, `OL35_TENSION_SHEAVE_SWINGARM`, `WS_CSGB_CAR_SAFETIES`,
 `VISIONPLUS_3D_DETECTOR`, `SGV2_DOOR_TOOLS`. None of the wrong-column values ever have one:
 - `ALL` — that's the O.E.M. column, meaning "fits all OEMs," not a code.
@@ -413,8 +415,12 @@ unsure, include the item flagged `needs_engineering_review` rather than silently
 Some accessories are conventionally included at $0 subtotal when purchased alongside their parent
 kit in the same order — e.g. a panel adaptor or door-programming tool bundled with a door operator
 purchase, or a car door restrictor bundled with the operator MOD kit. When you're quoting the
-parent item in the same estimate, document it in the line notes and assumptions as included with the parent kit.
-**Car door restrictors are bundled with every SGV2 door operator package at no extra charge** — their inclusion is automatically noted on the door operator line and in quote assumptions, without generating a separate zero-dollar line item.
+parent item in the same estimate, set the accessory's `subtotal_override` to 0 and note it as
+included; if you're quoting the accessory on its own (parent not part of this estimate), price it
+normally. **Whenever you quote a door operator (any SGV2_DOOR_OP_* line, any door type), also add a
+`SGV2_CAR_DOOR_RESTRICTOR` line at $0.00 subtotal, qty matching the door operator** — it's bundled
+with every real MOD kit purchase and isn't its own priced pricelist SKU, so search_pricelist won't
+find it. If the model omits it, the estimator adds that $0 line with the same quantity.
 
 **Not every accessory is one-per-car — check before multiplying by car count:**
 - `SGV2_DOOR_TOOLS` (the door-programming tool) is ONE PER PROJECT, not one per car, even on a
@@ -429,7 +435,7 @@ parent item in the same estimate, document it in the line notes and assumptions 
   bundled by default. Only zero it out when you have a specific, project-level reason to (e.g. the
   RFQ or customer record states the customer already owns one, or that it's being supplied at no
   charge for this order) — absent that, submit it at its real search_pricelist price with no
-  override, flagged `needs_engineering_review` so a human can confirm either way before release.
+  override ($698.50 in FTL's current price book), flagged `needs_engineering_review` so a human can confirm either way before release.
 - Never add a standalone "2D/3D power supply" line (`VISIONPLUS_POWERSUPPLY`) alongside a 3D door
   detector line. Not "only if uncertain," not flagged-and-included-anyway — leave it out
   completely, every time, regardless of how the detector requirement is worded. It is normally
