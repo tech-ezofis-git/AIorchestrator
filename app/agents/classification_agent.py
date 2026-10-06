@@ -48,7 +48,20 @@ def adapt_pipeline_result(result: dict[str, Any], job: dict[str, Any]) -> dict[s
     )
 
 
-register_profile(AgentProfile(intent=INTENT, adapter=adapt_pipeline_result, user_template=USER_TEMPLATE))
+register_profile(
+    AgentProfile(
+        intent=INTENT,
+        adapter=adapt_pipeline_result,
+        user_template=USER_TEMPLATE,
+        progress_steps={
+            "file_fetcher": ("Fetching the document", 10),
+            "ocr": ("Reading the document", 35),
+            "prompt_builder": ("Preparing the classification prompt", 60),
+            "llm_reasoner": ("Classifying the document", 80),
+        },
+        progress_done="Document classified",
+    )
+)
 
 
 class ClassificationAgent:
