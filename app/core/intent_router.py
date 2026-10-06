@@ -63,6 +63,13 @@ class Intent(str, Enum):
     REPORT = "report"
     RAMCO_OCR = "ramco_ocr"
     FTP = "ftp"
+    OCR_TOOL = "ocr_tool"
+    PROMPT_BUILDER = "prompt_builder"
+    LLM_REASONER = "llm_reasoner"
+    FILE_FETCHER = "file_fetcher"
+    INVOICE_SCORER = "invoice_scorer"
+    FILE_PREPARATION = "file_preparation"
+    FOLDER_MOVER = "folder_mover"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the

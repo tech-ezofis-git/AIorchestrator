@@ -115,6 +115,17 @@ async def get_agent_skill(
     settings: Any = None,
 ) -> LoadedSkill:
     """Platform pack (+ tenant extras) for any markdown agent."""
+    skill, _source = await get_agent_skill_with_source(agent, tenant_id=tenant_id, settings=settings)
+    return skill
+
+
+async def get_agent_skill_with_source(
+    agent: str,
+    *,
+    tenant_id: Optional[str] = None,
+    settings: Any = None,
+) -> tuple[LoadedSkill, str]:
+    """Like `get_agent_skill`, plus where it came from: "catalog" (DB) or "disk"."""
     if settings is None:
         from app.config import get_settings
 
@@ -122,8 +133,8 @@ async def get_agent_skill(
     agent = (agent or "").strip().lower()
     db_skill = await _load_from_catalog(agent, tenant_id=tenant_id, settings=settings)
     if db_skill is not None:
-        return db_skill
-    return _load_disk_with_sqlite_overlay(agent, tenant_id=tenant_id, settings=settings)
+        return db_skill, "catalog"
+    return _load_disk_with_sqlite_overlay(agent, tenant_id=tenant_id, settings=settings), "disk"
 
 
 def get_summary_skill(*, tenant_id: Optional[str] = None, settings=None) -> LoadedSkill:

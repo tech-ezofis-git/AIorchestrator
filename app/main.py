@@ -90,6 +90,9 @@ never do — see `_snippet_for_audit` below and
 app/control/pii_redaction.py.
 """
 import asyncio
+import base64
+import binascii
+import json
 import logging
 import os
 import tempfile
@@ -232,6 +235,13 @@ from app.tools.global_search_tools import (
     make_search_workflows_handler,
 )
 from app.tools.run_forecast import RUN_FORECAST_SCHEMA, make_run_forecast_handler
+from app.tools.file_fetcher import fetch_file_by_path
+from app.tools.folder_mover import move_to_folder
+from app.tools.file_preparation import prepare_files
+from app.tools.invoice_scorer import score_invoice
+from app.tools.llm_reasoner import run_llm_reasoning
+from app.tools.ocr_tool import run_ocr_tool
+from app.tools.prompt_builder import build_llm_prompt
 from app.tools.run_ocr import RUN_OCR_SCHEMA, make_run_ocr_handler
 from app.tools.send_email import SEND_EMAIL_SCHEMA, make_send_email_handler
 from app.tools.store_memory import STORE_MEMORY_SCHEMA, make_store_memory_handler
@@ -629,6 +639,7 @@ async def lifespan(app: FastAPI):
     app.state.vector_store = vector_store
     app.state.embedding_adapter = embedding_adapter
     app.state.dispatcher = dispatcher
+    app.state.ocr_engine_client = ocr_engine_client
     app.state.pending_action_store = pending_action_store
     app.state.rate_limiter = rate_limiter
     app.state.permission_provider = permission_provider
@@ -2374,10 +2385,31 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 "ftl_quote_estimator",
                 "ramco_ocr",
                 "ftp",
+                "ocr_tool",
+                "prompt_builder",
+                "llm_reasoner",
+                "file_fetcher",
+                "invoice_scorer",
+                "file_preparation",
+                "folder_mover",
             }
         ):
             if explicit == "summary":
                 message = "Summarize the document."
+            elif explicit == "ocr_tool":
+                message = "Extract text from the document."
+            elif explicit == "prompt_builder":
+                message = "Build the LLM prompt from the skill pack and OCR text."
+            elif explicit == "llm_reasoner":
+                message = "Run LLM reasoning on the prepared prompt."
+            elif explicit == "file_fetcher":
+                message = "Fetch the file by path."
+            elif explicit == "invoice_scorer":
+                message = "Score the invoice extraction."
+            elif explicit == "file_preparation":
+                message = "Prepare the files under the unique ref."
+            elif explicit == "folder_mover":
+                message = "Move the prepared files to their folder."
             elif explicit == "classification":
                 message = "Classify the document."
             elif explicit == "ramco_ocr":
@@ -2675,6 +2707,86 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "repository_id": p.repository_id if p else None,
             "instance_id": p.instance_id if p else None,
         }
+    elif intent == Intent.OCR_TOOL:
+        p = payload.payload
+        document_job = {
+            "file_bytes": parsed.file_bytes,
+            "filename": parsed.filename,
+            "content_type": parsed.content_type,
+            "filepath": p.filepath if p else None,
+            "pageno": p.pageno if p else None,
+            "layout": p.layout if p and p.layout is not None else True,
+            "tenant_id": p.tenant_id if p else None,
+        }
+    elif intent == Intent.PROMPT_BUILDER:
+        p = payload.payload
+        document_job = {
+            "target_intent": p.target_intent if p else None,
+            # Not stripped: Paddle's layout spacing must reach the model unchanged.
+            "ocr_text": (p.ocr_text or "") if p else "",
+            "instruction": payload.instruction,
+            "tenant_id": p.tenant_id if p else None,
+        }
+    elif intent == Intent.LLM_REASONER:
+        p = payload.payload
+        document_job = {
+            "prepared_prompt": p.prepared_prompt if p else None,
+            "model": model_id_from_display_name(p.model if p else None),
+        }
+    elif intent == Intent.FILE_FETCHER:
+        p = payload.payload
+        document_job = {
+            "tenant_id": (p.tenant_id if p else None) or request.headers.get("x-tenant-id"),
+            "path": (p.path or p.filepath) if p else None,
+            "timestamp": p.timestamp if p else None,
+            "file_name": p.file_name if p else None,
+            "folder": p.folder if p else None,
+        }
+    elif intent == Intent.INVOICE_SCORER:
+        p = payload.payload
+        document_job = {"ocr_json": p.ocr_json if p else None}
+    elif intent == Intent.FILE_PREPARATION:
+        p = payload.payload
+        file_bytes = parsed.file_bytes
+        if file_bytes is None and p and p.file_base64:
+            try:
+                file_bytes = base64.b64decode("".join(p.file_base64.split()), validate=True)
+            except (binascii.Error, ValueError):
+                raise HTTPException(status_code=400, detail="file_base64 is not valid base64.")
+        document_job = {
+            "ocr_json": p.ocr_json if p else None,
+            "valid": p.valid if p else None,
+            "file_bytes": file_bytes,
+            "filename": parsed.filename if parsed.file_bytes is not None else (p.file_name if p else None),
+            "content_type": parsed.content_type if parsed.file_bytes is not None else (p.file_content_type if p else None),
+            "remarks": p.remarks if p else None,
+            "filepath": p.filepath if p else None,
+            "tenant_id": p.tenant_id if p else None,
+            "workflow_id": p.workflow_id if p else None,
+            "repository_id": p.repository_id if p else None,
+            "instance_id": p.instance_id if p else None,
+            "env_type": p.env_type if p else None,
+            "document_type": p.document_type if p else None,
+            "model_display": p.model if p else None,
+        }
+    elif intent == Intent.FOLDER_MOVER:
+        p = payload.payload
+        files = []
+        for entry in (p.prepared_files if p else None) or []:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("base64"):
+                try:
+                    data = base64.b64decode("".join(str(entry["base64"]).split()), validate=True)
+                except (binascii.Error, ValueError):
+                    raise HTTPException(status_code=400, detail=f"File {entry.get('name')!r} is not valid base64.")
+            elif entry.get("json") is not None:
+                content = entry["json"]
+                data = (content if isinstance(content, str) else json.dumps(content, ensure_ascii=False, indent=2)).encode("utf-8")
+            else:
+                data = b""
+            files.append({"name": entry.get("name"), "data": data})
+        document_job = {"files": files, "valid": p.valid if p else None}
     elif intent in {Intent.SUMMARY, Intent.CLASSIFICATION, Intent.DOCUMENT_INTELLIGENT, Intent.INSIGHT} and has_ocr_text:
         # Direct OCR text: skip blob download and Paddle. Wins over file/filepath.
         document_job = {
@@ -2888,6 +3000,115 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                     "classification_error": f"Classification failed: {exc}",
                 }
             result = with_classification_contract(result, payload.payload, document_job)
+        elif intent == Intent.OCR_TOOL:
+            ocr_tool_result = await run_ocr_tool(
+                request.app.state.ocr_engine_client,
+                file_bytes=document_job["file_bytes"],
+                filename=document_job["filename"],
+                content_type=document_job["content_type"],
+                filepath=document_job["filepath"],
+                pageno=document_job["pageno"],
+                layout=document_job["layout"],
+                tenant_id=document_job["tenant_id"],
+            )
+            if ocr_tool_result["status"] == "SUCCEEDED":
+                reply = f"OCR extracted {ocr_tool_result['chars']} characters from {ocr_tool_result['filename'] or 'the document'}."
+            else:
+                reply = ocr_tool_result["error"] or "OCR failed."
+            result = {"reply": reply, "usage": None, "ocr_tool_result": ocr_tool_result}
+        elif intent == Intent.PROMPT_BUILDER:
+            prompt_builder_result = await build_llm_prompt(
+                document_job["target_intent"] or "",
+                document_job["ocr_text"],
+                instruction=document_job["instruction"],
+                tenant_id=document_job["tenant_id"],
+            )
+            if prompt_builder_result["status"] == "SUCCEEDED":
+                skill = prompt_builder_result["skill"] or {}
+                reply = (
+                    f"Prompt prepared for '{prompt_builder_result['intent']}' with skill "
+                    f"'{skill.get('name')}' and {len(skill.get('rules') or [])} rule(s)."
+                )
+            else:
+                reply = prompt_builder_result["error"] or "Prompt preparation failed."
+            result = {"reply": reply, "usage": None, "prompt_builder_result": prompt_builder_result}
+        elif intent == Intent.LLM_REASONER:
+            llm_reasoner_result = await run_llm_reasoning(
+                llm_adapter,
+                document_job["prepared_prompt"] or {},
+                llm_overrides=document_job.get("llm_overrides"),
+            )
+            if llm_reasoner_result["status"] == "SUCCEEDED":
+                reply = f"LLM reasoning completed for '{llm_reasoner_result['intent'] or 'prompt'}'."
+            else:
+                reply = llm_reasoner_result["error"] or "LLM reasoning failed."
+            result = {
+                "reply": reply,
+                "usage": llm_reasoner_result["usage"],
+                "llm_reasoner_result": llm_reasoner_result,
+            }
+        elif intent == Intent.FILE_FETCHER:
+            fetched = await fetch_file_by_path(
+                tenant_id=document_job["tenant_id"] or "",
+                path=document_job["path"],
+                timestamp=document_job["timestamp"],
+                file_name=document_job["file_name"],
+                folder=document_job["folder"],
+            )
+            file_bytes = fetched.pop("file_bytes")
+            fetched["base64"] = base64.b64encode(file_bytes).decode("ascii") if file_bytes else None
+            if fetched["status"] == "SUCCEEDED":
+                reply = f"Fetched {fetched['fileName']} ({len(file_bytes)} bytes, {fetched['contentType'] or 'unknown type'})."
+            else:
+                reply = fetched["error"] or "File fetch failed."
+            result = {"reply": reply, "usage": None, "file_fetcher_result": fetched}
+        elif intent == Intent.INVOICE_SCORER:
+            scored = score_invoice(document_job["ocr_json"])
+            if scored["status"] == "SUCCEEDED":
+                reply = (
+                    f"Invoice is {'valid' if scored['valid'] else 'not valid'}: {scored['null_count']} of "
+                    f"{scored['total_fields']} fields are null ({scored['null_percent']}%, limit "
+                    f"{scored['threshold_percent']}%)."
+                )
+            else:
+                reply = scored["error"] or "Invoice scoring failed."
+            result = {"reply": reply, "usage": None, "invoice_scorer_result": scored}
+        elif intent == Intent.FILE_PREPARATION:
+            ocr_json = document_job["ocr_json"]
+            valid = document_job["valid"]
+            scored = score_invoice(ocr_json)
+            if valid is None:
+                valid = scored["valid"]
+            prepared = prepare_files(
+                ocr_json,
+                valid=valid,
+                null_ratio=scored["null_ratio"],
+                file_bytes=document_job["file_bytes"],
+                filename=document_job["filename"],
+                content_type=document_job["content_type"],
+                remarks=document_job["remarks"],
+                filepath=document_job["filepath"],
+                tenant_id=document_job["tenant_id"],
+                workflow_id=document_job["workflow_id"],
+                repository_id=document_job["repository_id"],
+                instance_id=document_job["instance_id"],
+                env_type=document_job["env_type"],
+                document_type=document_job["document_type"],
+                model_display=document_job["model_display"],
+            )
+            for f in prepared["files"]:
+                f["base64"] = base64.b64encode(f.pop("data")).decode("ascii")
+            names = ", ".join(f["name"] for f in prepared["files"])
+            reply = f"Prepared {names} ({'valid' if valid else 'not valid'} invoice)."
+            result = {"reply": reply, "usage": None, "file_preparation_result": prepared}
+        elif intent == Intent.FOLDER_MOVER:
+            moved = await move_to_folder(files=document_job["files"], valid=bool(document_job["valid"]))
+            if moved["status"] == "SUCCEEDED":
+                names = ", ".join(f["name"] for f in moved["files"])
+                reply = f"Moved {names} to the {moved['folder']} folder ({moved['remote_dir']})."
+            else:
+                reply = moved["error"] or "Folder move failed."
+            result = {"reply": reply, "usage": None, "folder_mover_result": moved}
         else:
             result = await agent_router.route(
                 intent,
@@ -2980,6 +3201,13 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         classification_result=result.get("classification_result"),
         ramco_ocr_result=result.get("ramco_ocr_result"),
         ftp_result=result.get("ftp_result"),
+        ocr_tool_result=result.get("ocr_tool_result"),
+        prompt_builder_result=result.get("prompt_builder_result"),
+        llm_reasoner_result=result.get("llm_reasoner_result"),
+        file_fetcher_result=result.get("file_fetcher_result"),
+        invoice_scorer_result=result.get("invoice_scorer_result"),
+        file_preparation_result=result.get("file_preparation_result"),
+        folder_mover_result=result.get("folder_mover_result"),
         document_intelligent_result=result.get("document_intelligent_result"),
         insight_result=result.get("insight_result"),
         forecast_result=result.get("forecast_result"),

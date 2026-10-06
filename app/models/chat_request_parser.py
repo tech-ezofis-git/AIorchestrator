@@ -45,6 +45,8 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     instruction = _form_str(form.get("instruction"))
     filepath = _form_str(form.get("filepath")) or _form_str(form.get("blobPath"))
     pageno = _form_str(form.get("pageno"))
+    layout_raw = _form_str(form.get("layout"))
+    layout = None if layout_raw is None else layout_raw.lower() not in {"false", "0", "no", "off"}
     ocr_text = _form_raw_str(form.get("ocr_text"))
     candidate_text = (
         _form_str(form.get("candidate_text"))
@@ -237,6 +239,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
     if (
         filepath
         or pageno
+        or layout is not None
         or ocr_text
         or candidate_text
         or qualifier_result
@@ -262,6 +265,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         payload = DocumentPayload(
             filepath=filepath,
             pageno=pageno,
+            layout=layout,
             ocr_text=ocr_text,
             summary_json=summary_json,
             key_facts_count=key_facts_count,

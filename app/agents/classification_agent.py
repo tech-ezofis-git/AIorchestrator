@@ -7,18 +7,48 @@ from typing import Any, Optional
 from app.agents.ocr_helpers import InvalidOcrPageError, resolve_pageno
 from app.agents.reference_extraction import extract_reference
 from app.classification_skills.classify_document import run as classify_document_skill
+from app.classification_skills.lock import locked_classification_payload, parse_classification_json_content
+from app.classification_skills.rules import USER_PROMPT_PREFIX
 from app.config import Settings
-from app.core.dispatcher import Dispatcher, ToolExecutionError
+from app.core.dispatcher import Dispatcher
 from app.core.response_composer import ResponseComposer
-from app.integrations.ocr_engine import OcrEngineError
 from app.llm.adapter import LLMAdapter
 from app.llm.model_presets import resolve_preset_overrides
 from app.llm.runtime_models import RuntimeModelSelection
+from app.tools.pipeline import AgentProfile, DispatcherOcrEngine, register_profile, run_agent_pipeline
 
 logger = logging.getLogger("orchestrator.classification_agent")
 
+INTENT = "classification"
 _SUCCESS_REPLY = "Document classification generated successfully."
 _FAIL_REPLY = "I couldn't extract any text from that document, so I can't classify it."
+USER_TEMPLATE = f"{USER_PROMPT_PREFIX}\n\nSource: {{source}}{{page_suffix}}\n\nOCR text:\n{{text}}"
+
+
+def adapt_pipeline_result(result: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
+    """Generic pipeline result → classification_result response (same shape as before)."""
+    source = result.get("source") or "upload"
+    step = result.get("failed_step")
+    if step in {"input", "file_fetcher", "ocr"} or not (result.get("ocr_text") or "").strip():
+        if step:
+            logger.warning("classification_document_extract_failed", extra={"step": step})
+        return _document_job_result(locked_classification_payload(ocr_text=""), source=source, usage=None)
+    if step:
+        raise RuntimeError(result.get("error") or f"{step} failed.")
+    payload = parse_classification_json_content(result["reasoning"]["content"], ocr_text=result["ocr_text"])
+    usage = result.get("usage") or {}
+    return _document_job_result(
+        payload,
+        source=source,
+        usage={
+            "prompt_tokens": usage.get("prompt_tokens") or 0,
+            "completion_tokens": usage.get("completion_tokens") or 0,
+            "total_tokens": usage.get("total_tokens") or 0,
+        },
+    )
+
+
+register_profile(AgentProfile(intent=INTENT, adapter=adapt_pipeline_result, user_template=USER_TEMPLATE))
 
 
 class ClassificationAgent:
@@ -82,151 +112,40 @@ class ClassificationAgent:
         )
 
     async def _handle_document_job(self, job: dict[str, Any]) -> dict:
-        settings = self._cfg()
-        model = (job.get("model") or "").strip() or None
-        tenant_id = (job.get("tenant_id") or "").strip() or None
-
-        content = ""
-        source = "upload"
-        page_label = ""
-
-        if (job.get("ocr_text") or "").strip():
-            content = job["ocr_text"]
-            source = "ocr_text"
-            page_label = "supplied text"
-        else:
+        """File Fetcher / OCR / Prompt Builder / LLM Reasoner, skipping steps the input already covers."""
+        if not (job.get("ocr_text") or "").strip():
             try:
-                pages = resolve_pageno(job.get("pageno"), max_pages=settings.ocr_max_pages)
+                resolve_pageno(job.get("pageno"), max_pages=self._cfg().ocr_max_pages)
             except InvalidOcrPageError as exc:
                 raise ValueError(str(exc)) from exc
 
-            filepath = (job.get("filepath") or "").strip() or None
-            file_bytes = job.get("file_bytes")
-            filename = job.get("filename")
-            content_type = job.get("content_type")
-            source = filepath or filename or "upload"
-            page_label = pages.label()
-
-            try:
-                ocr_tool = await self._dispatcher.dispatch(
-                    "run_ocr",
-                    {
-                        "reference": source,
-                        "filepath": filepath,
-                        "tenant_id": job.get("tenant_id"),
-                        "filename": filename,
-                        "content_type": content_type,
-                        "file_bytes": file_bytes,
-                        "page_start": pages.start,
-                        "page_end": pages.end,
-                        "page_raw": pages.raw,
-                        "layout": True,
-                    },
-                )
-                content = ocr_tool.get("text") or ""
-            except (ToolExecutionError, OcrEngineError, Exception) as exc:
-                logger.warning(
-                    "classification_document_extract_failed",
-                    extra={"error_type": type(exc).__name__},
-                )
-                content = ""
-
-        if not content.strip():
-            empty = await classify_document_skill(
-                llm=self._llm_for_skill(),
-                text="",
-                source=source,
-                page_label=page_label,
-                tenant_id=tenant_id,
-            )
-            return _document_job_result(empty["payload"], source=source, usage=None)
-
+        model = (job.get("model") or "").strip() or None
         overrides = dict(job.get("llm_overrides") or {})
-        fallback_overrides = job.get("llm_fallback_overrides")
-        try:
-            synthesis = await classify_document_skill(
-                llm=self._llm_for_skill(),
-                text=content,
-                source=source,
-                page_label=page_label,
-                model=model,
-                tenant_id=tenant_id,
-                llm_overrides=overrides,
-            )
-        except Exception as exc:
-            logger.warning(
-                "classification_primary_failed",
-                extra={"model": overrides.get("model") or model or "default"},
-            )
-            synthesis = await self._classify_with_fallback(
-                text=content,
-                source=source,
-                page_label=page_label,
-                primary=overrides.get("model") or model,
-                error=exc,
-                tenant_id=tenant_id,
-                catalog_fallback_preset=job.get("catalog_fallback_preset"),
-                fallback_overrides=fallback_overrides if isinstance(fallback_overrides, dict) else None,
-            )
-
-        usage = synthesis.get("usage") or {}
-        return _document_job_result(
-            synthesis["payload"],
-            source=source,
-            usage={
-                "prompt_tokens": usage.get("prompt_tokens") or 0,
-                "completion_tokens": usage.get("completion_tokens") or 0,
-                "total_tokens": usage.get("total_tokens") or 0,
-            },
+        if model and "model" not in overrides:
+            overrides["model"] = model
+        return await run_agent_pipeline(
+            INTENT,
+            job,
+            ocr_engine=DispatcherOcrEngine(self._dispatcher),
+            llm=self._llm_for_skill(),
+            llm_overrides=overrides,
+            fallback_overrides=self._fallback_candidates(job, primary=overrides.get("model")),
         )
 
-    async def _classify_with_fallback(
-        self,
-        *,
-        text: str,
-        source: str,
-        page_label: str,
-        primary: Optional[str],
-        error: Exception,
-        tenant_id: Optional[str] = None,
-        catalog_fallback_preset: Optional[str] = None,
-        fallback_overrides: Optional[dict[str, Any]] = None,
-    ) -> dict[str, Any]:
-        settings = self._cfg()
-        if not fallback_overrides:
-            fallback_preset = catalog_fallback_preset or (
+    def _fallback_candidates(self, job: dict[str, Any], *, primary: Optional[str]) -> list[dict[str, Any]]:
+        """Fallback LLM settings, in the same order the agent always used: catalog/runtime preset, then env model."""
+        fallback_overrides = job.get("llm_fallback_overrides")
+        if not isinstance(fallback_overrides, dict) or not fallback_overrides:
+            fallback_preset = job.get("catalog_fallback_preset") or (
                 self._runtime_models.fallback_preset_id if self._runtime_models else None
             )
             fallback_overrides = resolve_preset_overrides(fallback_preset) if fallback_preset else None
-        env_fallback = (settings.ocr_fallback_model or "").strip() or None
-
         if fallback_overrides:
-            logger.warning(
-                "classification_fallback_preset",
-                extra={"model": fallback_overrides.get("model")},
-            )
-            return await classify_document_skill(
-                llm=self._llm_for_skill(),
-                text=text,
-                source=source,
-                page_label=page_label,
-                model=None,
-                tenant_id=tenant_id,
-                llm_overrides=fallback_overrides,
-            )
-
+            return [fallback_overrides]
+        env_fallback = (self._cfg().ocr_fallback_model or "").strip() or None
         if env_fallback and env_fallback != primary:
-            logger.warning("classification_fallback_model", extra={"model": env_fallback})
-            return await classify_document_skill(
-                llm=self._llm_for_skill(),
-                text=text,
-                source=source,
-                page_label=page_label,
-                model=env_fallback,
-                tenant_id=tenant_id,
-            )
-
-        raise error
+            return [{"model": env_fallback}]
+        return []
 
 
 def _document_job_result(

@@ -93,6 +93,62 @@ class DocumentPayload(BaseModel):
         default=None,
         description="Page selector: omit/1..max for one page; -1 for pages 1..max.",
     )
+    layout: Optional[bool] = Field(
+        default=None,
+        description="intent=ocr_tool only: keep Paddle's layout spacing (default true); false strips the text.",
+    )
+    target_intent: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("target_intent", "targetIntent", "agent_intent", "agentIntent"),
+        description="intent=prompt_builder only: agent intent whose skill pack + rules to load (e.g. ramco_ocr, summary).",
+    )
+    prepared_prompt: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("prepared_prompt", "preparedPrompt", "prepared"),
+        description="intent=llm_reasoner only: the prompt_builder_result object (needs `messages`).",
+    )
+    path: Optional[str] = Field(
+        default=None,
+        description="intent=file_fetcher only: Ezofis file path, e.g. monitor/Ramco_mjb/20261005123000123/invoice.pdf.",
+    )
+    timestamp: Optional[str] = Field(
+        default=None,
+        description="intent=file_fetcher only: timestamp folder, used with file_name when path is omitted.",
+    )
+    file_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("file_name", "fileName", "FileName"),
+        description="intent=file_fetcher only: file name, used with timestamp when path is omitted.",
+    )
+    folder: Optional[str] = Field(
+        default=None,
+        description="intent=file_fetcher only: base folder for timestamp + file_name (default monitor/Ramco_mjb).",
+    )
+    valid: Optional[bool] = Field(
+        default=None,
+        description=(
+            "intent=file_preparation / folder_mover: the invoice_scorer decision. "
+            "Omitted on file_preparation → the JSON is scored first."
+        ),
+    )
+    file_base64: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("file_base64", "fileBase64"),
+        description="intent=file_preparation only: the document as base64 (e.g. file_fetcher_result.base64); a multipart file also works.",
+    )
+    file_content_type: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("file_content_type", "fileContentType", "contentType"),
+        description="intent=file_preparation only: content type of file_base64.",
+    )
+    prepared_files: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        validation_alias=AliasChoices("prepared_files", "preparedFiles", "files"),
+        description=(
+            "intent=folder_mover only: [{name, base64}] or [{name, json}] — "
+            "e.g. file_preparation_result.files."
+        ),
+    )
     ocr_text: Optional[str] = Field(
         default=None,
         description=(
@@ -794,6 +850,13 @@ class ChatRequest(BaseModel):
                 "ftl_quote_estimator",
                 "ramco_ocr",
                 "ftp",
+                "ocr_tool",
+                "prompt_builder",
+                "llm_reasoner",
+                "file_fetcher",
+                "invoice_scorer",
+                "file_preparation",
+                "folder_mover",
             }:
                 return self
             raise ValueError(
@@ -966,6 +1029,56 @@ class ChatResponse(BaseModel):
             "Ramco OCR contract (intent=ramco_ocr) — agent, Extraction Status (SUCCEEDED/FAILED), "
             "documentType, Extraction Completed, source, environment, extraction "
             "{model, confidence 0–1, invoiceHeader, lineItems}, ERROR CODE."
+        ),
+    )
+    ocr_tool_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "OCR tool output (intent=ocr_tool) — tool, status (SUCCEEDED/FAILED), filename, pages, "
+            "text (layout-preserved Paddle text), chars, latency_ms, error. No LLM call."
+        ),
+    )
+    prompt_builder_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Prompt Builder output (intent=prompt_builder) — tool, status, intent, "
+            "skill {id, name, description, rules, tenant_id}, messages [system, user], chars, error. No LLM call."
+        ),
+    )
+    llm_reasoner_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "LLM Reasoner output (intent=llm_reasoner) — tool, status, intent, content (raw reply), "
+            "json (reply parsed as an object, else null), usage, latency_ms, error."
+        ),
+    )
+    file_fetcher_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "File Fetcher output (intent=file_fetcher) — tool, status, tenant_id, path, fileName, "
+            "contentType, fileSize, base64 (the file), latency_ms, error."
+        ),
+    )
+    invoice_scorer_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Invoice Scorer output (intent=invoice_scorer) — tool, status, valid, decision (VALID/NOT_VALID), "
+            "null_ratio, null_percent, threshold_percent, total_fields, null_count, null_fields, error."
+        ),
+    )
+    file_preparation_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "File Preparation output (intent=file_preparation) — tool, status, valid, unique_ref, "
+            "files [{name ({ref}.pdf / {ref}.json), content_type, size, base64}], "
+            "json (FTP contract when valid, extraction as received when not), error."
+        ),
+    )
+    folder_mover_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Folder Mover output (intent=folder_mover) — tool, status, valid, folder (processed/unprocessed), "
+            "remote_dir, files [{name, size, remote_path}], delivered_at, latency_ms, error."
         ),
     )
     pdf_download_url: Optional[str] = Field(
