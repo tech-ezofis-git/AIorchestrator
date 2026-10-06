@@ -29,6 +29,7 @@ _PACK_AGENTS = (
     "dashboard-schema",
     "dashboard-data",
     "ftl_qualifier",
+    "ftl_ai_insight",
     "ftl_quote_estimator",
     "report-prompt",
     "report-run",

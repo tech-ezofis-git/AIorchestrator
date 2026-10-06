@@ -419,21 +419,53 @@ def skill_dict_from_loaded(loaded: Any, fallback: Dict[str, Any]) -> Dict[str, A
     }
 
 
+INSIGHT_AGENT = "ftl_ai_insight"
+
+
+def read_insight_skill() -> str:
+    """Inbox wording from ``skills/ftl_ai_insight/SKILL.md``. Empty when that pack is missing."""
+    from app.agent_skills.loader import load_skill_pack
+
+    try:
+        loaded = load_skill_pack(INSIGHT_AGENT)
+    except FileNotFoundError:
+        return ""
+    return str(loaded.skill_body or "").strip()
+
+
+async def load_insight_instructions(*, tenant_id: Optional[str] = None) -> str:
+    """Catalog pack first (platform skill plus a tenant edit), then the disk skill."""
+    try:
+        from app.agent_packs.overlay import get_agent_skill
+
+        loaded = await get_agent_skill(INSIGHT_AGENT, tenant_id=tenant_id)
+        body = str(getattr(loaded, "skill_body", "") or "").strip()
+        if body:
+            return body
+    except Exception:
+        pass
+    return read_insight_skill()
+
+
 async def load_runtime_skill(*, tenant_id: Optional[str] = None) -> Dict[str, Any]:
     """Catalog pack first (platform skill plus tenant edits), then the disk pack, then skill.json.
 
     A tenant skill or rule saved in the console is included on the next qualification.
+    Ai Insight wording comes from the separate ``ftl_ai_insight`` skill.
     """
     fallback = load_skill()
+    skill: Dict[str, Any] = fallback
     try:
         from app.agent_packs.overlay import get_agent_skill
 
         loaded = await get_agent_skill("ftl_qualifier", tenant_id=tenant_id)
+        if str(getattr(loaded, "skill_body", "") or "").strip():
+            skill = skill_dict_from_loaded(loaded, fallback)
     except Exception:
-        return fallback
-    if not str(getattr(loaded, "skill_body", "") or "").strip():
-        return fallback
-    return skill_dict_from_loaded(loaded, fallback)
+        skill = fallback
+    skill = dict(skill)
+    skill["ai_insight_instructions"] = await load_insight_instructions(tenant_id=tenant_id)
+    return skill
 
 
 def update_instructions(new_instructions: str) -> Dict[str, Any]:

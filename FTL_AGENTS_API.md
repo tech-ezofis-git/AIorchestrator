@@ -111,7 +111,7 @@ The standalone endpoint `POST /api/ftl/qualify` takes `{ "Filename": "rfq.txt", 
     "Flags": [],
     "Reasoning": "The RFQ requests Wittur linear door operator integration with Kone doors (ambiguous but plausible with adaptors) and multiple Wittur clutch and interlock assemblies which are directly supported by FTL's Wittur SGV2 catalog.",
     "Confidence": 85,
-    "Ai Insight": "This modernization opportunity fits well with FTL's product catalog. The main question is confirming compatibility of Kone doors with the Wittur linear operator. Recommend quoting with a clarification request on Kone integration."
+    "Ai Insight": "Pursue — Wittur operator and clutches match. Confirm Kone door compatibility, then quote."
   },
   "quote_result": null,
   "pdf_base64": null
@@ -127,7 +127,7 @@ The standalone endpoint `POST /api/ftl/qualify` takes `{ "Filename": "rfq.txt", 
 | `Matched items[].Catalog Ref` | Only present when the model found a pricelist reference. |
 | `Excluded items[]` | `Item`, `Reason` |
 | `Confidence` | `0` to `100` |
-| `Ai Insight` | Short sales-facing summary: how attractive the opportunity is, the main risk, and the recommended next step. |
+| `Ai Insight` | One inbox-ticket line, at most 120 characters: Pursue, Skip, or Review, the product that decides it, and the next step. |
 
 ---
 

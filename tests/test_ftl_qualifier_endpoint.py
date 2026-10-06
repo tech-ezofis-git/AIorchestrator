@@ -133,6 +133,54 @@ def test_chat_ftl_qualifier_intent(client, monkeypatch):
     assert "NEEDS REVIEW" in body["reply"]
 
 
+def test_ai_insight_wording_comes_from_its_own_skill():
+    from app.ftl.qualifier.agent import build_system_prompt, insight_instructions
+    from app.ftl.qualifier.skill_store import read_insight_skill
+
+    wording = read_insight_skill()
+    assert "120 characters" in wording
+    assert "Pursue —" in wording
+    assert "roller guides" in wording
+
+    prompt = build_system_prompt(
+        {"instructions": "Qualify the RFQ.", "ai_insight_instructions": "CUSTOM_INBOX_LINE"},
+        is_json_mode=True,
+    )
+    assert "CUSTOM_INBOX_LINE" in prompt
+    assert "roller guides" not in prompt
+    assert insight_instructions({}) == wording
+
+
+def test_inbox_insight_stays_one_short_line():
+    from app.ftl.qualifier.agent import _apply_policy_overrides, _fit_inbox_insight
+
+    long = (
+        "FTL can pursue this modernization; the RFQ includes multiple matchable equipment "
+        "categories (car/CWT roller guides, 2D/3D detectors, clutches) and the next step is "
+        "to confirm quantities with the customer before sending a quote."
+    )
+    short = _fit_inbox_insight(long)
+    assert len(short) <= 120
+    assert short.startswith("Pursue —")
+    assert "roller guides" in short
+    assert "2D/3D" in short
+    assert "Confirm quantities" in short
+    assert not short.endswith("and.")
+
+    decision = _apply_policy_overrides(
+        {
+            "qualify": "qualify",
+            "project_type": "modernization",
+            "matched_items": [{"item": "new governor", "category": "governor", "match": "ambiguous"}],
+            "reasoning": "governor requested",
+            "flags": [],
+            "ai_insight": long,
+        },
+        "Provide a new governor for each car.",
+    )
+    assert len(decision["ai_insight"]) <= 120
+
+
 def test_policy_overrides_follow_git_backstops():
     from app.ftl.qualifier.agent import _apply_policy_overrides
 

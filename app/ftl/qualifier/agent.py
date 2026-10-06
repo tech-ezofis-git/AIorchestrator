@@ -7,6 +7,7 @@ DB-free: search_pricelist reads pricelist_store.py's local JSON index instead of
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -453,7 +454,9 @@ def _apply_policy_overrides(decision: Dict[str, Any], candidate_text: str) -> Di
     decision = _enforce_unknown_project_type_needs_review(decision)
     decision = _enforce_wittur_allowed_operator_package(decision)
     decision = _enforce_ambiguous_item_qualify_threshold(decision)
-    return _enforce_unsupported_operator_lone_detector(decision, candidate_text)
+    decision = _enforce_unsupported_operator_lone_detector(decision, candidate_text)
+    decision["ai_insight"] = _fit_inbox_insight(str(decision.get("ai_insight") or ""))
+    return decision
 
 
 # Cosine-similarity floor below which search_pricelist's top result is treated as "nothing real
@@ -485,10 +488,19 @@ _SEARCH_PRICELIST_TOOL = {
     },
 }
 
+# The inbox ticket row shows about 120 characters, then an ellipsis.
+# Wording lives in skills/ftl_ai_insight/SKILL.md. This text is only the fallback.
+_INBOX_INSIGHT_MAX = 120
+
 _AI_INSIGHT_DESCRIPTION = (
-    "2-4 sentences for the FTL sales team: how attractive this opportunity is for FTL, the main "
-    "risk or open question to clarify with the customer, and the recommended next step. Do not "
-    "repeat the matched/excluded item lists or the reasoning."
+    "One sentence for the inbox ticket row, at most 120 characters. "
+    "Start with Pursue, Skip, or Review so it matches your qualify verdict. "
+    "Then name the one or two products that decide it, and the next step for sales. "
+    "No item lists, no prices, and do not repeat the reasoning. "
+    "Examples: "
+    "\"Pursue — modernization with roller guides and door detectors. Confirm qty, then quote.\" "
+    "\"Skip — new construction; the only Wittur item is a lone detector.\" "
+    "\"Review — governor listed, but the scope table says retain. Confirm before quoting.\""
 )
 
 _SUBMIT_DECISION_TOOL = {
@@ -532,12 +544,32 @@ _SUBMIT_DECISION_TOOL = {
                 },
                 "reasoning": {"type": "string"},
                 "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                "ai_insight": {"type": "string", "description": _AI_INSIGHT_DESCRIPTION},
+                "ai_insight": {"type": "string", "description": ""},
             },
             "required": ["qualify", "project_type", "matched_items", "excluded_items", "flags", "reasoning", "confidence", "ai_insight"],
         },
     },
 }
+
+
+def insight_instructions(skill: Dict[str, Any]) -> str:
+    """Wording for Ai Insight. A saved ftl_ai_insight skill wins; otherwise the built-in fallback."""
+    text = str((skill or {}).get("ai_insight_instructions") or "").strip()
+    if text:
+        return text
+    try:
+        from app.ftl.qualifier.skill_store import read_insight_skill
+
+        text = read_insight_skill()
+    except Exception:
+        text = ""
+    return text or _AI_INSIGHT_DESCRIPTION
+
+
+def _submit_decision_tool(skill: Dict[str, Any]) -> Dict[str, Any]:
+    tool = copy.deepcopy(_SUBMIT_DECISION_TOOL)
+    tool["function"]["parameters"]["properties"]["ai_insight"]["description"] = insight_instructions(skill)
+    return tool
 
 
 def build_system_prompt(skill: Dict[str, Any], is_json_mode: bool = False) -> str:
@@ -589,7 +621,7 @@ def build_system_prompt(skill: Dict[str, Any], is_json_mode: bool = False) -> st
             '  "confidence": 0.0 to 1.0,\n'
             '  "ai_insight": "..."\n'
             '}}\n\n'
-            f"ai_insight: {_AI_INSIGHT_DESCRIPTION}\n\n"
+            f"ai_insight: {insight_instructions(skill)}\n\n"
             "You will receive candidate text extracted from an RFQ. Use search_pricelist to verify catalog items before deciding. When complete, output your decision JSON."
         )
     else:
@@ -629,6 +661,76 @@ def _run_tool_call(name: str, arguments: Dict[str, Any]) -> str:
     return json.dumps({"error": f"Unknown tool: {name}"}, default=str)
 
 
+_DANGLING_WORD = re.compile(
+    r"\b(and|or|the|a|an|with|to|for|of|before|then|is)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _compact_long_insight(text: str) -> str:
+    """Turn a long sales paragraph into one ticket line: action, the products, the next step."""
+    lower = text.lower()
+    if "can pursue" in lower[:48] or lower.startswith("pursue"):
+        lead = "Pursue"
+    elif lower.startswith(("skip", "do not", "don't")) or "disqualif" in lower[:48]:
+        lead = "Skip"
+    elif lower.startswith("review") or "needs review" in lower[:48]:
+        lead = "Review"
+    else:
+        lead = ""
+
+    products = ""
+    paren = re.search(r"\(([^)]{8,90})\)", text)
+    if paren:
+        products = paren.group(1).strip().rstrip(".")
+
+    step = ""
+    step_match = re.search(r"next step is to ([^.]+)", text, re.IGNORECASE)
+    if step_match:
+        step = step_match.group(1).strip().rstrip(".")
+        step = re.sub(r"\s+with the customer\b", "", step, flags=re.IGNORECASE)
+        step = re.sub(
+            r"\s+before sending a quote\b",
+            ", then quote",
+            step,
+            flags=re.IGNORECASE,
+        )
+        step = step[:1].upper() + step[1:]
+
+    if not products and not step:
+        return ""
+
+    head = f"{lead} — {products}." if lead and products else (products + "." if products else "")
+    if step and len(step) > 70:
+        step = step[:70].rsplit(" ", 1)[0].rstrip(".,;:")
+    tail = (step[:1].upper() + step[1:] + ".") if step else ""
+    return re.sub(r"\s+", " ", f"{head} {tail}".strip())
+
+
+def _fit_inbox_insight(text: str) -> str:
+    """Keep Ai Insight to one inbox line. The ticket row clips anything past about 120 characters,
+    so a longer sentence hides the next step behind an ellipsis."""
+    text = re.sub(r"\s+", " ", (text or "").strip())
+    if len(text) <= _INBOX_INSIGHT_MAX:
+        return text
+    sentence = re.match(r"^(.+?[.!?])(?:\s|$)", text)
+    if sentence and len(sentence.group(1)) <= _INBOX_INSIGHT_MAX:
+        return sentence.group(1)
+    compact = _compact_long_insight(text)
+    if compact and len(compact) <= _INBOX_INSIGHT_MAX:
+        return compact
+    clipped = text[:_INBOX_INSIGHT_MAX]
+    paren = clipped.rfind("(")
+    if paren != -1 and ")" not in clipped[paren:]:
+        clipped = clipped[:paren]
+    if " " in clipped:
+        clipped = clipped.rsplit(" ", 1)[0]
+    clipped = _DANGLING_WORD.sub("", clipped).rstrip(".,;:—- (")
+    if clipped and clipped[-1] not in ".!?":
+        clipped += "."
+    return clipped
+
+
 def _normalize_decision_dict(decision: Dict[str, Any]) -> Dict[str, Any]:
     decision = dict(decision or {})
     ai_insight = (
@@ -639,7 +741,7 @@ def _normalize_decision_dict(decision: Dict[str, Any]) -> Dict[str, Any]:
         or decision.get("a_i_insight")
         or ""
     )
-    decision["ai_insight"] = ai_insight
+    decision["ai_insight"] = _fit_inbox_insight(str(ai_insight))
 
     customer_name = (
         decision.get("customer_name")
@@ -773,7 +875,7 @@ def _run_qualification_native_tools(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": candidate_text},
     ]
-    tools = [_SEARCH_PRICELIST_TOOL, _SUBMIT_DECISION_TOOL]
+    tools = [_SEARCH_PRICELIST_TOOL, _submit_decision_tool(skill)]
     total_tokens = 0
 
     for round_num in range(MAX_LOOKUP_ROUNDS + 1):
