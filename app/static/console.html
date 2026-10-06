@@ -4710,6 +4710,7 @@ function setComposerMode(mode) {
   } else if (mode === 'ramco_ocr') {
     banner.textContent = 'Ramco OCR';
     messageInput.placeholder = 'Optional note';
+    loadAgentSkillsPack('ramco_ocr');
   } else if (mode === 'ocr_tool') {
     banner.textContent = 'OCR tool';
     messageInput.placeholder = 'Optional note';
@@ -4935,10 +4936,11 @@ function setSummarySkillsStatus(kind, text) {
   el.textContent = text;
 }
 
-const PACK_AGENTS = ['summary', 'classification', 'document_intelligent', 'ocr', 'insight', 'prompt', 'pdf', 'ap', 'ftl_qualifier', 'ftl_quote_estimator', 'report-prompt', 'report-run'];
+const PACK_AGENTS = ['summary', 'classification', 'ramco_ocr', 'document_intelligent', 'ocr', 'insight', 'prompt', 'pdf', 'ap', 'ftl_qualifier', 'ftl_quote_estimator', 'report-prompt', 'report-run'];
 const PACK_AGENT_LABELS = {
   summary: 'Summary',
   classification: 'Classification',
+  ramco_ocr: 'Ramco OCR',
   document_intelligent: 'Document Intelligent',
   ocr: 'OCR',
   insight: 'Insight',
@@ -4953,6 +4955,7 @@ const PACK_AGENT_LABELS = {
 const PACK_TENANT_FIELDS = {
   summary: 'summaryTenant',
   classification: 'classificationTenant',
+  ramco_ocr: 'ramcoTenant',
   document_intelligent: 'diTenant',
   ocr: 'ocrTenant',
   insight: 'insightTenant',
@@ -4972,7 +4975,7 @@ const summaryPackState = {
 
 function isPackAgent(mode) {
   // Inline check so setComposerMode('chat') at boot cannot hit TDZ on PACK_AGENTS.
-  return mode === 'summary' || mode === 'classification' || mode === 'document_intelligent' || mode === 'ocr' || mode === 'insight'
+  return mode === 'summary' || mode === 'classification' || mode === 'ramco_ocr' || mode === 'document_intelligent' || mode === 'ocr' || mode === 'insight'
     || mode === 'prompt' || mode === 'pdf' || mode === 'ftl_qualifier' || mode === 'ftl_quote_estimator';
 }
 
@@ -4992,6 +4995,7 @@ function setPackInspectorChrome(agent) {
       : ('Platform defaults (read-only) and tenant overlays for ' + label);
   }
   if (apTabs) apTabs.hidden = agent !== 'ap';
+  if (apTabs) apTabs.style.display = (agent === 'classification' || agent === 'ramco_ocr') ? 'none' : '';
 }
 
 function customItemKey(kind, id) {
@@ -5537,7 +5541,7 @@ async function saveSummaryCustomRuleFile() {
 }
 
 document.getElementById('summaryRuleSaveBtn').addEventListener('click', saveSummaryCustomRuleFile);
-['summaryTenant', 'ocrTenant', 'insightTenant', 'classificationTenant', 'diTenant'].forEach(id => {
+['summaryTenant', 'ocrTenant', 'insightTenant', 'classificationTenant', 'ramcoTenant', 'diTenant'].forEach(id => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('input', loadSummaryTenantCustom);

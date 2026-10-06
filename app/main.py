@@ -1157,6 +1157,7 @@ _PACK_CONSOLE_AGENTS = frozenset(
     {
         "summary",
         "classification",
+        "ramco_ocr",
         "document_intelligent",
         "ocr",
         "insight",
