@@ -252,14 +252,11 @@ class FtlQuoteEstimatorAgent:
         input_type = "text"
 
         try:
-            # --- 20%: Reading qualified RFQ items ---
-            await progress.update("PROCESSING", "Reading qualified RFQ items", 20)
+            # --- 20%: Reading the RFQ email ---
+            # Qualifier Result is ignored. The quote is built from the .eml (or its text).
+            await progress.update("PROCESSING", "Reading the RFQ email", 20)
 
-            if isinstance(qualifier_result, dict) and qualifier_result:
-                rendered = render_qualifier_decision_for_quote(qualifier_result)
-                input_filename = input_filename if filename else "qualifier_result.json"
-                input_type = "qualifier_json"
-            elif file_bytes is not None:
+            if file_bytes is not None:
                 rendered, _, input_type = await self._build_candidate_from_bytes(file_bytes, input_filename)
             elif filepath is not None and os.path.exists(filepath):
                 with open(filepath, "rb") as f:
@@ -271,7 +268,9 @@ class FtlQuoteEstimatorAgent:
                 candidate = extract.build_candidate_text(raw_text)
                 rendered = extract.render_candidate_text_for_model(candidate)
             else:
-                raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
+                raise ValueError(
+                    "No RFQ email provided. Send the .eml file, or the email text in Candidate Text."
+                )
 
             # --- 40%: Preparing quote line items ---
             await progress.update("PROCESSING", "Preparing quote line items", 40)
@@ -395,9 +394,8 @@ class FtlQuoteEstimatorAgent:
         filename = job.get("filename")
         filepath = job.get("filepath")
         candidate_text = job.get("candidate_text")
-        qualifier_result = job.get("qualifier_result")
         raw_text = job.get("raw_text") or (
-            message if not file_bytes and not filepath and not candidate_text and not qualifier_result else None
+            message if not file_bytes and not filepath and not candidate_text else None
         )
         template_type = job.get("template_type") or job.get("quote_template_type") or "inflow"
         model = job.get("model")
@@ -421,7 +419,7 @@ class FtlQuoteEstimatorAgent:
         )
         ezofis = kwargs.get("ezofis") or self._ezofis
 
-        if template_json or (form_data and not (quote_input or file_bytes or filepath or candidate_text or qualifier_result)):
+        if template_json or (form_data and not (quote_input or file_bytes or filepath or candidate_text)):
             if not isinstance(template_json, dict) or not template_json:
                 error = "templateJson (a base64-encoded pdfme template) is required with formData."
             elif not isinstance(form_data, dict) or not form_data:
@@ -473,7 +471,7 @@ class FtlQuoteEstimatorAgent:
                 filepath=filepath,
                 candidate_text=candidate_text,
                 raw_text=raw_text,
-                qualifier_result=qualifier_result if isinstance(qualifier_result, dict) else None,
+                qualifier_result=None,  # quote is built from the email, not Qualifier Result
                 template_type=template_type,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),

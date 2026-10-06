@@ -255,8 +255,7 @@ class DocumentPayload(BaseModel):
         default=None,
         validation_alias=AliasChoices("qualifier_result", "qualifierResult", "Qualifier Result"),
         description=(
-            "Edited FTL qualifier decision. When set on intent=ftl_quote_estimator, "
-            "this is priced instead of a file. matched_items are quoted; excluded_items are not."
+            "FTL qualifier decision. Ignored by intent=ftl_quote_estimator; that agent prices the .eml."
         ),
     )
     quote_result: Optional[dict[str, Any]] = Field(

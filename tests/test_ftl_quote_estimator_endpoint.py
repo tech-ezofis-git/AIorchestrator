@@ -215,20 +215,20 @@ def test_quote_pdf_requires_quote_result(client):
     assert res.status_code == 400
 
 
-def test_chat_quote_from_edited_qualifier_json(client, monkeypatch):
+def test_chat_quote_uses_eml_and_ignores_qualifier_result(client, monkeypatch):
     seen = {}
 
     def fake_run_quote_estimation(skill, candidate_text, llm_overrides=None):
         seen["text"] = candidate_text
         return {
-            "project_name": "285-295 Coventry - Modernization",
+            "project_name": "120 Bloor Street East",
             "customer_name": "ATTA Elevators",
             "line_items": [
                 {
-                    "product_code": "SGV2_CLUTCH_OTIS_LH",
-                    "description": "CLUTCH + CAR DOOR LOCK (OTIS-L)",
+                    "product_code": "RG100_CAR",
+                    "description": "ROLLER GUIDE ASSEMBLY",
                     "quantity": 1,
-                    "unit_price": 1010.4,
+                    "unit_price": 890.0,
                 }
             ],
             "freight": 0,
@@ -239,46 +239,37 @@ def test_chat_quote_from_edited_qualifier_json(client, monkeypatch):
         "app.ftl.quote_estimator.agent.run_quote_estimation", fake_run_quote_estimation
     )
 
+    eml = (
+        "From: Julie House <julie@attaelevators.com>\r\n"
+        "Subject: 120 Bloor Street East modernization\r\n"
+        "Date: Mon, 6 Oct 2026 11:00:00 -0400\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n"
+        "\r\n"
+        "Please quote new car roller guides for 120 Bloor Street East.\r\n"
+    )
     res = client.post(
         "/chat",
-        json={
+        data={
             "session_id": "test-1",
             "intent": "ftl_quote_estimator",
-            "payload": {
-                "template_type": "inflow",
-                "qualifier_result": {
-                    "qualify": "qualify",
-                    "project_type": "modernization",
-                    "project_name": "285-295 Coventry - Modernization",
-                    "matched_items": [
-                        {
-                            "item": "clutch assembly",
-                            "category": "clutch",
-                            "match": "exact",
-                            "note": "OTIS",
-                        }
-                    ],
-                    "excluded_items": [
-                        {"item": "sliding guide", "reason": "Not in the Wittur pricelist"}
-                    ],
-                    "flags": ["needs_engineering_review"],
-                    "deadline": "2026-10-15",
-                    "reasoning": "In scope clutch.",
-                    "confidence": 0.85,
-                },
-            },
+            "template_type": "inflow",
+            "qualifier_result": (
+                '{"qualify":"qualify","project_name":"from qualifier",'
+                '"matched_items":[{"item":"clutch assembly","category":"clutch","match":"exact"}],'
+                '"excluded_items":[{"item":"sliding guide","reason":"Not in the Wittur pricelist"}]}'
+            ),
         },
+        files={"file": ("rfq.eml", eml.encode("utf-8"), "message/rfc822")},
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["quote_result"]["Project"] == "285-295 Coventry - Modernization"
-    assert body["quote_result"]["Company Name"] == "ATTA Elevators"
-    assert body["quote_result"]["Line Item"][0]["Product"] == "SGV2_CLUTCH_OTIS_LH"
-    assert body["quote_result"]["Line Item"][0]["Price"] == 1010.4
+    assert body["quote_result"]["Project"] == "120 Bloor Street East"
+    assert body["quote_result"]["Line Item"][0]["Product"] == "RG100_CAR"
     text = seen["text"]
-    assert "clutch assembly" in text
-    assert "sliding guide" in text
-    assert "do not price" in text.lower()
+    assert "Please quote new car roller guides" in text
+    assert "120 Bloor Street East" in text
+    assert "clutch assembly" not in text
+    assert "sliding guide" not in text
     assert base64.b64decode(body["pdf_base64"]).startswith(b"%PDF")
 
 

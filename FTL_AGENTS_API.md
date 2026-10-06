@@ -133,55 +133,11 @@ The standalone endpoint `POST /api/ftl/qualify` takes `{ "Filename": "rfq.txt", 
 
 ## 2. Quote Estimator
 
-### Input: qualifier result (recommended)
+### Input: the RFQ email
 
-Paste `qualifier_result` from step 1 into `Qualifier Result`, unchanged or edited. Only `Matched items` are priced; anything in `Excluded items` is never added as a line item. To hold back an uncertain item, move it to `Excluded items` with a `Reason`.
+Send the `.eml` (form-data `file`, or `filepath`). The estimator reads that email and its spec attachment and builds the quote from them. `Qualifier Result` is accepted on the payload and ignored. `Quote Result` is still used only to re-render a PDF with no model call.
 
-`POST /chat`, raw JSON:
-
-```json
-{
-  "session_id": "test-coventry-2",
-  "intent": "ftl_quote_estimator",
-  "payload": {
-    "Template Type": "inflow",
-    "Qualifier Result": {
-      "Qualify": "Qualify",
-      "Project type": "Modernization",
-      "Project": "285-295 Coventry - Modernization",
-      "Deadline": null,
-      "Matched items": [
-        {
-          "Item": "linear operator that integrates with Kone doors",
-          "Category": "Door Operator",
-          "Match": "Ambiguous",
-          "Note": "Likely compatible via adaptor; confirm."
-        },
-        {
-          "Item": "clutch assembly",
-          "Category": "Door Interlock / Clutch",
-          "Match": "Exact",
-          "Catalog Ref": "SGV2 clutch + car door lock assemblies, model-specific."
-        },
-        {
-          "Item": "wittur hall door interlock assembly",
-          "Category": "Door Interlock / Clutch",
-          "Match": "Exact"
-        }
-      ],
-      "Excluded items": [],
-      "Flags": [],
-      "Reasoning": "Wittur door operator and clutch/interlock items match the SGV2 catalog.",
-      "Confidence": 85,
-      "Ai Insight": "Good modernization fit; confirm Kone compatibility."
-    }
-  }
-}
-```
-
-`qualifier_result` and `template_type` also work as the payload field names. With `form-data`, send `session_id`, `intent`, `Template Type`, and `Qualifier Result` as a JSON string.
-
-You can also skip the qualifier and send the RFQ directly: `POST /chat`, `form-data` with `session_id`, `intent=ftl_quote_estimator`, `file`, and optionally `Template Type`.
+`POST /chat`, form-data: `session_id`, `intent=ftl_quote_estimator`, `file` (the `.eml`), and optionally `Template Type` (`inflow` or `internal_review`). `Candidate Text` can be used when there is no file.
 
 ### Output
 
@@ -560,7 +516,7 @@ window.open(url);
 
 | Method and path | Input | Output |
 |---|---|---|
-| `POST /api/ftl/quote` | JSON or form-data: `file` / `Raw Text` / `Qualifier Result`, `Template Type` | `estimate_number`, `quote_result`, `pdf_download_url` |
+| `POST /api/ftl/quote` | JSON or form-data: `file` (`.eml`) / `Raw Text` / `Candidate Text`, `Template Type` | `estimate_number`, `quote_result`, `pdf_download_url` |
 | `POST /api/ftl/quote/pdf` | JSON: `Quote Result`, `Template Type` | PDF file directly (no base64) |
 | `GET /api/ftl/quote/pdf/{estimate_number}?template_type=inflow` | none | PDF file for a saved estimate (same server only) |
 
