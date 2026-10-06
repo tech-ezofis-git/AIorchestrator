@@ -2962,6 +2962,20 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         # process-wide default so a document-job request's LLM call(s) are
         # immune to a concurrent request changing that default mid-flight.
         llm_overrides = llm_adapter.snapshot_overrides()
+    if document_job is not None and payload.payload is not None:
+        p = payload.payload
+        if intent in {Intent.CLASSIFICATION, Intent.RAMCO_OCR, Intent.FTP, Intent.FILE_FETCHER}:
+            document_job["login_email"] = p.login_email
+            document_job["login_password"] = p.login_password
+        if intent in {Intent.FTP, Intent.FOLDER_MOVER}:
+            document_job["sftp"] = {
+                "host": p.sftp_host,
+                "port": p.sftp_port,
+                "username": p.sftp_username,
+                "password": p.sftp_password,
+                "processed_dir": p.sftp_processed_dir,
+                "unprocessed_dir": p.sftp_unprocessed_dir,
+            }
     if document_job is not None:
         document_job["llm_overrides"] = llm_overrides
         document_job["llm_fallback_overrides"] = llm_fallback_overrides
@@ -3054,6 +3068,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 timestamp=document_job["timestamp"],
                 file_name=document_job["file_name"],
                 folder=document_job["folder"],
+                login_email=document_job.get("login_email"),
+                login_password=document_job.get("login_password"),
             )
             file_bytes = fetched.pop("file_bytes")
             fetched["base64"] = base64.b64encode(file_bytes).decode("ascii") if file_bytes else None
@@ -3102,7 +3118,9 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             reply = f"Prepared {names} ({'valid' if valid else 'not valid'} invoice)."
             result = {"reply": reply, "usage": None, "file_preparation_result": prepared}
         elif intent == Intent.FOLDER_MOVER:
-            moved = await move_to_folder(files=document_job["files"], valid=bool(document_job["valid"]))
+            moved = await move_to_folder(
+                files=document_job["files"], valid=bool(document_job["valid"]), sftp=document_job.get("sftp")
+            )
             if moved["status"] == "SUCCEEDED":
                 names = ", ".join(f["name"] for f in moved["files"])
                 reply = f"Moved {names} to the {moved['folder']} folder ({moved['remote_dir']})."

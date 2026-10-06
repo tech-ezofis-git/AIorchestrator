@@ -126,7 +126,7 @@ async def run_document_pipeline(
     """Run the tools the input needs and return every step's output.
 
     `job` keys used: ocr_text, file_bytes, filename, content_type, filepath,
-    pageno, tenant_id, instruction. Never raises; `failed_step` + `error` say
+    pageno, tenant_id, instruction, login_email, login_password. Never raises; `failed_step` + `error` say
     where it stopped. `fallback_overrides` are tried in order if the LLM call fails.
     """
     result = _new_result(intent)
@@ -147,7 +147,12 @@ async def run_document_pipeline(
             result["source"] = filename or "upload"
         elif filepath:
             result["source"] = filepath
-            fetched = await fetch_file_by_path(tenant_id=tenant_id or "", path=filepath)
+            fetched = await fetch_file_by_path(
+                tenant_id=tenant_id or "",
+                path=filepath,
+                login_email=job.get("login_email"),
+                login_password=job.get("login_password"),
+            )
             file_bytes = fetched.pop("file_bytes")
             steps["file_fetcher"] = fetched
             if fetched["status"] != "SUCCEEDED":

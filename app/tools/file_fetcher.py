@@ -14,7 +14,10 @@ from app.config import Settings, get_settings
 logger = logging.getLogger("orchestrator.tools.file_fetcher")
 
 TOOL_ID = "file_fetcher"
-NO_LOGIN_ERROR = "File Fetcher login is not configured (FILE_FETCHER_LOGIN_EMAIL / FILE_FETCHER_LOGIN_PASSWORD)."
+NO_LOGIN_ERROR = (
+    "File Fetcher login is missing: send login_email / login_password, "
+    "or set FILE_FETCHER_LOGIN_EMAIL / FILE_FETCHER_LOGIN_PASSWORD."
+)
 NO_TENANT_ERROR = "A tenant id is required."
 NO_PATH_ERROR = "Provide a path, or a timestamp and file name."
 
@@ -43,10 +46,21 @@ def _api_base(settings: Settings) -> str:
     return (settings.file_fetcher_api_base or settings.ezofis_api_base or "https://cloud.ezofis.com/api").rstrip("/")
 
 
-async def _login(client: httpx.AsyncClient, base: str, tenant_id: str, settings: Settings) -> str:
-    """POST /auth/ezofis/login as `tenant_id`; returns the `Authorization` header value."""
-    email = (settings.file_fetcher_login_email or "").strip()
-    password = settings.file_fetcher_login_password or ""
+async def _login(
+    client: httpx.AsyncClient,
+    base: str,
+    tenant_id: str,
+    settings: Settings,
+    *,
+    email: Optional[str] = None,
+    password: Optional[str] = None,
+) -> str:
+    """POST /auth/ezofis/login as `tenant_id`; returns the `Authorization` header value.
+
+    `email` / `password` from the request win over FILE_FETCHER_LOGIN_*.
+    """
+    email = (email or settings.file_fetcher_login_email or "").strip()
+    password = password or settings.file_fetcher_login_password or ""
     if not email or not password:
         raise RuntimeError(NO_LOGIN_ERROR)
     response = await client.post(
@@ -113,9 +127,13 @@ async def fetch_file_by_path(
     timestamp: Optional[str] = None,
     file_name: Optional[str] = None,
     folder: Optional[str] = None,
+    login_email: Optional[str] = None,
+    login_password: Optional[str] = None,
     settings: Optional[Settings] = None,
 ) -> dict[str, Any]:
     """Log in as `tenant_id` (fresh token every call), download the file at `path` as base64, and decode it.
+
+    `login_email` / `login_password` override FILE_FETCHER_LOGIN_* for this call.
 
     `file_bytes` holds the decoded file, ready for `run_ocr_tool(file_bytes=...)`.
     Never raises: missing input, login/HTTP errors and bad base64 come back as
@@ -133,7 +151,9 @@ async def fetch_file_by_path(
     base = _api_base(settings)
     try:
         async with httpx.AsyncClient(timeout=settings.ezofis_timeout_seconds) as client:
-            authorization = await _login(client, base, tenant, settings)
+            authorization = await _login(
+                client, base, tenant, settings, email=login_email, password=login_password
+            )
             data = await _download(client, base, tenant, authorization, full_path)
     except Exception as exc:
         logger.warning("file_fetcher_failed", extra={"error_type": type(exc).__name__})

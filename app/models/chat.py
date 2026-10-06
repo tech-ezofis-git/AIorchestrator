@@ -141,6 +141,49 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("file_content_type", "fileContentType", "contentType"),
         description="intent=file_preparation only: content type of file_base64.",
     )
+    login_email: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("login_email", "loginEmail"),
+        description=(
+            "File Fetcher login email (intent=classification / ramco_ocr / ftp / file_fetcher). "
+            "Falls back to FILE_FETCHER_LOGIN_EMAIL."
+        ),
+    )
+    login_password: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("login_password", "loginPassword"),
+        description="File Fetcher login password. Falls back to FILE_FETCHER_LOGIN_PASSWORD.",
+    )
+    sftp_host: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("sftp_host", "sftpHost"),
+        description="intent=ftp / folder_mover: SFTP host. Falls back to FTP_HOST.",
+    )
+    sftp_port: Optional[int] = Field(
+        default=None,
+        validation_alias=AliasChoices("sftp_port", "sftpPort"),
+        description="intent=ftp / folder_mover: SFTP port. Falls back to FTP_SFTP_PORT.",
+    )
+    sftp_username: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("sftp_username", "sftpUsername"),
+        description="intent=ftp / folder_mover: SFTP username. Falls back to FTP_USERNAME.",
+    )
+    sftp_password: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("sftp_password", "sftpPassword"),
+        description="intent=ftp / folder_mover: SFTP password. Falls back to FTP_PASSWORD.",
+    )
+    sftp_processed_dir: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("sftp_processed_dir", "sftpProcessedDir"),
+        description="intent=ftp / folder_mover: folder for valid invoices. Falls back to FTP_PROCESSED_DIR.",
+    )
+    sftp_unprocessed_dir: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("sftp_unprocessed_dir", "sftpUnprocessedDir"),
+        description="intent=ftp / folder_mover: folder for not-valid invoices. Falls back to FTP_UNPROCESSED_DIR.",
+    )
     prepared_files: Optional[list[dict[str, Any]]] = Field(
         default=None,
         validation_alias=AliasChoices("prepared_files", "preparedFiles", "files"),

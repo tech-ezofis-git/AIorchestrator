@@ -45,7 +45,12 @@ class FtpAgent:
         """(bytes, file name, content type, error) — the multipart upload, else the File Fetcher."""
         if job.get("file_bytes") is not None:
             return job["file_bytes"], job.get("filename"), job.get("content_type"), None
-        fetched = await fetch_file_by_path(tenant_id=str(job.get("tenant_id") or ""), path=job.get("filepath"))
+        fetched = await fetch_file_by_path(
+            tenant_id=str(job.get("tenant_id") or ""),
+            path=job.get("filepath"),
+            login_email=job.get("login_email"),
+            login_password=job.get("login_password"),
+        )
         if fetched["status"] != "SUCCEEDED":
             return None, None, None, f"File fetch failed: {fetched['error']}"
         return fetched["file_bytes"], fetched["fileName"], fetched["contentType"], None
@@ -97,7 +102,9 @@ class FtpAgent:
                     model_display=job.get("model_display"),
                 )
                 ref_no = prepared["unique_ref"]
-                moved = await move_to_folder(files=prepared["files"], valid=processed, settings=self._cfg())
+                moved = await move_to_folder(
+                    files=prepared["files"], valid=processed, sftp=job.get("sftp"), settings=self._cfg()
+                )
                 remote_dir = moved["remote_dir"]
                 if moved["status"] == "SUCCEEDED":
                     delivered_at = moved["delivered_at"]

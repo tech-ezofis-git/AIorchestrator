@@ -2444,6 +2444,14 @@
           <input type="text" id="classificationPageno" value="1" placeholder="1 or -1" />
         </div>
         <div>
+          <label for="classificationLoginEmail">Login email</label>
+          <input type="text" id="classificationLoginEmail" placeholder="optional — else .env" autocomplete="off" />
+        </div>
+        <div>
+          <label for="classificationLoginPassword">Login password</label>
+          <input type="password" id="classificationLoginPassword" placeholder="optional — else .env" autocomplete="new-password" />
+        </div>
+        <div>
           <label for="classificationModel">Model</label>
           <select id="classificationModel"></select>
         </div>
@@ -2502,6 +2510,14 @@
           <label for="ramcoPageno">Page</label>
           <input type="text" id="ramcoPageno" value="-1" placeholder="1 or -1 (all)" />
         </div>
+        <div>
+          <label for="ramcoLoginEmail">Login email</label>
+          <input type="text" id="ramcoLoginEmail" placeholder="optional — else .env" autocomplete="off" />
+        </div>
+        <div>
+          <label for="ramcoLoginPassword">Login password</label>
+          <input type="password" id="ramcoLoginPassword" placeholder="optional — else .env" autocomplete="new-password" />
+        </div>
           </div>
         </details>
       </div>
@@ -2528,6 +2544,14 @@
         <div>
           <label for="ffFileName">File name</label>
           <input type="text" id="ffFileName" placeholder="invoice.pdf" />
+        </div>
+        <div>
+          <label for="ffLoginEmail">Login email</label>
+          <input type="text" id="ffLoginEmail" placeholder="optional — else .env" autocomplete="off" />
+        </div>
+        <div>
+          <label for="ffLoginPassword">Login password</label>
+          <input type="password" id="ffLoginPassword" placeholder="optional — else .env" autocomplete="new-password" />
         </div>
           </div>
         </details>
@@ -2683,6 +2707,35 @@
           <label for="fmFiles">Files (JSON list) <button type="button" class="btn-ghost" id="fmUseLastPrepared" style="margin-left:8px;padding:2px 8px;font-size:11px">Use last prepared files</button></label>
           <textarea id="fmFiles" placeholder='[{"name": "MJB-33814.pdf", "base64": "..."}, {"name": "MJB-33814.json", "json": {...}}]'></textarea>
         </div>
+        <details class="more-options">
+          <summary>SFTP credentials (optional — else .env)</summary>
+          <div class="more-grid">
+        <div>
+          <label for="fmSftpHost">SFTP host</label>
+          <input type="text" id="fmSftpHost" placeholder="FTP_HOST" autocomplete="off" />
+        </div>
+        <div>
+          <label for="fmSftpPort">SFTP port</label>
+          <input type="text" id="fmSftpPort" placeholder="22" />
+        </div>
+        <div>
+          <label for="fmSftpUsername">SFTP username</label>
+          <input type="text" id="fmSftpUsername" placeholder="FTP_USERNAME" autocomplete="off" />
+        </div>
+        <div>
+          <label for="fmSftpPassword">SFTP password</label>
+          <input type="password" id="fmSftpPassword" placeholder="FTP_PASSWORD" autocomplete="new-password" />
+        </div>
+        <div>
+          <label for="fmSftpProcessedDir">Processed folder</label>
+          <input type="text" id="fmSftpProcessedDir" placeholder="/OCR_Process/processed" />
+        </div>
+        <div>
+          <label for="fmSftpUnprocessedDir">Unprocessed folder</label>
+          <input type="text" id="fmSftpUnprocessedDir" placeholder="/OCR_Process/Unprocessed" />
+        </div>
+          </div>
+        </details>
       </div>
       <div class="mode-fields" id="ftpFields" hidden>
         <div>
@@ -2731,6 +2784,38 @@
         <div>
           <label for="ftpInstanceId">Instance ID</label>
           <input type="text" id="ftpInstanceId" value="INS-7f3a9c21" />
+        </div>
+        <div>
+          <label for="ftpLoginEmail">Login email</label>
+          <input type="text" id="ftpLoginEmail" placeholder="optional — else .env" autocomplete="off" />
+        </div>
+        <div>
+          <label for="ftpLoginPassword">Login password</label>
+          <input type="password" id="ftpLoginPassword" placeholder="optional — else .env" autocomplete="new-password" />
+        </div>
+        <div>
+          <label for="ftpSftpHost">SFTP host</label>
+          <input type="text" id="ftpSftpHost" placeholder="optional — else FTP_HOST" autocomplete="off" />
+        </div>
+        <div>
+          <label for="ftpSftpPort">SFTP port</label>
+          <input type="text" id="ftpSftpPort" placeholder="22" />
+        </div>
+        <div>
+          <label for="ftpSftpUsername">SFTP username</label>
+          <input type="text" id="ftpSftpUsername" placeholder="optional — else FTP_USERNAME" autocomplete="off" />
+        </div>
+        <div>
+          <label for="ftpSftpPassword">SFTP password</label>
+          <input type="password" id="ftpSftpPassword" placeholder="optional — else FTP_PASSWORD" autocomplete="new-password" />
+        </div>
+        <div>
+          <label for="ftpSftpProcessedDir">Processed folder</label>
+          <input type="text" id="ftpSftpProcessedDir" placeholder="/OCR_Process/processed" />
+        </div>
+        <div>
+          <label for="ftpSftpUnprocessedDir">Unprocessed folder</label>
+          <input type="text" id="ftpSftpUnprocessedDir" placeholder="/OCR_Process/Unprocessed" />
         </div>
           </div>
         </details>
@@ -6075,7 +6160,7 @@ async function sendFileFetcherJob() {
     addSystemMessage('File Fetcher needs a path, or a timestamp and file name.');
     return;
   }
-  const payload = { tenant_id: tenant };
+  const payload = { tenant_id: tenant, ...readCredentialFields('ff') };
   if (path) payload.path = path;
   else {
     payload.timestamp = timestamp;
@@ -6148,7 +6233,8 @@ async function postToolChat(intent, payload, processingText, onResult, extra) {
   sendBtn.disabled = true;
   sendBtn.innerHTML = '<span class="spinner"></span> Working';
   const body = { session_id: sessionId, intent, ...(extra || {}), payload };
-  const request = { intent, kind: 'json', session_id: sessionId, payload, body };
+  const shownPayload = maskSecrets(payload);
+  const request = { intent, kind: 'json', session_id: sessionId, payload: shownPayload, body: { ...body, payload: shownPayload } };
   try {
     const res = await fetch('/chat', {
       method: 'POST',
@@ -6229,6 +6315,37 @@ async function sendLlmReasonerJob() {
     const result = data.llm_reasoner_result;
     if (result && result.json) lastToolOutputs.llmJson = result.json;
   });
+}
+
+// Optional per-request credentials; empty inputs are dropped so the server falls back to .env.
+function readCredentialFields(prefix, { sftp = false } = {}) {
+  const val = id => {
+    const el = document.getElementById(id);
+    return el ? (el.value || '').trim() : '';
+  };
+  const out = {
+    login_email: val(`${prefix}LoginEmail`),
+    login_password: val(`${prefix}LoginPassword`),
+  };
+  if (sftp) {
+    Object.assign(out, {
+      sftp_host: val(`${prefix}SftpHost`),
+      sftp_port: val(`${prefix}SftpPort`),
+      sftp_username: val(`${prefix}SftpUsername`),
+      sftp_password: val(`${prefix}SftpPassword`),
+      sftp_processed_dir: val(`${prefix}SftpProcessedDir`),
+      sftp_unprocessed_dir: val(`${prefix}SftpUnprocessedDir`),
+    });
+  }
+  Object.keys(out).forEach(k => { if (!out[k]) delete out[k]; });
+  return out;
+}
+
+function maskSecrets(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const copy = { ...obj };
+  ['login_password', 'sftp_password'].forEach(k => { if (copy[k]) copy[k] = '********'; });
+  return copy;
 }
 
 function parseJsonField(id, label, { optional = false } = {}) {
@@ -6378,7 +6495,7 @@ async function sendFolderMoverJob() {
   }
   const valid = document.getElementById('fmValid').value === 'true';
   addUserMessage(`Folder Mover: ${files.map(f => f.name).join(', ')} → ${valid ? 'processed' : 'unprocessed'}`);
-  await postToolChat('folder_mover', { prepared_files: files, valid }, 'Uploading over SFTP…');
+  await postToolChat('folder_mover', { prepared_files: files, valid, ...readCredentialFields('fm', { sftp: true }) }, 'Uploading over SFTP…');
 }
 
 (function wireToolChaining() {
@@ -8319,9 +8436,10 @@ async function sendClassificationJob() {
     return;
   }
   if (!file && !ocrText && filepath && !tenantId) {
-    addSystemMessage('Classification blob filepath needs tenant_id (container ezts{tenantid}).');
+    addSystemMessage('Classification file path needs the Ezofis tenant id for the File Fetcher.');
     return;
   }
+  const creds = readCredentialFields('classification');
 
   const label = ocrText
     ? `Classify OCR text (${ocrText.length} chars)`
@@ -8338,13 +8456,13 @@ async function sendClassificationJob() {
   try {
     let res;
     let request;
-    const payloadExtras = {};
+    const payloadExtras = { ...creds };
     if (model) payloadExtras.model = model;
 
     if (ocrText) {
       const payload = { ocr_text: ocrText, ...payloadExtras };
       if (tenantId) payload.tenant_id = tenantId;
-      request = { intent: 'classification', kind: 'ocr_text', session_id: sessionId, payload };
+      request = { intent: 'classification', kind: 'ocr_text', session_id: sessionId, payload: maskSecrets(payload) };
       res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -8368,11 +8486,12 @@ async function sendClassificationJob() {
       form.append('pageno', pageno);
       if (model) form.append('model', model);
       if (tenantId) form.append('tenant_id', tenantId);
+      Object.entries(creds).forEach(([k, v]) => form.append(k, v));
       form.append('file', file, file.name);
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
       const payload = { filepath, pageno, tenant_id: tenantId || null, ...payloadExtras };
-      request = { intent: 'classification', kind: 'filepath', session_id: sessionId, payload };
+      request = { intent: 'classification', kind: 'filepath', session_id: sessionId, payload: maskSecrets(payload) };
       res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -8422,13 +8541,14 @@ async function sendRamcoOcrJob() {
     pageno: val('ramcoPageno') || '-1',
   };
   Object.keys(fields).forEach(k => { if (!fields[k]) delete fields[k]; });
+  Object.assign(fields, readCredentialFields('ramco'));
 
   if (!file && !blobPath && !ocrText) {
     addSystemMessage('Ramco OCR needs a file upload, a blob path, or OCR text.');
     return;
   }
   if (!ocrText && !file && !fields.tenantId) {
-    addSystemMessage('Ramco OCR blob path needs a tenant id (container ezts{tenantid}).');
+    addSystemMessage('Ramco OCR file path needs the Ezofis tenant id for the File Fetcher.');
     return;
   }
 
@@ -8449,14 +8569,14 @@ async function sendRamcoOcrJob() {
     if (ocrText) {
       const payload = { ...fields, ocr_text: ocrText };
       if (blobPath) payload.blobPath = blobPath;
-      request = { intent: 'ramco_ocr', kind: 'ocr_text', session_id: sessionId, payload };
+      request = { intent: 'ramco_ocr', kind: 'ocr_text', session_id: sessionId, payload: maskSecrets(payload) };
       res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: sessionId, intent: 'ramco_ocr', payload }),
       });
     } else if (file) {
-      request = { intent: 'ramco_ocr', kind: 'file', session_id: sessionId, filename: file.name, form: fields };
+      request = { intent: 'ramco_ocr', kind: 'file', session_id: sessionId, filename: file.name, form: maskSecrets(fields) };
       const form = new FormData();
       form.append('session_id', sessionId);
       form.append('intent', 'ramco_ocr');
@@ -8465,7 +8585,7 @@ async function sendRamcoOcrJob() {
       res = await fetch('/chat', { method: 'POST', body: form });
     } else {
       const payload = { ...fields, blobPath };
-      request = { intent: 'ramco_ocr', kind: 'filepath', session_id: sessionId, payload };
+      request = { intent: 'ramco_ocr', kind: 'filepath', session_id: sessionId, payload: maskSecrets(payload) };
       res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -8525,13 +8645,14 @@ async function sendFtpJob() {
     instanceId: val('ftpInstanceId'),
   };
   Object.keys(fields).forEach(k => { if (!fields[k]) delete fields[k]; });
+  Object.assign(fields, readCredentialFields('ftp', { sftp: true }));
 
   if (!file && !blobPath) {
     addSystemMessage('FTP needs a file upload or a blob path.');
     return;
   }
   if (!file && !fields.tenantId) {
-    addSystemMessage('FTP blob path needs a tenant id (container ezts{tenantid}).');
+    addSystemMessage('FTP file path needs the Ezofis tenant id for the File Fetcher.');
     return;
   }
 
@@ -8544,7 +8665,7 @@ async function sendFtpJob() {
     let res;
     let request;
     if (file) {
-      request = { intent: 'ftp', kind: 'file', session_id: sessionId, filename: file.name, form: fields };
+      request = { intent: 'ftp', kind: 'file', session_id: sessionId, filename: file.name, form: maskSecrets(fields) };
       const form = new FormData();
       form.append('session_id', sessionId);
       form.append('intent', 'ftp');
@@ -8557,7 +8678,7 @@ async function sendFtpJob() {
       const payload = { ...fields, blobPath };
       if (ocrJson) payload.ocr_json = ocrJson;
       if (remarks) payload.remarks = remarks;
-      request = { intent: 'ftp', kind: 'filepath', session_id: sessionId, payload };
+      request = { intent: 'ftp', kind: 'filepath', session_id: sessionId, payload: maskSecrets(payload) };
       res = await fetch('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
