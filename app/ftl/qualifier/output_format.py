@@ -22,13 +22,14 @@ DECISION_KEYS = (
     "deadline",
     "matched_items",
     "excluded_items",
+    "hold_items",
     "flags",
     "reasoning",
     "confidence",
     "ai_insight",
 )
 
-_LIST_KEYS = ("matched_items", "excluded_items", "flags")
+_LIST_KEYS = ("matched_items", "excluded_items", "hold_items", "flags")
 _TEXT_KEYS = ("project_type", "project_name", "customer_name", "reasoning", "ai_insight")
 
 

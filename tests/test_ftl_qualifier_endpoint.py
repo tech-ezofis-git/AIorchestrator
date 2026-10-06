@@ -151,7 +151,7 @@ def test_policy_overrides_follow_git_backstops():
             "reasoning": "Therefore: disqualify.",
             "flags": [],
         },
-        "",
+        "Provide a new governor for each car.",
     )
     assert unknown_with_governor["qualify"] == "needs_review"
     assert unknown_with_governor["reasoning"].endswith("pre-override item-matching pass, superseded by the auto-override explained at the top of this field.)")
@@ -179,7 +179,7 @@ def test_policy_overrides_follow_git_backstops():
             "reasoning": "no exact variant",
             "flags": [],
         },
-        "",
+        "Provide a new governor for each car.",
     )
     assert ambiguous_governor["qualify"] == "qualify"
 

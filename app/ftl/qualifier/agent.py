@@ -24,6 +24,10 @@ try:
 except ImportError:
     from pricelist_store import search_pricelist
 
+# Same marker quote_alignment.SOURCE_COMPANION writes on rows the Estimator adds.
+# Kept as a literal so importing this module does not load the Quote Estimator package.
+_ESTIMATOR_COMPANION = "estimator_companion"
+
 MAX_LOOKUP_ROUNDS = 4
 
 
@@ -138,7 +142,7 @@ def _tags_for_item(entry: Dict[str, Any]) -> set:
     return tags
 
 
-def _has_qualifying_grounded_item(matched_items: Any) -> bool:
+def _has_qualifying_grounded_item(matched_items: Any, hold_items: Any = None) -> bool:
     """Shared by both backstops below: does this matched_items array contain at least one item that
     Step 4 says counts toward "a single grounded item is enough to qualify" — i.e. anything besides
     the lone, unpaired door-operator-or-detector (and its derivative power-supply) Step 3 excludes
@@ -148,7 +152,13 @@ def _has_qualifying_grounded_item(matched_items: Any) -> bool:
     items" case (which Step 4 says is a confident disqualify) from a case that merely has nothing
     BUT the excluded door-pairing item(s) — the latter is functionally the same "zero" case for this
     purpose, which is exactly the distinction a real test run got wrong (see
-    _enforce_unknown_project_type_needs_review)."""
+    _enforce_unknown_project_type_needs_review).
+
+    Rows the Estimator only adds as a door-package companion never count. hold_items (car safeties:
+    in scope, never auto-quoted) do count.
+    """
+    if isinstance(hold_items, list) and any(isinstance(item, dict) for item in hold_items):
+        return True
     if not isinstance(matched_items, list):
         return False
     independent_hit = False
@@ -158,6 +168,8 @@ def _has_qualifying_grounded_item(matched_items: Any) -> bool:
         if not isinstance(entry, dict):
             continue
         if entry.get("match") not in ("exact", "ambiguous"):
+            continue
+        if entry.get("source") == _ESTIMATOR_COMPANION:
             continue
         tags = _tags_for_item(entry)
         if tags & _INDEPENDENT_CATEGORIES:
@@ -196,7 +208,7 @@ def _enforce_unknown_project_type_needs_review(decision: Dict[str, Any]) -> Dict
     if decision.get("project_type") != "unknown":
         return decision
     matched_items = decision.get("matched_items") or []
-    has_items = _has_qualifying_grounded_item(matched_items)
+    has_items = _has_qualifying_grounded_item(matched_items, decision.get("hold_items"))
     target = "needs_review" if has_items else "disqualify"
     if decision.get("qualify") == target:
         return decision
@@ -260,7 +272,7 @@ def _enforce_ambiguous_item_qualify_threshold(decision: Dict[str, Any]) -> Dict[
     if project_type in ("new_construction", "unknown"):
         return decision
     matched_items = decision.get("matched_items") or []
-    if not _has_qualifying_grounded_item(matched_items):
+    if not _has_qualifying_grounded_item(matched_items, decision.get("hold_items")):
         return decision
 
     decision = dict(decision)
@@ -411,8 +423,32 @@ def _enforce_unsupported_operator_lone_detector(decision: Dict[str, Any], candid
     return decision
 
 
+def _align_decision_with_estimator(decision: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Apply the Quote Estimator's scope rules to the item list before the qualify backstops.
+
+    If those rules remove every item the model had qualified on, the RFQ goes to needs_review
+    instead of an automatic disqualify.
+    """
+    from app.ftl.qualifier.quote_alignment import align_with_estimator
+
+    had_before = _has_qualifying_grounded_item(decision.get("matched_items"), decision.get("hold_items"))
+    aligned = align_with_estimator(decision, candidate_text)
+    has_now = _has_qualifying_grounded_item(aligned.get("matched_items"), aligned.get("hold_items"))
+    if had_before and not has_now and aligned.get("qualify") == "qualify":
+        aligned = dict(aligned)
+        aligned["qualify"] = "needs_review"
+        aligned["flags"] = list(aligned.get("flags") or []) + ["estimator_scope_removed_all_grounded_items"]
+        aligned["reasoning"] = (
+            "(Moved from 'qualify' to 'needs_review': every item this decision relied on was removed by the "
+            "Estimator's scope rules — see excluded_items for each reason. A person should confirm whether "
+            "any of them is really in scope.)\n\n" + (aligned.get("reasoning") or "")
+        )
+    return aligned
+
+
 def _apply_policy_overrides(decision: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
     """Apply Git's deterministic qualify backstops without changing the live model client."""
+    decision = _align_decision_with_estimator(decision, candidate_text)
     decision = _enforce_new_construction_disqualify(decision, candidate_text)
     decision = _enforce_unknown_project_type_needs_review(decision)
     decision = _enforce_wittur_allowed_operator_package(decision)

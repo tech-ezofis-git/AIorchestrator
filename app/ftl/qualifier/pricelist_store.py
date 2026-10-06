@@ -161,6 +161,20 @@ def reindex_pricelist(pages: List[str], source_name: str = "wittur-pricelist") -
     return {"ok": True, "pages_indexed": len(new_pages), "pages_reembedded": processed, "total_chunks": total_chunks}
 
 
+def reindex_from_price_book(docx_path: str, write_overlay: bool = True) -> Dict[str, Any]:
+    """Index FTL's Contractor Price Book (.docx). Parses catalogue tables, writes the price overlay
+    the shared rulebook applies, then re-embeds the merged catalogue (new book plus legacy sections)."""
+    from app.ftl.qualifier import price_book
+
+    book = price_book.parse_price_book(docx_path)
+    pages = price_book.build_pages(book)
+    result = reindex_pricelist(pages, source_name=f"ftl-price-book {book['revision']}")
+    if write_overlay:
+        price_book.write_overlay(book)
+    result["price_book"] = price_book.price_book_summary(book)
+    return result
+
+
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -215,6 +229,67 @@ def search_pricelist(query: str, top_k: int = 6) -> List[Dict[str, Any]]:
         {"text": all_chunks[i]["text"], "page": all_chunks[i]["page"], "score": float(sims[i])}
         for i in top_idx
     ]
+
+
+_PRICE_LINE_RE = re.compile(r"\$?\s*([\d,]+\.\d{2})")
+_PANEL_ROW_TYPE_RE = re.compile(r"^(1S|2C|2T)$")
+_WIDTH_TOKEN_RE = re.compile(r"^(\d+)$")
+
+
+def car_door_panel_prices() -> List[Dict[str, Any]]:
+    """Universal car door panel rows (1S/2C/2T x width) from the searchable index.
+
+    `code` is the catalogue row text. 2C/2T set prices are halved into `unit_price`; 1S prices
+    are already per car.
+    """
+    index = load_index()
+    seen: Dict[str, Dict[str, Any]] = {}
+    for page in index.get("pages", []):
+        for chunk in page.get("chunks", []):
+            words = (chunk.get("text", "") or "").split()
+            for i, word in enumerate(words):
+                match = _PANEL_ROW_TYPE_RE.match(word)
+                if not match:
+                    continue
+                door_type = match.group(1)
+                if i + 1 >= len(words):
+                    continue
+                nxt = words[i + 1].upper()
+                if not nxt.startswith(door_type + "_") or "UNIVERSAL_CAR_DOOR" not in nxt:
+                    continue
+                width = None
+                for j in range(i + 1, min(i + 6, len(words) - 2)):
+                    if words[j] == "-" and words[j + 2].upper() == "X" and _WIDTH_TOKEN_RE.match(words[j + 1]):
+                        width = words[j + 1]
+                        break
+                if width is None:
+                    continue
+                mod_idx = None
+                for j in range(i, min(i + 45, len(words))):
+                    if words[j].upper() == "(MOD)":
+                        mod_idx = j
+                        break
+                if mod_idx is None:
+                    continue
+                price = None
+                for j in range(mod_idx + 1, min(mod_idx + 4, len(words))):
+                    price_match = _PRICE_LINE_RE.fullmatch(words[j])
+                    if price_match:
+                        price = float(price_match.group(1).replace(",", ""))
+                        break
+                if price is None:
+                    continue
+                is_set = any("(2-DOOR" in words[k].upper() for k in range(i, mod_idx))
+                raw_code = " ".join(words[i + 1 : mod_idx + 1])
+                seen[f"{door_type}_{width}"] = {
+                    "door_type": door_type,
+                    "width": width,
+                    "code": raw_code,
+                    "raw_price": price,
+                    "is_set": is_set,
+                    "unit_price": round(price / 2, 2) if is_set else price,
+                }
+    return list(seen.values())
 
 
 def status() -> Dict[str, Any]:

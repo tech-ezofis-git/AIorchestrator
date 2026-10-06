@@ -313,6 +313,7 @@ FALLBACK_KEYWORDS = [
 ]
 
 _HEADING_RE = re.compile(r"^\s*\d+(?:\.\d+)+\.?\s+([A-Z][A-Za-z0-9 ,/&'\-]{2,80})\s*$", re.MULTILINE)
+_STANDALONE_SUBSECTION_NUM_RE = re.compile(r"^\s*\d{2}\.\d\s*$", re.MULTILINE)
 
 
 def detect_structure_signal(full_text: str, subsection_hit_count: int = 0) -> str:
@@ -323,17 +324,19 @@ def detect_structure_signal(full_text: str, subsection_hit_count: int = 0) -> st
     14000/14100/14900; ATTA's use a single combined 14200) — so literal section-number matching
     alone under-detects. The number of TARGET_SUBSECTION_TITLES actually found by heading (found
     consistently regardless of numbering scheme, since that lookup is title-based) is the more
-    robust primary signal; the literal 14000/14100/14900 count is a secondary corroborating signal.
+    robust primary signal; the literal 14000/14100/14900 count and standalone NN.N markers are
+    secondary corroborating signals.
     """
     mod_number_hits = len(re.findall(r"\b14000\b", full_text)) + len(re.findall(r"\b14100\b", full_text)) + len(
         re.findall(r"\b14900\b", full_text)
     )
+    distinct_subsection_numbers = len(set(m.strip() for m in _STANDALONE_SUBSECTION_NUM_RE.findall(full_text)))
     new_construction_hits = sum(
         1
         for pat in (r"PART\s*1\s*[-–]\s*GENERAL", r"PART\s*2\s*[-–]\s*PRODUCTS", r"PART\s*3\s*[-–]\s*EXECUTION")
         if re.search(pat, full_text, re.IGNORECASE)
     )
-    if subsection_hit_count >= 4 or mod_number_hits >= 6:
+    if subsection_hit_count >= 4 or mod_number_hits >= 6 or distinct_subsection_numbers >= 8:
         return "modernization_3section"
     if new_construction_hits >= 2:
         return "new_construction_single_spec"
@@ -765,6 +768,10 @@ def build_candidate_text(full_text: str) -> Dict[str, Any]:
         # nothing, and structure_signal already flags this as lower-confidence territory.
         used_fallback = True
         fallback_text = _fallback_keyword_windows(full_text)
+        if not fallback_text.strip() and len(full_text.split()) <= 1200:
+            # Short inquiries with none of the modernization keywords would otherwise
+            # reach the model as an empty excerpt.
+            fallback_text = full_text.strip()
     else:
         fallback_text = ""
 
@@ -840,11 +847,11 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
         lines.append(
             "## COMPUTED door package breakdown (derived directly from the per-car table above by "
             "code, not by the model) — AUTHORITATIVE. Use these exact groupings and quantities for "
-            "door_operator, clutch, and door_protective_device "
-            "line items — do not recompute or re-derive these from the raw table, and do "
+            "door_operator, clutch, door_protective_device, and the door restrictor ('other' "
+            "category) line items — do not recompute or re-derive these from the raw table, and do "
             "not omit any group below even if it's a small one. Every group listed here needs its "
-            "own door_operator, clutch, and door_protective_device line at the quantity "
-            "shown (clutch/detector each match the door_operator qty 1:1; car door restrictors are bundled with the SGV2 operator package); car_door_panel "
+            "own door_operator, clutch, door_protective_device, and restrictor line at the quantity "
+            "shown (clutch/detector/restrictor each match the door_operator qty 1:1); car_door_panel "
             "quantities are listed separately below since panels don't always use the opening count "
             "directly (a center-opening/2C group is 2 panels per opening)."
         )
@@ -852,7 +859,7 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
         lines.extend(f"- {l}" for l in breakdown["per_car_lines"])
         lines.append("")
         lines.append(
-            f"Door operator / clutch / detector groups (total openings = "
+            f"Door operator / clutch / detector / restrictor groups (total openings = "
             f"{breakdown['total_openings']}):"
         )
         lines.extend(f"- {l}" for l in breakdown["door_operator_lines"])

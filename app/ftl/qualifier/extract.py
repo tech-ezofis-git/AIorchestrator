@@ -50,6 +50,14 @@ try:
 except ImportError:
     _HAS_FITZ = False
 
+from app.ftl.quote_estimator.extract import (  # noqa: E402
+    _find_equipment_inventory_table,
+    _find_equipment_scope_table,
+    _parse_equipment_inventory_records,
+    compute_door_package_breakdown,
+    compute_governor_breakdown,
+)
+
 # ---------------------------------------------------------------------------
 # Email parsing — handles the real intake shape (a forwarded chain, the actual tender spec as a
 # nested attachment, sometimes multiple attachments).
@@ -454,6 +462,16 @@ def build_candidate_text(full_text: str, email_meta: Optional[Dict[str, Any]] = 
     subsections = _extract_by_headings(full_text)
     structure_signal = detect_structure_signal(full_text, subsection_hit_count=len(subsections), email_meta=email_meta)
 
+    existing_inventory_text = " ".join(
+        subsections.get(title, "")
+        for title in ("Description of Existing Equipment", "Schedule of Existing Equipment")
+    )
+    equipment_inventory_table = (
+        "" if len(existing_inventory_text.split()) >= 100 else _find_equipment_inventory_table(full_text)
+    )
+    equipment_scope_table = _find_equipment_scope_table(full_text)
+    inventory_records = _parse_equipment_inventory_records(full_text)
+
     used_fallback = False
     if len(subsections) < 2:
         # Heading-based targeting found little — either a different template (e.g. the
@@ -473,6 +491,10 @@ def build_candidate_text(full_text: str, email_meta: Optional[Dict[str, Any]] = 
         "structure_signal": structure_signal,
         "equipment_manifest": equipment_manifest,
         "device_count_summary": device_count_summary,
+        "equipment_inventory_table": equipment_inventory_table,
+        "equipment_scope_table": equipment_scope_table,
+        "door_package_breakdown": compute_door_package_breakdown(inventory_records),
+        "governor_breakdown": compute_governor_breakdown(inventory_records),
         "subsections": subsections,
         "scope_schedule": scope_schedule,
         "used_fallback": used_fallback,
@@ -500,6 +522,60 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
     if candidate.get("device_count_summary"):
         lines.append("## Device count / schedule summary (from the spec)")
         lines.append(candidate["device_count_summary"])
+        lines.append("")
+
+    if candidate.get("equipment_inventory_table"):
+        lines.append(
+            "## Per-car equipment inventory (from the spec) — AUTHORITATIVE source for exact "
+            "car/opening counts and per-car configuration."
+        )
+        lines.append(candidate["equipment_inventory_table"])
+        lines.append("")
+
+    breakdown = candidate.get("door_package_breakdown")
+    if breakdown:
+        lines.append(
+            "## COMPUTED door package breakdown (derived directly from the per-car table above by "
+            "code, not by the model) — AUTHORITATIVE. Use these exact groupings and quantities for "
+            "door_operator, clutch, door_protective_device, and the door restrictor line items."
+        )
+        lines.append("Per-car opening count:")
+        lines.extend(f"- {line}" for line in breakdown["per_car_lines"])
+        lines.append("")
+        lines.append(
+            f"Door operator / clutch / detector / restrictor groups (total openings = "
+            f"{breakdown['total_openings']}):"
+        )
+        lines.extend(f"- {line}" for line in breakdown["door_operator_lines"])
+        lines.append("")
+        lines.append("Car door panel groups:")
+        lines.extend(f"- {line}" for line in breakdown["panel_lines"])
+        lines.append("")
+
+    gov_breakdown = candidate.get("governor_breakdown")
+    if gov_breakdown:
+        lines.append(
+            "## COMPUTED governor breakdown (derived directly from each car's own Drive Method "
+            "field above, not by the model) — AUTHORITATIVE. Governors are one per CAR."
+        )
+        lines.extend(f"- {line}" for line in gov_breakdown["per_car_lines"])
+        lines.append(
+            f"Total cars needing STANDARD governor: {gov_breakdown['n_standard']} "
+            f"(cars {', '.join(gov_breakdown['standard_designations']) or 'none'})"
+        )
+        lines.append(
+            f"Total cars needing GEARLESS/high-capacity governor: {gov_breakdown['n_gearless']} "
+            f"(cars {', '.join(gov_breakdown['gearless_designations']) or 'none'})"
+        )
+        lines.append("")
+
+    if candidate.get("equipment_scope_table"):
+        lines.append(
+            "## Equipment scope table (from the spec) — AUTHORITATIVE New vs Refurbish/Retain/None "
+            "decision per category. If a category is listed here as Refurbish, Retain, or None, do "
+            "NOT add a new-equipment line item for it."
+        )
+        lines.append(candidate["equipment_scope_table"])
         lines.append("")
 
     if candidate["equipment_manifest"]:

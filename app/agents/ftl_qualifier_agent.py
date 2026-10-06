@@ -82,6 +82,12 @@ def format_decision_markdown(run: Dict[str, Any]) -> str:
         lines.append("#### Excluded Items")
         for it in excluded:
             lines.append(f"- **{it.get('item', 'Item')}**: {it.get('reason', '')}")
+    held = result.get("hold_items") or []
+    if held:
+        lines.append("")
+        lines.append("#### In scope, not auto-quoted")
+        for it in held:
+            lines.append(f"- **{it.get('item', 'Item')}**: {it.get('reason', '')}")
 
     if run.get("id"):
         lines.append("")

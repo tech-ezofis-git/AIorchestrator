@@ -23,6 +23,7 @@ PUBLIC_KEY_NAMES = {
     "project_name": "Project",
     "matched_items": "Matched items",
     "excluded_items": "Excluded items",
+    "hold_items": "Hold items",
     "customer_name": "Company Name",
     "contact_name": "Contact",
     "contact_phone": "Phone Number",

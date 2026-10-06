@@ -1,0 +1,965 @@
+{
+ "source": "FTL Contractor Price Book (Wittur Products 2026 Catalogue & Price List), REV. 09.2026",
+ "revision": "REV. 09.2026",
+ "currency": "CAD",
+ "rows": [
+  {
+   "code": "SGV2_DOOR_OP_2T42_L",
+   "family": "door_operator",
+   "type": "2T",
+   "oem": "ALL",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "2-section side-opening (2-speed)",
+   "price_cad": 5210.08,
+   "aliases": [
+    "SGV2_DOOR_OP_2T42_LH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2T48_L",
+   "family": "door_operator",
+   "type": "2T",
+   "oem": "ALL",
+   "hand": "LH",
+   "width_in": 48,
+   "description": "2-section side-opening (2-speed)",
+   "price_cad": 5252.08,
+   "aliases": [
+    "SGV2_DOOR_OP_2T48_LH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2T42_R",
+   "family": "door_operator",
+   "type": "2T",
+   "oem": "ALL",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "2-section side-opening (2-speed)",
+   "price_cad": 5210.08,
+   "aliases": [
+    "SGV2_DOOR_OP_2T42_RH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2T48_R",
+   "family": "door_operator",
+   "type": "2T",
+   "oem": "ALL",
+   "hand": "RH",
+   "width_in": 48,
+   "description": "2-section side-opening (2-speed)",
+   "price_cad": 5252.08,
+   "aliases": [
+    "SGV2_DOOR_OP_2T48_RH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2C36_L",
+   "family": "door_operator",
+   "type": "2C",
+   "oem": "ALL",
+   "hand": "LH",
+   "width_in": 36,
+   "description": "2-section center-opening (bi-parting)",
+   "price_cad": 5682.72,
+   "aliases": [
+    "SGV2_DOOR_OP_2C36_LH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2C42_L",
+   "family": "door_operator",
+   "type": "2C",
+   "oem": "ALL",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "2-section center-opening (bi-parting)",
+   "price_cad": 5730.32,
+   "aliases": [
+    "SGV2_DOOR_OP_2C42_LH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2C48_L",
+   "family": "door_operator",
+   "type": "2C",
+   "oem": "ALL",
+   "hand": "LH",
+   "width_in": 48,
+   "description": "2-section center-opening (bi-parting)",
+   "price_cad": 5741.52,
+   "aliases": [
+    "SGV2_DOOR_OP_2C48_LH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2C36_R",
+   "family": "door_operator",
+   "type": "2C",
+   "oem": "ALL",
+   "hand": "RH",
+   "width_in": 36,
+   "description": "2-section center-opening (bi-parting)",
+   "price_cad": 5682.72,
+   "aliases": [
+    "SGV2_DOOR_OP_2C36_RH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2C42_R",
+   "family": "door_operator",
+   "type": "2C",
+   "oem": "ALL",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "2-section center-opening (bi-parting)",
+   "price_cad": 5730.32,
+   "aliases": [
+    "SGV2_DOOR_OP_2C42_RH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_2C48_R",
+   "family": "door_operator",
+   "type": "2C",
+   "oem": "ALL",
+   "hand": "RH",
+   "width_in": 48,
+   "description": "2-section center-opening (bi-parting)",
+   "price_cad": 5741.52,
+   "aliases": [
+    "SGV2_DOOR_OP_2C48_RH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_1S36_L",
+   "family": "door_operator",
+   "type": "1S",
+   "oem": "ALL",
+   "hand": "LH",
+   "width_in": 36,
+   "description": "1-section side-opening (single-speed)",
+   "price_cad": 4930.08,
+   "aliases": [
+    "SGV2_DOOR_OP_1S36_LH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_1S42_L",
+   "family": "door_operator",
+   "type": "1S",
+   "oem": "ALL",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "1-section side-opening (single-speed)",
+   "price_cad": 4955.28,
+   "aliases": [
+    "SGV2_DOOR_OP_1S42_LH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_1S36_R",
+   "family": "door_operator",
+   "type": "1S",
+   "oem": "ALL",
+   "hand": "RH",
+   "width_in": 36,
+   "description": "1-section side-opening (single-speed)",
+   "price_cad": 4930.08,
+   "aliases": [
+    "SGV2_DOOR_OP_1S36_RH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_OP_1S42_R",
+   "family": "door_operator",
+   "type": "1S",
+   "oem": "ALL",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "1-section side-opening (single-speed)",
+   "price_cad": 4955.28,
+   "aliases": [
+    "SGV2_DOOR_OP_1S42_RH"
+   ]
+  },
+  {
+   "code": "SGV2_DOOR_TOOLS",
+   "family": "door_tools",
+   "type": "ALL",
+   "oem": "ALL",
+   "hand": "ALL",
+   "width_in": null,
+   "description": "Wittur programming tool",
+   "price_cad": 698.5,
+   "aliases": []
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_MAC36_LH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "MAC",
+   "hand": "LH",
+   "width_in": 36,
+   "description": "MAC door panel adaptor (36\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_MAC36_LH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_MAC42_LH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "MAC",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "MAC door panel adaptor (42\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_MAC42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_MAC36_RH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "MAC",
+   "hand": "RH",
+   "width_in": 36,
+   "description": "MAC door panel adaptor (36\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_MAC36_RH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_MAC42_RH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "MAC",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "MAC door panel adaptor (42\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_MAC42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_GAL36_LH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "GAL",
+   "hand": "LH",
+   "width_in": 36,
+   "description": "GAL door panel adaptor (36\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_GAL36_LH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_GAL42_LH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "GAL",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "GAL door panel adaptor (42\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_GAL42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_GAL36_RH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "GAL",
+   "hand": "RH",
+   "width_in": 36,
+   "description": "GAL door panel adaptor (36\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_GAL36_RH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_GAL42_RH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "GAL",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "GAL door panel adaptor (42\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_GAL42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_DOV36_LH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "DOVER",
+   "hand": "LH",
+   "width_in": 36,
+   "description": "DOVER door panel adaptor (36\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_DOV36_LH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_DOV42_LH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "DOVER",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "DOVER door panel adaptor (42\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_DOV42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_DOV36_RH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "DOVER",
+   "hand": "RH",
+   "width_in": 36,
+   "description": "DOVER door panel adaptor (36\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_DOV36_RH"
+   ]
+  },
+  {
+   "code": "SGV2(1S)_PANEL_ADAPTOR_DOV42_RH",
+   "family": "panel_adaptor",
+   "type": "1S",
+   "oem": "DOVER",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "DOVER door panel adaptor (42\")",
+   "price_cad": 264.32,
+   "aliases": [
+    "SGV2(1S)_DP_DOV42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_MAC42_LH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "MAC",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "MAC door panel adaptor (42\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_MAC42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_MAC42_RH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "MAC",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "MAC door panel adaptor (42\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_MAC42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_MAC48_LH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "MAC",
+   "hand": "LH",
+   "width_in": 48,
+   "description": "MAC door panel adaptor (48\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_MAC48_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_MAC48_RH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "MAC",
+   "hand": "RH",
+   "width_in": 48,
+   "description": "MAC door panel adaptor (48\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_MAC48_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_GAL42_LH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "GAL",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "GAL door panel adaptor (42\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_GAL42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_GAL48_LH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "GAL",
+   "hand": "LH",
+   "width_in": 48,
+   "description": "GAL door panel adaptor (48\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_GAL48_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_GAL42_RH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "GAL",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "GAL door panel adaptor (42\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_GAL42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_GAL48_RH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "GAL",
+   "hand": "RH",
+   "width_in": 48,
+   "description": "GAL door panel adaptor (48\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_GAL48_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_DOV42_LH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "DOVER",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "DOVER door panel adaptor (42\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_DOV42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_DOV48_LH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "DOVER",
+   "hand": "LH",
+   "width_in": 48,
+   "description": "DOVER door panel adaptor (48\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_DOV48_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_DOV42_RH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "DOVER",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "DOVER door panel adaptor (42\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_DOV42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2T)_PANEL_ADAPTOR_DOV48_RH",
+   "family": "panel_adaptor",
+   "type": "2T",
+   "oem": "DOVER",
+   "hand": "RH",
+   "width_in": 48,
+   "description": "DOVER door panel adaptor (48\")",
+   "price_cad": 306.88,
+   "aliases": [
+    "SGV2(2T)_DP_DOV48_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_MAC36_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "MAC",
+   "hand": "LH",
+   "width_in": 36,
+   "description": "MAC door panel adaptor (36\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_MAC36_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_MAC36_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "MAC",
+   "hand": "RH",
+   "width_in": 36,
+   "description": "MAC door panel adaptor (36\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_MAC36_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_MAC42_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "MAC",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "MAC door panel adaptor (42\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_MAC42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_MAC42_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "MAC",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "MAC door panel adaptor (42\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_MAC42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_MAC48_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "MAC",
+   "hand": "LH",
+   "width_in": 48,
+   "description": "MAC door panel adaptor (48\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_MAC48_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_MAC48_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "MAC",
+   "hand": "RH",
+   "width_in": 48,
+   "description": "MAC door panel adaptor (48\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_MAC48_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_GAL36_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "GAL",
+   "hand": "LH",
+   "width_in": 36,
+   "description": "GAL door panel adaptor (36\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_GAL36_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_GAL36_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "GAL",
+   "hand": "RH",
+   "width_in": 36,
+   "description": "GAL door panel adaptor (36\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_GAL36_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_GAL42_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "GAL",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "GAL door panel adaptor (42\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_GAL42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_GAL42_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "GAL",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "GAL door panel adaptor (42\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_GAL42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_GAL48_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "GAL",
+   "hand": "LH",
+   "width_in": 48,
+   "description": "GAL door panel adaptor (48\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_GAL48_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_GAL48_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "GAL",
+   "hand": "RH",
+   "width_in": 48,
+   "description": "GAL door panel adaptor (48\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_GAL48_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_DOV36_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "DOVER",
+   "hand": "LH",
+   "width_in": 36,
+   "description": "DOVER door panel adaptor (36\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_DOV36_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_DOV36_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "DOVER",
+   "hand": "RH",
+   "width_in": 36,
+   "description": "DOVER door panel adaptor (36\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_DOV36_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_DOV42_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "DOVER",
+   "hand": "LH",
+   "width_in": 42,
+   "description": "DOVER door panel adaptor (42\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_DOV42_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_DOV42_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "DOVER",
+   "hand": "RH",
+   "width_in": 42,
+   "description": "DOVER door panel adaptor (42\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_DOV42_RH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_DOV48_LH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "DOVER",
+   "hand": "LH",
+   "width_in": 48,
+   "description": "DOVER door panel adaptor (48\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_DOV48_LH"
+   ]
+  },
+  {
+   "code": "SGV2(2C)_PANEL_ADAPTOR_DOV48_RH",
+   "family": "panel_adaptor",
+   "type": "2C",
+   "oem": "DOVER",
+   "hand": "RH",
+   "width_in": 48,
+   "description": "DOVER door panel adaptor (48\")",
+   "price_cad": 300.16,
+   "aliases": [
+    "SGV2(2C)_DP_DOV48_RH"
+   ]
+  },
+  {
+   "code": "SGV2_CLUTCH_OTIS_L",
+   "family": "clutch",
+   "type": "",
+   "oem": "OTIS",
+   "hand": "LH",
+   "width_in": null,
+   "description": "Clutch + car door lock (OTIS - LH)",
+   "price_cad": 1010.4,
+   "aliases": [
+    "SGV2_CLUTCH_OTIS_LH"
+   ]
+  },
+  {
+   "code": "SGV2_CLUTCH_OTIS_R",
+   "family": "clutch",
+   "type": "",
+   "oem": "OTIS",
+   "hand": "RH",
+   "width_in": null,
+   "description": "Clutch + car door lock (OTIS - RH)",
+   "price_cad": 1010.4,
+   "aliases": [
+    "SGV2_CLUTCH_OTIS_RH"
+   ]
+  },
+  {
+   "code": "SGV2_CLUTCH_WEST_L",
+   "family": "clutch",
+   "type": "",
+   "oem": "WEST",
+   "hand": "LH",
+   "width_in": null,
+   "description": "Clutch + car door lock (WEST - LH)",
+   "price_cad": 1197.93,
+   "aliases": [
+    "SGV2_CLUTCH_WEST_LH"
+   ]
+  },
+  {
+   "code": "SGV2_CLUTCH_WEST_R",
+   "family": "clutch",
+   "type": "",
+   "oem": "WEST",
+   "hand": "RH",
+   "width_in": null,
+   "description": "Clutch + car door lock (WEST - RH)",
+   "price_cad": 1197.93,
+   "aliases": [
+    "SGV2_CLUTCH_WEST_RH"
+   ]
+  },
+  {
+   "code": "SGV2_CLUTCH_G.M.D._L",
+   "family": "clutch",
+   "type": "",
+   "oem": "GAL",
+   "hand": "LH",
+   "width_in": null,
+   "description": "Clutch + car door lock (G.M.D. - LH)",
+   "price_cad": 1161.94,
+   "aliases": [
+    "SGV2_CLUTCH_G.M.D._LH"
+   ]
+  },
+  {
+   "code": "SGV2_CLUTCH_G.M.D._R",
+   "family": "clutch",
+   "type": "",
+   "oem": "GAL",
+   "hand": "RH",
+   "width_in": null,
+   "description": "Clutch + car door lock (G.M.D. - RH)",
+   "price_cad": 1161.94,
+   "aliases": [
+    "SGV2_CLUTCH_G.M.D._RH"
+   ]
+  },
+  {
+   "code": "WRG_MOTION_GEAR80",
+   "family": "roller_guide",
+   "type": "RG80",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Roller guide assembly - low-profile with cover",
+   "price_cad": 468.5,
+   "aliases": []
+  },
+  {
+   "code": "WRG_MOTION_GEAR100",
+   "family": "roller_guide",
+   "type": "RG100",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Roller guide assembly - low-profile with cover",
+   "price_cad": 765.0,
+   "aliases": []
+  },
+  {
+   "code": "WRG_MOTION_GEAR125",
+   "family": "roller_guide",
+   "type": "RG125",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Roller guide assembly - low-profile with cover",
+   "price_cad": 775.0,
+   "aliases": []
+  },
+  {
+   "code": "WRG_MOTION_GEAR150",
+   "family": "roller_guide",
+   "type": "RG150",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Roller guide assembly - low-profile with cover",
+   "price_cad": 785.0,
+   "aliases": []
+  },
+  {
+   "code": "WRG_MOTION_GEAR200",
+   "family": "roller_guide",
+   "type": "RG200",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Roller guide assembly - low-profile with cover",
+   "price_cad": 1540.0,
+   "aliases": []
+  },
+  {
+   "code": "WRG_MOTION_GEAR300",
+   "family": "roller_guide",
+   "type": "RG300",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Roller guide assembly - low-profile with cover",
+   "price_cad": 2478.0,
+   "aliases": []
+  },
+  {
+   "code": "WS_CSGB_CAR_SAFETIES_NS",
+   "family": "car_safety",
+   "type": "CSGB03",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Unidirectional car safeties (no sync)",
+   "price_cad": 5202.84,
+   "aliases": []
+  },
+  {
+   "code": "WS_CSGB_CAR_SAFETIES",
+   "family": "car_safety",
+   "type": "CSGB03-SYNC",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Unidirectional car safeties (sync)",
+   "price_cad": 5591.6,
+   "aliases": []
+  },
+  {
+   "code": "WG_OL35_GOVERNOR_MT",
+   "family": "governor",
+   "type": "OL35-MT",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Manual-trip governor (no set)",
+   "price_cad": 3480.4,
+   "aliases": []
+  },
+  {
+   "code": "WG_OL35_GOVERNOR_RC",
+   "family": "governor",
+   "type": "OL35-RC",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Remote-control governor (no set)",
+   "price_cad": 2007.6,
+   "aliases": []
+  },
+  {
+   "code": "WG_OL35_GOVERNOR_RE",
+   "family": "governor",
+   "type": "OL35-RE",
+   "oem": "ALL",
+   "hand": "",
+   "width_in": null,
+   "description": "Remote + encoder governor (no set)",
+   "price_cad": 3480.4,
+   "aliases": []
+  }
+ ],
+ "incentives": [
+  {
+   "lines": "2",
+   "incentive": "2.5%",
+   "structure": "Two qualifying product lines"
+  },
+  {
+   "lines": "4",
+   "incentive": "4.0%",
+   "structure": "Four qualifying product lines"
+  },
+  {
+   "lines": "5+",
+   "incentive": "UP TO 6.0%",
+   "structure": "Five or more qualifying product lines, including a complete door system package"
+  }
+ ],
+ "resolves_conflicts": {
+  "I-001": "SGV2_DOOR_TOOLS is $698.50 (the old list's $598.50 is superseded; matches the client-confirmed EST-261132 figure). Whether the tool is bundled at $0 on a given project is still a per-project decision."
+ }
+}

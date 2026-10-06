@@ -44,6 +44,114 @@ CONFLICTS: List[Dict[str, Any]] = _load("conflicts.json")
 TRAINING_EXAMPLES: List[Dict[str, Any]] = _load("training_examples.json")
 SOURCE_REGISTER: List[Dict[str, Any]] = _load("source_register.json")
 
+# Price book overlay — FTL's Contractor Price Book (.docx) layered on the Stage 2 Product Master.
+# product_master.json goes stale when FTL publishes a new price list; the overlay is generated from
+# the price book (app/ftl/qualifier/price_book.py) and wins wherever both describe an item. Rows the
+# price book doesn't list stay as the Product Master has them. No overlay file => behaviour unchanged.
+def _load_overlay() -> Dict[str, Any]:
+    path = os.path.join(DATA_DIR, "price_book_overlay.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+PRICE_BOOK: Dict[str, Any] = _load_overlay()
+
+
+def rulebook_status() -> Dict[str, int]:
+    """Row counts of every loaded rulebook table."""
+    return {
+        "product_master": len(PRODUCT_MASTER),
+        "decision_rules": len(DECISION_RULES),
+        "required_inputs": len(REQUIRED_INPUTS),
+        "technical_limits": len(TECHNICAL_LIMITS),
+        "review_triggers": len(REVIEW_TRIGGERS),
+        "conflicts": len(CONFLICTS),
+        "training_examples": len(TRAINING_EXAMPLES),
+        "source_register": len(SOURCE_REGISTER),
+        "price_book_rows": len(PRICE_BOOK.get("rows") or []),
+    }
+
+
+_ALIAS_TO_CANONICAL: Dict[str, str] = {}
+
+_PRICE_BOOK_FAMILY_TO_MASTER = {
+    "door_operator": "Door System",
+    "door_tools": "Door System",
+    "panel_adaptor": "Door System",
+    "clutch": "Door System",
+    "roller_guide": "Roller Guides",
+    "governor": "Governors",
+    "car_safety": "Safety Gear",
+}
+
+
+def _apply_price_book() -> None:
+    rows = PRICE_BOOK.get("rows") or []
+    if not rows:
+        return
+    source = PRICE_BOOK.get("source", "price book")
+    position = {p.get("ftl_product_code"): i for i, p in enumerate(PRODUCT_MASTER)}
+    for row in rows:
+        code = row["code"]
+        aliases = list(row.get("aliases") or [])
+        idx = position.get(code)
+        if idx is None:
+            for alias in aliases:
+                if alias in position:
+                    idx = position[alias]
+                    break
+        if idx is not None:
+            old = PRODUCT_MASTER[idx]
+            new = dict(old)
+            old_code = old.get("ftl_product_code")
+            new["ftl_product_code"] = code
+            old_price = old.get("price_cad")
+            new["price_cad"] = row["price_cad"]
+            if old_price is not None and abs(float(old_price) - float(row["price_cad"])) > 0.005:
+                new["price_book_previous_price_cad"] = old_price
+            new["source"] = source
+            if aliases:
+                new["aliases"] = aliases
+            PRODUCT_MASTER[idx] = new
+            position.pop(old_code, None)
+            position[code] = idx
+        else:
+            PRODUCT_MASTER.append(
+                {
+                    "family": _PRICE_BOOK_FAMILY_TO_MASTER.get(row.get("family"), "Door System"),
+                    "type": row.get("type") or "",
+                    "oem": row.get("oem") or "ALL",
+                    "ftl_product_code": code,
+                    "description": row.get("description") or code,
+                    "hand": row.get("hand") or "N/A",
+                    "width_in": row.get("width_in"),
+                    "uom": "pair" if row.get("family") == "car_safety" else "each",
+                    "price_cad": row["price_cad"],
+                    "automation_status": "HOLD" if row.get("family") == "car_safety" else "CONDITIONAL",
+                    "quantity_basis": "Per price book",
+                    "companion_selection_rule": (
+                        "Never auto-add; engineering selection required"
+                        if row.get("family") == "car_safety"
+                        else "Add only when scope calls for it"
+                    ),
+                    "source": source,
+                    "notes_issue": "Added from the price book; not in the Stage 2 Product Master.",
+                    "aliases": aliases,
+                }
+            )
+            position[code] = len(PRODUCT_MASTER) - 1
+        for alias in aliases:
+            _ALIAS_TO_CANONICAL[alias] = code
+
+    for product in PRODUCT_MASTER:
+        if product.get("ftl_product_code") == "SGV2_DOOR_TOOLS" and "I-001" in (PRICE_BOOK.get("resolves_conflicts") or {}):
+            product["notes_issue"] = "I-001 resolved: " + PRICE_BOOK["resolves_conflicts"]["I-001"]
+
+
+_apply_price_book()
+
 _CONFLICTS_BY_ID: Dict[str, Dict[str, Any]] = {c["issue_id"]: c for c in CONFLICTS if c.get("issue_id")}
 _TRIGGERS_BY_ID: Dict[str, Dict[str, Any]] = {t["trigger_id"]: t for t in REVIEW_TRIGGERS if t.get("trigger_id")}
 _RULES_BY_ID: Dict[str, Dict[str, Any]] = {r["rule_id"]: r for r in DECISION_RULES if r.get("rule_id")}
@@ -52,13 +160,36 @@ _PRODUCT_BY_CODE: Dict[str, Dict[str, Any]] = {
 }
 
 
+def canonical_code(code: str) -> str:
+    """Current price-book code when `code` is an old spelling the price book renamed; otherwise unchanged."""
+    return _ALIAS_TO_CANONICAL.get(code, code)
+
+
+def all_known_codes() -> set:
+    """Every code the price book defines, plus the old codes it replaced."""
+    codes = {row["code"] for row in (PRICE_BOOK.get("rows") or [])}
+    codes.update(_ALIAS_TO_CANONICAL)
+    return codes
+
+
+def price_book_resolution(issue_id: str) -> Optional[str]:
+    return (PRICE_BOOK.get("resolves_conflicts") or {}).get(issue_id)
+
+
 def cite_conflict(issue_id: str) -> str:
     """Renders a Controlled Conflict Register entry as a citation string suitable for an
     `assumptions`/`note` field — always includes the safe interim rule and who owns the decision,
-    so a human reader never has to go dig up the rulebook to know what to do next."""
+    so a human reader never has to go dig up the rulebook to know what to do next. An entry the
+    price book has since settled is rendered as RESOLVED."""
     c = _CONFLICTS_BY_ID.get(issue_id)
     if not c:
         return f"[{issue_id}] (conflict register entry not found — check data/rulebook/conflicts.json)"
+    resolution = price_book_resolution(issue_id)
+    if resolution:
+        return (
+            f"[{issue_id}, RESOLVED by {PRICE_BOOK.get('source', 'price book')}] "
+            f"{c.get('issue')} — {resolution}"
+        )
     return (
         f"[{issue_id}, {c.get('priority')}/{c.get('status')}] {c.get('issue')} — safe interim rule: "
         f"{c.get('safe_interim_rule')} (decision needed from: {c.get('decision_needed')})"
@@ -83,7 +214,7 @@ def cite_rule(rule_id: str) -> str:
 
 
 def product_master_row(code: str) -> Optional[Dict[str, Any]]:
-    return _PRODUCT_BY_CODE.get(code)
+    return _PRODUCT_BY_CODE.get(code) or _PRODUCT_BY_CODE.get(_ALIAS_TO_CANONICAL.get(code, ""))
 
 
 def governor_tension_companion(size: str) -> Optional[Dict[str, Any]]:
