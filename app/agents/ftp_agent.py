@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from app.classification_skills.contract import numeric_id
 from app.config import Settings, get_settings
+from app.tools.connector_store import ConnectorError, load_sftp_connector
 from app.tools.file_fetcher import fetch_file_by_path
 from app.tools.file_preparation import prepare_files
 from app.tools.folder_mover import move_to_folder
@@ -59,6 +60,15 @@ class FtpAgent:
             return None, None, None, f"File fetch failed: {fetched['error']}"
         return fetched["file_bytes"], fetched["fileName"], fetched["contentType"], None
 
+    async def _sftp(self, job: dict[str, Any]) -> dict[str, Any]:
+        """Request SFTP values over the connector's ConfigJson (when connector_id is sent); FTP_* fills the rest."""
+        request = {k: v for k, v in (job.get("sftp") or {}).items() if v not in (None, "")}
+        connector_id = str(job.get("connector_id") or "").strip()
+        if not connector_id:
+            return request
+        connector = await load_sftp_connector(job.get("tenant_id"), connector_id, settings=self._cfg())
+        return {**{k: v for k, v in connector.items() if v is not None}, **request}
+
     async def handle(
         self,
         *,
@@ -88,7 +98,12 @@ class FtpAgent:
         ref_no: Optional[str] = None
         remote_dir: Optional[str] = None
         try:
-            data, file_name, content_type, error = await self._document(job, progress)
+            try:
+                sftp = await self._sftp(job)
+            except ConnectorError as exc:
+                sftp, error = None, str(exc)
+            if error is None:
+                data, file_name, content_type, error = await self._document(job, progress)
             if error is None:
                 await progress.update("PROCESSING", "Preparing the files", 60)
                 prepared = prepare_files(
@@ -113,7 +128,7 @@ class FtpAgent:
                     "PROCESSING", f"Uploading to the {'processed' if processed else 'unprocessed'} folder", 85
                 )
                 moved = await move_to_folder(
-                    files=prepared["files"], valid=processed, sftp=job.get("sftp"), settings=self._cfg()
+                    files=prepared["files"], valid=processed, sftp=sftp, settings=self._cfg()
                 )
                 remote_dir = moved["remote_dir"]
                 if moved["status"] == "SUCCEEDED":

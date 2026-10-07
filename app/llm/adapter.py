@@ -121,6 +121,7 @@ class LLMAdapter:
         api_base: Optional[str] = None,
         api_key: Optional[str] = None,
         api_version: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> dict:
         """Call the configured LLM with a list of {role, content} messages.
 
@@ -177,6 +178,8 @@ class LLMAdapter:
         # max_tokens; LiteLLM maps completion tokens when this is set.
         if "gpt-5" in (model or "").lower():
             kwargs["max_completion_tokens"] = 4096
+            if reasoning_effort:
+                kwargs["reasoning_effort"] = reasoning_effort
 
         timeout = get_settings().llm_request_timeout_seconds
         if timeout and timeout > 0:

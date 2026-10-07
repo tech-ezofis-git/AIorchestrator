@@ -2751,6 +2751,10 @@
           <input type="text" id="ftpTenant" value="0470d932-31f1-46e6-b124-9070b1bc15fb" />
         </div>
         <div>
+          <label for="ftpConnectorId">Connector ID</label>
+          <input type="text" id="ftpConnectorId" value="51f0f52f-4713-4993-8d65-5ce96e915711" placeholder="optional — else FTP_* from .env" />
+        </div>
+        <div>
           <label for="ftpModel">Model</label>
           <input type="text" id="ftpModel" value="OpenAI GPT-4.1" />
         </div>
@@ -2808,14 +2812,6 @@
         <div>
           <label for="ftpSftpPassword">SFTP password</label>
           <input type="password" id="ftpSftpPassword" placeholder="optional — else FTP_PASSWORD" autocomplete="new-password" />
-        </div>
-        <div>
-          <label for="ftpSftpProcessedDir">Processed folder</label>
-          <input type="text" id="ftpSftpProcessedDir" placeholder="/OCR_Process/processed" />
-        </div>
-        <div>
-          <label for="ftpSftpUnprocessedDir">Unprocessed folder</label>
-          <input type="text" id="ftpSftpUnprocessedDir" placeholder="/OCR_Process/Unprocessed" />
         </div>
           </div>
         </details>
@@ -8644,6 +8640,7 @@ async function sendFtpJob() {
     documentType: val('ftpDocumentType'),
     envType: val('ftpEnvType'),
     tenantId: val('ftpTenant'),
+    connector_id: val('ftpConnectorId'),
     workflowId: val('ftpWorkflowId'),
     repositoryId: val('ftpRepositoryId'),
     instanceId: val('ftpInstanceId'),

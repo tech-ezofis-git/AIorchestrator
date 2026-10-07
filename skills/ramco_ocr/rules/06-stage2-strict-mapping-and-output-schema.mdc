@@ -20,7 +20,6 @@ STRICT TRANSFORMATION RULES:
 
 FINAL OUTPUT SCHEMA:
 {
-  "confidence": 0.0,
   "invoice_header": {
     "Document Type": "string or null",
     "FID number": "string or null",
@@ -65,11 +64,5 @@ FINAL OUTPUT SCHEMA:
     }
   ]
 }
-
-CONFIDENCE:
-- "confidence" is a number from 0.0 to 1.0 for how reliably the invoice header and line items were extracted from the OCR text.
-- Use 0.8 or higher when the document is clearly an invoice and the key fields (Company Name, invoice No, invoice Date, Grand Total, line items) are clearly readable.
-- Go below 0.8 only when the OCR text is garbled, key fields are missing or ambiguous, or the document does not look like an invoice.
-- "confidence" is a top-level key, never inside invoice_header.
 
 Return ONLY a valid JSON object strictly - no explanation, no markdown, no extra characters, no trailing commas. Output the entire JSON with this correction applied.

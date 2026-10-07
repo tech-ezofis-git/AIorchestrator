@@ -149,7 +149,7 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
         or _form_str(form.get("activityId"))
         or _form_str(form.get("ActivityId"))
     )
-    connector_id = _form_str(form.get("connector_id"))
+    connector_id = _form_str(form.get("connector_id")) or _form_str(form.get("connectorId"))
     resource = _form_str(form.get("resource"))
     master_source = (
         _form_str(form.get("master_source"))

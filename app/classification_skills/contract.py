@@ -11,8 +11,6 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from app.config import get_settings
-
 AGENT_NAME = "CLASSIFICATION"
 UNKNOWN_TYPE = "UNKNOWN"
 BLANK_TYPE = "BLANK"
@@ -57,7 +55,6 @@ def numeric_id(value: Any) -> Any:
 def _outcome(
     classification_result: Optional[dict[str, Any]],
     error: Optional[str],
-    threshold: float,
 ) -> tuple[str, float, Optional[str]]:
     if error is not None:
         return UNKNOWN_TYPE, 0.0, error
@@ -72,13 +69,6 @@ def _outcome(
         return UNKNOWN_TYPE, confidence, f"Classifier returned an unsupported label: {document_type}."
     if document_type == BLANK_TYPE:
         return BLANK_TYPE, confidence, BLANK_ERROR
-    if confidence < threshold:
-        return (
-            UNKNOWN_TYPE,
-            confidence,
-            "Document type could not be determined with enough confidence "
-            f"({confidence:.2f} < {threshold:.2f}).",
-        )
     if document_type not in INVOICE_TYPES:
         return document_type, confidence, f"{NO_INVOICE_ERROR} Detected: {document_type}."
     return document_type, confidence, None
@@ -95,11 +85,8 @@ def build_contract(
     instance_id: Optional[str],
     classification_result: Optional[dict[str, Any]] = None,
     error: Optional[str] = None,
-    threshold: Optional[float] = None,
 ) -> dict[str, Any]:
-    if threshold is None:
-        threshold = get_settings().classification_min_confidence
-    document_type, confidence, error = _outcome(classification_result, error, threshold)
+    document_type, confidence, error = _outcome(classification_result, error)
     ocr_text = (classification_result or {}).get("ocr_text") or ""
     return {
         "agent": AGENT_NAME,
