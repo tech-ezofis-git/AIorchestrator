@@ -86,7 +86,8 @@ def test_classification_from_ocr_text(client, monkeypatch):
     assert result["environment"] == _ENV_PAYLOAD
     assert result["ocr_text"] == "Invoice Number: INV/26-27/002140\nTotal: 1770.00"
     assert result["ERROR CODE"] is None
-    assert calls and calls[0].get("model") == "gpt-4.1"
+    assert calls and calls[0].get("model") == "azure/gpt-5-nano"
+    assert calls[0].get("reasoning_effort") == "minimal"
     assert body["document_id"] == "ocr_text"
     assert body["summary_result"] is None
     assert body["token_usage"]["total_tokens"] == 15
@@ -162,7 +163,7 @@ def test_classification_from_filepath(client, monkeypatch):
     assert body["document_id"] == "invoice.pdf"
 
 
-def test_classification_low_confidence_fails(client, monkeypatch):
+def test_classification_low_confidence_keeps_label(client, monkeypatch):
     _install_fake_llm(
         monkeypatch,
         content=json.dumps({"label": "INVOICE", "confidence": 0.41, "reason": "Weak invoice signals."}),
@@ -186,14 +187,11 @@ def test_classification_low_confidence_fails(client, monkeypatch):
     body = response.json()
     result = body["classification_result"]
     _assert_contract(result)
-    assert result["Classification Status"] == "FAILED"
+    assert result["Classification Status"] == "SUCCEEDED"
     assert result["source"] == {"blobPath": "OCR_Inbox/scan_20260916_0036.pdf"}
-    assert result["classification"]["documentType"] == "UNKNOWN"
+    assert result["classification"]["documentType"] == "INVOICE"
     assert result["classification"]["confidence"] == 0.41
-    assert result["ERROR CODE"] == (
-        "Document type could not be determined with enough confidence (0.41 < 0.80)."
-    )
-    assert body["reply"].startswith("Document classification failed:")
+    assert result["ERROR CODE"] is None
 
 
 def test_classification_no_text_fails(client, monkeypatch):

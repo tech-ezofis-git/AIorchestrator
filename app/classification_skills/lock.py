@@ -79,10 +79,14 @@ def parse_classification_json_content(content: Any, *, ocr_text: str) -> dict:
 
 
 def _confidence_score_from(data: dict) -> Any:
-    """0–100 score; the classifier skill returns `confidence` on a 0–1 scale."""
-    if data.get("confidence_score") is not None:
-        return data["confidence_score"]
-    raw = data.get("confidence")
+    """0–100 score from `confidence_score` or `confidence`, either on a 0–1 or 0–100 scale.
+
+    Models asked for `confidence_score` return both 0.92 and 92 for the same page,
+    so any value up to 1 is read as a fraction.
+    """
+    raw = data.get("confidence_score")
+    if raw is None:
+        raw = data.get("confidence")
     try:
         value = float(raw)
     except (TypeError, ValueError):

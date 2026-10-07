@@ -561,9 +561,28 @@ class AgentPackStore:
             updated_by,
         )
 
+    async def deactivate_platform_rows_except(
+        self,
+        *,
+        agent_slug: str,
+        skill_slugs: list[str],
+        rule_slugs: list[str],
+        updated_by: str = "seed",
+    ) -> None:
+        """Turn off platform skill/rule rows whose file is gone from the disk pack."""
+        for table, slugs in (("platform_agent_skills", skill_slugs), ("platform_agent_rules", rule_slugs)):
+            await self._catalog._run(
+                "execute",
+                f"UPDATE {table} SET is_active = FALSE, updated_by = $3, updated_at = now() "
+                "WHERE agent_slug = $1 AND is_active AND NOT (slug = ANY($2::text[]))",
+                agent_slug,
+                slugs,
+                updated_by,
+            )
+
 
 async def seed_platform_packs_from_disk(catalog: CatalogStore, *, settings: Any = None) -> dict[str, int]:
-    """Upsert disk SKILL.md + rules/*.mdc into platform_* tables."""
+    """Upsert disk SKILL.md + rules/*.mdc into platform_* tables; rows for deleted files are deactivated."""
     store = AgentPackStore(catalog)
     counts: dict[str, int] = {}
     for agent in _PACK_AGENTS:
@@ -575,8 +594,11 @@ async def seed_platform_packs_from_disk(catalog: CatalogStore, *, settings: Any 
             counts[agent] = 0
             continue
         n = 0
+        skill_slugs: list[str] = []
+        rule_slugs: list[str] = []
         skill_path = pack_dir / "SKILL.md"
         if skill_path.is_file():
+            skill_slugs.append("SKILL")
             _meta, body = _parse_frontmatter(skill_path.read_text(encoding="utf-8"))
             await store.upsert_platform_skill(
                 agent_slug=agent,
@@ -600,7 +622,12 @@ async def seed_platform_packs_from_disk(catalog: CatalogStore, *, settings: Any 
                     always_apply=always,
                     sort_order=idx,
                 )
+                rule_slugs.append(path.stem)
                 n += 1
+        if skill_slugs:
+            await store.deactivate_platform_rows_except(
+                agent_slug=agent, skill_slugs=skill_slugs, rule_slugs=rule_slugs
+            )
         counts[agent] = n
         logger.info("agent_packs_seeded", extra={"agent": agent, "count": n})
     return counts

@@ -26,17 +26,6 @@ def build_user_prompt(ocr_text: str) -> str:
     return USER_TEMPLATE.format(text=ocr_text)
 
 
-def _confidence(parsed: dict[str, Any], header: dict[str, Any]) -> Optional[float]:
-    raw = parsed.get("confidence", header.pop("confidence", None))
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return None
-    if value > 1.0:
-        value = value / 100.0
-    return round(max(0.0, min(1.0, value)), 2)
-
-
 def _has_values(header: dict[str, Any], line_items: list[Any]) -> bool:
     if any(v not in (None, "") for v in header.values()):
         return True
@@ -51,30 +40,24 @@ def build_contract(
     document_job: dict[str, Any],
     parsed: Optional[dict[str, Any]] = None,
     error: Optional[str] = None,
-    threshold: Optional[float] = None,
 ) -> dict[str, Any]:
-    """Client-facing OCR contract (Extraction Status / extraction / ERROR CODE)."""
-    if threshold is None:
-        threshold = get_settings().ramco_ocr_min_confidence
+    """Client-facing OCR contract (Extraction Status / extraction / ERROR CODE).
+
+    The client prompt returns no score, so `extraction.confidence` is always null.
+    """
     header: Optional[dict[str, Any]] = None
     line_items: list[Any] = []
-    confidence: Optional[float] = None
 
     if error is None and parsed is not None:
         raw_header = parsed.get("invoice_header")
         header = dict(raw_header) if isinstance(raw_header, dict) else {}
         raw_items = parsed.get("line_items")
         line_items = raw_items if isinstance(raw_items, list) else []
-        confidence = _confidence(parsed, header)
         if not _has_values(header, line_items):
             error = EMPTY_ERROR
-        elif confidence is not None and confidence < threshold:
-            error = f"Extraction confidence too low ({confidence:.2f} < {threshold:.2f})."
 
     if error is not None:
         header, line_items = None, []
-        if confidence is None:
-            confidence = 0.0
 
     return {
         "agent": CONTRACT_AGENT,
@@ -95,7 +78,7 @@ def build_contract(
         },
         "extraction": {
             "model": document_job.get("model_display"),
-            "confidence": confidence,
+            "confidence": None,
             "invoiceHeader": header,
             "lineItems": line_items,
         },

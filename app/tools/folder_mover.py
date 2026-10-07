@@ -14,6 +14,8 @@ from app.config import Settings, get_settings
 logger = logging.getLogger("orchestrator.tools.folder_mover")
 
 TOOL_ID = "folder_mover"
+PROCESSED_DIR = "/OCR_Process/processed"
+UNPROCESSED_DIR = "/OCR_Process/Unprocessed"
 NO_FILES_ERROR = "At least one file with a name and content is required."
 NOT_CONFIGURED_ERROR = (
     "SFTP server is missing: send sftp_host / sftp_username / sftp_password, "
@@ -22,15 +24,15 @@ NOT_CONFIGURED_ERROR = (
 
 
 def resolve_sftp(settings: Settings, overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """SFTP connection + folders: request values win, FTP_* settings fill the rest."""
+    """SFTP connection: given values win, FTP_* settings fill the rest. Folders are fixed."""
     o = {k: v for k, v in (overrides or {}).items() if v not in (None, "")}
     return {
         "host": str(o.get("host") or settings.ftp_host or "").strip(),
         "port": int(o.get("port") or settings.ftp_sftp_port),
         "username": o.get("username") or settings.ftp_username,
         "password": o.get("password") or settings.ftp_password,
-        "processed_dir": o.get("processed_dir") or settings.ftp_processed_dir,
-        "unprocessed_dir": o.get("unprocessed_dir") or settings.ftp_unprocessed_dir,
+        "processed_dir": PROCESSED_DIR,
+        "unprocessed_dir": UNPROCESSED_DIR,
         "timeout": settings.ftp_timeout_seconds,
     }
 
@@ -91,8 +93,8 @@ async def move_to_folder(
     """Valid → processed folder, not valid → unprocessed folder. Never raises.
 
     `files` is [{name, data: bytes}] (the File Preparation output). `sftp` may carry
-    host / port / username / password / processed_dir / unprocessed_dir from the
-    request; anything missing comes from FTP_* settings.
+    host / port / username / password (request or connector); anything missing
+    comes from FTP_* settings.
     """
     started = time.perf_counter()
     sftp_cfg = resolve_sftp(settings or get_settings(), sftp)
