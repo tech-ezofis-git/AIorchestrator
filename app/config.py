@@ -107,6 +107,9 @@ class Settings(BaseSettings):
     # "OpenAI GPT-4.1"). Empty = tenant catalog / console default as before.
     classification_model: str = "gpt-5-nano"
     ramco_ocr_model: str = "gpt-5-nano"
+    # OCR agent model when neither the request nor the tenant's catalog
+    # picks one. Not OCR_DEFAULT_MODEL: .env already sets that to Qwen.
+    ocr_agent_model: str = "gpt-5-nano"
     # GPT-5 reasoning effort for those two agents. At the default effort
     # gpt-5-nano spends the whole 4096-token budget reasoning on the Ramco
     # prompt (empty reply, ~95s); "minimal" answers in ~10-15s.
