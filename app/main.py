@@ -2965,12 +2965,16 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         di_model = (get_settings().document_intelligent_model or "").strip()
         if di_model and preset_has_api_key(di_model):
             llm_overrides = preset_call_overrides(di_model)
+    if llm_overrides is None and intent == Intent.OCR:
+        ocr_model = (get_settings().ocr_agent_model or "").strip()
+        if ocr_model and preset_has_api_key(ocr_model):
+            llm_overrides = preset_call_overrides(ocr_model)
     if llm_overrides is None:
         # No explicit/tenant selection — freeze the adapter's current
         # process-wide default so a document-job request's LLM call(s) are
         # immune to a concurrent request changing that default mid-flight.
         llm_overrides = llm_adapter.snapshot_overrides()
-    if intent in {Intent.CLASSIFICATION, Intent.RAMCO_OCR}:
+    if intent in {Intent.CLASSIFICATION, Intent.RAMCO_OCR, Intent.OCR}:
         effort = (get_settings().agent_reasoning_effort or "").strip()
         if effort:
             llm_overrides = {**llm_overrides, "reasoning_effort": effort}
