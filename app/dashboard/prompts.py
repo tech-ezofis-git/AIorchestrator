@@ -67,6 +67,16 @@ def fallback_prompt(
     status_empty = not _has(occupancy, "status", "aistatus") if occupancy else False
     match_filled = _has(occupancy, "matchedstatus", "matchstatus") if occupancy else match
 
+    # Check for domain signals
+    if _has_column(columns, "vessel", "vesselname", "berth", "port"):
+        return f"Build a {name} dashboard showing vessel arrivals, departures and berth utilization."
+    if _has_column(columns, "rfq", "rfqid", "rfqnumber", "quote"):
+        return f"Build an RFQ dashboard showing total RFQs, quote status breakdown, and monthly volume trend."
+    if _has_column(columns, "inventory", "sku", "stock", "warehouse"):
+        return f"Build an inventory dashboard showing stock levels, category distribution, and reorder status."
+    if _has_column(columns, "sales", "opportunity", "deal", "lead"):
+        return f"Build a sales dashboard showing pipeline value, deal stages, and conversion trend."
+
     parts: list[str] = [f"Build a {name} dashboard"]
     if money:
         bits = ["total payable"]

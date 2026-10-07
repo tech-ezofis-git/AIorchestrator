@@ -24,15 +24,12 @@ Return JSON only:
 
 The user request is the spec. Different requests MUST produce different insights.
 Write only about widgets in the snapshot. The snapshot is already filtered to this request.
-Do not emit a canned Accounts Payable pack (total invoices, payable, paid, outstanding, overdue) unless those widgets are in the snapshot and the user asked for a full AP overview.
-Do not recap every KPI. Answer the request.
+Never emit a canned overview unless requested. Answer the request specifically.
 
 Rules:
-- 3 to 5 short sentences. Lead with what they asked, not a generic overview.
-- Use only numbers and labels in the snapshot. Do not invent aging buckets or percentages.
-- Name vendor and status labels when those series exist.
-- If a chart is outstanding amount by vendor, say outstanding amount — never "risk score" unless a risk metric is present.
-- Do not mention payable, overdue, or vendors unless those widgets are in the snapshot.
+- 3 to 5 short sentences. Lead with what was asked, not a generic overview.
+- Use only numbers and labels in the snapshot. Do not invent buckets or percentages.
+- Name top entities, categories, and status labels when those series exist.
 - If fewer than 15 records, do not lead with month-over-month percentage changes.
 - No markdown, no bullet characters inside the strings.
 """
@@ -195,6 +192,67 @@ def _chart_sentence(item: dict[str, Any], row: dict[str, Any]) -> str | None:
     return None
 
 
+def insight_topics(message: str) -> list[str]:
+    """Pull explicit insight bullets from a prompt, such as 'insights about: - Delayed vessels'."""
+    match = re.search(r"insights?\s+about:\s*(.+)", message or "", re.I | re.S)
+    if not match:
+        return []
+    tail = re.split(r"\bAdd filters\b|\n\s*\d{1,2}\.\s", match.group(1), maxsplit=1)[0]
+    topics: list[str] = []
+    for part in re.split(r"\s+-\s+", tail):
+        text = re.sub(r"\s+", " ", part).strip(" .:-")
+        if len(text) > 8:
+            topics.append(text[:160])
+    return topics[:8]
+
+
+def _topic_insights(
+    topics: list[str],
+    kpis: list[dict[str, Any]],
+    charts: list[dict[str, Any]],
+    data: dict[str, Any],
+) -> list[str]:
+    """One sentence per requested topic, using only live KPI and chart values."""
+    kpi_data = data.get("kpis") if isinstance(data.get("kpis"), dict) else {}
+    chart_data = data.get("charts") if isinstance(data.get("charts"), dict) else {}
+    lines: list[str] = []
+    for topic in topics:
+        tokens = _tokens(topic)
+        best_kpi = None
+        best_score = 0
+        for item in kpis:
+            if item.get("enabled") is False:
+                continue
+            score = len(tokens & _tokens(_item_blob(item)))
+            if score > best_score:
+                best_score = score
+                best_kpi = item
+        if best_kpi and best_score:
+            widget_id = str(best_kpi.get("id") or "")
+            row = kpi_data.get(widget_id) if isinstance(kpi_data.get(widget_id), dict) else {}
+            label = str(best_kpi.get("label") or widget_id)
+            lines.append(f"{topic}: {label} is {_fmt_value(row)} for the current filters.")
+            continue
+        best_chart = None
+        best_chart_score = 0
+        for item in charts:
+            if item.get("enabled") is False:
+                continue
+            score = len(tokens & _tokens(_item_blob(item)))
+            if score > best_chart_score:
+                best_chart_score = score
+                best_chart = item
+        if best_chart and best_chart_score:
+            widget_id = str(best_chart.get("id") or "")
+            row = chart_data.get(widget_id) if isinstance(chart_data.get(widget_id), dict) else {}
+            sentence = _chart_sentence(best_chart, row)
+            if sentence:
+                lines.append(f"{topic}: {sentence}")
+                continue
+        lines.append(f"{topic}: the current repository result does not include a field for this check.")
+    return lines[:8]
+
+
 def fallback_insights(
     *,
     repository_name: str,
@@ -254,6 +312,9 @@ async def generate_insights(
     message: str = "",
 ) -> list[str]:
     ask = user_ask(message, kpis, charts)
+    topics = insight_topics(message) or insight_topics(ask)
+    if topics and not (wants_kpis_only(message) or wants_kpis_only(ask)):
+        return _topic_insights(topics, kpis, charts, data)
     if wants_kpis_only(message) or wants_kpis_only(ask):
         return []
     focus_kpis, focus_charts = _focus_widgets(kpis, charts, ask)

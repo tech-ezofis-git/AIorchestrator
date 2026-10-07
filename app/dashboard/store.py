@@ -10,10 +10,6 @@ import re
 from typing import Any, Optional
 
 from app.dashboard.ids import guid_prefix, normalize_guid
-from app.dashboard.mock_data import (
-    get_sample_repositories,
-    get_sample_workflows,
-)
 from app.data_import.ident import quote_ident
 
 logger = logging.getLogger("orchestrator.dashboard.store")
@@ -125,51 +121,80 @@ class DashboardStore:
         workflow_name = None
         try:
             if not repository_id and workflow_id:
-                wf = await pool.fetchrow(
-                    """
-                    SELECT "Id"::text AS id, "Name" AS name, "RepositoryId"::text AS repository_id, "FormId"::text AS form_id
-                    FROM workflow."Workflows"
-                    WHERE "Id" = $1::uuid
-                      AND COALESCE("IsDeleted", false) = false
-                    """,
-                    normalize_guid(workflow_id) or workflow_id,
-                )
-                if wf is None:
-                    raise ValueError("payload.workflow_id was not found in this tenant.")
-                mapping = dict(wf)
-                repository_id = _as_str(_row_get(mapping, "repository_id", "RepositoryId")) or None
-                form_id = _as_str(_row_get(mapping, "form_id", "FormId")) or None
-                workflow_name = _as_str(_row_get(mapping, "name", "Name")) or None
-                if not repository_id:
-                    raise ValueError("payload.workflow_id has no repository.")
+                try:
+                    wf = await pool.fetchrow(
+                        """
+                        SELECT "Id"::text AS id, "Name" AS name, "RepositoryId"::text AS repository_id, "FormId"::text AS form_id
+                        FROM workflow."Workflows"
+                        WHERE ("Id"::text ILIKE $1 || '%' OR lower("Name") = lower($1))
+                          AND COALESCE("IsDeleted", false) = false
+                        LIMIT 1
+                        """,
+                        workflow_id,
+                    )
+                    if wf is not None:
+                        mapping = dict(wf)
+                        repository_id = _as_str(_row_get(mapping, "repository_id", "RepositoryId")) or None
+                        form_id = _as_str(_row_get(mapping, "form_id", "FormId")) or None
+                        workflow_name = _as_str(_row_get(mapping, "name", "Name")) or None
+                except Exception as exc:
+                    logger.warning("dashboard_workflow_resolve_failed: %s", exc)
 
-            repo = await pool.fetchrow(
-                """
-                SELECT "Id"::text AS id, "Name" AS name, "ItemsTableName" AS items_table_name
-                FROM repository."Repositories"
-                WHERE "Id" = $1::uuid
-                  AND COALESCE("IsDeleted", false) = false
-                """,
-                normalize_guid(repository_id) or repository_id,
-            )
-            if repo is None:
-                raise ValueError("payload.repository_id was not found in this tenant.")
-            mapping = dict(repo)
-            schema, table = split_table(
-                _as_str(_row_get(mapping, "items_table_name", "ItemsTableName")),
-                _as_str(_row_get(mapping, "id", "Id")) or repository_id or "",
-            )
-            return {
-                "tenant_id": tenant_id,
-                "repository_id": _as_str(_row_get(mapping, "id", "Id")) or repository_id,
-                "repository_name": _as_str(_row_get(mapping, "name", "Name")) or None,
-                "workflow_id": workflow_id,
-                "workflow_name": workflow_name,
-                "form_id": form_id,
-                "schema": schema,
-                "table": table,
-                "qualified_table": f"{schema}.{table}",
-            }
+            repo = None
+            raw_repo = (repository_id or "").strip()
+            if raw_repo:
+                try:
+                    repo = await pool.fetchrow(
+                        """
+                        SELECT "Id"::text AS id, "Name" AS name, "ItemsTableName" AS items_table_name
+                        FROM repository."Repositories"
+                        WHERE ("Id"::text ILIKE $1 || '%'
+                           OR lower("ItemsTableName") = lower($1)
+                           OR lower("ItemsTableName") = 'repository.' || lower($1)
+                           OR lower("ItemsTableName") = 'items_' || lower($1)
+                           OR lower("Name") = lower($1))
+                          AND COALESCE("IsDeleted", false) = false
+                        LIMIT 1
+                        """,
+                        raw_repo,
+                    )
+                except Exception as exc:
+                    logger.warning("dashboard_repo_query_failed: %s", exc)
+
+            if repo is not None:
+                mapping = dict(repo)
+                schema, table = split_table(
+                    _as_str(_row_get(mapping, "items_table_name", "ItemsTableName")),
+                    _as_str(_row_get(mapping, "id", "Id")) or repository_id or "",
+                )
+                return {
+                    "tenant_id": tenant_id,
+                    "repository_id": _as_str(_row_get(mapping, "id", "Id")) or repository_id,
+                    "repository_name": _as_str(_row_get(mapping, "name", "Name")) or None,
+                    "workflow_id": workflow_id,
+                    "workflow_name": workflow_name,
+                    "form_id": form_id,
+                    "schema": schema,
+                    "table": table,
+                    "qualified_table": f"{schema}.{table}",
+                }
+
+            # Direct fallback ONLY if raw_repo explicitly specifies a table name (e.g. items_9f522761 or repository.items_9f522761)
+            if raw_repo and (raw_repo.lower().startswith("items_") or raw_repo.lower().startswith("repository.")):
+                clean_tbl = raw_repo.lower().replace("repository.", "").strip()
+                return {
+                    "tenant_id": tenant_id,
+                    "repository_id": repository_id or raw_repo,
+                    "repository_name": raw_repo,
+                    "workflow_id": workflow_id,
+                    "workflow_name": workflow_name,
+                    "form_id": form_id,
+                    "schema": "repository",
+                    "table": clean_tbl,
+                    "qualified_table": f"repository.{clean_tbl}",
+                }
+
+            raise ValueError("payload.repository_id was not found in this tenant.")
         except ValueError:
             raise
         except Exception as exc:
@@ -185,15 +210,17 @@ class DashboardStore:
             logger.warning("dashboard_columns_connect_failed: %s", exc)
             return []
         try:
+            clean_schema = str(schema or "repository").strip().lower()
+            clean_table = str(table or "").strip().lower()
             rows = await pool.fetch(
                 """
                 SELECT column_name
                 FROM information_schema.columns
-                WHERE lower(table_schema) = lower($1) AND lower(table_name) = lower($2)
+                WHERE lower(table_schema) = $1 AND lower(table_name) = $2
                 ORDER BY ordinal_position
                 """,
-                schema,
-                table,
+                clean_schema,
+                clean_table,
             )
             names = [str(_row_get(dict(row), "column_name")) for row in rows if _row_get(dict(row), "column_name")]
             return names
@@ -210,27 +237,59 @@ class DashboardStore:
         columns: list[str],
         limit: Optional[int] = None,
     ) -> list[dict[str, Any]]:
-        if not columns:
-            return []
         cap = _clamp_limit(limit)
         try:
             pool = await self._connect(tenant_id)
         except Exception as exc:
             logger.warning("dashboard_items_connect_failed: %s", exc)
             return []
+
+        clean_schema = str(schema or "repository").strip().lower()
+        clean_table = str(table or "").strip().lower()
+
+        # Discover actual table columns from information_schema
+        table_cols = await self.list_columns(tenant_id=tenant_id, schema=clean_schema, table=clean_table)
+        
+        target_cols = []
+        if table_cols:
+            table_cols_map = {c.lower(): c for c in table_cols}
+            if columns:
+                for c in columns:
+                    c_clean = str(c).strip().lower()
+                    if c_clean in table_cols_map:
+                        target_cols.append(table_cols_map[c_clean])
+            if not target_cols:
+                target_cols = table_cols
+        else:
+            target_cols = columns or []
+
         try:
-            quoted_cols = ", ".join(_safe_ident(name) for name in columns)
-            qualified = f"{_safe_ident(schema)}.{_safe_ident(table)}"
-            deleted = next((name for name in columns if name.lower() in {"is_deleted", "isdeleted"}), None)
-            where = f"WHERE COALESCE(({_safe_ident(deleted)})::int, 0) = 0" if deleted else ""
+            quoted_cols = ", ".join(_safe_ident(name) for name in target_cols) if target_cols else "*"
+            qualified = f"{_safe_ident(clean_schema)}.{_safe_ident(clean_table)}"
+            deleted = next((name for name in (target_cols or table_cols) if name.lower() in {"is_deleted", "isdeleted"}), None)
+            where = ""
+            if deleted:
+                deleted_sql = _safe_ident(deleted)
+                where = (
+                    f"WHERE COALESCE(({deleted_sql})::text, 'false') "
+                    "NOT IN ('1', 'true', 't', 'TRUE', 'True')"
+                )
             sql = f"SELECT {quoted_cols} FROM {qualified} {where} LIMIT {cap}"
             rows = await pool.fetch(sql)
             if rows:
                 return [dict(row) for row in rows][:cap]
-            return []
         except Exception as exc:
-            logger.warning("dashboard_items_failed: %s", exc)
-            return []
+            logger.warning("dashboard_items_specific_query_failed, falling back to SELECT *: %s", exc)
+            try:
+                fallback_sql = f"SELECT * FROM {clean_schema}.{clean_table} LIMIT {cap}"
+                rows = await pool.fetch(fallback_sql)
+                if rows:
+                    return [dict(row) for row in rows][:cap]
+            except Exception as inner_exc:
+                logger.warning("dashboard_items_fallback_failed: %s", inner_exc)
+                return []
+
+        return []
 
     async def fetch_extract_artifacts(
         self,
@@ -334,10 +393,10 @@ class DashboardStore:
                     "workflows": wf_list,
                 }
         except Exception as exc:
-            logger.info("Postgres unavailable for list_targets, returning sample targets: %s", exc)
+            logger.info("Postgres unavailable or failed for list_targets: %s", exc)
 
         return {
             "tenant_id": tenant_id,
-            "repositories": get_sample_repositories(tenant_id),
-            "workflows": get_sample_workflows(tenant_id),
+            "repositories": [],
+            "workflows": [],
         }

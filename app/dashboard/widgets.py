@@ -195,16 +195,31 @@ def repair_live_spec(
     paid = bound.get("paid")
     supplier = bound.get("supplier")
 
+    def _financial(item: dict[str, Any]) -> bool:
+        text = _item_blob(item)
+        agg = str(item.get("agg") or "").lower()
+        if agg in {"count", "distinct"}:
+            return False
+        return agg in {
+            "sum", "avg", "min", "max", "overdue_sum", "paid_sum", "outstanding_sum", "current_sum",
+        } or any(
+            word in text
+            for word in ("invoice", "payable", "spend", "amount", "overdue", "outstanding", "paid", "valuation")
+        )
+
     def attach_money(item: dict[str, Any]) -> None:
+        if not _financial(item):
+            return
         cols = _ensure_cols(item)
         value = cols.get("value") or cols.get("amount")
         if amount and (not value or _norm(value) in _FILE_SIZE_NORMS):
             cols["value"] = amount
-        if match and not cols.get("match"):
+        agg = str(item.get("agg") or "")
+        if match and not cols.get("match") and agg.startswith(("paid", "outstanding", "overdue", "current")):
             cols["match"] = match
-        if paid and not cols.get("paid"):
+        if paid and not cols.get("paid") and agg.startswith(("paid", "overdue", "current")):
             cols["paid"] = paid
-        if due and str(item.get("agg") or "").startswith("overdue") and not cols.get("date"):
+        if due and agg.startswith("overdue") and not cols.get("date"):
             cols["date"] = due
         item["columns"] = cols
 
@@ -325,9 +340,9 @@ def _row_get(row: Any, column: Optional[str]) -> Any:
     if isinstance(row, dict):
         if column in row:
             return row[column]
-        wanted = column.lower()
+        wanted = _norm(column)
         for key, value in row.items():
-            if str(key).lower() == wanted:
+            if _norm(str(key)) == wanted:
                 return value
         return None
     try:
@@ -575,9 +590,13 @@ def _donut_chart(
     kind: str = "donut",
     palette: str = "mix",
 ) -> dict[str, Any]:
+    categories = [name for name, _ in pairs]
+    values = [_num(value) for _, value in pairs]
     return {
         "type": kind,
         "palette": palette,
+        "categories": categories,
+        "values": values,
         "series": [{"name": name, "value": _num(value)} for name, value in pairs],
     }
 
@@ -807,6 +826,95 @@ def hydrate_from_spec(
     return {"kpis": kpi_data, "charts": chart_data}
 
 
+def load_data(
+    *,
+    data_requirements: dict[str, Any],
+    rows: list[Any],
+    columns: list[str],
+    kpis: list[dict[str, Any]],
+    charts: list[dict[str, Any]],
+    tables: list[dict[str, Any]] | None = None,
+    filters: list[dict[str, Any]] | None = None,
+    today: Optional[date] = None,
+) -> dict[str, Any]:
+    """Data-driven retrieval and hydration fulfilling Section 10 of Dashboard Agent specification."""
+    today = today or date.today()
+    resolved_fields: dict[str, str] = {}
+    unresolved_fields: list[str] = []
+
+    req_fields = data_requirements.get("fields") if isinstance(data_requirements.get("fields"), list) else []
+    for f in req_fields:
+        fname = f.get("name") if isinstance(f, dict) else str(f)
+        if not fname:
+            continue
+        from app.dashboard.propose import resolve_column
+        res = resolve_column(columns, fname)
+        if res:
+            resolved_fields[fname] = res
+        else:
+            unresolved_fields.append(fname)
+
+    # Hydrate KPIs
+    kpi_data: dict[str, Any] = {}
+    for item in kpis:
+        if item.get("enabled") is False:
+            continue
+        widget_id = str(item.get("id") or "").strip()
+        if not widget_id:
+            continue
+        kpi_data[widget_id] = _hydrate_kpi_spec(rows, item, today)
+
+    # Attach trends
+    attach_kpi_trends(rows=rows, kpis=kpis, kpi_data=kpi_data, today=today)
+
+    # Hydrate Charts
+    chart_data: dict[str, Any] = {}
+    for item in charts:
+        if item.get("enabled") is False:
+            continue
+        widget_id = str(item.get("id") or "").strip()
+        if not widget_id:
+            continue
+        chart_data[widget_id] = _hydrate_chart_spec(rows, item, today)
+
+    # Hydrate Tables
+    table_data: dict[str, Any] = {}
+    for tbl in (tables or []):
+        tbl_id = str(tbl.get("id") or "register").strip()
+        req_cols = tbl.get("columns") or columns[:7]
+        table_data[tbl_id] = {
+            "columns": req_cols,
+            "total_rows": len(rows),
+            "rows": rows[:50],
+        }
+
+    # Hydrate Filters
+    filter_data: dict[str, Any] = {}
+    for flt in (filters or []):
+        flt_id = str(flt.get("id") or flt.get("field") or "").strip()
+        from app.dashboard.propose import resolve_column
+        field_col = resolve_column(columns, flt.get("field") or flt.get("field_concept"))
+        opts: list[str] = []
+        if field_col:
+            val_set = {str(_row_get(r, field_col)).strip() for r in rows if _row_get(r, field_col) is not None}
+            val_set.discard("")
+            opts = sorted(val_set)[:20]
+        filter_data[flt_id] = {
+            "field": field_col or flt.get("field"),
+            "options": opts,
+        }
+
+    return {
+        "kpis": kpi_data,
+        "charts": chart_data,
+        "tables": table_data,
+        "filters": filter_data,
+        "resolved_fields": resolved_fields,
+        "unresolved_fields": unresolved_fields,
+        "row_count": len(rows),
+    }
+
+
 def _month_start(day: date) -> date:
     return day.replace(day=1)
 
@@ -910,17 +1018,49 @@ def _role_column(
     return found[0] if found else None
 
 
+def _rows_for_kpi(rows: list[Any], item: dict[str, Any], cols: dict[str, str]) -> list[Any]:
+    status_col = cols.get("status")
+    equals = cols.get("equals")
+    if status_col and equals:
+        wanted = str(equals).strip().lower()
+        rows = [
+            row for row in rows
+            if str(_row_get(row, status_col) or "").strip().lower() == wanted
+        ]
+    where = item.get("where") if isinstance(item.get("where"), dict) else None
+    if where and str(where.get("op") or "") == "eq":
+        column = str(where.get("column") or cols.get("value") or "")
+        try:
+            target = float(where.get("value"))
+        except (TypeError, ValueError):
+            target = None
+        if column and target is not None:
+            rows = [row for row in rows if _amount_at(row, column) == target]
+    return rows
+
+
 def _hydrate_kpi_spec(rows: list[Any], item: dict[str, Any], today: date) -> dict[str, Any]:
     cols = _spec_cols(item)
-    agg = str(item.get("agg") or "count").lower()
-    value_col = cols.get("value") or cols.get("amount") or cols.get("column")
+    rows = _rows_for_kpi(rows, item, cols)
+    agg = str(item.get("agg") or item.get("aggregation") or "count").lower()
+    value_col = (
+        cols.get("value")
+        or cols.get("amount")
+        or cols.get("column")
+        or item.get("data_field")
+        or item.get("column")
+        or item.get("measure")
+    )
     date_col = cols.get("date") or cols.get("due") or cols.get("date_column") or _role_column(
         rows, cols, "due", DUE_ALIASES
     )
     match_col = _role_column(rows, cols, "match", MATCH_ALIASES)
     paid_col = _role_column(rows, cols, "paid", PAID_ALIASES)
     if agg == "sum":
-        total = sum(v for v in (_amount_at(row, value_col) for row in rows) if v is not None)
+        vals = [v for v in (_amount_at(row, value_col) for row in rows) if v is not None]
+        if not vals and not value_col:
+            return {"value": len(rows)}
+        total = sum(vals) if vals else 0.0
         return {"value": round(total, 2)}
     if agg == "avg":
         vals = [v for v in (_amount_at(row, value_col) for row in rows) if v is not None]
@@ -936,6 +1076,12 @@ def _hydrate_kpi_spec(rows: list[Any], item: dict[str, Any], today: date) -> dic
         names = {str(_row_get(row, value_col) or "").strip() for row in rows}
         names.discard("")
         return {"value": len(names)}
+    if agg in {"rate", "ratio", "percent"}:
+        status_col = cols.get("status") or "status"
+        equals = cols.get("equals") or "won"
+        num = sum(1 for row in rows if str(_row_get(row, status_col) or "").strip().lower() == str(equals).lower())
+        pct = round((num / len(rows)) * 100, 1) if rows else 0.0
+        return {"value": pct, "unit": "%"}
     if agg in {"paid_sum", "outstanding_sum"}:
         total = 0.0
         want_paid = agg == "paid_sum"
@@ -1041,11 +1187,17 @@ def _hydrate_chart_spec(rows: list[Any], item: dict[str, Any], today: date) -> d
             continue
         if paid_only and not _row_is_paid(row, match_col, paid_col):
             continue
-        if grain == "month":
+        if grain in {"month", "day", "week"}:
             parsed = parse_date(_row_get(row, group_col)) if group_col else None
             if parsed is None:
                 continue
-            label = parsed.strftime("%b %Y")
+            if grain == "month":
+                label = parsed.strftime("%b %Y")
+            elif grain == "week":
+                year, week, _day = parsed.isocalendar()
+                label = f"{year}-W{week:02d}"
+            else:
+                label = parsed.isoformat()
         else:
             label = _filled_label(_row_get(row, group_col)) if group_col else "All"
             if not label:
@@ -1072,6 +1224,8 @@ def _hydrate_chart_spec(rows: list[Any], item: dict[str, Any], today: date) -> d
 
     if grain == "month":
         pairs.sort(key=lambda item: _month_sort_key(item[0]))
+    elif grain in {"day", "week"}:
+        pairs.sort(key=lambda item: item[0])
     else:
         pairs.sort(key=lambda item: item[1], reverse=True)
         pairs = pairs[:8]
