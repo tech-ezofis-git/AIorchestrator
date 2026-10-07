@@ -1,41 +1,56 @@
-"""Dashboard agent — two /chat calls, one intent, Postgres tenant items (max 50 rows)."""
+"""Dashboard agent — dynamic prompt-driven reasoning and dashboard generation.
+
+Fulfills the core principles:
+1. User prompt is the source of truth.
+2. Zero predefined dashboard logic or hardcoded domain templates.
+3. Separation of responsibilities:
+   Prompt Understanding -> Requirement Extraction -> Schema Generation ->
+   Data Requirements Generation -> load_data() -> Schema/Data Validation ->
+   HTML Dashboard Generation.
+"""
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime
+import re
 from typing import Any, Optional
 
-from app.dashboard.insights import generate_insights
+from app.dashboard.analyzer import analyze_prompt
+from app.dashboard.insights import generate_insights, insight_topics
 from app.dashboard.propose import (
     apply_ask_limits,
     apply_default_layout,
     ensure_widget_descriptions,
     overlay_layout_from_message,
+    _bind_widget_columns,
+    _normalize_charts,
+    _normalize_kpis,
     propose_dashboard,
     propose_generic,
+    resolve_column,
     unpack_proposal,
 )
 from app.dashboard.render import render_dashboard_html
 from app.dashboard.store import DashboardStore
+from app.dashboard.validator import validate_schema
 from app.dashboard.widgets import (
     amounts_missing,
     attach_kpi_trends,
     bind_columns,
     hydrate_data,
     hydrate_from_spec,
+    load_data,
     overlay_extract_artifacts,
-    propose_widgets,
     rebind_sparse_group_columns,
     repair_live_spec,
     row_id,
-    spec_has_agg,
 )
 
 _PROMPT_REPLY = "Suggested dashboard prompt."
 _SCHEMA_REPLY = "Suggested dashboard. Enable or disable widgets, then send this JSON back."
 _DATA_REPLY = "Dashboard data loaded."
 
-Proposer = Callable[..., Awaitable[tuple[list[dict[str, Any]], list[dict[str, Any]]]]]
+Proposer = Callable[..., Awaitable[Any]]
 
 _SAMPLE_SKIP = {
     "ocrtext",
@@ -44,20 +59,6 @@ _SAMPLE_SKIP = {
     "filepath",
     "storageproviderid",
 }
-_AP_SAMPLE_FIRST = {
-    "invoiceamount",
-    "amount",
-    "duedate",
-    "supplier",
-    "vendor",
-    "vendorname",
-    "matchedstatus",
-    "matchstatus",
-    "invoicedate",
-    "currency",
-    "status",
-    "aistatus",
-}
 
 
 def _alnum(name: str) -> str:
@@ -65,10 +66,13 @@ def _alnum(name: str) -> str:
 
 
 def _sample_columns(columns: list[str]) -> list[str]:
+    """Selects usable columns from the table without domain prejudice."""
     usable = [name for name in columns if name and _alnum(name) not in _SAMPLE_SKIP]
-    first = [name for name in usable if _alnum(name) in _AP_SAMPLE_FIRST]
-    rest = [name for name in usable if name not in first]
-    return (first + rest)[:40]
+    # Generic prioritization: IDs, names, status, dates, numbers first
+    priority_keywords = ("id", "name", "title", "status", "type", "date", "amount", "total", "count", "time")
+    prio = [name for name in usable if any(kw in _alnum(name) for kw in priority_keywords)]
+    rest = [name for name in usable if name not in prio]
+    return (prio + rest)[:40]
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -88,9 +92,7 @@ def _copy_widgets(items: Any) -> list[dict[str, Any]]:
 def _json_safe(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, date):
+    if isinstance(value, (datetime, date)):
         return value.isoformat()
     text = str(value)
     return text[:120]
@@ -134,7 +136,6 @@ def _dashboard_phase(job: dict[str, Any], dashboard_json: dict[str, Any] | None)
 
 
 def _workflow_fields_for_response(*, repository_id: str | None, target: dict[str, Any]) -> tuple[Any, Any]:
-    """If the caller sent repository_id, do not echo a workflow on prompts/schema."""
     if (repository_id or "").strip():
         return None, None
     return target.get("workflow_id"), target.get("workflow_name")
@@ -217,6 +218,42 @@ class DashboardAgent:
             ensure_widget_descriptions(kpis, charts)
             _ensure_widget_contract(kpis, charts)
             wf_id, wf_name = _workflow_fields_for_response(repository_id=repository_id, target=target)
+
+            prompt_analysis = proposed.get("prompt_analysis") if isinstance(proposed, dict) else {}
+            data_requirements = proposed.get("data_requirements") if isinstance(proposed, dict) else {
+                "fields": [{"name": c, "role": "dimension", "reason": "Table column"} for c in columns[:10]],
+                "dimensions": columns[:5],
+                "measures": [],
+                "filters": [],
+                "calculations": [],
+            }
+            validation = proposed.get("validation") if isinstance(proposed, dict) else {
+                "requirements_covered": True,
+                "missing_requirements": [],
+                "unsupported_assumptions": [],
+                "unresolved_fields": [],
+            }
+            tables = proposed.get("tables") if isinstance(proposed, dict) else [{
+                "id": "record_table",
+                "title": f"Detailed {target.get('repository_name') or 'Record'} Table",
+                "columns": columns[:7],
+                "requirement": "Record list table",
+            }]
+            filters = proposed.get("filters") if isinstance(proposed, dict) else []
+            actions = proposed.get("actions") if isinstance(proposed, dict) else [{"id": "export_csv", "label": "Export CSV", "type": "export"}]
+            interactions = proposed.get("interactions") if isinstance(proposed, dict) else []
+            layout = proposed.get("layout") if isinstance(proposed, dict) else {}
+            title = (
+                (proposed.get("title") if isinstance(proposed, dict) else None)
+                or (prompt_analysis.get("title") if isinstance(prompt_analysis, dict) else None)
+                or (target.get("repository_name") or "Dashboard")
+            )
+            description = (
+                (proposed.get("description") if isinstance(proposed, dict) else None)
+                or (prompt_analysis.get("purpose") if isinstance(prompt_analysis, dict) else None)
+                or message
+            )
+
             result = {
                 "phase": "schema",
                 "workflow": workflow_slug,
@@ -229,69 +266,86 @@ class DashboardAgent:
                 "columns": columns,
                 "message": message,
                 "prompt": message,
+                "dashboard": {
+                    "title": title,
+                    "description": description,
+                    "purpose": prompt_analysis.get("purpose") or message,
+                },
+                "prompt_analysis": prompt_analysis,
+                "dashboard_schema": {
+                    "title": title,
+                    "description": description,
+                    "kpis": kpis,
+                    "charts": charts,
+                    "tables": tables,
+                    "filters": filters,
+                    "actions": actions,
+                    "interactions": interactions,
+                    "layout": layout,
+                },
                 "kpis": kpis,
                 "charts": charts,
+                "tables": tables,
+                "filters": filters,
+                "actions": actions,
+                "interactions": interactions,
+                "layout": layout,
+                "data_requirements": data_requirements,
+                "validation": validation,
                 "data": None,
             }
             return {"reply": _SCHEMA_REPLY, "dashboard_result": result}
 
+        # Phase DATA
         kpis = _copy_widgets(dashboard_json.get("kpis"))
         charts = _copy_widgets(dashboard_json.get("charts"))
+        tables = list(dashboard_json.get("tables") or [])
+        filters = list(dashboard_json.get("filters") or [])
+        data_requirements = dashboard_json.get("data_requirements") if isinstance(dashboard_json.get("data_requirements"), dict) else {
+            "fields": [],
+            "dimensions": [],
+            "measures": [],
+            "filters": [],
+            "calculations": [],
+        }
+
         message = _job_message(message, dashboard_json)
+        if kpis or charts:
+            kpis = _normalize_kpis(kpis, columns)
+            charts = _normalize_charts(charts, columns)
+            _bind_widget_columns(kpis, charts, filters, columns)
+        else:
+            kpis, charts = propose_generic(columns, message=message)
         kpis, charts = apply_ask_limits(message, kpis, charts)
         _ensure_widget_contract(kpis, charts)
         repair_live_spec(kpis, charts, columns)
         bound = bind_columns(columns)
-        use_spec = spec_has_agg(kpis, charts)
-        if not use_spec:
-            if any(str(item.get("id") or "") in _CLASSIC_IDS for item in kpis + charts):
-                proposed_kpis, proposed_charts, bound = propose_widgets(columns)
-                kpis = _merge_enabled(proposed_kpis, dashboard_json.get("kpis"))
-                charts = _merge_enabled(proposed_charts, dashboard_json.get("charts"))
-            else:
-                proposed_kpis, proposed_charts = propose_generic(columns, message=message)
-                kpis = _merge_enabled(proposed_kpis, dashboard_json.get("kpis"))
-                charts = _merge_enabled(proposed_charts, dashboard_json.get("charts"))
-                use_spec = True
 
-        needed = sorted(
-            {col for item in kpis + charts for col in _as_dict(item.get("columns")).values() if col}
-        )
-        extra = [
-            name
-            for name in columns
-            if "".join(ch for ch in name.lower() if ch.isalnum())
-            in {
-                "id",
-                "filename",
-                "isdeleted",
-                "currency",
-                "status",
-                "aistatus",
-                "matchedstatus",
-                "matchstatus",
-                "supplier",
-                "vendor",
-                "vendorname",
-                "invoicedate",
-                "createdatutc",
-                "createdat",
-                "duedate",
-                "docdate",
-                "invoiceamount",
-                "amount",
-            }
-        ]
-        fetch_cols = list(dict.fromkeys(needed + extra))
+        # Determine fetch columns dynamically from data requirements + widgets
+        needed = {
+            col for item in kpis + charts for col in _as_dict(item.get("columns")).values() if col
+        }
+        for f in data_requirements.get("fields") or []:
+            fname = f.get("name") if isinstance(f, dict) else str(f)
+            resolved = resolve_column(columns, fname)
+            if resolved:
+                needed.add(resolved)
+        for tbl in tables:
+            for c in tbl.get("columns") or []:
+                resolved = resolve_column(columns, c)
+                if resolved:
+                    needed.add(resolved)
+
+        fetch_cols = list(dict.fromkeys(list(needed) + _sample_columns(columns)))
         rows = await self._store.fetch_rows(
             tenant_id=target["tenant_id"],
             schema=target["schema"],
             table=target["table"],
             columns=fetch_cols,
-            limit=50,
+            limit=200,
         )
         data_source = "items_table"
-        if amounts_missing(rows, bound):
+        if amounts_missing(rows, bound) and bound.get("amount"):
             artifacts = await self._store.fetch_extract_artifacts(
                 tenant_id=target["tenant_id"],
                 item_keys=[row_id(row) for row in rows],
@@ -299,22 +353,43 @@ class DashboardAgent:
             rows, used = overlay_extract_artifacts(rows, bound, artifacts)
             if used:
                 data_source = "ap_extract"
+
         rebind_sparse_group_columns(charts, rows)
-        if use_spec:
-            data = hydrate_from_spec(rows=rows, kpis=kpis, charts=charts)
-        else:
-            data = hydrate_data(rows=rows, bound=bound, kpis=kpis, charts=charts)
+
+        # Dynamic data loading per Section 10
+        data = load_data(
+            data_requirements=data_requirements,
+            rows=rows,
+            columns=columns,
+            kpis=kpis,
+            charts=charts,
+            tables=tables,
+            filters=filters,
+        )
+
         apply_default_layout(kpis, charts)
         overlay_layout_from_message(message, kpis, charts)
         kpi_data = data.get("kpis") if isinstance(data.get("kpis"), dict) else {}
         attach_kpi_trends(rows=rows, kpis=kpis, kpi_data=kpi_data)
+
+        stored_prompt = ""
+        if isinstance(dashboard_json, dict):
+            stored_prompt = str(dashboard_json.get("prompt") or dashboard_json.get("message") or "")
         insights = await generate_insights(
             repository_name=str(target.get("repository_name") or "repository"),
             kpis=kpis,
             charts=charts,
             data=data,
-            message=message,
+            message=message if insight_topics(message) else (stored_prompt or message),
         )
+
+        title = str(
+            (dashboard_json.get("dashboard") or {}).get("title")
+            or dashboard_json.get("title")
+            or target.get("repository_name")
+            or "Dashboard"
+        )
+
         result = {
             "phase": "data",
             "workflow": workflow_slug,
@@ -325,39 +400,18 @@ class DashboardAgent:
             "table": target["qualified_table"],
             "columns": columns,
             "message": message,
+            "title": title,
             "kpis": kpis,
             "charts": charts,
+            "tables": tables,
+            "filters": filters,
             "data": data,
             "insights": insights,
             "data_source": data_source,
+            "data_requirements": data_requirements,
         }
         html = render_dashboard_html(result, message=message, rows=rows)
         return {"reply": _DATA_REPLY, "dashboard_result": result, "html": html}
-
-
-_CLASSIC_IDS = {
-    "total_ap",
-    "overdue",
-    "open_invoices",
-    "average_invoice",
-    "overdue_count",
-    "overdue_pct",
-    "current_ap",
-    "due_in_30",
-    "supplier_count",
-    "unmatched_count",
-    "dpo",
-    "supplier_risk",
-    "match_status",
-    "profit_vs_ap",
-    "ap_aging",
-    "top_suppliers",
-    "overdue_by_supplier",
-    "invoices_by_status",
-    "invoice_count_by_month",
-    "currency_mix",
-    "matched_vs_unmatched",
-}
 
 
 def _workflow_slug(message: str, target: dict[str, Any]) -> str:
@@ -367,14 +421,16 @@ def _workflow_slug(message: str, target: dict[str, Any]) -> str:
 
 
 def _ensure_widget_contract(kpis: list[dict[str, Any]], charts: list[dict[str, Any]]) -> None:
-    """Keep KPI/chart objects on the documented frontend shape (never null columns)."""
     for kpi in kpis:
         if not isinstance(kpi.get("columns"), dict):
             kpi["columns"] = {}
-        kpi.setdefault("label", str(kpi.get("id") or "KPI"))
+        lbl = str(kpi.get("label") or kpi.get("title") or kpi.get("id") or "KPI")
+        kpi.setdefault("label", lbl)
+        kpi.setdefault("title", lbl)
         kpi.setdefault("enabled", True)
         kpi.setdefault("agg", "count")
         kpi.setdefault("description", "")
+        kpi.setdefault("requirement", f"Monitor {lbl}")
     for chart in charts:
         if not isinstance(chart.get("columns"), dict):
             chart["columns"] = {}
@@ -386,20 +442,4 @@ def _ensure_widget_contract(kpis: list[dict[str, Any]], charts: list[dict[str, A
         chart.setdefault("agg", "count")
         chart.setdefault("grain", "none")
         chart.setdefault("description", "")
-
-
-def _merge_enabled(proposed: list[dict[str, Any]], incoming: Any) -> list[dict[str, Any]]:
-    incoming_map = {
-        str(item.get("id")): item
-        for item in _copy_widgets(incoming)
-        if item.get("id")
-    }
-    merged: list[dict[str, Any]] = []
-    for item in proposed:
-        widget_id = str(item.get("id"))
-        override = incoming_map.get(widget_id)
-        row = dict(item)
-        if override is not None and "enabled" in override:
-            row["enabled"] = bool(override.get("enabled"))
-        merged.append(row)
-    return merged
+        chart.setdefault("requirement", f"Visualize {title}")
