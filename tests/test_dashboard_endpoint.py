@@ -340,3 +340,37 @@ def test_dashboard_schema_unknown_repo_does_not_swap_sample(client):
     assert "repository_id" in detail.lower()
     assert "DF175C77" not in response.text
 
+
+def test_dashboard_disabled_widgets_filtered_in_render_and_data_phase(client, monkeypatch):
+    _install_fake(client, monkeypatch)
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "s-dash-disabled-test",
+            "intent": "dashboard",
+            "message": "Preview dashboard with filtered items",
+            "payload": {
+                "phase": "data",
+                "tenant_id": TENANT,
+                "repository_id": REPO,
+                "dashboard_json": {
+                    "kpis": [
+                        {"id": "k1", "label": "Enabled KPI", "enabled": True, "agg": "count", "columns": {}},
+                        {"id": "k2", "label": "Disabled KPI", "enabled": False, "agg": "count", "columns": {}},
+                    ],
+                    "charts": [
+                        {"id": "c1", "title": "Enabled Chart", "enabled": True, "type": "bar", "columns": {}},
+                        {"id": "c2", "title": "Disabled Chart", "enabled": False, "type": "pie", "columns": {}},
+                    ],
+                },
+            },
+        },
+    )
+    assert response.status_code == 200
+    html = response.text
+    assert "Enabled KPI" in html
+    assert "Disabled KPI" not in html
+    assert "Enabled Chart" in html
+    assert "Disabled Chart" not in html
+
+

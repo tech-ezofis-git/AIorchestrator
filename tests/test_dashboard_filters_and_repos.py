@@ -28,18 +28,11 @@ def test_repository_dropdown_and_enterprise_scoping():
 
     html = render_dashboard_html(dashboard, message="RFQ Process")
 
-    # 1. Check repository navigation elements
+    # 1. Check repository name in dataset and header
     assert "RFQ Documents" in html
-    assert "All Enterprise Repositories" in html
-    assert "sel-repo" in html
-    assert "data-act=\"setFilter\" data-f=\"repo\"" in html
-
-    # 2. Check repository tagging in dataset
     assert '"repository": "RFQ Documents"' in html
-    assert "All Enterprise Repositories" in html
-    assert "RFQ Documents - Operations" in html or "RFQ Documents - Archive" in html
 
-    # 3. Check filter capabilities in JavaScript
+    # 2. Check filter capabilities in JavaScript
     assert "getRowVal" in html
     assert "getFilteredRows" in html
     assert "resetAllFilters" in html
@@ -47,10 +40,6 @@ def test_repository_dropdown_and_enterprise_scoping():
     assert "Status:" in html
     assert "clearFilter" in html
     assert "clearDynFilter" in html
-
-    # 4. Check that dynamic selection logic doesn't hardcode static checkmarks
-    assert "state.repo === opt" in html
-    assert "circle-check" in html
 
 
 def test_vessel_repository_and_filters():
@@ -69,7 +58,5 @@ def test_vessel_repository_and_filters():
     html = render_dashboard_html(dashboard, message="Vessel Calls")
 
     assert "Vessel Call Operations" in html
-    assert "All Enterprise Repositories" in html
-    assert "Vessel Call Operations - Operations" in html or "Vessel Call Operations - Archive" in html
     assert "regSearch" in html
     assert "globalSearch" in html

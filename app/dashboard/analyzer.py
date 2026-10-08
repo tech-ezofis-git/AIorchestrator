@@ -19,6 +19,11 @@ Analyze the user's dashboard prompt dynamically. Extract all explicit and implic
 The user prompt is the SOLE source of truth. Do NOT assume a domain or business process unless derived from the prompt or provided repository context.
 Do NOT invent unrequested business metrics, charts, or filters.
 
+CRITICAL COMPLETENESS RULES:
+1. If the user prompt lists specific KPIs (e.g. in a numbered list, bullet list, or executive summary section), you MUST extract and return EVERY SINGLE ONE of them individually in the 'kpis' array. Never drop, truncate, or summarize the user's requested KPIs into a smaller sample.
+2. If the user prompt describes specific charts, analytical sections, or breakdown requirements, extract each one individually in the 'charts' array.
+3. Extract all tables, detailed work queues, filters, and AI insight topics from their respective prompt sections.
+
 Return JSON only:
 {
   "title": "Short descriptive title for the dashboard",
@@ -280,6 +285,34 @@ def analyze_prompt_heuristic(
 
 
 def _kpis_from_card_list(msg: str) -> list[dict[str, Any]]:
+    # 1. Check for markdown section specifically for KPIs (e.g., '### 1. Executive KPI Summary')
+    md_kpi_match = re.search(
+        r"###\s*\d*[.)]?\s*.*?(?:KPI|Key Performance Indicator)[^\n#]*:\s*(.*?)(?=(?:###|\Z))",
+        msg,
+        re.I | re.S,
+    )
+    if md_kpi_match:
+        block = md_kpi_match.group(1)
+        block = re.split(r"\b(?:Each\s+KPI|All\s+KPIs|Each\s+card|Where\s+meaningful)\b", block, flags=re.I)[0]
+        bullets = re.findall(r"(?:^|\s)[-*•]\s+\*\*([^*]+)\*\*", block)
+        if not bullets:
+            bullets = re.findall(r"(?:^|\s)[-*•]\s+([^-\n]+?)(?=(?:\s+[-*•]\s+|\Z))", block)
+        kpis = []
+        for b in bullets:
+            b_clean = _clean_text(re.sub(r"[*_`]+", "", b)).strip(" -:,")
+            if b_clean and len(b_clean) >= 3 and not any(sk in b_clean.lower() for sk in ["each kpi", "meaningful", "previous period", "cards at the top", "cards prominently"]):
+                name = _title_case(b_clean)
+                if not any(k["name"] == name for k in kpis):
+                    kpis.append({
+                        "name": name,
+                        "metric": b_clean,
+                        "aggregation": infer_aggregation(b_clean),
+                        "formatting": "percent" if any(w in b_clean.lower() for w in ["rate", "percentage", "ratio", "%"]) else "number",
+                        "requirement": f"Requested KPI '{b_clean}'",
+                    })
+        if kpis:
+            return kpis
+
     match = re.search(
         r"(?:(?:\b|^)(?:(?:show|include|with|have|display|create)\s+.*?)?(?:(\d+)\s+)?(?:kpis?|key performance indicators?)(?:\s*cards?|\s*metrics?)?(?:\s*\([^)]*\))?(?:\s*(?:at the top|at the bottom|on top|on bottom|to show|to include|including|include|for the dashboard|for))?\s*[:\n])\s*(.+?)(?=(?:\n\s*\n\s*[A-Z][a-zA-Z\s]+:|[.\n]\s*(?:include these|dashboard sections?|sections? to include|sections?\s*:|charts?\s*:|tables?\s*:|filters?\s*:|insights?\s*:|interactions?\s*:)|(?:\b|\s)(?:include|also include|add|show)\s+(?:these\s+)?(?:\d+\s+)?(?:dashboard\s+)?(?:charts?|tables?|filters?|sections?)\b|\Z))",
         msg,
@@ -318,7 +351,7 @@ def _kpi_items(parts: list[str]) -> list[dict[str, Any]]:
         item_clean = _clean_text(item_clean).strip(" -*.,:")
         if not item_clean or len(item_clean) < 3:
             continue
-        if any(skip in item_clean.lower() for skip in ["chart", "these dashboard", "sections", "include these", "dashboard sections", "cards at the top", "cards on top"]):
+        if any(skip in item_clean.lower() for skip in ["chart", "these dashboard", "sections", "include these", "dashboard sections", "cards at the top", "cards on top", "cards prominently"]):
             continue
         name = _title_case(item_clean)
         if any(k["name"] == name for k in kpis):
@@ -349,6 +382,28 @@ def _split_list(text: str) -> list[str]:
 
 
 def _sections_from_prompt(msg: str) -> list[dict[str, Any]]:
+    # 1. Check for Markdown headers like '### 1. Section Title'
+    md_matches = list(re.finditer(r"###\s*(\d+)[.)]?\s*(.+?)(?=(?:\s*###\s*\d+[.)]?|\Z))", msg, re.S))
+    if md_matches:
+        sections: list[dict[str, Any]] = []
+        for m in md_matches:
+            num = m.group(1)
+            raw_sec = m.group(2).strip()
+            lines = [l.strip() for l in raw_sec.splitlines() if l.strip()]
+            first_line = lines[0] if lines else ""
+            cand_title = re.split(r"\s+(?:Display|Show|Create|Build|Provide|Add|Include|Break|Analyze|Use|The\b)|[:.]", first_line, flags=re.I)[0]
+            cand_title = re.sub(r"[*#_`]+", "", cand_title).strip()
+            sec_title = _clean_text(cand_title)
+            sec_title = _title_case(sec_title)
+            if sec_title:
+                sections.append({
+                    "number": num,
+                    "title": sec_title,
+                    "body": raw_sec,
+                    "is_chart_block": False,
+                })
+        return sections
+
     sec_block_match = re.search(
         r"(?:dashboard\s+sections?|sections?\s+to\s+include|include\s+these(?:\s+dashboard)?\s+sections?|(?:also\s+)?(?:include|show|add)\s+(?:\d+\s+)?(?:dashboard\s+)?(?:charts?|sections?|visualizations?)|charts?\s*to\s*include|include\s*these\s*(?:\d+\s+)?charts?|charts?\s*:|visualizations?\s*:)\s*[:\n]\s*(.+?)(?=(?:\n\s*\n\s*[A-Z][a-zA-Z\s]+:|\n\s*(?:filters?|insights?|tables?|actions?)\b|\b(?:add|include)\s+filters?\b|\Z))",
         msg,
@@ -358,7 +413,7 @@ def _sections_from_prompt(msg: str) -> list[dict[str, Any]]:
     if sec_block_match:
         search_text = sec_block_match.group(1)
         header_text = sec_block_match.group(0)[:60].lower()
-        if "chart" in header_text or "visualization" in header_text:
+        if "chart" in header_text or "visualization" in header_text or "section" in header_text:
             is_charts_block = True
     else:
         search_text = re.sub(
@@ -368,7 +423,7 @@ def _sections_from_prompt(msg: str) -> list[dict[str, Any]]:
             flags=re.I | re.S,
         )
 
-    sections: list[dict[str, Any]] = []
+    sections = []
     for match in re.finditer(
         r"(?:^|\n|\s)(\d+)[.)]\s+(.+?)(?=(?:(?:\n|\s)\d+[.)]\s+)|\Z)",
         search_text,
@@ -424,38 +479,53 @@ def _components_from_sections(
         body = section["body"]
         blob = f"{title} {body}".lower()
 
+        # Skip layout and general requirements / KPI summaries from becoming charts
+        if any(kw in title.lower() for kw in ["layout", "functional requirement", "general requirement", "guideline", "instruction", "kpi summary", "executive summary", "kpi card", "key metric"]):
+            continue
+
         # Extract insights if present
-        if "insight" in blob or "bullet list" in blob or "key takeaways" in blob:
-            for topic in re.split(r"\s+-\s+", body):
+        if "insight" in blob or "bullet list" in blob or "key takeaways" in blob or "observation" in blob:
+            for topic in re.split(r"\s+-\s+|\n\s*[-*•]\s+", body):
                 topic_clean = _clean_text(re.sub(r"^.*insights?\s*", "", topic, flags=re.I))
                 if len(topic_clean) > 8 and "insight" not in topic_clean.lower()[:12]:
                     insights.append(topic_clean[:160])
             if not insights:
                 insights.append(title)
+            if not section.get("is_chart_block"):
+                continue
 
         # Extract tables if present
-        if re.search(r"\b(table|searchable|sortable|grid|data\s+table|records?\s+table|latest\s+calls|recent\s+calls|recent\s+vessel|latest\s+vessel|recent\s+records)\b", blob) or "with:" in blob or "containing:" in blob:
+        if any(kw in title.lower() for kw in ["table", "queue", "register", "work queue", "details table"]) or re.search(r"\b(table|searchable|sortable|grid|data\s+table|records?\s+table|latest\s+calls|recent\s+calls|recent\s+vessel|latest\s+vessel|recent\s+records|rfq\s+details)\b", blob) or "with:" in blob or "containing:" in blob:
             requested = _field_list(body)
+            if not requested:
+                bullets = re.findall(r"(?:^|\s)[-*•]\s+([^\n-]+?)(?=(?:\s+[-*•]\s+|\Z))", body)
+                requested = [_clean_text(re.sub(r"[*_`]+", "", b)).strip(" -:,") for b in bullets if len(b) > 2]
             tables.append({
                 "title": title[:80],
                 "columns": requested or columns[:12],
                 "requirement": body[:240],
             })
+            if not section.get("is_chart_block"):
+                continue
+
+        if "recent" in title.lower() or "latest" in title.lower():
+            tables.append({
+                "title": title[:80],
+                "columns": ["id", "status", "created_at"],
+                "requirement": body[:240],
+            })
+            if not section.get("is_chart_block"):
+                continue
+
+        if any(kw in title.lower() for kw in ["filter", "control", "advanced filter"]):
+            continue
 
         # Visual chart classification
         chart_type = "bar"
         grain = "none"
         if "pipeline" in blob or "→" in section["body"] or "->" in section["body"] or "funnel" in blob or "conversion" in blob:
             chart_type = "funnel"
-        elif "gauge" in blob or "meter" in blob or "utilization" in blob:
-            chart_type = "gauge"
-        elif "radar" in blob or "spider" in blob or "bottleneck" in blob:
-            chart_type = "radar"
-        elif "heatmap" in blob or "heat map" in blob or "matrix" in blob:
-            chart_type = "heatmap"
-        elif "lollipop" in blob:
-            chart_type = "lollipop"
-        elif "line" in blob or "trend" in blob or "timeline" in blob or "over time" in blob:
+        elif re.search(r"\bline\b|\btrend\b|\btimeline\b|\btime-series\b|\bover time\b", blob) or "activity" in title.lower():
             chart_type = "line"
             if "daily" in blob or "by day" in blob:
                 grain = "day"
@@ -463,9 +533,17 @@ def _components_from_sections(
                 grain = "week"
             else:
                 grain = "month"
+        elif "gauge" in blob or "meter" in blob or "utilization" in blob:
+            chart_type = "gauge"
+        elif "radar" in blob or "spider" in blob or "bottleneck" in blob:
+            chart_type = "radar"
+        elif "heatmap" in blob or "heat map" in blob or "matrix" in blob:
+            chart_type = "heatmap"
+        elif "lollipop" in blob or "matching" in blob:
+            chart_type = "lollipop"
         elif "area" in blob:
             chart_type = "area"
-        elif "column" in blob or "vertical bar" in blob or "performance" in blob:
+        elif "column" in blob or "vertical bar" in blob or "efficiency" in blob or "performance" in blob:
             chart_type = "column"
         elif "donut" in blob or "doughnut" in blob or "status" in blob or "document" in blob or any(word in blob for word in ("overview", "breakdown", "distribution", "mix")):
             chart_type = "donut"
@@ -537,15 +615,44 @@ def _field_list(body: str) -> list[str]:
 
 
 def _filters_from_prompt(msg: str) -> list[dict[str, Any]]:
-    match = re.search(r"filters?\s+for:\s*(.+?)(?:\.\s|\n\s*\n|\Z)", msg, re.I | re.S)
+    # 1. Check for markdown or numbered Filters section
+    filter_sec_match = re.search(
+        r"###\s*\d*[.)]?\s*.*?(?:Filter|Control)[^\n#]*:\s*(.*?)(?=(?:###|\Z))",
+        msg,
+        re.I | re.S,
+    )
+    if filter_sec_match:
+        block = filter_sec_match.group(1)
+        bullets = re.findall(r"(?:^|\s)[-*•]\s+([^\n-]+?)(?=(?:\s+[-*•]\s+|\Z))", block)
+        filters = []
+        for b in bullets:
+            b_clean = _clean_text(re.sub(r"[*_`]+", "", b)).strip(" -:,")
+            if b_clean and len(b_clean) >= 2 and not any(sk in b_clean.lower() for sk in ["all kpi", "filter bar", "refresh", "all displayed"]):
+                label = _title_case(b_clean)
+                kind = "date" if re.search(r"date|timeframe|period|range", b_clean, re.I) else "select"
+                filters.append({
+                    "label": label,
+                    "field_concept": b_clean.lower().replace(" ", "_").replace("/", "_"),
+                    "type": kind,
+                    "requirement": f"Filter by '{b_clean}'",
+                })
+        if filters:
+            return filters
+
+    match = re.search(r"(?:add\s+|include\s+)?filters?\s+for:\s*(.+?)(?=(?:\n\s*\n\s*[A-Z][a-zA-Z\s]+:|\n\s*Use a clean|\Z))", msg, re.I | re.S)
     if not match:
         return []
+    block = match.group(1)
+    bullets = re.findall(r"(?:^|\n)\s*[-*•]\s+([^\n-]+?)(?=(?:\n\s*[-*•]\s+)|\Z)", block)
+    raw_list = [_clean_text(re.sub(r"[*_`]+", "", b)).strip(" -:,") for b in bullets if len(b) >= 2]
+    if not raw_list:
+        raw_list = _split_list(block)
     filters = []
-    for part in _split_list(match.group(1)):
-        if not part or len(part) < 2:
+    for part in raw_list:
+        if not part or len(part) < 2 or any(sk in part.lower() for sk in ["all kpi", "filter bar", "refresh", "all displayed", "all chart"]):
             continue
         label = _title_case(part.strip(" ."))
-        kind = "date" if re.search(r"date|timeframe|period", part, re.I) else "select"
+        kind = "date" if re.search(r"date|timeframe|period|range", part, re.I) else "select"
         filters.append({
             "label": label,
             "field_concept": part.lower().replace(" ", "_").replace("/", "_"),

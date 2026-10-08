@@ -297,10 +297,10 @@ class DashboardAgent:
             return {"reply": _SCHEMA_REPLY, "dashboard_result": result}
 
         # Phase DATA
-        kpis = _copy_widgets(dashboard_json.get("kpis"))
-        charts = _copy_widgets(dashboard_json.get("charts"))
-        tables = list(dashboard_json.get("tables") or [])
-        filters = list(dashboard_json.get("filters") or [])
+        kpis = [k for k in _copy_widgets(dashboard_json.get("kpis")) if k.get("enabled") is not False]
+        charts = [c for c in _copy_widgets(dashboard_json.get("charts")) if c.get("enabled") is not False]
+        tables = [t for t in list(dashboard_json.get("tables") or []) if t.get("enabled") is not False]
+        filters = [f for f in list(dashboard_json.get("filters") or []) if f.get("enabled") is not False]
         data_requirements = dashboard_json.get("data_requirements") if isinstance(dashboard_json.get("data_requirements"), dict) else {
             "fields": [],
             "dimensions": [],
