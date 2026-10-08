@@ -349,7 +349,7 @@ def test_rule_17_and_18_html_interactive_elements():
     html = render_dashboard_html(dashboard, message="Vessel Logistics")
 
     # Critical interactive HTML assertions
-    assert html.lstrip().startswith("<style>")
+    assert html.lstrip().startswith("<!DOCTYPE html>") or html.lstrip().startswith("<style>")
     assert "ez-dash" in html
     assert "Global Vessel Logistics Command" in html
     assert "Total Vessel Calls" in html

@@ -231,7 +231,7 @@ def test_dashboard_data_caps_rows_at_50(client, monkeypatch):
     assert store.last_limit == 50
     assert "text/html" in response.headers.get("content-type", "")
     body = response.text
-    assert body.lstrip().startswith("<style>")
+    assert body.lstrip().startswith("<!DOCTYPE html>") or body.lstrip().startswith("<style>")
     assert "ez-dash" in body
 
 

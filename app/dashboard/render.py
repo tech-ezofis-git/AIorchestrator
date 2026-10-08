@@ -916,11 +916,19 @@ def render_dashboard_html(
 
     serialized_data = _safe_json(data_payload)
 
-    html_content = f"""<style>
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{_esc(title)}</title>
+  <style>
 {_CSS_V6}
-</style>
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
 <div class="ez-dash" id="appRoot">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <header class="topbar">
   <div class="brand">
@@ -2086,5 +2094,7 @@ wireEvents();
 render();
 </script>
 </div>
+</body>
+</html>
 """
     return html_content
