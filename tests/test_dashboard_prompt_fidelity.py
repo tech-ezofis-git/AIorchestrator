@@ -469,5 +469,154 @@ Add filters for: Date/Timeframe, Port, Terminal, Vessel, Vessel Type, Voyage, Ca
     assert len(filters) >= 8, f"Expected filters, got {len(filters)}"
 
 
+@pytest.mark.asyncio
+async def test_rfq_ftl_multi_section_markdown_prompt_generates_all_kpis_and_charts():
+    from app.dashboard.propose import propose_dashboard
+
+    prompt = """
+Create a professional, modern, enterprise-grade **RFQ Operations Dashboard for FTL Distribution** to provide end-to-end visibility into the complete Request for Quotation workflow. The dashboard must help users quickly understand the current RFQ workload, qualification performance, quotation progress, customer decisions, and overall conversion performance.
+
+### 1. Executive KPI Summary
+Display the following KPI cards prominently at the top:
+- **Total RFQs Received**
+- **New RFQs**
+- **RFQs Under Review**
+- **Qualified RFQs**
+- **Disqualified RFQs**
+- **Quotes Prepared**
+- **Quotes Submitted**
+- **RFQs Won**
+- **RFQs Lost**
+- **Average RFQ Turnaround Time**
+
+Each KPI should show the current value and, where meaningful, a comparison with the previous period.
+
+### 2. RFQ Lifecycle Status
+Create a status distribution visualization showing the current workload across:
+- New
+- Under Review
+- Qualification Pending
+- Qualified
+- Disqualified
+- Quote Preparation
+- Quote Submitted
+- Customer Review
+- Won
+- Lost
+- Completed
+
+### 3. RFQ Conversion Pipeline
+Build an interactive funnel representing the complete RFQ journey:
+**RFQ Received → RFQ Reviewed → Qualification Completed → Qualified → Quote Prepared → Quote Submitted → Customer Decision → Won/Lost**
+
+### 4. RFQ Activity & Volume Trends
+Provide a time-series analysis of RFQ activity. Include:
+- RFQs received
+- RFQs qualified
+- Quotes prepared
+- Quotes submitted
+- RFQs won
+- RFQs lost
+
+### 5. Qualification Intelligence
+Create a dedicated qualification analysis section showing:
+**Qualification Results**
+- Qualified
+- Disqualified
+- Pending Review
+
+### 6. Quotation Performance
+Create a quotation monitoring section covering:
+- Quotes awaiting preparation
+- Quotes generated
+- Quotes pending internal review
+- Quotes submitted
+
+### 7. RFQ Processing Efficiency
+Provide operational performance metrics for each stage:
+- Average initial review time
+- Average qualification time
+- Average quotation preparation time
+
+### 8. RFQ Work Queue
+Create a detailed operational table containing:
+- RFQ Number
+- Project / Tender Name
+- Customer
+- Project Category
+- Received Date
+- Current Stage
+- RFQ Status
+
+### 9. Latest RFQ Activity
+Add a compact **Recent RFQ Activity** panel showing the latest submissions and workflow updates.
+
+### 10. Wittur Product Matching
+Create a product intelligence section showing which Wittur products and components are most frequently requested.
+
+### 11. Customer RFQ Analysis
+Add customer-level analysis showing:
+- Customers with the highest RFQ volume
+- Qualified RFQs by customer
+
+### 12. Project Type Analysis
+Analyze RFQs by project category, such as:
+- Elevator Modernization
+- New Installation
+
+### 13. AI Operations Insights
+Include an **AI Insights** panel that dynamically analyzes the dashboard data and generates actionable observations.
+
+### 14. Advanced Filters
+Provide a filter bar that dynamically controls the entire dashboard. Include:
+- Date Range
+- Customer
+- Project Type
+- RFQ Status
+- Workflow Stage
+- Qualification Result
+- Quote Status
+- Assigned User
+- Product / Component
+- Priority
+
+### 15. Dashboard Layout
+Use a clean **enterprise operations-center design**.
+
+### 16. Functional Requirements
+The dashboard must be fully responsive and work effectively on desktop, tablet, and mobile screens.
+"""
+    target = {
+        "tenant_id": "b843b988-00ec-44e3-aca2-b8470133ef63",
+        "repository_id": "rfq-docs",
+        "repository_name": "RFQ Documents",
+        "qualified_table": "repository.items_9f522761",
+        "schema": "repository",
+        "table": "items_9f522761",
+    }
+    columns = [
+        "file_name", "status", "customer", "project_name", "category", "stage",
+        "qualification_result", "amount", "created_at_utc"
+    ]
+
+    proposal = await propose_dashboard(
+        message=prompt,
+        target=target,
+        columns=columns,
+        sample_rows=[],
+    )
+
+    kpis = proposal["kpis"]
+    charts = proposal["charts"]
+    tables = proposal["tables"]
+    filters = proposal["filters"]
+
+    assert len(kpis) == 10, f"Expected 10 KPIs, got {len(kpis)}: {[k['label'] for k in kpis]}"
+    assert len(charts) >= 8, f"Expected at least 8 analytical charts, got {len(charts)}: {[c['title'] for c in charts]}"
+    assert len(tables) >= 1, "Expected at least 1 table"
+    assert len(filters) >= 5, f"Expected at least 5 filters, got {len(filters)}"
+
+
+
 
 
