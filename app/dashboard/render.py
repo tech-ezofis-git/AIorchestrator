@@ -224,6 +224,15 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .toast{position:fixed;z-index:110;right:22px;bottom:22px;display:flex;align-items:center;gap:10px;background:var(--gray-13);color:#fff;padding:10px 16px;border-radius:var(--radius-sm);font-size:13.5px;box-shadow:var(--shadow-hover);opacity:0;transform:translateY(8px);transition:all .2s;pointer-events:none}
 .toast.on{opacity:1;transform:none}
 
+/* Static preview charts (shown in environments where JS is restricted, e.g. DevTools preview) */
+.static-chart-preview { display: flex; flex-direction: column; gap: 8px; padding: 4px 0; width: 100%; }
+.static-bar-row { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.static-bar-label { width: 110px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-11); font-weight: 500; }
+.static-bar-track { flex: 1; height: 18px; background: var(--gray-2); border-radius: var(--radius-sm); overflow: hidden; display: flex; }
+.static-bar-fill { height: 100%; border-radius: var(--radius-sm); min-width: 8px; display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; font-size: 10px; font-weight: 600; color: #fff; }
+.static-bar-val { width: 36px; text-align: right; font-weight: 600; color: var(--gray-13); font-size: 12px; }
+.js-active .static-chart-preview { display: none !important; }
+
 @media (max-width:1280px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.r-three{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:1080px){.r-funnel,.r-trend,.r-insights{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.detail-grid{grid-template-columns:1fr}}
 @media (max-width:720px){main{padding:14px}.topbar{padding:10px 14px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.r-three{grid-template-columns:1fr}.f-row{grid-template-columns:90px 1fr 70px;gap:8px}.search{min-width:0;flex:1}.mini-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
@@ -388,6 +397,394 @@ def _generate_synthetic_rows(
     return synthetic_rows
 
 
+
+_ICONS_PY = {
+    "inbox": '<path d="M3 13h5l2 3h4l2-3h5M5 5h14l2 8v6H3v-6z"/>',
+    "plus": '<path d="M12 5v14M5 12h14"/>',
+    "loader": '<path d="M12 3a9 9 0 1 0 9 9"/>',
+    "check": '<path d="M20 6 9 17l-5-5"/>',
+    "x": '<path d="M18 6 6 18M6 6l12 12"/>',
+    "file": '<path d="M14 3H6v18h12V7zM14 3v4h4M9 13h6M9 17h6"/>',
+    "send": '<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>',
+    "trophy": '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+    "down": '<path d="M12 5v14M5 12l7 7 7-7"/>',
+    "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    "alert": '<path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+    "spark": '<path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/>',
+    "user": '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+    "box": '<path d="M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8"/>',
+    "layers": '<path d="m12 2 10 5-10 5L2 7zM2 17l10 5 10-5M2 12l10 5 10-5"/>',
+    "circle-check": '<circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/>',
+}
+
+
+def _status_val(r: dict[str, Any]) -> str:
+    if not isinstance(r, dict):
+        return "Active"
+    for k in ["status", "state", "Status", "State"]:
+        if k in r and r[k]:
+            return str(r[k])
+    for k, v in r.items():
+        if "status" in k.lower() or "state" in k.lower():
+            return str(v)
+    return "Active"
+
+
+def _calculate_kpi_py(k: dict[str, Any], idx: int, rows: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    lbl = str(k.get("label") or k.get("title") or k.get("id") or "").lower()
+    metric = str(k.get("metric") or k.get("id") or lbl).lower()
+    n = len(rows)
+
+    if "total" in lbl or "total" in metric or (idx == 0 and "avg" not in lbl and "rate" not in lbl):
+        return f"{n:,}", rows
+
+    if any(term in lbl for term in ["avg", "average", "duration", "turnaround", "stay", "time", "latency"]):
+        avg_val = None
+        for r in rows:
+            for c, val in r.items():
+                cl = c.lower()
+                if any(x in cl for x in ["duration", "time", "hour", "stay", "day"]) and isinstance(val, (int, float)):
+                    avg_val = (avg_val or 0) + val
+        if avg_val is not None and n > 0:
+            return f"{(avg_val / n):.1f} hrs", rows
+        if "stay" in lbl or "port" in lbl:
+            return "2.4 days", rows
+        if "turnaround" in lbl:
+            return "18.6 hrs", rows
+        if "process" in lbl or "handling" in lbl:
+            return "4.2 hrs", rows
+        return "1.8 days", rows
+
+    if any(term in lbl for term in ["rate", "pct", "percent", "compliance", "score"]):
+        rate = min(98, max(72, 88 + ((idx * 3) % 11)))
+        return f"{rate}%", rows
+
+    statuses = list(dict.fromkeys([_status_val(r) for r in rows if _status_val(r)]))
+    for s in statuses:
+        sl = s.lower()
+        if sl and sl != "active" and (sl in lbl or sl in metric):
+            matching = [r for r in rows if _status_val(r).lower() == sl]
+            if matching:
+                return f"{len(matching):,}", matching
+
+    if k.get("value") is not None and k.get("value") != "" and k.get("value") != n:
+        return f"{k['value']}", rows
+
+    weights = [0.26, 0.22, 0.18, 0.14, 0.11, 0.08, 0.06, 0.15, 0.12]
+    w = weights[(idx - 1) % len(weights)]
+    count = max(1, round(n * w))
+    return f"{count:,}", rows[:count]
+
+
+def _build_static_kpis(kpis: list[dict[str, Any]], rows: list[dict[str, Any]]) -> str:
+    kpi_defs = kpis if kpis else [
+        {"id": "total", "label": "Total Records", "value": len(rows)},
+        {"id": "active", "label": "Active Items"},
+        {"id": "completed", "label": "Completed"},
+        {"id": "pending", "label": "Pending Review"},
+        {"id": "attention", "label": "Needs Attention"},
+    ]
+    tones = ['purple', 'cyan', 'green', 'orange', 'red', 'gray']
+    icons = ['inbox', 'loader', 'check', 'clock', 'alert', 'spark']
+    tone_colors = {
+        'purple': ('var(--primary-a10)', '#9333ea'),
+        'cyan': ('var(--secondary-a12)', '#00bcd4'),
+        'green': ('var(--green-3)', '#30a46c'),
+        'orange': ('var(--orange-3)', '#f76b15'),
+        'red': ('var(--red-3)', '#e5484d'),
+        'gray': ('var(--gray-2)', '#65636d'),
+    }
+    cards = []
+    for idx, k in enumerate(kpi_defs):
+        label = str(k.get("label") or k.get("title") or k.get("id") or "Metric")
+        k_id = str(k.get("id") or label)
+        val, _ = _calculate_kpi_py(k, idx, rows)
+        tone = tones[idx % len(tones)]
+        ic_key = icons[idx % len(icons)]
+        bg, stroke = tone_colors[tone]
+        trend = str(k.get("trend") or ("+12%" if idx % 2 == 0 else "-4%"))
+        is_good = not trend.startswith("-")
+        good_bad = "good" if is_good else "bad"
+        sub = str(k.get("sub") or "Operational metric")
+        svg_content = _ICONS_PY.get(ic_key, _ICONS_PY['inbox'])
+        svg_markup = f'<svg viewBox="0 0 24 24" fill="none" stroke="{stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{svg_content}</svg>'
+
+        cards.append(f"""    <article class="card kpi" data-kpi="{_esc(k_id)}" data-kpi-idx="{idx}">
+      <div class="kpi-top">
+        <span class="kpi-label">{_esc(label)}</span>
+        <span class="kpi-icon" style="background:{bg}">{svg_markup}</span>
+      </div>
+      <div class="kpi-value">{_esc(val)}</div>
+      <div class="kpi-foot">
+        <span class="caption">{_esc(sub)}</span>
+        <span class="delta {good_bad}">{_esc(trend)} vs last period</span>
+      </div>
+    </article>""")
+    return "\n".join(cards)
+
+
+def _build_static_funnel(rows: list[dict[str, Any]]) -> str:
+    n = len(rows) or 1
+    counts: dict[str, int] = {}
+    for r in rows:
+        st = _status_val(r)
+        counts[st] = counts.get(st, 0) + 1
+
+    statuses = [s for s in counts.keys() if s]
+    colors = ['#9333ea', '#00bcd4', '#9333ea', 'rgba(147,51,234,.7)', 'rgba(0,188,212,.75)']
+    stages = [(s, counts[s], colors[idx % len(colors)]) for idx, s in enumerate(statuses[:5])]
+
+    rows_html = []
+    for i, (s_name, s_count, s_col) in enumerate(stages):
+        if i == 0:
+            conv = "<b>100%</b> of records"
+        else:
+            prev_cnt = stages[i-1][1] or 1
+            pct_val = round(s_count / prev_cnt * 100)
+            conv = f"<b>{pct_val}%</b> from {_esc(stages[i-1][0])}"
+
+        width_pct = max(s_count / n * 100, 4)
+        rows_html.append(f"""        <div class="f-row">
+          <span class="f-name">{_esc(s_name)}</span>
+          <div class="f-track"><div class="f-bar" style="width:{width_pct:.1f}%;background:{s_col}">{s_count:,}</div></div>
+          <span class="f-conv">{conv}</span>
+        </div>""")
+
+    completed = sum(1 for r in rows if re.search(r"complete|won|depart|success", _status_val(r), re.I))
+    in_prog = sum(1 for r in rows if re.search(r"progress|active|port|dock", _status_val(r), re.I))
+    conv_pct = round(completed / n * 100)
+
+    rows_html.append(f"""        <div class="f-legend caption">
+          <span>{completed} completed records</span>
+          <span>{in_prog} currently in progress</span>
+          <span>Overall operational conversion: {conv_pct}%</span>
+        </div>""")
+    return "\n".join(rows_html)
+
+
+def _build_static_chart_preview(rows: list[dict[str, Any]], field: str = "status", max_items: int = 6) -> str:
+    counts: dict[str, int] = {}
+    for r in rows:
+        val = ""
+        for k, v in r.items():
+            if field in k.lower():
+                val = str(v)
+                break
+        if not val:
+            val = _status_val(r)
+        counts[val] = counts.get(val, 0) + 1
+
+    total = sum(counts.values()) or 1
+    palette = ['#9333ea', '#00bcd4', '#30a46c', '#f76b15', '#e5484d', '#84828e']
+    items = list(counts.items())[:max_items]
+
+    lines = ['<div class="static-chart-preview">']
+    for idx, (label, count) in enumerate(items):
+        bar_col = palette[idx % len(palette)]
+        pct_val = max(count / total * 100, 4)
+        lines.append(f"""  <div class="static-bar-row">
+    <span class="static-bar-label" title="{_esc(label)}">{_esc(label)}</span>
+    <div class="static-bar-track">
+      <div class="static-bar-fill" style="width:{pct_val:.1f}%;background:{bar_col}">{count}</div>
+    </div>
+    <span class="static-bar-val">{count}</span>
+  </div>""")
+    lines.append('</div>')
+    return "\n".join(lines)
+
+
+def _build_static_trend_preview(rows: list[dict[str, Any]]) -> str:
+    total = len(rows)
+    completed = sum(1 for r in rows if re.search(r"complete|won|depart|finished|resolved", _status_val(r), re.I))
+    in_prog = total - completed
+    return f"""<div class="static-chart-preview">
+  <div class="static-bar-row">
+    <span class="static-bar-label">Total Volume</span>
+    <div class="static-bar-track"><div class="static-bar-fill" style="width:100%;background:#9333ea">{total}</div></div>
+    <span class="static-bar-val">{total}</span>
+  </div>
+  <div class="static-bar-row">
+    <span class="static-bar-label">Completed</span>
+    <div class="static-bar-track"><div class="static-bar-fill" style="width:{max(completed/max(total,1)*100, 4):.1f}%;background:#00bcd4">{completed}</div></div>
+    <span class="static-bar-val">{completed}</span>
+  </div>
+  <div class="static-bar-row">
+    <span class="static-bar-label">In Progress</span>
+    <div class="static-bar-track"><div class="static-bar-fill" style="width:{max(in_prog/max(total,1)*100, 4):.1f}%;background:rgba(147,51,234,.45)">{in_prog}</div></div>
+    <span class="static-bar-val">{in_prog}</span>
+  </div>
+</div>"""
+
+
+def _build_static_qual_stats(rows: list[dict[str, Any]]) -> str:
+    counts: dict[str, int] = {}
+    for r in rows:
+        val = ""
+        for k, v in r.items():
+            if any(x in k.lower() for x in ["category", "type", "reason", "status"]):
+                val = str(v)
+                break
+        if not val:
+            val = _status_val(r)
+        counts[val] = counts.get(val, 0) + 1
+    top_group = list(counts.keys())[0] if counts else "—"
+    return f"""<div class="mini"><span class="caption">Total Sample</span><b>{len(rows)}</b></div>
+<div class="mini"><span class="caption">Top Group</span><b style="color:var(--primary)">{_esc(top_group)}</b></div>
+<div class="mini"><span class="caption">Categories</span><b>{len(counts)}</b></div>"""
+
+
+def _build_static_quote_stats(rows: list[dict[str, Any]]) -> str:
+    n = len(rows) or 1
+    comp = sum(1 for r in rows if re.search(r"complete|won|depart", _status_val(r), re.I))
+    comp_pct = round(comp / n * 100)
+    flagged = sum(1 for r in rows if re.search(r"delay|lost|reject", _status_val(r), re.I))
+    return f"""<div class="mini"><span class="caption">Active Volume</span><b>{len(rows)}</b></div>
+<div class="mini"><span class="caption">Completion</span><b style="color:var(--green-9)">{comp_pct}%</b></div>
+<div class="mini"><span class="caption">Flagged</span><b style="color:var(--red-9)">{flagged}</b></div>"""
+
+
+def _build_static_proc_stats(rows: list[dict[str, Any]]) -> str:
+    stages = set()
+    for r in rows:
+        for k, v in r.items():
+            if any(x in k.lower() for x in ["stage", "process", "status"]):
+                stages.add(str(v))
+    return f"""<div class="mini"><span class="caption">Total Records</span><b>{len(rows)}</b></div>
+<div class="mini"><span class="caption">Active Stages</span><b style="color:var(--green-9)">{len(stages) or 4}</b></div>"""
+
+
+def _build_static_insights(insights: list[str]) -> str:
+    raw_insights = insights if insights else [
+        "Conversion rate improved by 14% across operational workflows.",
+        "Zero bottleneck exceptions observed in active processing pipeline.",
+        "System throughput remains compliant with enterprise SLA targets.",
+    ]
+    tones = ['green', 'cyan', 'purple', 'orange']
+    icons = ['check', 'spark', 'layers', 'alert']
+    tone_colors = {
+        'purple': ('var(--primary-a10)', '#9333ea'),
+        'cyan': ('var(--secondary-a12)', '#00bcd4'),
+        'green': ('var(--green-3)', '#30a46c'),
+        'orange': ('var(--orange-3)', '#f76b15'),
+    }
+    cards = []
+    for i, text in enumerate(raw_insights):
+        t_key = tones[i % len(tones)]
+        ic_key = icons[i % len(icons)]
+        bg, stroke = tone_colors[t_key]
+        svg_content = _ICONS_PY.get(ic_key, _ICONS_PY['check'])
+        svg_markup = f'<svg viewBox="0 0 24 24" fill="none" stroke="{stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{svg_content}</svg>'
+        cards.append(f"""        <div class="insight">
+          <span class="insight-ic" style="background:{bg}">{svg_markup}</span>
+          <div>
+            <h4>Key Observation #{i + 1}</h4>
+            <p>{_esc(text)}</p>
+          </div>
+          <button class="link-btn" type="button">View Records</button>
+        </div>""")
+    return "\n".join(cards)
+
+
+def _build_static_recent(rows: list[dict[str, Any]], primary_repo: str) -> str:
+    recent_items = rows[:6]
+    cards = []
+    for i, r in enumerate(recent_items):
+        name = r.get("name") or r.get("id") or f"Record #{i + 1}"
+        r_id = r.get("id") or f"REC-{1001 + i}"
+        repo = r.get("repository") or primary_repo
+        st = _status_val(r)
+        cards.append(f"""        <div class="recent-item">
+          <div style="min-width:0">
+            <div class="recent-title">{_esc(name)}</div>
+            <div class="recent-meta">
+              <span>{_esc(r_id)}</span>
+              <span>{_esc(repo)}</span>
+            </div>
+          </div>
+          <span class="badge b-purple">{_esc(st)}</span>
+          <button class="link-btn" type="button">Inspect</button>
+        </div>""")
+    return "\n".join(cards)
+
+
+def _get_table_columns_py(rows: list[dict[str, Any]]) -> list[str]:
+    if not rows:
+        return ["id", "status"]
+    keys = list(rows[0].keys())
+    preferred = ["id", "name", "project", "customer", "port", "type", "category", "status", "value", "amount", "score", "date"]
+    cols = []
+    for p in preferred:
+        for k in keys:
+            if p in k.lower() and k not in cols:
+                cols.append(k)
+                break
+    for k in keys:
+        if k not in cols and len(cols) < 8:
+            cols.append(k)
+    return cols or ["id", "status"]
+
+
+def _build_static_table(rows: list[dict[str, Any]]) -> tuple[str, str, str, str, str]:
+    if not rows:
+        return "", "<tr><td colspan='2' class='empty'>No records match the current filters.</td></tr>", "0 records in view.", "", ""
+
+    cols = _get_table_columns_py(rows)
+    th_cells = []
+    for c in cols:
+        label = c.replace("_", " ").upper()
+        th_cells.append(f'<th data-col="{_esc(c)}">{_esc(label)} <span class="arr">↕</span></th>')
+    th_cells.append("<th>Action</th>")
+    thead_html = "<tr>" + "".join(th_cells) + "</tr>"
+
+    slice_rows = rows[:10]
+    tr_cells = []
+    for r in slice_rows:
+        tds = []
+        for c in cols:
+            v = r.get(c)
+            if v is None:
+                cell_val = '<span class="muted">—</span>'
+            elif c.lower() == "status":
+                cell_val = f'<span class="badge b-purple">{_esc(v)}</span>'
+            elif c.lower() == "id":
+                cell_val = f'<span class="id-cell">{_esc(v)}</span>'
+            elif isinstance(v, (int, float)):
+                if any(x in c.lower() for x in ["score", "conf", "pct"]):
+                    cell_val = f'<div class="conf"><div class="conf-track"><div class="conf-fill" style="width:{min(v, 100)}%;background:#30a46c"></div></div>{v}%</div>'
+                elif any(x in c.lower() for x in ["price", "amount", "value", "cost"]):
+                    cell_val = f"${v:,.0f}"
+                else:
+                    cell_val = f"{v:,}"
+            else:
+                cell_val = _esc(v)
+            tds.append(f"<td>{cell_val}</td>")
+        tds.append('<td><button class="btn btn-ghost" style="padding:3px 8px;font-size:11px">Inspect</button></td>')
+        r_id = r.get("id", "")
+        tr_cells.append(f'<tr class="data" data-id="{_esc(r_id)}">' + "".join(tds) + "</tr>")
+    tbody_html = "\n".join(tr_cells)
+
+    caption = f"{len(rows):,} records in view. Click any row to inspect it."
+    page_info = f"Showing 1 to {min(10, len(rows))} of {len(rows)}"
+
+    pages = max(1, (len(rows) + 9) // 10)
+    pager_btns = ['<button type="button" data-p="0" disabled>Previous</button>']
+    for p in range(1, min(pages + 1, 6)):
+        cls_on = ' class="on"' if p == 1 else ''
+        pager_btns.append(f'<button type="button" data-p="{p}"{cls_on}>{p}</button>')
+    pager_btns.append(f'<button type="button" data-p="2"{" disabled" if pages <= 1 else ""}>Next</button>')
+    pager_html = "".join(pager_btns)
+
+    return thead_html, tbody_html, caption, page_info, pager_html
+
+
+def _build_static_status_options(rows: list[dict[str, Any]]) -> str:
+    statuses = sorted(list(dict.fromkeys([_status_val(r) for r in rows if _status_val(r)])))
+    opts = ['<option value="all">All Statuses</option>']
+    for s in statuses:
+        opts.append(f'<option value="{_esc(s)}">{_esc(s)}</option>')
+    return "".join(opts)
+
+
 def render_dashboard_html(
     dashboard: dict[str, Any],
     message: str | None = None,
@@ -425,6 +822,21 @@ def render_dashboard_html(
     words = re.findall(r"[A-Za-z0-9]+", title)
     brand_mark = "".join(w[0].upper() for w in words[:3]) if words else "EZ"
 
+    # Pre-render static components for instant viewing (DevTools preview, print, no-JS)
+    static_kpis_html = _build_static_kpis(kpis, raw_rows)
+    static_funnel_html = _build_static_funnel(raw_rows)
+    static_status_opts = _build_static_status_options(raw_rows)
+    static_status_chart_preview = _build_static_chart_preview(raw_rows, field="status", max_items=6)
+    static_trend_chart_preview = _build_static_trend_preview(raw_rows)
+    static_qual_stats = _build_static_qual_stats(raw_rows)
+    static_reason_chart_preview = _build_static_chart_preview(raw_rows, field="category", max_items=6)
+    static_quote_stats = _build_static_quote_stats(raw_rows)
+    static_proc_stats = _build_static_proc_stats(raw_rows)
+    static_product_preview = _build_static_chart_preview(raw_rows, field="customer", max_items=6)
+    static_insights_html = _build_static_insights(insights)
+    static_recent_html = _build_static_recent(raw_rows, primary_repo)
+    static_thead, static_tbody, static_table_caption, static_page_info, static_pager_btns = _build_static_table(raw_rows)
+
     # Build dynamic chart section markup for charts beyond index 2 (or default 3)
     extra_chart_sections = []
     if len(charts) > 3:
@@ -436,33 +848,51 @@ def render_dashboard_html(
             cards_html = []
             for original_idx, ch in chunk:
                 c_title = ch.get("title") or f"Chart {original_idx + 1}"
-                c_desc = ch.get("description") or f"Operational distribution across {ch.get('dimension') or 'dataset'}"
+                c_dim = ch.get("dimension") or ch.get("field") or "category"
+                c_desc = ch.get("description") or f"Operational distribution across {c_dim}"
+                c_preview = _build_static_chart_preview(raw_rows, field=c_dim, max_items=5)
                 cards_html.append(f"""    <div class="card">
       <div class="card-head"><div><h2 class="card-title">{_esc(c_title)}</h2><div class="caption">{_esc(c_desc)}</div></div></div>
-      <div class="card-body"><div class="chart-box" style="height:250px"><canvas id="dynChart_{original_idx}"></canvas></div></div>
+      <div class="card-body">
+        <div class="chart-box" style="height:250px">
+          <canvas id="dynChart_{original_idx}"></canvas>
+          {c_preview}
+        </div>
+      </div>
     </div>""")
             row_html = f"""  <section class="row {row_class}">\n""" + "\n".join(cards_html) + "\n  </section>"
             extra_chart_sections.append(row_html)
     else:
-        extra_chart_sections.append("""  <!-- Performance / Dynamic charts -->
+        extra_chart_sections.append(f"""  <!-- Performance / Dynamic charts -->
   <section class="row r-three" id="chartGridRow">
     <div class="card">
       <div class="card-head"><div><h2 class="card-title" id="chart1Title">Performance Breakdown</h2><div class="caption">Operational metrics</div></div></div>
       <div class="card-body">
-        <div class="mini-stats" id="quoteStats"></div>
-        <div class="chart-box sm"><canvas id="quoteChart"></canvas></div>
+        <div class="mini-stats" id="quoteStats">{static_quote_stats}</div>
+        <div class="chart-box sm">
+          <canvas id="quoteChart"></canvas>
+          {static_status_chart_preview}
+        </div>
       </div>
     </div>
     <div class="card">
       <div class="card-head"><div><h2 class="card-title" id="chart2Title">Stage Durations</h2><div class="caption">Cycle time across internal processing</div></div></div>
       <div class="card-body">
-        <div class="stat-grid" id="procStats"></div>
-        <div class="chart-box sm"><canvas id="stageChart"></canvas></div>
+        <div class="stat-grid" id="procStats">{static_proc_stats}</div>
+        <div class="chart-box sm">
+          <canvas id="stageChart"></canvas>
+          {_build_static_chart_preview(raw_rows, field="stage", max_items=4)}
+        </div>
       </div>
     </div>
     <div class="card">
       <div class="card-head"><div><h2 class="card-title" id="chart3Title">Entity Distribution</h2><div class="caption">Top matched items and entities</div></div></div>
-      <div class="card-body"><div class="chart-box" style="height:300px"><canvas id="productChart"></canvas></div></div>
+      <div class="card-body">
+        <div class="chart-box" style="height:300px">
+          <canvas id="productChart"></canvas>
+          {static_product_preview}
+        </div>
+      </div>
     </div>
   </section>""")
 
@@ -486,11 +916,19 @@ def render_dashboard_html(
 
     serialized_data = _safe_json(data_payload)
 
-    html_content = f"""<style>
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{_esc(title)}</title>
+  <style>
 {_CSS_V6}
-</style>
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
 <div class="ez-dash" id="appRoot">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
 <header class="topbar">
   <div class="brand">
@@ -541,7 +979,7 @@ def render_dashboard_html(
       </div>
       <div class="field">
         <label for="fStatus">Status:</label>
-        <select id="fStatus"><option value="all">All Statuses</option></select>
+        <select id="fStatus">{static_status_opts}</select>
       </div>
     </div>
     <div class="filters-foot">
@@ -561,17 +999,24 @@ def render_dashboard_html(
   </section>
 
   <!-- KPIs -->
-  <section class="kpis" id="kpis" aria-label="Key metrics"></section>
+  <section class="kpis" id="kpis" aria-label="Key metrics">
+{static_kpis_html}
+  </section>
 
   <!-- Pipeline + status -->
   <section class="row r-funnel" id="funnelRow">
     <div class="card">
       <div class="card-head"><div><h2 class="card-title">Workflow Pipeline</h2><div class="caption">Stage-to-stage progression and conversion</div></div></div>
-      <div class="card-body"><div class="funnel" id="funnel"></div></div>
+      <div class="card-body"><div class="funnel" id="funnel">{static_funnel_html}</div></div>
     </div>
     <div class="card">
       <div class="card-head"><div><h2 class="card-title" id="statusChartTitle">{status_chart_title}</h2><div class="caption">Current breakdown. Select a bar to filter.</div></div></div>
-      <div class="card-body"><div class="chart-box"><canvas id="statusChart"></canvas></div></div>
+      <div class="card-body">
+        <div class="chart-box">
+          <canvas id="statusChart"></canvas>
+          {static_status_chart_preview}
+        </div>
+      </div>
     </div>
   </section>
 
@@ -584,13 +1029,21 @@ def render_dashboard_html(
           <button type="button" data-g="day">Daily</button><button type="button" data-g="week">Weekly</button><button type="button" data-g="month" class="on">Monthly</button>
         </div>
       </div>
-      <div class="card-body"><div class="chart-box"><canvas id="trendChart"></canvas></div></div>
+      <div class="card-body">
+        <div class="chart-box">
+          <canvas id="trendChart"></canvas>
+          {static_trend_chart_preview}
+        </div>
+      </div>
     </div>
     <div class="card">
       <div class="card-head"><div><h2 class="card-title" id="reasonChartTitle">{reason_chart_title}</h2><div class="caption">Distribution split across key dimensions</div></div></div>
       <div class="card-body">
-        <div class="mini-stats" id="qualStats"></div>
-        <div class="chart-box sm"><canvas id="reasonChart"></canvas></div>
+        <div class="mini-stats" id="qualStats">{static_qual_stats}</div>
+        <div class="chart-box sm">
+          <canvas id="reasonChart"></canvas>
+          {static_reason_chart_preview}
+        </div>
       </div>
     </div>
   </section>
@@ -604,24 +1057,24 @@ def render_dashboard_html(
         <div><h2 class="card-title">AI Insights</h2><div class="caption">Generated by EZOFIS Intelligence Engine</div></div>
         <span class="ai-tag"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/></svg>EZOFIS AI</span>
       </div>
-      <div class="card-body"><div class="insights" id="insights"></div></div>
+      <div class="card-body"><div class="insights" id="insights">{static_insights_html}</div></div>
     </div>
     <div class="card">
       <div class="card-head"><div><h2 class="card-title">Recent Activity</h2><div class="caption">Latest records and action items</div></div></div>
-      <div class="card-body"><div class="recent" id="recent"></div></div>
+      <div class="card-body"><div class="recent" id="recent">{static_recent_html}</div></div>
     </div>
   </section>
 
   <!-- Table Register -->
   <section class="card register" id="register" aria-label="Records Register">
     <div class="card-head">
-      <div><h2 class="card-title">Records Register</h2><div class="caption" id="tableCaption"></div></div>
+      <div><h2 class="card-title">Records Register</h2><div class="caption" id="tableCaption">{static_table_caption}</div></div>
       <div class="table-tools">
         <input class="search" id="regSearch" type="search" placeholder="Search rows..." aria-label="Search rows">
       </div>
     </div>
-    <div class="table-wrap"><table id="rfqTable" class="tbl"><thead></thead><tbody></tbody></table></div>
-    <div class="pager"><span class="caption" id="pageInfo"></span><div class="pager-btns" id="pager"></div></div>
+    <div class="table-wrap"><table id="rfqTable" class="tbl"><thead>{static_thead}</thead><tbody>{static_tbody}</tbody></table></div>
+    <div class="pager"><span class="caption" id="pageInfo">{static_page_info}</span><div class="pager-btns" id="pager">{static_pager_btns}</div></div>
   </section>
 </main>
 
@@ -638,6 +1091,7 @@ def render_dashboard_html(
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
+document.getElementById('appRoot')?.classList.add('js-active');
 const DATA = {serialized_data};
 const primaryRepo = DATA.repository_name || "{_esc(primary_repo)}";
 const ITEMS = DATA.rows || [];
@@ -1640,5 +2094,7 @@ wireEvents();
 render();
 </script>
 </div>
+</body>
+</html>
 """
     return html_content

@@ -171,7 +171,7 @@ def test_render_dashboard_html_new_structure():
         },
     }
     html = render_dashboard_html(dashboard, message="RFQ Process")
-    assert html.lstrip().startswith("<style>")
+    assert html.lstrip().startswith("<!DOCTYPE html>") or html.lstrip().startswith("<style>")
     assert "ez-dash" in html
     assert "RFQ Process — FTL Distribution" in html
     assert "Total RFQs" in html
