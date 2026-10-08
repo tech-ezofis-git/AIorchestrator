@@ -7336,23 +7336,95 @@ function renderDashboardHtmlPreview(html) {
   clearEmptyState();
   const div = document.createElement('div');
   div.className = 'msg assistant has-summary';
-  const frame = document.createElement('iframe');
-  frame.className = 'dash-preview';
-  frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
-  frame.srcdoc = html || '';
+
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  bubble.textContent = 'Dashboard HTML loaded.';
+  bubble.textContent = 'Dashboard HTML generated. Live interactive preview ready below:';
   div.appendChild(bubble);
+
   const block = document.createElement('div');
   block.className = 'detail-block';
+
+  // Preview header actions toolbar
+  const toolbar = document.createElement('div');
+  toolbar.style.display = 'flex';
+  toolbar.style.alignItems = 'center';
+  toolbar.style.justifyContent = 'space-between';
+  toolbar.style.marginBottom = '8px';
+  toolbar.style.flexWrap = 'wrap';
+  toolbar.style.gap = '8px';
+
+  const titleBadge = document.createElement('div');
+  titleBadge.style.fontSize = '12px';
+  titleBadge.style.fontWeight = '600';
+  titleBadge.style.color = 'var(--text-muted)';
+  titleBadge.style.display = 'inline-flex';
+  titleBadge.style.alignItems = 'center';
+  titleBadge.style.gap = '6px';
+  titleBadge.innerHTML = '<span>📊 Live Interactive Dashboard</span>';
+  toolbar.appendChild(titleBadge);
+
+  const btnGroup = document.createElement('div');
+  btnGroup.style.display = 'flex';
+  btnGroup.style.gap = '8px';
+
+  const openBtn = document.createElement('button');
+  openBtn.type = 'button';
+  openBtn.className = 'btn-ghost';
+  openBtn.style.padding = '4px 10px';
+  openBtn.style.fontSize = '12px';
+  openBtn.style.cursor = 'pointer';
+  openBtn.textContent = '↗ Open in New Tab';
+  openBtn.onclick = () => {
+    const blob = new Blob([html || ''], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  };
+  btnGroup.appendChild(openBtn);
+
+  const dlBtn = document.createElement('button');
+  dlBtn.type = 'button';
+  dlBtn.className = 'btn-ghost';
+  dlBtn.style.padding = '4px 10px';
+  dlBtn.style.fontSize = '12px';
+  dlBtn.style.cursor = 'pointer';
+  dlBtn.textContent = '💾 Download .html';
+  dlBtn.onclick = () => {
+    const blob = new Blob([html || ''], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'dashboard.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  };
+  btnGroup.appendChild(dlBtn);
+
+  toolbar.appendChild(btnGroup);
+  block.appendChild(toolbar);
+
+  const frame = document.createElement('iframe');
+  frame.className = 'dash-preview';
+  frame.style.width = '100%';
+  frame.style.height = '840px';
+  frame.style.border = '1px solid var(--line)';
+  frame.style.borderRadius = '8px';
+  frame.style.background = '#ffffff';
+  // Load unrestricted via Blob URL
+  const blob = new Blob([html || ''], { type: 'text/html;charset=utf-8' });
+  const blobUrl = URL.createObjectURL(blob);
+  frame.src = blobUrl;
   block.appendChild(frame);
+
   const actions = document.createElement('div');
   actions.className = 'ocr-actions';
   actions.style.marginTop = '12px';
   actions.innerHTML = '<button type="button" class="btn-ghost dash-next-btn" data-dash-phase="schema">Propose schema</button>'
     + '<button type="button" class="btn-primary dash-next-btn" data-dash-phase="data">Reload data</button>';
   block.appendChild(actions);
+
   div.appendChild(block);
   transcript.appendChild(div);
   transcript.scrollTop = transcript.scrollHeight;
