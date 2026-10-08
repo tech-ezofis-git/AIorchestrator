@@ -196,7 +196,7 @@ class Settings(BaseSettings):
     # falls back to EZOFIS_API_BASE.
     file_fetcher_api_base: Optional[str] = None
     file_fetcher_default_folder: str = "monitor/Ramco_mjb"
-    # Separate from EZOFIS_LOGIN_*, which also switches the AP client to live mode.
+    # File Fetcher login credentials (falls back to EZOFIS_LOGIN_*).
     file_fetcher_login_email: str = ""
     file_fetcher_login_password: str = ""
     ap_llm_planner: bool = False
