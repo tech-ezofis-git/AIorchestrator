@@ -63,6 +63,24 @@ async def _login(
     password = password or settings.ezofis_login_password or settings.file_fetcher_login_password or ""
     if not email or not password:
         raise RuntimeError(NO_LOGIN_ERROR)
+    # DEPLOYMENT VERIFICATION: visible on every Classification/File Fetcher call.
+    # Look for 'file_fetcher_login_attempt' in console logs after deployment.
+    _src = (
+        "request" if (email and email not in (
+            (settings.ezofis_login_email or "").strip(),
+            (settings.file_fetcher_login_email or "").strip(),
+        ))
+        else ("EZOFIS_LOGIN_EMAIL" if (settings.ezofis_login_email or "").strip() == email
+              else "FILE_FETCHER_LOGIN_EMAIL")
+    )
+    logger.info(
+        "file_fetcher_login_attempt",
+        extra={
+            "tenant_id": tenant_id,
+            "login_email": email,
+            "credential_source": _src,
+        },
+    )
     response = await client.post(
         f"{base}/auth/ezofis/login",
         headers={"accept": "application/json", "Content-Type": "application/json", "X-Tenant-Id": tenant_id},
