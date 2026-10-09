@@ -27,6 +27,7 @@ DECISION_KEYS = (
     "reasoning",
     "confidence",
     "ai_insight",
+    "duplicate_info",
 )
 
 _LIST_KEYS = ("matched_items", "excluded_items", "hold_items", "flags")
@@ -66,6 +67,8 @@ def to_public(decision: Dict[str, Any]) -> Dict[str, Any]:
             value = value or []
         elif key in _TEXT_KEYS:
             value = value or ""
+        elif key == "duplicate_info":
+            value = value if isinstance(value, dict) else None
         out[key] = value
     return title_keys(out)
 

@@ -45,7 +45,11 @@ def _qualifier_result_from(value: Any) -> Optional[dict[str, Any]]:
 
 
 def _form_fields(form: Any) -> dict[str, Any]:
-    return {snake_key(k): v for k, v in form.multi_items()}
+    if hasattr(form, "multi_items"):
+        return {snake_key(k): v for k, v in form.multi_items()}
+    if hasattr(form, "items"):
+        return {snake_key(k): v for k, v in form.items()}
+    return {snake_key(k): v for k, v in dict(form).items()}
 
 
 def _request_llm_overrides(request: Request, model: Optional[str]) -> dict[str, Any] | None:
@@ -61,7 +65,7 @@ def _request_llm_overrides(request: Request, model: Optional[str]) -> dict[str, 
 @router.post("/api/ftl/qualify")
 async def ftl_qualify(request: Request) -> dict[str, Any]:
     """Qualify an elevator-parts RFQ against the Wittur pricelist."""
-    agent: FtlQualifierAgent = request.app.state.ftl_qualifier_agent
+    agent: FtlQualifierAgent = getattr(request.app.state, "ftl_qualifier_agent", None) or FtlQualifierAgent()
     content_type = (request.headers.get("content-type") or "").lower()
 
     file_b: Optional[bytes] = None
@@ -76,9 +80,16 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
     if "multipart/form-data" in content_type:
         form = _form_fields(await request.form())
         uploaded_file = form.get("file")
-        if isinstance(uploaded_file, UploadFile):
-            file_b = await uploaded_file.read()
-            f_name = uploaded_file.filename
+        if hasattr(uploaded_file, "read"):
+            res = uploaded_file.read()
+            import inspect
+            if inspect.isawaitable(res):
+                file_b = await res
+            else:
+                file_b = res
+            f_name = getattr(uploaded_file, "filename", None) or f_name
+        elif isinstance(uploaded_file, (bytes, bytearray)):
+            file_b = bytes(uploaded_file)
         f_name = (form.get("filename") if isinstance(form.get("filename"), str) else None) or f_name
         f_path = form.get("filepath") if isinstance(form.get("filepath"), str) else None
         cand_text = form.get("candidate_text") if isinstance(form.get("candidate_text"), str) else None
@@ -159,12 +170,142 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
             "run_id": res["run_record"].get("id"),
             "run_record": res["run_record"],
             "total_tokens": res["total_tokens"],
+            "duplicate_info": res.get("duplicate_info"),
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("ftl_qualify_endpoint_failed")
         raise HTTPException(status_code=500, detail=f"FTL qualify failed: {str(exc)}") from exc
+
+
+@router.post("/api/ftl/eml/check-duplicate")
+@router.post("/api/ftl/qualifier/check-duplicate")
+async def check_eml_duplicate(request: Request) -> dict[str, Any]:
+    """Check if an uploaded .eml file or content is a duplicate of previously processed RFQs."""
+    from app.ftl.laya_comparator import LayaContentComparator, parse_and_extract_eml
+
+    content_type = (request.headers.get("content-type") or "").lower()
+    file_b: Optional[bytes] = None
+    f_name: Optional[str] = None
+    f_path: Optional[str] = None
+    r_text: Optional[str] = None
+    m_override: Optional[str] = None
+
+    if "multipart/form-data" in content_type:
+        form = _form_fields(await request.form())
+        uploaded_file = form.get("file")
+        if hasattr(uploaded_file, "read"):
+            res = uploaded_file.read()
+            import inspect
+            if inspect.isawaitable(res):
+                file_b = await res
+            else:
+                file_b = res
+            f_name = getattr(uploaded_file, "filename", None) or f_name
+        elif isinstance(uploaded_file, (bytes, bytearray)):
+            file_b = bytes(uploaded_file)
+        f_name = (form.get("filename") if isinstance(form.get("filename"), str) else None) or f_name
+        f_path = form.get("filepath") if isinstance(form.get("filepath"), str) else None
+        r_text = form.get("raw_text") if isinstance(form.get("raw_text"), str) else None
+        m_override = form.get("model") if isinstance(form.get("model"), str) else None
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if isinstance(body, dict):
+            body = snake_keys(body)
+            f_name = body.get("filename")
+            f_path = body.get("filepath")
+            r_text = body.get("raw_text") or body.get("message")
+            m_override = body.get("model")
+            b64_bytes = body.get("file_bytes")
+            if b64_bytes and isinstance(b64_bytes, str):
+                import base64
+                try:
+                    file_b = base64.b64decode(b64_bytes)
+                except Exception:
+                    pass
+
+    if file_b is None and f_path and os.path.exists(f_path):
+        with open(f_path, "rb") as f:
+            file_b = f.read()
+
+    if file_b is None and r_text:
+        file_b = r_text.encode("utf-8", errors="replace")
+
+    if not file_b:
+        raise HTTPException(status_code=400, detail="No EML file or content provided for duplicate check.")
+
+    eml_data = parse_and_extract_eml(file_b, filename=f_name or "rfq.eml")
+    comparator = LayaContentComparator()
+    past_runs = qualifier_runs_store.load_runs()
+    overrides = _request_llm_overrides(request, m_override)
+
+    dup_result = comparator.find_duplicate_in_runs(
+        eml_data,
+        past_runs,
+        llm_overrides=overrides,
+    )
+
+    return {
+        "status": "success",
+        "duplicate_result": dup_result.to_dict(),
+        "is_duplicate": dup_result.is_duplicate,
+        "is_potential_duplicate": dup_result.is_potential_duplicate,
+        "match_type": dup_result.match_type,
+        "similarity_score": dup_result.similarity_score,
+        "reason": dup_result.reason,
+        "matched_run_id": dup_result.matched_run_id,
+        "matched_filename": dup_result.matched_filename,
+        "content_fingerprint": eml_data.get("content_fingerprint"),
+        "email_metadata": {
+            "from": eml_data.get("from"),
+            "to": eml_data.get("to"),
+            "cc": eml_data.get("cc"),
+            "subject": eml_data.get("subject"),
+            "raw_subject": eml_data.get("raw_subject"),
+            "date": eml_data.get("date"),
+            "attachments": [a.get("filename") for a in eml_data.get("attachments_meta", [])],
+        },
+    }
+
+
+@router.post("/api/ftl/eml/compare")
+async def compare_eml_pair(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Compare two EML texts or extracted representations using the Laya comparison model."""
+    from app.ftl.laya_comparator import LayaContentComparator, parse_and_extract_eml
+
+    payload = snake_keys(payload)
+    eml_1_raw = payload.get("eml_1") or payload.get("email_1")
+    eml_2_raw = payload.get("eml_2") or payload.get("email_2")
+
+    if not eml_1_raw or not eml_2_raw:
+        raise HTTPException(status_code=400, detail="Both eml_1 and eml_2 are required.")
+
+    def _to_eml_dict(val: Any) -> dict[str, Any]:
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            try:
+                import base64
+                b = base64.b64decode(val)
+            except Exception:
+                b = val.encode("utf-8", errors="replace")
+            return parse_and_extract_eml(b)
+        return {}
+
+    email_1 = _to_eml_dict(eml_1_raw)
+    email_2 = _to_eml_dict(eml_2_raw)
+
+    comparator = LayaContentComparator()
+    result = comparator.compare_emails_sync(email_1, email_2)
+
+    return {
+        "status": "success",
+        "comparison": result.to_dict(),
+    }
 
 
 @router.get("/api/ftl/qualifier/skill")
@@ -219,7 +360,7 @@ async def get_qualifier_run(run_id: str) -> dict[str, Any]:
 
 @router.post("/api/ftl/quote")
 async def ftl_quote(request: Request) -> dict[str, Any]:
-    agent: FtlQuoteEstimatorAgent = request.app.state.ftl_quote_estimator_agent
+    agent: FtlQuoteEstimatorAgent = getattr(request.app.state, "ftl_quote_estimator_agent", None) or FtlQuoteEstimatorAgent()
     content_type = (request.headers.get("content-type") or "").lower()
 
     file_b: Optional[bytes] = None

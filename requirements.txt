@@ -52,3 +52,7 @@ PyYAML==6.0.2
 # format; see app/control/metrics.py.
 prometheus-client==0.21.0
 
+# Laya Multilingual System 1 decision model for EML duplicate detection
+laya>=0.4.1
+
+
