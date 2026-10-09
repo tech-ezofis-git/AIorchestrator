@@ -32,6 +32,7 @@ PUBLIC_KEY_NAMES = {
     "line_items": "Line Item",
     "product_code": "Product",
     "unit_price": "Price",
+    "duplicate_info": "Duplicate Info",
 }
 
 
