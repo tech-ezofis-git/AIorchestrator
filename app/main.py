@@ -444,6 +444,26 @@ async def lifespan(app: FastAPI):
                 ),
             },
         )
+    # --- DEPLOYMENT VERIFICATION LOG (visible on console at startup) ------
+    # After deploying, grep logs for 'classification_credentials_startup' to
+    # confirm the new EZOFIS_LOGIN_EMAIL variable is being picked up correctly.
+    _ff_email = (settings.file_fetcher_login_email or "").strip()
+    _ez_email = (settings.ezofis_login_email or "").strip()
+    _active_email = _ez_email or _ff_email or "(none — File Fetcher will require per-request login_email)"
+    _cred_source = (
+        "EZOFIS_LOGIN_EMAIL" if _ez_email
+        else ("FILE_FETCHER_LOGIN_EMAIL" if _ff_email else "unset")
+    )
+    logger.info(
+        "classification_credentials_startup",
+        extra={
+            "active_login_email": _active_email,
+            "credential_source": _cred_source,
+            "ezofis_live_mode": ezofis_client._live_enabled(),
+            "note": "Confirm this log on deployment to verify EZOFIS_LOGIN_EMAIL is active.",
+        },
+    )
+    # ----------------------------------------------------------------------
     context_manager = ContextManager(redis_client, settings.session_ttl_seconds, ezofis_client)
     intent_router = IntentRouter()
     try:
