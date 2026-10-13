@@ -2604,6 +2604,9 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         }
     elif intent == Intent.FTL_QUALIFIER:
         p = payload.payload
+        action = (getattr(p, "action", None) if p else None) or (
+            message.strip() if message and message.strip().lower() in {"clear_runs", "clear-runs", "clear runs", "list_runs", "list-runs", "list runs", "get_runs", "runs"} else None
+        )
         document_job = {
             "file_bytes": parsed.file_bytes,
             "filename": parsed.filename,
@@ -2613,6 +2616,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "model": p.model if p else None,
             "tenant_id": (p.tenant_id if p else None) or request.headers.get("x-tenant-id") or request.headers.get("X-Tenant-Id"),
             "ap_agent_job_id": (getattr(p, "ap_agent_job_id", None) if p else None) or request.headers.get("x-job-id") or request.headers.get("X-Job-Id"),
+            "action": action,
         }
     elif intent == Intent.FTL_QUOTE_ESTIMATOR:
         p = payload.payload

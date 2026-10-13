@@ -213,3 +213,13 @@ def get_run(run_id: Any) -> Optional[Dict[str, Any]]:
             if str(r.get("id")) == target:
                 return r
         return None
+
+
+def clear_runs() -> int:
+    """Clear all runs from runs.json and return count of cleared records."""
+    with _lock:
+        runs = load_runs()
+        count = len(runs)
+        _save_runs([])
+        return count
+
