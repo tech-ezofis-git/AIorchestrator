@@ -383,6 +383,19 @@ async def get_qualifier_run(run_id: str) -> dict[str, Any]:
     return run
 
 
+@router.delete("/api/ftl/qualifier/runs")
+@router.post("/api/ftl/qualifier/runs/clear")
+async def clear_qualifier_runs() -> dict[str, Any]:
+    """Clear all runs history in deployment or local storage."""
+    cleared = qualifier_runs_store.clear_runs()
+    return {
+        "status": "success",
+        "message": f"Successfully cleared {cleared} runs.",
+        "cleared_count": cleared,
+    }
+
+
+
 @router.post("/api/ftl/quote")
 async def ftl_quote(request: Request) -> dict[str, Any]:
     agent: FtlQuoteEstimatorAgent = getattr(request.app.state, "ftl_quote_estimator_agent", None) or FtlQuoteEstimatorAgent()

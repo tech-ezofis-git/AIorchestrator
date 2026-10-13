@@ -389,10 +389,13 @@ def test_chat_post_ftl_qualifier_multipart_duplicate(client, monkeypatch, tmp_pa
     assert "Duplicate RFQ Detected" in body_2["reply"]
     dup_info = body_2["qualifier_result"].get("Duplicate Info")
     assert dup_info is not None
-    assert dup_info["Is Duplicate"] is True
-    assert dup_info["Matched Run Id"] == 1
-    assert dup_info["Match Type"] in ("exact_hash", "Exact Hash")
-    assert dup_info["Similarity Score"] == 1.0
+    # Verify camelCase keys
+    assert dup_info["isDuplicate"] is True
+    assert dup_info["matchedRunId"] == 1
+    assert dup_info["matchType"] in ("exact_hash", "Exact Hash")
+    assert dup_info["similarityScore"] == 1.0
+    # Verify no repeated duplicateInfo key in qualifier_result
+    assert "duplicateInfo" not in body_2["qualifier_result"]
 
 
 def test_recent_runs_prioritized_in_duplicate_search(tmp_path, monkeypatch):
@@ -495,5 +498,35 @@ def test_api_check_duplicate_with_filepath(client, monkeypatch, tmp_path):
     assert data["is_duplicate"] is True
     assert data["match_type"] == "exact_hash"
     assert data["matched_run_id"] == 1
+
+
+def test_clear_qualifier_runs_endpoint(client, monkeypatch, tmp_path):
+    """Verify DELETE /api/ftl/qualifier/runs clears the runs store."""
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.RUNS_PATH", str(tmp_path / "runs.json"))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.UPLOADS_DIR", str(tmp_path / "uploads"))
+
+    # Populate two runs
+    runs_store.append_run(
+        input_filename="rfq1.eml",
+        input_type="eml",
+        candidate_text="Scope 1",
+        decision={"qualify": "qualify"},
+    )
+    runs_store.append_run(
+        input_filename="rfq2.eml",
+        input_type="eml",
+        candidate_text="Scope 2",
+        decision={"qualify": "disqualify"},
+    )
+    assert len(runs_store.load_runs()) == 2
+
+    # Clear via DELETE
+    res = client.delete("/api/ftl/qualifier/runs")
+    assert res.status_code == 200
+    assert res.json()["status"] == "success"
+    assert res.json()["cleared_count"] == 2
+    assert len(runs_store.load_runs()) == 0
+
 
 
