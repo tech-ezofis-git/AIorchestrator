@@ -2607,7 +2607,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         document_job = {
             "file_bytes": parsed.file_bytes,
             "filename": parsed.filename,
-            "filepath": p.filepath if p else None,
+            "filepath": (p.filepath if p else None) or getattr(p, "blob_path", None) or getattr(p, "blobPath", None),
             "candidate_text": p.candidate_text if p else None,
             "raw_text": p.ocr_text if p else None,
             "model": p.model if p else None,
@@ -2619,7 +2619,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         document_job = {
             "file_bytes": parsed.file_bytes,
             "filename": parsed.filename,
-            "filepath": p.filepath if p else None,
+            "filepath": (p.filepath if p else None) or getattr(p, "blob_path", None) or getattr(p, "blobPath", None),
             "candidate_text": p.candidate_text if p else None,
             "raw_text": p.ocr_text if p else None,
             "qualifier_result": p.qualifier_result if p else None,

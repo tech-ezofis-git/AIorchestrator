@@ -17,13 +17,16 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("orchestrator.ftl.qualifier.runs_store")
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-RUNS_PATH = os.path.join(DATA_DIR, "runs.json")
-UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
+DATA_DIR = os.environ.get("FTL_DATA_DIR") or os.path.join(os.path.dirname(__file__), "data")
+RUNS_PATH = os.environ.get("FTL_RUNS_PATH") or os.path.join(DATA_DIR, "runs.json")
+UPLOADS_DIR = os.environ.get("FTL_UPLOADS_DIR") or os.path.join(DATA_DIR, "uploads")
 
 # Ensure directory structure exists in any deployment environment
-os.makedirs(DATA_DIR, exist_ok=True)
-os.makedirs(UPLOADS_DIR, exist_ok=True)
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    os.makedirs(UPLOADS_DIR, exist_ok=True)
+except Exception as e:
+    logger.warning(f"Could not create data/uploads directory at {DATA_DIR}: {e}")
 
 _lock = threading.RLock()
 
@@ -50,13 +53,20 @@ def _save_runs(runs: List[Dict[str, Any]]) -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     with _lock:
         temp_fd, temp_path = tempfile.mkstemp(dir=DATA_DIR, prefix="runs_", suffix=".tmp")
+        fd_opened = False
         try:
-            with open(temp_fd, "w", encoding="utf-8") as f:
+            with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+                fd_opened = True
                 json.dump(runs, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(temp_path, RUNS_PATH)
         except Exception as e:
+            if not fd_opened:
+                try:
+                    os.close(temp_fd)
+                except Exception:
+                    pass
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
@@ -82,7 +92,8 @@ def find_run_by_fingerprint(fingerprint: str) -> Optional[Dict[str, Any]]:
         return None
     with _lock:
         for r in reversed(load_runs()):
-            if r.get("content_fingerprint") == fingerprint:
+            fp = r.get("content_fingerprint") or (r.get("email_metadata") or {}).get("content_fingerprint")
+            if fp and fp == fingerprint:
                 return r
     return None
 
@@ -96,6 +107,7 @@ def list_eml_records() -> List[Dict[str, Any]]:
             if r.get("input_type") == "eml"
             or (r.get("input_filename") or "").lower().endswith(".eml")
             or r.get("content_fingerprint")
+            or (r.get("email_metadata") or {}).get("content_fingerprint")
         ]
 
 

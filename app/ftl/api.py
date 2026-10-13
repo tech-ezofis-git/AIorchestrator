@@ -122,7 +122,12 @@ async def ftl_qualify(request: Request) -> dict[str, Any]:
         if isinstance(body, dict):
             body = snake_keys(body)
             f_name = body.get("filename")
-            f_path = body.get("filepath")
+            f_path = (
+                body.get("filepath")
+                or body.get("blob_path")
+                or body.get("blobpath")
+                or body.get("blobPath")
+            )
             cand_text = body.get("candidate_text")
             r_text = body.get("raw_text") or body.get("message")
             m_override = body.get("model")
@@ -206,7 +211,12 @@ async def check_eml_duplicate(request: Request) -> dict[str, Any]:
         elif isinstance(uploaded_file, (bytes, bytearray)):
             file_b = bytes(uploaded_file)
         f_name = (form.get("filename") if isinstance(form.get("filename"), str) else None) or f_name
-        f_path = form.get("filepath") if isinstance(form.get("filepath"), str) else None
+        f_path = (
+            form.get("filepath")
+            or form.get("blob_path")
+            or form.get("blobpath")
+            or form.get("blobPath")
+        ) if isinstance(form.get("filepath") or form.get("blob_path") or form.get("blobpath") or form.get("blobPath"), str) else None
         r_text = form.get("raw_text") if isinstance(form.get("raw_text"), str) else None
         m_override = form.get("model") if isinstance(form.get("model"), str) else None
     else:
@@ -217,7 +227,12 @@ async def check_eml_duplicate(request: Request) -> dict[str, Any]:
         if isinstance(body, dict):
             body = snake_keys(body)
             f_name = body.get("filename")
-            f_path = body.get("filepath")
+            f_path = (
+                body.get("filepath")
+                or body.get("blob_path")
+                or body.get("blobpath")
+                or body.get("blobPath")
+            )
             r_text = body.get("raw_text") or body.get("message")
             m_override = body.get("model")
             b64_bytes = body.get("file_bytes")
@@ -228,9 +243,19 @@ async def check_eml_duplicate(request: Request) -> dict[str, Any]:
                 except Exception:
                     pass
 
-    if file_b is None and f_path and os.path.exists(f_path):
-        with open(f_path, "rb") as f:
-            file_b = f.read()
+    if file_b is None and f_path:
+        if os.path.exists(f_path):
+            try:
+                with open(f_path, "rb") as f:
+                    file_b = f.read()
+            except Exception:
+                pass
+        if file_b is None:
+            from app.agents.ftl_qualifier_agent import FtlQualifierAgent
+            agent = FtlQualifierAgent()
+            file_b, resolved_name = await agent._resolve_input_file(None, f_path, f_name, None)
+            if not f_name and resolved_name:
+                f_name = resolved_name
 
     if file_b is None and r_text:
         file_b = r_text.encode("utf-8", errors="replace")

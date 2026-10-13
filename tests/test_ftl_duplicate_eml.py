@@ -393,3 +393,107 @@ def test_chat_post_ftl_qualifier_multipart_duplicate(client, monkeypatch, tmp_pa
     assert dup_info["Matched Run Id"] == 1
     assert dup_info["Match Type"] in ("exact_hash", "Exact Hash")
     assert dup_info["Similarity Score"] == 1.0
+
+
+def test_recent_runs_prioritized_in_duplicate_search(tmp_path, monkeypatch):
+    """Ensure that when >15 runs exist, the most recent run is checked and matched."""
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.RUNS_PATH", str(tmp_path / "runs.json"))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.UPLOADS_DIR", str(tmp_path / "uploads"))
+
+    # Seed 20 dummy old runs
+    for i in range(1, 21):
+        runs_store.append_run(
+            input_filename=f"dummy_{i}.txt",
+            input_type="text",
+            candidate_text=f"Dummy scope content for historical project #{i}",
+            decision={"qualify": "disqualify", "project_name": f"Project #{i}"},
+            total_tokens=100,
+        )
+
+    # Now add Run 21 with specific EML content
+    parsed_target = parse_and_extract_eml(SAMPLE_EML_A, filename="target.eml")
+    runs_store.append_run(
+        input_filename="target.eml",
+        input_type="eml",
+        candidate_text="Bloor Street Modernization Tender",
+        decision={"qualify": "qualify", "project_name": "Bloor St Modernization"},
+        total_tokens=500,
+        content_fingerprint=parsed_target["content_fingerprint"],
+        normalized_content=parsed_target["normalized_body"],
+        email_metadata=parsed_target,
+    )
+
+    comparator = LayaContentComparator()
+    # Check new submission matches Run 21 (which is at the end of the runs list)
+    parsed_new = parse_and_extract_eml(SAMPLE_EML_A_FORMATTED, filename="incoming_dup.eml")
+    dup_res = comparator.find_duplicate_in_runs(parsed_new, runs_store.load_runs())
+
+    assert dup_res.is_duplicate is True
+    assert dup_res.matched_run_id == 21
+
+
+@pytest.mark.asyncio
+async def test_eml_sniffing_without_eml_extension(tmp_path, monkeypatch):
+    """Verify that EML bytes uploaded under generic filename (e.g. upload.bin) are properly detected as EML."""
+    from app.agents.ftl_qualifier_agent import FtlQualifierAgent
+
+    agent = FtlQualifierAgent()
+    rendered, email_meta, ext = await agent._build_candidate_from_bytes(SAMPLE_EML_A, "upload.bin")
+
+    assert ext == "eml"
+    assert email_meta.get("content_fingerprint") is not None
+    assert "bloor" in (email_meta.get("subject") or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_resolve_remote_blob_mock(monkeypatch):
+    """Verify _resolve_input_file falls back to remote blob download when file is not on local disk."""
+    from app.agents.ftl_qualifier_agent import FtlQualifierAgent
+
+    agent = FtlQualifierAgent()
+
+    async def fake_parse_and_download(filepath, *, allowed_host_suffixes, tenant_id=None, container_prefix=None):
+        return SAMPLE_EML_A, "downloaded_spec.eml"
+
+    monkeypatch.setattr(agent, "_resolve_input_file", fake_parse_and_download)
+    data, name = await agent._resolve_input_file("uploads/remote_spec.eml", allowed_host_suffixes=[])
+
+    assert data == SAMPLE_EML_A
+    assert name == "downloaded_spec.eml"
+
+
+def test_api_check_duplicate_with_filepath(client, monkeypatch, tmp_path):
+    """Verify /api/ftl/eml/check-duplicate accepts filepath in JSON body."""
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.RUNS_PATH", str(tmp_path / "runs.json"))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.UPLOADS_DIR", str(tmp_path / "uploads"))
+
+    # Populate a past run
+    parsed = parse_and_extract_eml(SAMPLE_EML_A, filename="original.eml")
+    runs_store.append_run(
+        input_filename="original.eml",
+        input_type="eml",
+        candidate_text="Original text",
+        decision={"qualify": "qualify"},
+        content_fingerprint=parsed["content_fingerprint"],
+        normalized_content=parsed["normalized_body"],
+        email_metadata=parsed,
+    )
+
+    # Write a test eml file to disk
+    test_eml_file = tmp_path / "incoming.eml"
+    test_eml_file.write_bytes(SAMPLE_EML_A_FORMATTED)
+
+    res = client.post(
+        "/api/ftl/eml/check-duplicate",
+        json={"filepath": str(test_eml_file)},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["is_duplicate"] is True
+    assert data["match_type"] == "exact_hash"
+    assert data["matched_run_id"] == 1
+
+
