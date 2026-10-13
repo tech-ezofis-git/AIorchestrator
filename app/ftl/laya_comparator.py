@@ -359,14 +359,39 @@ def get_laya_agent() -> Any:
             return _laya_agent
         if _laya_agent_init_failed:
             return None
+        import os
+        if os.environ.get("DISABLE_NATIVE_LAYA", "").lower() in ("1", "true", "yes"):
+            logger.info("Native Laya agent disabled via DISABLE_NATIVE_LAYA environment variable.")
+            _laya_agent_init_failed = True
+            return None
         try:
             import laya
-            logger.info("Initializing native Laya multilingual System 1 decision agent...")
-            _laya_agent = laya.load("ml")
+            import os
+            # Check local candidate directories first to avoid remote HuggingFace downloads in deployment
+            candidate_paths = [
+                os.environ.get("LAYA_MODEL_PATH"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models-laya"),
+                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models-laya", "snapshots", "7b928d828b7b0e022f929d9bd2e44165aa270148"),
+            ]
+            loaded = None
+            for p in candidate_paths:
+                if p and os.path.isdir(p) and os.path.exists(os.path.join(p, "rl_agent_config.json")):
+                    try:
+                        logger.info(f"Loading native Laya agent from local checkpoint: {p}")
+                        loaded = laya.load(p)
+                        break
+                    except Exception as exc:
+                        logger.warning(f"Could not load local checkpoint from {p}: {exc}")
+
+            if loaded is None:
+                logger.info("Initializing native Laya multilingual System 1 decision agent...")
+                loaded = laya.load("ml")
+
+            _laya_agent = loaded
             logger.info("Native Laya agent loaded successfully.")
             return _laya_agent
         except Exception as exc:
-            logger.warning(f"Could not load native Laya agent ({exc}); will use fallback comparator.", exc_info=True)
+            logger.warning(f"Could not load native Laya agent ({exc}); will use fallback comparator.")
             _laya_agent_init_failed = True
             return None
 
@@ -596,10 +621,10 @@ class LayaContentComparator:
         """Scan past runs for exact hash duplicates first, then evaluate semantic similarity."""
         new_fp = new_email.get("content_fingerprint")
 
-        # 1. Exact hash search across all runs
+        # 1. Exact hash search across all runs (newest first)
         if new_fp:
-            for run in runs:
-                run_fp = run.get("content_fingerprint")
+            for run in reversed(runs):
+                run_fp = run.get("content_fingerprint") or (run.get("email_metadata") or {}).get("content_fingerprint")
                 if run_fp and run_fp == new_fp:
                     return DuplicateCheckResult(
                         is_duplicate=True,
@@ -613,10 +638,10 @@ class LayaContentComparator:
                         fingerprint=new_fp,
                     )
 
-        # 2. Semantic comparison against candidate runs
+        # 2. Semantic comparison against candidate runs (newest first)
         # Filter candidate runs that have email metadata or candidate text
         candidates: List[Dict[str, Any]] = []
-        for run in runs:
+        for run in reversed(runs):
             # Skip runs that failed or have no content
             cand_body = run.get("normalized_content") or run.get("candidate_text") or ""
             if not cand_body:
@@ -629,7 +654,7 @@ class LayaContentComparator:
                 "from": (run.get("email_metadata") or {}).get("from", ""),
                 "subject": (run.get("email_metadata") or {}).get("subject", ""),
                 "normalized_body": run.get("normalized_content") or run.get("candidate_text", "")[:4000],
-                "content_fingerprint": run.get("content_fingerprint"),
+                "content_fingerprint": run.get("content_fingerprint") or (run.get("email_metadata") or {}).get("content_fingerprint"),
             }
             res = self.compare_emails_sync(new_email, cand_email_repr, llm_overrides=llm_overrides)
             if res.is_duplicate or res.is_potential_duplicate:
