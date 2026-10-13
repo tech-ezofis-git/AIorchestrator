@@ -350,6 +350,11 @@ class DocumentPayload(BaseModel):
         validation_alias=AliasChoices("candidate_text", "candidateText", "Candidate Text", "rfq_text", "spec_text"),
         description="Pre-extracted candidate text for FTL qualifier / quote estimator.",
     )
+    action: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("action", "Action"),
+        description="Action command for agents (e.g. 'clear_runs' or 'list_runs' on intent=ftl_qualifier).",
+    )
     qualifier_result: Optional[dict[str, Any]] = Field(
         default=None,
         validation_alias=AliasChoices("qualifier_result", "qualifierResult", "Qualifier Result"),

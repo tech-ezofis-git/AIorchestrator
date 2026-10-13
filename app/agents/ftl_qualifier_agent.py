@@ -430,6 +430,41 @@ class FtlQualifierAgent:
     ) -> Dict[str, Any]:
         """Entry point for /chat and AgentRouter."""
         job = document_job or {}
+        raw_action = (str(job.get("action") or "").strip().lower()) or (
+            str(message or "").strip().lower() if message and str(message).strip().lower() in {"clear_runs", "clear-runs", "clear runs", "clear_run", "clearruns", "list_runs", "list-runs", "list runs", "get_runs", "runs"} else ""
+        )
+
+        if raw_action in {"clear_runs", "clear-runs", "clear runs", "clear_run", "clearruns"}:
+            from app.ftl.qualifier import runs_store
+
+            cleared_count = runs_store.clear_runs()
+            logger.info("Cleared %d FTL runs via /chat command", cleared_count)
+            return {
+                "reply": f"### ✅ FTL Runs Cleared\n\nSuccessfully cleared **{cleared_count}** run(s) from history.",
+                "usage": None,
+                "qualifier_result": {
+                    "action": "clear_runs",
+                    "status": "success",
+                    "cleared_count": cleared_count,
+                    "message": f"Successfully cleared {cleared_count} run(s).",
+                },
+            }
+
+        if raw_action in {"list_runs", "list-runs", "list runs", "get_runs", "runs"}:
+            from app.ftl.qualifier import runs_store
+
+            runs = runs_store.list_runs()
+            return {
+                "reply": f"### 📋 FTL Runs\n\nTotal runs: **{len(runs)}**",
+                "usage": None,
+                "qualifier_result": {
+                    "action": "list_runs",
+                    "status": "success",
+                    "total_runs": len(runs),
+                    "runs": runs,
+                },
+            }
+
         file_bytes = job.get("file_bytes")
         filename = job.get("filename")
         filepath = job.get("filepath")

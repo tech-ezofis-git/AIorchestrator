@@ -529,4 +529,63 @@ def test_clear_qualifier_runs_endpoint(client, monkeypatch, tmp_path):
     assert len(runs_store.load_runs()) == 0
 
 
+def test_chat_clear_runs_action(client, monkeypatch, tmp_path):
+    """Verify POST /chat with intent=ftl_qualifier and action=clear_runs clears runs history."""
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.RUNS_PATH", str(tmp_path / "runs.json"))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.UPLOADS_DIR", str(tmp_path / "uploads"))
+
+    runs_store.append_run(
+        input_filename="rfq1.eml",
+        input_type="eml",
+        candidate_text="Scope 1",
+        decision={"qualify": "qualify"},
+    )
+    assert len(runs_store.load_runs()) == 1
+
+    payload = {
+        "session_id": "test-clear-runs-1",
+        "intent": "ftl_qualifier",
+        "payload": {
+            "action": "clear_runs",
+        },
+    }
+    res = client.post("/chat", json=payload)
+    assert res.status_code == 200
+    body = res.json()
+    assert "FTL Runs Cleared" in body["reply"]
+    assert body["qualifier_result"]["action"] == "clear_runs"
+    assert body["qualifier_result"]["cleared_count"] == 1
+    assert len(runs_store.load_runs()) == 0
+
+
+def test_chat_list_runs_action(client, monkeypatch, tmp_path):
+    """Verify POST /chat with intent=ftl_qualifier and action=list_runs returns runs history."""
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.RUNS_PATH", str(tmp_path / "runs.json"))
+    monkeypatch.setattr("app.ftl.qualifier.runs_store.UPLOADS_DIR", str(tmp_path / "uploads"))
+
+    runs_store.append_run(
+        input_filename="rfq1.eml",
+        input_type="eml",
+        candidate_text="Scope 1",
+        decision={"qualify": "qualify"},
+    )
+
+    payload = {
+        "session_id": "test-list-runs-1",
+        "intent": "ftl_qualifier",
+        "payload": {
+            "action": "list_runs",
+        },
+    }
+    res = client.post("/chat", json=payload)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["qualifier_result"]["action"] == "list_runs"
+    assert body["qualifier_result"]["total_runs"] == 1
+    assert len(body["qualifier_result"]["runs"]) == 1
+
+
+
 
