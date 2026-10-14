@@ -26,7 +26,3 @@ app/ftl/quote_estimator/data/quotes.json
 
 # Nested NewAIorchestrator copy — not part of this repo
 NewAIorchestrator/
-
-# Local model weights / cache
-models-laya/
-model-laya/

@@ -32,7 +32,6 @@ PUBLIC_KEY_NAMES = {
     "line_items": "Line Item",
     "product_code": "Product",
     "unit_price": "Price",
-    "duplicate_info": "Duplicate Info",
 }
 
 
@@ -88,38 +87,12 @@ def snake_keys(value: Any) -> Any:
     return value
 
 
-def camel_key(key: Any) -> str:
-    """Convert snake_case, Title Case, or space-separated key to camelCase."""
-    text = str(key).strip()
-    if not text:
-        return ""
-    s = snake_key(text)
-    parts = [p for p in s.split("_") if p]
-    if not parts:
-        return ""
-    return parts[0].lower() + "".join(w.capitalize() for w in parts[1:])
-
-
-def camel_keys(value: Any) -> Any:
-    """Recursively convert dictionary keys to camelCase."""
-    if isinstance(value, dict):
-        return {camel_key(k): camel_keys(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [camel_keys(v) for v in value]
-    return value
-
-
 def title_keys(value: Any) -> Any:
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
-            ik = internal_key(k)
-            if ik == "duplicate_info":
-                out[title_key(k)] = camel_keys(v) if isinstance(v, (dict, list)) else v
-                continue
-            out[title_key(k)] = title_value(v) if ik in CODE_VALUE_KEYS else title_keys(v)
+            out[title_key(k)] = title_value(v) if internal_key(k) in CODE_VALUE_KEYS else title_keys(v)
         return out
     if isinstance(value, list):
         return [title_keys(v) for v in value]
     return value
-
