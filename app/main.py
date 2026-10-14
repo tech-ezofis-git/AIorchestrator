@@ -2604,26 +2604,22 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         }
     elif intent == Intent.FTL_QUALIFIER:
         p = payload.payload
-        action = (getattr(p, "action", None) if p else None) or (
-            message.strip() if message and message.strip().lower() in {"clear_runs", "clear-runs", "clear runs", "list_runs", "list-runs", "list runs", "get_runs", "runs"} else None
-        )
         document_job = {
             "file_bytes": parsed.file_bytes,
             "filename": parsed.filename,
-            "filepath": (p.filepath if p else None) or getattr(p, "blob_path", None) or getattr(p, "blobPath", None),
+            "filepath": p.filepath if p else None,
             "candidate_text": p.candidate_text if p else None,
             "raw_text": p.ocr_text if p else None,
             "model": p.model if p else None,
             "tenant_id": (p.tenant_id if p else None) or request.headers.get("x-tenant-id") or request.headers.get("X-Tenant-Id"),
             "ap_agent_job_id": (getattr(p, "ap_agent_job_id", None) if p else None) or request.headers.get("x-job-id") or request.headers.get("X-Job-Id"),
-            "action": action,
         }
     elif intent == Intent.FTL_QUOTE_ESTIMATOR:
         p = payload.payload
         document_job = {
             "file_bytes": parsed.file_bytes,
             "filename": parsed.filename,
-            "filepath": (p.filepath if p else None) or getattr(p, "blob_path", None) or getattr(p, "blobPath", None),
+            "filepath": p.filepath if p else None,
             "candidate_text": p.candidate_text if p else None,
             "raw_text": p.ocr_text if p else None,
             "qualifier_result": p.qualifier_result if p else None,

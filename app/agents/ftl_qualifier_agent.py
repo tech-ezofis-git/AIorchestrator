@@ -48,20 +48,8 @@ def format_decision_markdown(run: Dict[str, Any]) -> str:
 
     lines = [
         f"### {emoji} {decision.replace('_', ' ').upper()}",
+        f"**Project type:** {run.get('project_type') or result.get('project_type') or 'unknown'}{conf_str}",
     ]
-
-    dup_info = run.get("duplicate_info")
-    if dup_info and dup_info.get("is_duplicate"):
-        matched_id = dup_info.get("matched_run_id")
-        reason_txt = dup_info.get("reason", "Identical email content match.")
-        lines.append(f"> ⚡ **Duplicate RFQ Detected** (Matches Run #{matched_id}): {reason_txt}")
-    elif dup_info and dup_info.get("is_potential_duplicate"):
-        matched_id = dup_info.get("matched_run_id")
-        sim_pct = int(dup_info.get("similarity_score", 0) * 100)
-        reason_txt = dup_info.get("reason", "")
-        lines.append(f"> 🟡 **Possible Duplicate / Revision ({sim_pct}% match with Run #{matched_id})**: {reason_txt}")
-
-    lines.append(f"**Project type:** {run.get('project_type') or result.get('project_type') or 'unknown'}{conf_str}")
     project_name = run.get("project_name") or result.get("project_name")
     if project_name:
         lines.append(f"**Project:** {project_name}")
@@ -123,97 +111,15 @@ class FtlQualifierAgent:
             return await ocr_image_file(content, filename)
         return ""
 
-    async def _resolve_input_file(
-        self,
-        file_bytes: Optional[bytes],
-        filepath: Optional[str],
-        filename: Optional[str],
-        tenant_id: Optional[str],
-    ) -> Tuple[Optional[bytes], str]:
-        """Resolve file bytes and filename from raw bytes, local path, or remote Azure Blob."""
-        if file_bytes is not None:
-            return file_bytes, filename or "upload.bin"
-        if not filepath:
-            return None, filename or "manual_input"
-
-        # 1. Local filesystem path check
-        if os.path.exists(filepath):
-            try:
-                with open(filepath, "rb") as f:
-                    return f.read(), filename or os.path.basename(filepath)
-            except Exception as e:
-                logger.warning(f"Error reading local file {filepath}: {e}")
-
-        # 2. Azure Blob / HTTP download fallback for deployment
-        try:
-            from app.config import get_settings
-            from app.agents.ocr_helpers import parse_blob_filepath, filename_from_blob_name
-            settings = get_settings()
-            conn = (settings.azure_storage_connection_string or "").strip()
-            suffixes = [s.strip() for s in (settings.ocr_allowed_host_suffixes or "").split(",") if s.strip()] or [".blob.core.windows.net"]
-            blob_ref = parse_blob_filepath(
-                filepath,
-                allowed_host_suffixes=suffixes,
-                tenant_id=tenant_id,
-                container_prefix=settings.azure_blob_container_prefix,
-            )
-            if conn:
-                from azure.storage.blob.aio import BlobServiceClient
-                service = BlobServiceClient.from_connection_string(conn)
-                async with service:
-                    blob_client = service.get_blob_client(blob_ref.container, blob_ref.blob_name)
-                    stream = await blob_client.download_blob()
-                    data = await stream.readall()
-                    name = filename or filename_from_blob_name(blob_ref.blob_name)
-                    return data, name
-            elif blob_ref.account_url_host:
-                import httpx
-                url = f"https://{blob_ref.account_url_host}/{blob_ref.container}/{blob_ref.blob_name}"
-                if blob_ref.query:
-                    url = f"{url}?{blob_ref.query}"
-                async with httpx.AsyncClient(timeout=settings.ocr_download_timeout_seconds, follow_redirects=True) as client:
-                    resp = await client.get(url)
-                    resp.raise_for_status()
-                    name = filename or filename_from_blob_name(blob_ref.blob_name)
-                    return resp.content, name
-        except Exception as exc:
-            logger.warning(f"Could not download file from blob storage '{filepath}': {exc}")
-
-        return None, filename or os.path.basename(filepath)
-
     async def _build_candidate_from_bytes(
         self, file_bytes: bytes, filename: str
     ) -> Tuple[str, Dict[str, Any], str]:
-        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        if ext not in ("eml", "pdf", "docx") and file_bytes:
-            preview = file_bytes[:1024].lower()
-            if any(preview.startswith(p) for p in (b"from:", b"received:", b"mime-version:", b"return-path:")) or (
-                b"subject:" in preview and (b"from:" in preview or b"to:" in preview)
-            ):
-                ext = "eml"
-        if not ext:
-            ext = "pdf"
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "pdf"
         email_meta: Dict[str, Any] = {}
-
         if ext == "eml":
-            from app.ftl.laya_comparator import parse_and_extract_eml
-
-            eml_data = parse_and_extract_eml(file_bytes, filename=filename)
-            email_meta = {
-                "from": eml_data.get("from"),
-                "to": eml_data.get("to"),
-                "cc": eml_data.get("cc"),
-                "subject": eml_data.get("subject"),
-                "raw_subject": eml_data.get("raw_subject"),
-                "date": eml_data.get("date"),
-                "message_id": eml_data.get("message_id"),
-                "body_text": eml_data.get("body_text"),
-                "attachments_meta": eml_data.get("attachments_meta"),
-                "content_fingerprint": eml_data.get("content_fingerprint"),
-                "normalized_body": eml_data.get("normalized_body"),
-            }
-
-            attachments = eml_data.get("attachments") or []
+            parsed = extract.parse_eml_bytes(file_bytes)
+            email_meta = {k: v for k, v in parsed.items() if k != "attachments"}
+            attachments = parsed.get("attachments") or []
             spec_attachment = prefer_spec_attachment(attachments)
             if spec_attachment:
                 full_text = await self._text_from_attachment(
@@ -221,7 +127,7 @@ class FtlQualifierAgent:
                     spec_attachment["bytes"],
                 )
             else:
-                full_text = eml_data.get("body_text", "")
+                full_text = parsed.get("body_text", "")
         elif ext == "pdf":
             full_text = await extract_pdf_text_hybrid(file_bytes)
         elif ext == "docx":
@@ -257,27 +163,19 @@ class FtlQualifierAgent:
             tenant_id=tenant_id,
         )
 
-        resolved_bytes, input_filename = await self._resolve_input_file(
-            file_bytes=file_bytes,
-            filepath=filepath,
-            filename=filename,
-            tenant_id=tenant_id,
-        )
-
+        input_filename = filename or (os.path.basename(filepath) if filepath else "manual_input")
         input_type = "text"
-        email_meta: Dict[str, Any] = {}
-        content_fingerprint: Optional[str] = None
-        normalized_content: Optional[str] = None
-        duplicate_info: Optional[Dict[str, Any]] = None
 
         try:
             # --- 20%: Reading the RFQ ---
             await progress.update("PROCESSING", "Reading the RFQ", 20)
 
-            if resolved_bytes is not None:
-                rendered, email_meta, input_type = await self._build_candidate_from_bytes(resolved_bytes, input_filename)
-                content_fingerprint = email_meta.get("content_fingerprint")
-                normalized_content = email_meta.get("normalized_body")
+            if file_bytes is not None:
+                rendered, _, input_type = await self._build_candidate_from_bytes(file_bytes, input_filename)
+            elif filepath is not None and os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    fb = f.read()
+                rendered, _, input_type = await self._build_candidate_from_bytes(fb, input_filename)
             elif candidate_text:
                 rendered = candidate_text
             elif raw_text:
@@ -285,54 +183,6 @@ class FtlQualifierAgent:
                 rendered = extract.render_candidate_text_for_model(candidate)
             else:
                 raise ValueError("No RFQ content provided (must provide file_bytes, filepath, or text).")
-
-            # --- Duplicate Detection Check (Content-Based) ---
-            if input_type == "eml" or content_fingerprint:
-                from app.ftl.laya_comparator import LayaContentComparator, parse_and_extract_eml
-
-                # If we have file bytes or candidate info, check against existing runs
-                eml_repr = {
-                    "from": email_meta.get("from", ""),
-                    "to": email_meta.get("to", []),
-                    "subject": email_meta.get("subject", ""),
-                    "normalized_body": normalized_content or rendered,
-                    "content_fingerprint": content_fingerprint,
-                    "attachments_meta": email_meta.get("attachments_meta", []),
-                }
-
-                past_runs = runs_store.load_runs()
-                comparator = LayaContentComparator()
-                dup_result = comparator.find_duplicate_in_runs(
-                    eml_repr,
-                    past_runs,
-                    llm_overrides=_request_llm_overrides if False else llm_overrides,
-                )
-                duplicate_info = dup_result.to_dict()
-
-                # If DUPLICATE detected: prevent repeated qualification and return existing result
-                if dup_result.is_duplicate and dup_result.matched_run_id:
-                    matched_run = runs_store.get_run(dup_result.matched_run_id)
-                    if matched_run and matched_run.get("result"):
-                        logger.info(
-                            "Duplicate EML detected (%s) matching Run #%s (fingerprint=%s)",
-                            dup_result.match_type,
-                            dup_result.matched_run_id,
-                            content_fingerprint,
-                        )
-                        await progress.update(
-                            "COMPLETED",
-                            f"Duplicate RFQ detected (matches Run #{dup_result.matched_run_id})",
-                            100,
-                        )
-                        cached_decision = dict(matched_run.get("result") or {})
-                        cached_decision["duplicate_info"] = duplicate_info
-                        return {
-                            "decision": cached_decision,
-                            "run_record": matched_run,
-                            "total_tokens": 0,
-                            "candidate_text": rendered,
-                            "duplicate_info": duplicate_info,
-                        }
 
             # --- 40%: Extracting RFQ requirements ---
             await progress.update("PROCESSING", "Extracting RFQ requirements", 40)
@@ -370,15 +220,6 @@ class FtlQualifierAgent:
 
             decision, total_tokens = await asyncio.to_thread(_run)
 
-            # If semantic duplicate or possible duplicate for review was identified, add review flag
-            if duplicate_info and duplicate_info.get("is_potential_duplicate"):
-                matched_id = duplicate_info.get("matched_run_id")
-                sim_pct = int(duplicate_info.get("similarity_score", 0) * 100)
-                reason_txt = duplicate_info.get("reason") or "Potential duplicate email detected."
-                flags = decision.setdefault("flags", [])
-                if isinstance(flags, list):
-                    flags.append(f"Duplicate Review [{sim_pct}% match with Run #{matched_id}]: {reason_txt}")
-
             # --- 90%: Preparing qualification result ---
             await progress.update("PROCESSING", "Preparing qualification result", 90)
 
@@ -395,10 +236,6 @@ class FtlQualifierAgent:
                 decision=decision,
                 total_tokens=total_tokens,
                 raw_file_bytes=raw_file_bytes,
-                content_fingerprint=content_fingerprint,
-                normalized_content=normalized_content,
-                email_metadata=email_meta,
-                duplicate_info=duplicate_info,
             )
 
             # --- 100%: Qualification completed ---
@@ -409,7 +246,6 @@ class FtlQualifierAgent:
                 "run_record": run_record,
                 "total_tokens": total_tokens,
                 "candidate_text": rendered,
-                "duplicate_info": duplicate_info,
             }
 
         except Exception as exc:
@@ -430,41 +266,6 @@ class FtlQualifierAgent:
     ) -> Dict[str, Any]:
         """Entry point for /chat and AgentRouter."""
         job = document_job or {}
-        raw_action = (str(job.get("action") or "").strip().lower()) or (
-            str(message or "").strip().lower() if message and str(message).strip().lower() in {"clear_runs", "clear-runs", "clear runs", "clear_run", "clearruns", "list_runs", "list-runs", "list runs", "get_runs", "runs"} else ""
-        )
-
-        if raw_action in {"clear_runs", "clear-runs", "clear runs", "clear_run", "clearruns"}:
-            from app.ftl.qualifier import runs_store
-
-            cleared_count = runs_store.clear_runs()
-            logger.info("Cleared %d FTL runs via /chat command", cleared_count)
-            return {
-                "reply": f"### ✅ FTL Runs Cleared\n\nSuccessfully cleared **{cleared_count}** run(s) from history.",
-                "usage": None,
-                "qualifier_result": {
-                    "action": "clear_runs",
-                    "status": "success",
-                    "cleared_count": cleared_count,
-                    "message": f"Successfully cleared {cleared_count} run(s).",
-                },
-            }
-
-        if raw_action in {"list_runs", "list-runs", "list runs", "get_runs", "runs"}:
-            from app.ftl.qualifier import runs_store
-
-            runs = runs_store.list_runs()
-            return {
-                "reply": f"### 📋 FTL Runs\n\nTotal runs: **{len(runs)}**",
-                "usage": None,
-                "qualifier_result": {
-                    "action": "list_runs",
-                    "status": "success",
-                    "total_runs": len(runs),
-                    "runs": runs,
-                },
-            }
-
         file_bytes = job.get("file_bytes")
         filename = job.get("filename")
         filepath = job.get("filepath")
@@ -502,17 +303,12 @@ class FtlQualifierAgent:
                 ap_agent_job_id=ap_agent_job_id,
                 ezofis=ezofis,
             )
-            run_rec = dict(res["run_record"] or {})
-            if res.get("duplicate_info"):
-                run_rec["duplicate_info"] = res["duplicate_info"]
+            run_rec = res["run_record"]
             reply_md = format_decision_markdown(run_rec)
-            decision_dict = dict(res.get("decision") or {})
-            if res.get("duplicate_info") and not decision_dict.get("duplicate_info"):
-                decision_dict["duplicate_info"] = res["duplicate_info"]
             return {
                 "reply": reply_md,
                 "usage": {"total_tokens": res["total_tokens"]},
-                "qualifier_result": to_public(decision_dict),
+                "qualifier_result": to_public(res["decision"]),
                 "run_id": run_rec.get("id"),
                 "run_record": run_rec,
             }
