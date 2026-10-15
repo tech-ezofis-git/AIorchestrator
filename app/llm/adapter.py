@@ -122,6 +122,7 @@ class LLMAdapter:
         api_key: Optional[str] = None,
         api_version: Optional[str] = None,
         reasoning_effort: Optional[str] = None,
+        max_completion_tokens: Optional[int] = None,
     ) -> dict:
         """Call the configured LLM with a list of {role, content} messages.
 
@@ -177,9 +178,11 @@ class LLMAdapter:
         # GPT-5 / Azure reasoning deployments reject temperature and
         # max_tokens; LiteLLM maps completion tokens when this is set.
         if "gpt-5" in (model or "").lower():
-            kwargs["max_completion_tokens"] = 4096
+            kwargs["max_completion_tokens"] = max_completion_tokens or 4096
             if reasoning_effort:
                 kwargs["reasoning_effort"] = reasoning_effort
+        elif max_completion_tokens:
+            kwargs["max_tokens"] = max_completion_tokens
 
         timeout = get_settings().llm_request_timeout_seconds
         if timeout and timeout > 0:
