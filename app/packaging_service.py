@@ -2,32 +2,49 @@ import os
 import uuid
 from datetime import datetime
 from typing import List, Dict, Optional, Any
+from urllib.parse import urlparse, urlunparse
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
-# Load environment variables from .env
+# Load environment variables
 load_dotenv()
 
-# Tenant Database URL loaded strictly from environment / .env
-DATABASE_URL = os.getenv("TENANT_DATABASE_URL")
-if not DATABASE_URL:
-    # Fallback to local default if not set
-    DATABASE_URL = os.getenv("DATABASE_URL")
-
-def get_db_connection():
-    """Create and return a database connection."""
-    if not DATABASE_URL:
-        raise RuntimeError("TENANT_DATABASE_URL is not set in environment or .env file.")
-    return psycopg2.connect(DATABASE_URL)
+DEFAULT_TENANT_ID = "1f10e791-b054-483a-8414-e77961f3e282"
 
 
-def lookup_master_item(material_code: str) -> Optional[Dict[str, Any]]:
+def get_tenant_db_connection(tenant_id: str = DEFAULT_TENANT_ID):
+    """
+    Automatically derives the tenant database connection from DATABASE_URL.
+    Ezofis tenant databases follow the naming: ezofis_Tenant_<first_8_chars_of_tenant_id>
+    
+    If TENANT_DATABASE_URL is set in .env, it uses that as an override.
+    Otherwise, it derives it directly from DATABASE_URL.
+    """
+    # 1. Check for explicit override in .env
+    override_url = os.getenv("TENANT_DATABASE_URL")
+    if override_url:
+        return psycopg2.connect(override_url)
+
+    # 2. Derive dynamically from DATABASE_URL
+    base_url = os.getenv("DATABASE_URL")
+    if not base_url:
+        raise RuntimeError("DATABASE_URL is not set in environment or .env file.")
+
+    tenant_prefix = tenant_id.replace("-", "")[:8]
+    parsed = urlparse(base_url)
+    tenant_url = urlunparse(parsed._replace(path=f"/ezofis_Tenant_{tenant_prefix}"))
+
+    return psycopg2.connect(tenant_url)
+
+
+def lookup_master_item(material_code: str, tenant_id: str = DEFAULT_TENANT_ID) -> Optional[Dict[str, Any]]:
     """
     Lookup a packaging item in the Master Form catalog by Material_Code.
     Used by frontend auto-complete/validation when user enters a Product Code.
 
     :param material_code: e.g. 'BTL-001', 'CAP-001'
+    :param tenant_id: Tenant UUID (default: 1f10e791-b054-483a-8414-e77961f3e282)
     :return: Dictionary of master item details, or None if not found.
     """
     if not material_code or not material_code.strip():
@@ -50,19 +67,20 @@ def lookup_master_item(material_code: str) -> Optional[Dict[str, Any]]:
         WHERE "Material_Code" = %s AND is_deleted = false
         LIMIT 1;
     """
-    with get_db_connection() as conn:
+    with get_tenant_db_connection(tenant_id) as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(query, (material_code.strip(),))
             row = cur.fetchone()
             return dict(row) if row else None
 
 
-def get_ticket_matched_master_items(ticket_id: str) -> List[Dict[str, Any]]:
+def get_ticket_matched_master_items(ticket_id: str, tenant_id: str = DEFAULT_TENANT_ID) -> List[Dict[str, Any]]:
     """
     Given a Workflow Ticket ID, unpacks all 11 component slots and returns
     each component along with its match status in the Master Form catalog.
 
     :param ticket_id: UUID string of the ticket (ezfb_aa038e45_items.item_id)
+    :param tenant_id: Tenant UUID (default: 1f10e791-b054-483a-8414-e77961f3e282)
     :return: List of matched component dictionaries.
     """
     query = """
@@ -104,14 +122,14 @@ def get_ticket_matched_master_items(ticket_id: str) -> List[Dict[str, Any]]:
       AND c.product_code IS NOT NULL AND c.product_code <> ''
     ORDER BY c.slot_number;
     """
-    with get_db_connection() as conn:
+    with get_tenant_db_connection(tenant_id) as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(query, (ticket_id,))
             rows = cur.fetchall()
             return [dict(r) for r in rows]
 
 
-def create_packaging_ticket(ticket_data: Dict[str, Any]) -> Dict[str, Any]:
+def create_packaging_ticket(ticket_data: Dict[str, Any], tenant_id: str = DEFAULT_TENANT_ID) -> Dict[str, Any]:
     """
     POST method: Creates a new requisition ticket in dbo.ezfb_aa038e45_items.
     Database trigger automatically syncs and creates master items in dbo.ezfb_f271d1d3_items.
@@ -266,14 +284,14 @@ def create_packaging_ticket(ticket_data: Dict[str, Any]) -> Dict[str, Any]:
 
     insert_sql = f'INSERT INTO dbo.ezfb_aa038e45_items ({cols_sql}) VALUES ({vals_placeholders}) RETURNING item_id;'
 
-    with get_db_connection() as conn:
+    with get_tenant_db_connection(tenant_id) as conn:
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(insert_sql, vals)
             created_id = cur.fetchone()[0]
 
-    # Fetch synced components immediately to return to frontend
-    synced_components = get_ticket_matched_master_items(created_id)
+    # Fetch synced components immediately to return to caller
+    synced_components = get_ticket_matched_master_items(created_id, tenant_id)
 
     return {
         "success": True,
