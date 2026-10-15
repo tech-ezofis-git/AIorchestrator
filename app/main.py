@@ -973,6 +973,45 @@ async def ez_data_import(request: Request, payload: DataImportRequest) -> dict:
         raise
 
 
+
+# --- Packaging Requisition & Master Form Endpoints ---
+from app.packaging_service import lookup_master_item, get_ticket_matched_master_items, create_packaging_ticket
+
+@app.get("/api/packaging/master/lookup")
+def api_lookup_master_item(code: str):
+    """
+    Called by frontend when user types/selects a product code.
+    Auto-returns master specs if code exists in Master Form table.
+    """
+    item = lookup_master_item(code)
+    if not item:
+        return {"exists": False, "data": None}
+    return {"exists": True, "data": item}
+
+
+@app.get("/api/packaging/ticket/{ticket_id}/components")
+def api_get_ticket_components(ticket_id: str):
+    """
+    Called by frontend when opening or viewing a raised ticket.
+    Returns all component items with their match status.
+    """
+    components = get_ticket_matched_master_items(ticket_id)
+    return {"ticket_id": ticket_id, "components": components}
+
+
+@app.post("/api/packaging/ticket")
+def api_create_packaging_ticket(payload: dict = Body(...)):
+    """
+    POST: Submits a new packaging requisition ticket.
+    Inserts into Workflow Form table and triggers auto-sync to Master Catalog.
+    """
+    try:
+        result = create_packaging_ticket(payload)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create packaging ticket: {str(e)}")
+
+
 @app.get("/api/report-agent/types", response_model=list[ReportTypeInfo])
 async def list_report_types(request: Request) -> list[ReportTypeInfo]:
     """Return extensible Report Builder type registry."""
