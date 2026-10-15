@@ -31,6 +31,7 @@ def get_tenant_db_connection(tenant_id: str = DEFAULT_TENANT_ID):
     if not base_url:
         raise RuntimeError("DATABASE_URL is not set in environment or .env file.")
 
+    tenant_id = tenant_id or DEFAULT_TENANT_ID
     tenant_prefix = tenant_id.replace("-", "")[:8]
     parsed = urlparse(base_url)
     tenant_url = urlunparse(parsed._replace(path=f"/ezofis_Tenant_{tenant_prefix}"))

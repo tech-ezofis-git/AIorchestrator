@@ -111,6 +111,9 @@ from starlette.background import BackgroundTask
 
 from app.agents.ap_agent import ApAgent
 from app.agents.catalog_agent import CatalogAgent
+from app.models.form_sync import FormSyncRequest, FormSyncResponse
+from app.services.form_sync_service import FormSyncService
+from app.agents.form_sync_agent import FormSyncAgent
 from app.agents.chat_agent import ChatAgent
 from app.catalog.store import CatalogConflictError, CatalogStore, CatalogStoreUnavailableError
 from app.catalog.tenant_llm import apply_tenant_agent_llm, restore_runtime_llm
@@ -627,6 +630,8 @@ async def lifespan(app: FastAPI):
 
     ftl_qualifier_agent = FtlQualifierAgent(ezofis=ezofis_client)
     ftl_quote_estimator_agent = FtlQuoteEstimatorAgent(ezofis=ezofis_client)
+    form_sync_service = FormSyncService(llm_adapter)
+    form_sync_agent = FormSyncAgent(form_sync_service)
 
     agent_router = AgentRouter(chat_agent)
     agent_router.register(Intent.SEARCH, search_agent.handle)
@@ -648,6 +653,7 @@ async def lifespan(app: FastAPI):
     agent_router.register(Intent.REPORT, report_agent.handle)
     agent_router.register(Intent.FTL_QUALIFIER, ftl_qualifier_agent.handle)
     agent_router.register(Intent.FTL_QUOTE_ESTIMATOR, ftl_quote_estimator_agent.handle)
+    agent_router.register(Intent.FORM_SYNC, form_sync_agent.handle)
 
     app.state.redis_client = redis_client
     app.state.db_pool = db_pool
@@ -678,6 +684,9 @@ async def lifespan(app: FastAPI):
     app.state.catalog_agent = catalog_agent
     app.state.ezofis_client = ezofis_client
     app.state.ftl_qualifier_agent = ftl_qualifier_agent
+
+    app.state.form_sync_service = form_sync_service
+    app.state.form_sync_agent = form_sync_agent
     app.state.ftl_quote_estimator_agent = ftl_quote_estimator_agent
 
     yield
@@ -999,13 +1008,78 @@ def api_get_ticket_components(ticket_id: str):
     return {"ticket_id": ticket_id, "components": components}
 
 
+@app.post("/api/agents/form-sync", response_model=FormSyncResponse)
+async def api_form_sync(
+    payload: FormSyncRequest,
+    request: Request
+) -> FormSyncResponse:
+    """
+    Generic Form-to-Master AI Synchronization Endpoint.
+    Dynamically maps and unpivots any Workflow Form to any Master Catalog Form.
+    """
+    service: FormSyncService = getattr(request.app.state, "form_sync_service", None)
+    if not service:
+        llm = getattr(request.app.state, "llm_adapter", None)
+        if not llm:
+            from app.config import get_settings
+            from app.llm.adapter import LLMAdapter
+            llm = LLMAdapter(get_settings())
+        service = FormSyncService(llm)
+    return await service.sync_forms(payload)
+
+
+@app.get("/api/agents/form-sync/inspect")
+async def api_inspect_forms(
+    source_form_id: str = Query(..., description="Source form UUID or prefix"),
+    target_form_id: str = Query(..., description="Target form UUID or prefix"),
+    tenant_id: Optional[str] = Query(None, description="Optional tenant ID"),
+):
+    """
+    Debug/preview endpoint to inspect schemas of both forms.
+    """
+    from app.services.schema_introspector import introspect_form_schema, format_schema_for_llm
+    from app.packaging_service import get_tenant_db_connection
+
+    conn = get_tenant_db_connection(tenant_id)
+    try:
+        source_schema = introspect_form_schema(conn, source_form_id)
+        target_schema = introspect_form_schema(conn, target_form_id)
+        return {
+            "source": {
+                "name": source_schema.get("form_name"),
+                "table": source_schema.get("table_name"),
+                "controls_count": len(source_schema.get("controls", [])),
+                "physical_columns": list(source_schema.get("physical_columns", {}).keys()),
+                "prompt_summary": format_schema_for_llm(source_schema)
+            },
+            "target": {
+                "name": target_schema.get("form_name"),
+                "table": target_schema.get("table_name"),
+                "controls_count": len(target_schema.get("controls", [])),
+                "physical_columns": list(target_schema.get("physical_columns", {}).keys()),
+                "prompt_summary": format_schema_for_llm(target_schema)
+            }
+        }
+    finally:
+        conn.close()
+
+
 @app.post("/api/packaging/ticket")
-def api_create_packaging_ticket(payload: dict = Body(...)):
+async def api_create_packaging_ticket(request: Request, payload: dict = Body(...)):
     """
     POST: Submits a new packaging requisition ticket.
     Inserts into Workflow Form table and triggers auto-sync to Master Catalog.
+    Supports both legacy packaging payloads and dynamic form-sync payloads.
     """
     try:
+        if "source_form_id" in payload and "target_form_id" in payload:
+            service: FormSyncService = getattr(request.app.state, "form_sync_service", None)
+            if not service:
+                service = FormSyncService(request.app.state.llm_adapter)
+            req = FormSyncRequest(**payload)
+            resp = await service.sync_forms(req)
+            return resp.model_dump()
+
         result = create_packaging_ticket(payload)
         return result
     except Exception as e:
@@ -2951,6 +3025,16 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
             "force_rerun": bool(payload.payload.force_rerun) if payload.payload else False,
             "pilot_access_token": payload.payload.pilot_access_token if payload.payload else None,
         }
+    elif intent == Intent.FORM_SYNC:
+        p = payload.payload
+        document_job = {
+            "source_form_id": getattr(p, "source_form_id", None) if p else None,
+            "target_form_id": getattr(p, "target_form_id", None) if p else None,
+            "payload": (getattr(p, "form_payload", None) or getattr(p, "payload", None)) if p else None,
+            "dry_run": getattr(p, "dry_run", False) if p else False,
+            "tenant_id": getattr(p, "tenant_id", None) if p else None,
+            "model": getattr(p, "model", None) if p else None,
+        }
 
     # Gate 3: permission check — needs the classified intent, so it can
     # only run here, not earlier. The Dispatcher/agent must never be
@@ -3324,6 +3408,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
         pdf_download_url=result.get("pdf_download_url"),
         pdf_base64=result.get("pdf_base64"),
         pdf_filename=result.get("pdf_filename"),
+        form_sync_result=result.get("form_sync_result") or result.get("data"),
     )
 
 
