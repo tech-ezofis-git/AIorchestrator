@@ -163,6 +163,7 @@ class ResponseComposer:
         pdf_download_url: Optional[str] = None,
         pdf_base64: Optional[str] = None,
         pdf_filename: Optional[str] = None,
+        form_sync_result: Optional[dict] = None,
     ) -> ChatResponse:
         return ChatResponse(
             session_id=session_id,
@@ -203,6 +204,7 @@ class ResponseComposer:
             pdf_download_url=pdf_download_url,
             pdf_base64=pdf_base64,
             pdf_filename=pdf_filename,
+            form_sync_result=form_sync_result,
         )
 
     async def _llm_synthesize(self, *, system_prompt: str, user_content: str) -> dict:

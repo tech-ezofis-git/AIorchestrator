@@ -70,6 +70,7 @@ class Intent(str, Enum):
     INVOICE_SCORER = "invoice_scorer"
     FILE_PREPARATION = "file_preparation"
     FOLDER_MOVER = "folder_mover"
+    FORM_SYNC = "form_sync"
 
 
 # Keyword/phrase triggers per intent. Checked as substrings of the

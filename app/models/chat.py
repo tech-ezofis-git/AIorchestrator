@@ -547,6 +547,25 @@ class DocumentPayload(BaseModel):
         description="InternalForm / Ezofis PO master form id (ezfb_{token}_items). Separate from invoice form_id.",
     )
     matter_master_id: Optional[str] = Field(default=None, description="Matter master id for matter_validate.")
+    source_form_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("source_form_id", "sourceFormId", "source_id", "sourceId"),
+        description="Source workflow form ID for intent=form_sync",
+    )
+    target_form_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("target_form_id", "targetFormId", "target_id", "targetId"),
+        description="Target master form ID for intent=form_sync",
+    )
+    form_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("form_payload", "formPayload", "payload"),
+        description="Form submission data for intent=form_sync",
+    )
+    dry_run: Optional[bool] = Field(
+        default=False,
+        description="If True, previews AI transformation without DB write",
+    )
     form_id: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("form_id", "formid", "formId", "FormId", "FormID"),
@@ -900,6 +919,7 @@ class ChatRequest(BaseModel):
                 "invoice_scorer",
                 "file_preparation",
                 "folder_mover",
+                "form_sync",
             }:
                 return self
             raise ValueError(
@@ -1139,6 +1159,10 @@ class ChatResponse(BaseModel):
     html: Optional[str] = Field(
         default=None,
         description="Rendered dashboard HTML on the data phase; null on schema.",
+    )
+    form_sync_result: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Form Sync Agent output — source_record_id, target_records_count, target_records, message.",
     )
 
     @model_serializer(mode="wrap")
