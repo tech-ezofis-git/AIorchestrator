@@ -204,21 +204,6 @@ def test_policy_overrides_follow_git_backstops():
     assert unknown_with_governor["qualify"] == "needs_review"
     assert unknown_with_governor["reasoning"].endswith("pre-override item-matching pass, superseded by the auto-override explained at the top of this field.)")
 
-    lone_detector = _apply_policy_overrides(
-        {
-            "qualify": "qualify",
-            "project_type": "unknown",
-            "matched_items": [
-                {"item": "infra-red detector", "category": "detector", "match": "exact"},
-                {"item": "Formula System Power Supply", "category": "power supply", "match": "exact"},
-            ],
-            "reasoning": "",
-            "flags": [],
-        },
-        "",
-    )
-    assert lone_detector["qualify"] == "disqualify"
-
     ambiguous_governor = _apply_policy_overrides(
         {
             "qualify": "disqualify",
@@ -231,39 +216,6 @@ def test_policy_overrides_follow_git_backstops():
     )
     assert ambiguous_governor["qualify"] == "qualify"
 
-    coventry = _apply_policy_overrides(
-        {
-            "qualify": "disqualify",
-            "project_type": "modernization",
-            "matched_items": [],
-            "excluded_items": [],
-            "flags": [],
-            "reasoning": (
-                "Existing door operators are KONE AMDC1C-52, not Wittur SGV2. "
-                "The requested door operators are generic ('OEM or Wittur') but the spec does not name "
-                "a specific Wittur model (2T/2C/1S). The only grounded in-scope item is the 3D/2D infrared "
-                "door protective device. A lone detector cannot qualify the RFQ."
-            ),
-        },
-        "",
-    )
-    assert coventry["qualify"] == "qualify"
-    categories = {item["category"] for item in coventry["matched_items"]}
-    assert "door_operator" in categories
-    assert "detector" in categories
-
-    harmonic_only = _apply_policy_overrides(
-        {
-            "qualify": "disqualify",
-            "project_type": "modernization",
-            "matched_items": [{"item": "infra-red detector", "category": "detector", "match": "exact"}],
-            "reasoning": "Door operator row is new harmonic, an unsupported brand. Lone detector cannot qualify.",
-            "flags": [],
-        },
-        "",
-    )
-    assert harmonic_only["qualify"] == "disqualify"
-
     door_retainers = _apply_policy_overrides(
         {
             "qualify": "disqualify",
@@ -275,40 +227,6 @@ def test_policy_overrides_follow_git_backstops():
         "",
     )
     assert door_retainers["qualify"] == "disqualify"
-
-    ymc_false_qualify = _apply_policy_overrides(
-        {
-            "qualify": "qualify",
-            "project_type": "modernization",
-            "matched_items": [
-                {"item": "infra-red door detector", "category": "detector", "match": "exact"},
-                {"item": "Safeties & governor", "category": "governor", "match": "ambiguous"},
-                {"item": "door safety retainers", "category": "safety", "match": "ambiguous"},
-            ],
-            "reasoning": "Modernization with a governor and a detector.",
-            "flags": [],
-        },
-        (
-            "door operator not provided new harmonic\n"
-            "door reopening device not provided new infrared\n"
-            "car guiding sliding guides new sliding guides\n"
-            "Operation and maintenance manuals including: Safeties & governor\n"
-        ),
-    )
-    assert ymc_false_qualify["qualify"] == "disqualify"
-    assert "auto_overridden_unsupported_operator_lone_detector" in ymc_false_qualify["flags"]
-
-    harmonic_with_real_governor = _apply_policy_overrides(
-        {
-            "qualify": "qualify",
-            "project_type": "modernization",
-            "matched_items": [{"item": "new governor", "category": "governor", "match": "ambiguous"}],
-            "reasoning": "governor requested",
-            "flags": [],
-        },
-        "door operator not provided new harmonic\nProvide a new governor for each car.\n",
-    )
-    assert harmonic_with_real_governor["qualify"] == "qualify"
 
 
 def test_extract_keeps_short_text_and_split_section_numbers():

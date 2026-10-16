@@ -448,13 +448,11 @@ def _align_decision_with_estimator(decision: Dict[str, Any], candidate_text: str
 
 
 def _apply_policy_overrides(decision: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
-    """Apply Git's deterministic qualify backstops without changing the live model client."""
+    """Apply the standalone Qualifier's deterministic backstops, then fit inbox insight."""
     decision = _align_decision_with_estimator(decision, candidate_text)
     decision = _enforce_new_construction_disqualify(decision, candidate_text)
     decision = _enforce_unknown_project_type_needs_review(decision)
-    decision = _enforce_wittur_allowed_operator_package(decision)
     decision = _enforce_ambiguous_item_qualify_threshold(decision)
-    decision = _enforce_unsupported_operator_lone_detector(decision, candidate_text)
     decision["ai_insight"] = _fit_inbox_insight(str(decision.get("ai_insight") or ""))
     return decision
 

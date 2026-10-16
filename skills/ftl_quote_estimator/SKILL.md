@@ -266,8 +266,6 @@ one — this has happened repeatedly across real test runs, always the same way:
 product_code was short, hyphenated (or bare), and had NO underscore, because it came from the TYPE,
 O.E.M., or DESCRIPTION column instead of PRODUCT NAME. Every real correct product code in this
 pricelist has an underscore in it: `SGV2_DOOR_OP_2C42_L`, `SGV2_CLUTCH_G.M.D._L`,
-
-**Hand suffixes and adaptor codes — use exactly what search_pricelist returns today.** FTL's current price book (REV. 09.2026) writes the hand on door operators and clutches as `_L` / `_R` (e.g. `SGV2_DOOR_OP_1S42_L`, `SGV2_CLUTCH_OTIS_R`) and names panel adaptors `SGV2(1S)_PANEL_ADAPTOR_GAL42_LH`. Older invoices show `_LH` / `_RH` on operators and clutches and `_DP_` on adaptors for the same items; copy the code from the search result. The estimator rewrites a known old spelling to the current code before the quote is saved.
 `WRG_MOTION_GEAR150`, `WG_OL35_GOVERNOR_RC`, `OL35_TENSION_SHEAVE_SWINGARM`, `WS_CSGB_CAR_SAFETIES`,
 `VISIONPLUS_3D_DETECTOR`, `SGV2_DOOR_TOOLS`. None of the wrong-column values ever have one:
 - `ALL` — that's the O.E.M. column, meaning "fits all OEMs," not a code.
@@ -280,6 +278,8 @@ pricelist has an underscore in it: `SGV2_DOOR_OP_2C42_L`, `SGV2_CLUTCH_G.M.D._L`
 - `FZU-1442US01` — that's an OEM/manufacturer reference number embedded in the DESCRIPTION column
   text (e.g. "FZU-1442US01 -3D_LIGHT_CURTAIN"), not FTL's own product code, which is the separate
   PRODUCT NAME column value `VISIONPLUS_3D_DETECTOR`.
+
+**Hand suffixes and adaptor codes — use exactly what search_pricelist returns today.** FTL's current price book (REV. 09.2026) writes the hand on door operators and clutches as `_L` / `_R` (e.g. `SGV2_DOOR_OP_1S42_L`, `SGV2_CLUTCH_OTIS_R`) and names panel adaptors `SGV2(1S)_PANEL_ADAPTOR_GAL42_LH`. Older invoices and earlier pricelists show `_LH` / `_RH` on operators and clutches and `_DP_` on adaptors for the same items; never copy those older spellings — copy the code from the search result.
 
 Before finalizing any line, check: does product_code contain `_`? If not, go back to that same row
 in the search_pricelist result and find the value that does — that is always the real product_code.
@@ -420,7 +420,13 @@ included; if you're quoting the accessory on its own (parent not part of this es
 normally. **Whenever you quote a door operator (any SGV2_DOOR_OP_* line, any door type), also add a
 `SGV2_CAR_DOOR_RESTRICTOR` line at $0.00 subtotal, qty matching the door operator** — it's bundled
 with every real MOD kit purchase and isn't its own priced pricelist SKU, so search_pricelist won't
-find it. If the model omits it, the estimator adds that $0 line with the same quantity.
+find it. (An earlier version of this rule excluded 1S doors, reasoning from one real 1S order that
+had no restrictor line — but a real 1S spec was later found to explicitly call for a "Car
+Restrictor" as its own numbered new-equipment scope item, undermining that exclusion; since it's a
+$0 bundled line either way, the safer default is to always include it, flagged `needs_engineering_
+review` if you want a human to confirm the door-operator kit actually satisfies whatever specific
+restrictor product the spec names, e.g. "Unitec Uni-Lock or equivalent" — FTL's SGV2 kit may or may
+not be treated as meeting that "or equivalent" language.)
 
 **Not every accessory is one-per-car — check before multiplying by car count:**
 - `SGV2_DOOR_TOOLS` (the door-programming tool) is ONE PER PROJECT, not one per car, even on a

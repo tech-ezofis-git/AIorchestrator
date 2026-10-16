@@ -2863,6 +2863,349 @@ def _normalize_door_tools_code(quote: Dict[str, Any]) -> Dict[str, Any]:
     return quote
 
 
+_SAFETIES_IN_SCOPE_RE = re.compile(r"car\s+safet|safeties", re.IGNORECASE)
+
+_NEW_CWT_GOVERNOR_RE = re.compile(
+    r"(?:provide|supply|new)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:counter\s*weight|cwt)\s+governor",
+    re.IGNORECASE,
+)
+
+_EXCLUDED_TEXT_PATTERNS = {
+    "door_operator": r"(?:SGV2\s+)?door\s+operators?(?:\s+MOD\s+kits?|\s+sets?)?",
+    "clutch": r"(?:matching\s+)?clutch(?:es)?(?:\s*/\s*coupler)?",
+    "door_tools": r"(?:Wittur\s+)?(?:door\s+)?programming\s+tool",
+    "door_protective_device": r"(?:VisionPlus\s+)?(?:3D\s+)?door\s+detect\w+(?:\s+line\s+item)?",
+}
+
+def _enforce_contact_phone_from_email(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """The customer's phone must come from the customer's own email. Confirmed on '321 Bloor St W'
+    (EST-900087): contact_phone was "(416) 978-2427" — the University of Toronto Property Management
+    number printed in the consultant spec, not ATTA's. When the RFQ arrived as an email, a phone
+    number whose digits do not appear anywhere in that email is cleared (and noted) instead of
+    printing a third party's number on the quote. PDF-only uploads have no email block and are left
+    alone."""
+    block = scope_rules._email_block(candidate_text)
+    phone = quote.get("contact_phone")
+    if phone and isinstance(phone, str) and len(re.sub(r"\D", "", phone)) < 7:
+        # a placeholder such as "[TBD - not provided in RFQ]" is not a phone number
+        quote = dict(quote)
+        quote["contact_phone"] = ""
+        return quote
+    if not block or not phone or not isinstance(phone, str):
+        return quote
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) < 7 or digits in re.sub(r"\D", "", block):
+        return quote
+    quote = dict(quote)
+    quote["contact_phone"] = ""
+    quote["assumptions"] = list(quote.get("assumptions") or []) + [
+        f"ℹ contact_phone {phone!r} was cleared — it does not appear in the customer's email (it came from "
+        "the consultant's spec, i.e. a third party). Add the customer's own number."
+    ]
+    return quote
+
+def _compose_remarks_from_final_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """For specs without a per-car equipment table (so _compose_remarks above does not apply), the
+    model's free-text remarks are written BEFORE the code corrects the quote and go stale — confirmed
+    on the 2-car U of T tender (EST-900086): "Current quote includes both [panel and adaptor]" after
+    the adaptor was removed, "door operators to be MOD kits with." after the operator was excluded,
+    "confirm door hand for operators/clutches" for items not quoted. Rebuilds the remarks from the FINAL
+    line items instead — plain facts only: cars, what is quoted, what the customer is sourcing
+    elsewhere, what is held back."""
+    if _DOOR_PACKAGE_SECTION_RE.search(candidate_text or ""):
+        return quote
+    cars = scope_rules.known_car_count(candidate_text)
+    if not cars:
+        return quote
+    items = quote.get("line_items") or []
+
+    def total(cat: str, pred=lambda it: True) -> float:
+        out = 0.0
+        for it in items:
+            if it.get("category") == cat and pred(it):
+                try:
+                    out += float(it.get("qty") or 0)
+                except (TypeError, ValueError):
+                    pass
+        return out
+
+    def n(x: float) -> str:
+        return f"{x:g}"
+
+    parts: List[str] = []
+    gov = total("governor", lambda it: not _is_tension_companion_code(it.get("product_code")))
+    ten = total("governor", lambda it: _is_tension_companion_code(it.get("product_code")))
+    if gov:
+        parts.append(f"{n(gov)} governor(s)" + (f" with {n(ten)} tension assembl{'y' if ten == 1 else 'ies'}" if ten else ""))
+    if total("door_operator"):
+        parts.append(f"{n(total('door_operator'))} door operator(s)" + (f" with {n(total('clutch'))} clutch(es)" if total("clutch") else ""))
+    elif total("clutch"):
+        parts.append(f"{n(total('clutch'))} clutch(es)")
+    if total("car_door_panel"):
+        parts.append(f"{n(total('car_door_panel'))} new car door panel(s)")
+    if total("panel_adaptor"):
+        parts.append(f"{n(total('panel_adaptor'))} panel adaptor(s)")
+    if total("door_protective_device"):
+        parts.append(f"{n(total('door_protective_device'))} car door detector(s)")
+    cwt = total("roller_guide", lambda it: bool(_WRG_CWT_DESC_RE.search(str(it.get("description") or ""))) or "GEAR80" in str(it.get("product_code") or "").upper())
+    car_g = total("roller_guide") - cwt
+    if car_g or cwt:
+        bits = ([f"{n(car_g)} car"] if car_g else []) + ([f"{n(cwt)} counterweight"] if cwt else [])
+        parts.append(" + ".join(bits) + " roller guide(s)")
+    handled = {"governor", "door_operator", "clutch", "car_door_panel", "panel_adaptor", "door_protective_device", "roller_guide"}
+    for cat in sorted({it.get("category") for it in items} - handled - {None}):
+        parts.append(f"{n(total(cat))} x {str(cat).replace('_', ' ')}")
+
+    project = (quote.get("project_name") or "").strip() or "This tender"
+    lines = [f"{project}: {cars} car(s)."]
+    if parts:
+        lines.append("Quoted: " + "; ".join(parts) + ".")
+    excl = scope_rules.not_required_from_ftl(candidate_text)
+    if excl:
+        lines.append("Not quoted — the customer states these are not required from FTL: " + "; ".join(re.sub(r"\s*\(\s*(?:not\s+required|not\s+needed)[^)]*\)", "", b).strip() for b, _c in excl) + ".")
+    if _SAFETIES_IN_SCOPE_RE.search(candidate_text or "") and not total("car_safety"):
+        lines.append("Car safeties are in scope but are never auto-priced (FTL rule); they need an engineering selection and a manual quote.")
+    lines.append("Items flagged on each line need confirmation before release.")
+    quote = dict(quote)
+    quote["remarks"] = "\n".join(lines)
+    return quote
+
+def _enforce_roller_guide_set_qty(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """WRG-002: a full car or counterweight set is 4 individual assemblies, and the number of full
+    sets is the customer's own figure. Confirmed on EST-900088: the email asked for "2 sets" of car
+    guides and "2 sets" of counterweight guides, and the model quoted 8 car pieces but only 4
+    counterweight pieces (its own note even said "= 16 pcs"). When the customer's email states the number
+    of sets, a single car (or counterweight) roller_guide line is corrected to sets x 4."""
+    sets = scope_rules.explicit_guide_sets(candidate_text)
+    if not sets["car"] and not sets["cwt"]:
+        return quote
+    line_items = list(quote.get("line_items") or [])
+    idx_by_kind: Dict[str, List[int]] = {"car": [], "cwt": []}
+    for i, it in enumerate(line_items):
+        if it.get("category") != "roller_guide":
+            continue
+        is_cwt = bool(_WRG_CWT_DESC_RE.search(str(it.get("description") or ""))) or "GEAR80" in str(it.get("product_code") or "").upper()
+        idx_by_kind["cwt" if is_cwt else "car"].append(i)
+    cars = scope_rules.known_car_count(candidate_text)
+    notes: List[str] = []
+    for kind, label in (("car", "car"), ("cwt", "counterweight")):
+        n_sets = sets[kind]
+        if not n_sets or len(idx_by_kind[kind]) != 1:
+            continue
+        i = idx_by_kind[kind][0]
+        expected = n_sets * 4
+        try:
+            qty = float(line_items[i].get("qty") or 0)
+        except (TypeError, ValueError):
+            continue
+        if qty == expected:
+            continue
+        item = dict(line_items[i])
+        item["qty"] = expected
+        item["needs_engineering_review"] = True
+        item["note"] = (
+            f"⚠ AUTO-CORRECTED — qty was {qty:g}, but the customer asks for {n_sets} full {label} set(s) and a "
+            f"full set is 4 individual assemblies (WRG-002), so qty = {n_sets} x 4 = {expected}."
+            + (f" ({n_sets} set(s) stated for {cars} car(s) — confirm the intended sets per car.)" if cars and n_sets != cars else "")
+        )
+        line_items[i] = item
+        notes.append(f"⚠ CORRECTED — {label} roller guide qty {qty:g} -> {expected} ({n_sets} full set(s) x 4, per the customer's email).")
+    if not notes:
+        return quote
+    quote = dict(quote)
+    quote["line_items"] = line_items
+    quote["assumptions"] = list(quote.get("assumptions") or []) + notes
+    return quote
+
+def _drop_stale_panel_assumptions(quote: Dict[str, Any]) -> Dict[str, Any]:
+    """Once every car_door_panel line has been corrected to a 1S panel, the model's own assumptions
+    about a 2C / 2-door-set panel ("the only matched SKU found for 42x84 is under 2C ... 1 panel/car
+    instead of 2") describe a line that no longer exists — confirmed on EST-900088."""
+    panels = [it for it in (quote.get("line_items") or []) if it.get("category") == _CAR_DOOR_PANEL_CATEGORY]
+    if not panels or not all(str(it.get("product_code") or "").upper().startswith("1S_") for it in panels):
+        return quote
+    kept = []
+    for a in quote.get("assumptions") or []:
+        t = str(a)
+        stale = (
+            not t.lstrip().startswith(("ℹ", "⚠", "\U0001F6D1"))
+            and re.search(r"panel", t, re.IGNORECASE)
+            and re.search(r"\b2C\b|2-DOOR/SET|instead of 2", t, re.IGNORECASE)
+        )
+        if not stale:
+            kept.append(a)
+    if len(kept) == len(quote.get("assumptions") or []):
+        return quote
+    quote = dict(quote)
+    quote["assumptions"] = kept
+    return quote
+
+def _enforce_governor_qty_matches_car_count(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """A governor is one per car (two only where the scope explicitly adds a NEW counterweight
+    governor). A single priced governor line above that is a misread quantity — confirmed: a
+    2-car job quoted qty 5, apparently from the "5 hoist ropes" in the customer's email. Corrects
+    it down to the car count; leaves a quote alone when the spec has its own computed governor
+    breakdown (that code path already decides) or when governor qty is split across several lines
+    (dividing one of them would be a guess). The tension companion pass runs afterwards and
+    re-matches its own qty to the corrected governor qty."""
+    if scope_rules.computed_governor_counts(candidate_text) is not None:
+        return quote
+    cars = scope_rules.known_car_count(candidate_text)
+    if not cars:
+        return quote
+    allowed = cars * (2 if _NEW_CWT_GOVERNOR_RE.search(re.sub(r"\s+", " ", candidate_text or "")) else 1)
+    line_items = quote.get("line_items") or []
+    idxs = [
+        i for i, it in enumerate(line_items)
+        if it.get("category") == "governor" and not _is_tension_companion_code(it.get("product_code"))
+    ]
+    if len(idxs) != 1:
+        return quote
+    idx = idxs[0]
+    try:
+        qty = float(line_items[idx].get("qty") or 0)
+    except (TypeError, ValueError):
+        return quote
+    if qty <= allowed:
+        return quote
+    item = dict(line_items[idx])
+    item["qty"] = allowed
+    item["needs_engineering_review"] = True
+    new_items = list(line_items)
+    new_items[idx] = item
+    quote = dict(quote)
+    quote["line_items"] = new_items
+    quote["assumptions"] = list(quote.get("assumptions") or []) + [
+        f"⚠ CORRECTED — governor qty was {qty:g}, but this tender covers {cars} car(s) and a governor "
+        f"is one per car, so qty was set to {allowed:g}. (A rope count such as '5 hoist ropes' is not a "
+        "governor quantity.)"
+    ]
+    return quote
+
+def _clear_panel_zero_override(quote: Dict[str, Any]) -> Dict[str, Any]:
+    """A car_door_panel line with a real catalogue price but subtotal_override 0 prices the panels
+    at $0 — confirmed on '321 Bloor St W': 2 x $1,635 contributed nothing. Panels are a priced
+    item (the operator MOD kit does not bundle them), so the override is cleared and flagged."""
+    line_items = quote.get("line_items") or []
+    hit = [
+        i for i, it in enumerate(line_items)
+        if it.get("category") == _CAR_DOOR_PANEL_CATEGORY
+        and it.get("subtotal_override") == 0
+        and (it.get("unit_price") or 0) > 0
+    ]
+    if not hit:
+        return quote
+    new_items = list(line_items)
+    for i in hit:
+        item = {k: v for k, v in new_items[i].items() if k != "subtotal_override"}
+        item["needs_engineering_review"] = True
+        item["note"] = (item.get("note") + " " if item.get("note") else "") + (
+            "⚠ A $0 subtotal override was cleared — a new car door panel is a priced item, not bundled."
+        )
+        new_items[i] = item
+    quote = dict(quote)
+    quote["line_items"] = new_items
+    return quote
+
+def _enforce_detector_presence(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """The spec (or customer) asks for a door detection system on every car door but the estimate has
+    no detector line at all. Adds FTL's stated detector (I-002 interim rule) at one per CAR DOOR —
+    the landings are hoistway floors, never car doors. The model had skipped it as 'qty depends on
+    openings per car' after reading '18 front openings per car' (really 18 landings). Never adds one
+    when the customer says detection is not required from FTL or the existing detector is retained."""
+    line_items = quote.get("line_items") or []
+    if any(it.get("category") == "door_protective_device" and (it.get("qty") or 0) > 0 for it in line_items):
+        return quote
+    if not scope_rules.detector_in_scope(candidate_text):
+        return quote
+    if any("door_protective_device" in cats for _t, cats in scope_rules.not_required_from_ftl(candidate_text)):
+        return quote
+    qty, basis = scope_rules.car_door_count(candidate_text)
+    canonical = rules_engine.detector_row()
+    if not qty or not canonical:
+        return quote
+    note = (
+        f"⚠ AUTO-ADDED — the scope asks for door detection on every car door and this estimate had no "
+        f"detector line. One per car door ({qty} for this tender); stops/landings are not car doors. "
+        "Spec names CEDES CabSafe 'or equivalent' — this is the Formula VisionPlus equivalent; confirm "
+        "it is acceptable to the customer."
+    )
+    if basis == "cars_only":
+        note += " Rear entrances could not be ruled out — add one per rear door if any car has one."
+    item = {
+        "product_code": canonical["ftl_product_code"],
+        "description": canonical.get("description") or canonical["ftl_product_code"],
+        "category": "door_protective_device",
+        "qty": qty,
+        "unit_price": canonical.get("price_cad"),
+        "needs_engineering_review": True,
+        "note": note,
+    }
+    quote = dict(quote)
+    quote["line_items"] = list(line_items) + [item]
+    return quote
+
+def _enforce_not_required_from_ftl(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Drops line items the customer's own email marks 'not required from FTL' (see
+    scope_rules.not_required_from_ftl) and records them as exclusions. Runs after the door-package
+    functions have finished so they can still use the operator to correct the panel line."""
+    found = scope_rules.not_required_from_ftl(candidate_text)
+    if not found:
+        return quote
+    line_items = list(quote.get("line_items") or [])
+    removed: List[str] = []
+    notes: List[str] = []
+    for bullet, cats in found:
+        keep = []
+        hits = []
+        for it in line_items:
+            cat = it.get("category")
+            code = str(it.get("product_code") or "")
+            matches = cat in cats and (cat != "other" or "RESTRICTOR" in code.upper())
+            if cat == "governor" and "governor" in cats and _is_tension_companion_code(code):
+                matches = True
+            (hits if matches else keep).append(it)
+        line_items = keep
+        if hits:
+            removed.extend(str(h.get("product_code")) for h in hits)
+        notes.append(
+            f"ℹ EXCLUDED per the customer — \"{bullet}\""
+            + (f" (not quoted: {', '.join(str(h.get('product_code')) for h in hits)})" if hits else "")
+        )
+    quote = dict(quote)
+    quote["line_items"] = line_items
+    excluded_cats = {c for _b, cats in found for c in cats}
+    kept_assumptions = [
+        a for a in (quote.get("assumptions") or [])
+        if str(a).lstrip().startswith(("ℹ", "⚠", "\U0001F6D1")) or not _mentions_excluded(str(a), excluded_cats)
+    ]
+    quote["assumptions"] = kept_assumptions + notes
+    remarks = quote.get("remarks")
+    if remarks:
+        quote["remarks"] = _strip_excluded_from_remarks(str(remarks), excluded_cats)
+    return quote
+
+def _is_tension_companion_code(code: Any) -> bool:
+    c = str(code or "").upper()
+    return "TENSION" in c or "SWINGARM" in c
+
+def _mentions_excluded(text: str, cats: Any) -> bool:
+    return any(
+        re.search(_EXCLUDED_TEXT_PATTERNS[c], text, re.IGNORECASE) for c in cats if c in _EXCLUDED_TEXT_PATTERNS
+    )
+
+def _strip_excluded_from_remarks(remarks: str, cats: Any) -> str:
+    """The model writes remarks before exclusions are applied ("Scope includes door operator MOD kit,
+    matching clutch/coupler, ..."). Removes just those list items so the remarks match the quote."""
+    out = remarks
+    for c in cats:
+        pat = _EXCLUDED_TEXT_PATTERNS.get(c)
+        if not pat:
+            continue
+        out = re.sub(rf"{pat}\s*,\s*", "", out, flags=re.IGNORECASE)          # "X, " in a list
+        out = re.sub(rf",?\s*(?:and\s+)?{pat}(?=\s*[.;])", "", out, flags=re.IGNORECASE)  # trailing "…, and X."
+    return re.sub(r"\s{2,}", " ", out).strip()
+
 def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
     quote = _validate_quote_payload(quote)
     quote = _canonicalize_product_codes(quote)
@@ -2876,21 +3219,29 @@ def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any
     quote = _reconcile_against_product_master(quote)
     quote = _enforce_two_speed_door_type(quote, candidate_text)
     quote = _enforce_line_item_qty_matches_car_count(quote, candidate_text)
+    quote = _enforce_governor_qty_matches_car_count(quote, candidate_text)
     quote = _enforce_governor_scope_gate(quote, candidate_text)
     quote = _enforce_governor_tension_companions(quote)
     quote = _enforce_safety_gear_block(quote)
     quote = _enforce_wrg_gating(quote, candidate_text)
     quote = _enforce_roller_guide_presence(quote, candidate_text)
+    quote = _enforce_roller_guide_set_qty(quote, candidate_text)
     quote = _normalize_detector_lines(quote)
     quote = _normalize_door_tools_code(quote)
     quote = _apply_universal_door_panel_conflict_notes(quote)
     quote = _enforce_panel_vs_adaptor_exclusivity(quote)
     quote = _enforce_car_door_panel_presence(quote)
+    quote = _clear_panel_zero_override(quote)
+    quote = _drop_stale_panel_assumptions(quote)
     quote = _enforce_door_restrictor_bundling(quote)
+    quote = _enforce_detector_presence(quote, candidate_text)
+    quote = _enforce_not_required_from_ftl(quote, candidate_text)
     # --- end Stage 2 rulebook enforcement ---
     quote = _check_door_tools_presence(quote)
     quote = _apply_temporary_flat_freight(quote)
     quote = _compose_remarks(quote, candidate_text)
+    quote = _compose_remarks_from_final_quote(quote, candidate_text)
+    quote = _enforce_contact_phone_from_email(quote, candidate_text)
     quote = _sanitize_quote(quote)
     return quote
 

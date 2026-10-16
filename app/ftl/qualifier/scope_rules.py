@@ -258,7 +258,131 @@ def detect_car_count_and_single_entrance(candidate_text: str) -> Optional[Tuple[
             single_entrance = int(rear_match.group(1)) == 0
             return car_count, single_entrance
 
+    # Solucore ("U of T") template — confirmed on '321 Bloor St W': the spec's "Number of Elevators"
+    # clause ("Modernize 2 elevator(s) ...") and its "Openings and Stops" table, which extract.py
+    # copies into the candidate text as the "Elevator count / door openings" block.
+    m = SOLUCORE_ELEVATOR_COUNT_RE.search(text)
+    if m:
+        car_count = int(m.group(1))
+        rows = SOLUCORE_OPENINGS_ROW_RE.findall(text)
+        single_entrance = bool(rows) and len(rows) >= car_count and all(
+            r[1].strip().lower() in ("n/a", "0", "none", "-") and int(r[2]) == 0 for r in rows
+        )
+        return car_count, single_entrance
+
     return None
+
+
+# Solucore template (U of T): "Modernize 2 elevator(s) at ..." and, per car, "<car> <front openings>
+# <total front> <rear openings> <total rear>" rows such as "1  B,G,2-17  18  n/a  0".
+SOLUCORE_ELEVATOR_COUNT_RE = re.compile(r"\bModernize\s+(\d+)\s+elevator", re.IGNORECASE)
+SOLUCORE_OPENINGS_ROW_RE = re.compile(
+    r"^\s*(\d+)\s+\S.*?\s+\d+\s+(n/a|none|-|\d+)\s+(\d+)\s*$", re.IGNORECASE | re.MULTILINE
+)
+
+
+def _email_block(candidate_text: str) -> str:
+    """The '## Email' section of the candidate text (the customer's own words), or ''."""
+    m = re.search(r"^## Email\b.*?(?=^## |\Z)", candidate_text or "", re.DOTALL | re.MULTILINE)
+    return m.group(0) if m else ""
+
+
+_EMAIL_CAR_RANGE_RE = re.compile(r"\bCars?\s+(\d+)\s*[-–—]\s*(\d+)\b", re.IGNORECASE)
+_EMAIL_ELEVATOR_COUNT_RE = re.compile(r"(?<![\w.])(\d{1,2})\s+(?:new\s+)?elevators?\b", re.IGNORECASE)
+
+
+def known_car_count(candidate_text: str) -> Optional[int]:
+    """How many cars this RFQ covers: the spec's own statement when a known template states it,
+    otherwise the customer's email ("Cars 1-2" / "2 elevators"). None when neither says."""
+    detected = detect_car_count_and_single_entrance(candidate_text)
+    if detected and detected[0] > 0:
+        return detected[0]
+    groups = computed_door_groups(candidate_text)
+    if groups.get("cars"):
+        return int(groups["cars"])
+    block = _email_block(candidate_text)
+    if block:
+        m = _EMAIL_CAR_RANGE_RE.search(block)
+        if m and int(m.group(2)) >= int(m.group(1)):
+            return int(m.group(2)) - int(m.group(1)) + 1
+        m = _EMAIL_ELEVATOR_COUNT_RE.search(block)
+        if m and 0 < int(m.group(1)) <= 40:
+            return int(m.group(1))
+    return None
+
+
+# ---------------------------------------------------------------------------------------------
+# "Not required from FTL" call-outs in the customer's email. A contractor often lists the whole
+# consultant scope but marks the items it is sourcing elsewhere, e.g. "Refurbishment parts kit for 2
+# existing GAL MOVFE 2500 operators ( not required from FTL )". Those must never be quoted.
+# ---------------------------------------------------------------------------------------------
+NOT_REQUIRED_FROM_FTL_RE = re.compile(
+    r"not\s+(?:required|needed|wanted)\s+(?:from|of|for|by)\s+FTL|FTL\s+(?:is\s+)?not\s+required|"
+    r"(?:supplied|provided|sourced)\s+(?:by\s+(?:others|us|ourselves|the\s+customer|owner)|elsewhere)",
+    re.IGNORECASE,
+)
+# keyword in the same bullet -> the Estimator line-item categories it removes
+NOT_REQUIRED_CATEGORY_KEYWORDS = (
+    (re.compile(r"door\s+operators?|\boperators?\b|MOVFE|refurbish", re.IGNORECASE),
+     ("door_operator", "door_tools", "other", "panel_adaptor")),
+    (re.compile(r"clutch|skate", re.IGNORECASE), ("clutch",)),
+    (re.compile(r"detect|cabsafe|light\s+curtain|visionplus", re.IGNORECASE), ("door_protective_device",)),
+    (re.compile(r"door\s+panels?|car\s+panels?|\bpanels?\b", re.IGNORECASE), ("car_door_panel", "panel_adaptor")),
+    (re.compile(r"roller\s+guides?|guide\s+shoes?", re.IGNORECASE), ("roller_guide",)),
+    (re.compile(r"governor", re.IGNORECASE), ("governor",)),
+)
+
+
+def not_required_from_ftl(candidate_text: str) -> List[Tuple[str, Tuple[str, ...]]]:
+    """[(the customer's bullet text, categories it removes)] for every email line that says the
+    item is not required from FTL. Only the email is read — never the consultant spec, whose "by
+    others" clauses describe the owner's work, not what this customer is sourcing."""
+    out: List[Tuple[str, Tuple[str, ...]]] = []
+    for raw in _email_block(candidate_text).splitlines():
+        line = raw.strip().lstrip("*•-– ").strip()
+        if not line or not NOT_REQUIRED_FROM_FTL_RE.search(line):
+            continue
+        cats: List[str] = []
+        for rx, categories in NOT_REQUIRED_CATEGORY_KEYWORDS:
+            if rx.search(NOT_REQUIRED_FROM_FTL_RE.sub(" ", line)):
+                cats.extend(c for c in categories if c not in cats)
+        if cats:
+            out.append((re.sub(r"\s+", " ", line), tuple(cats)))
+    return out
+
+
+# ---------------------------------------------------------------------------------------------
+# Car door detection ("CEDES CabSafe or equivalent ... on every car door"): one detector per car
+# door — the landings/stops are hoistway floors, never car doors.
+# ---------------------------------------------------------------------------------------------
+DETECTOR_SCOPE_RE = re.compile(
+    r"CabSafe|(?:provide|supply|furnish)\b[^.\n]{0,160}?(?:door\s+detection|infrared\s+door|"
+    r"door\s+protective\s+device|light\s+curtain)",
+    re.IGNORECASE,
+)
+DETECTOR_RETAINED_RE = re.compile(
+    r"(?:retain|reuse|keep)\s+(?:the\s+)?existing\s+(?:car\s+)?(?:door\s+)?(?:detect|protective|light\s+curtain)",
+    re.IGNORECASE,
+)
+
+
+def detector_in_scope(candidate_text: str) -> bool:
+    text = re.sub(r"\s+", " ", candidate_text or "")
+    return bool(DETECTOR_SCOPE_RE.search(text)) and not DETECTOR_RETAINED_RE.search(text)
+
+
+def car_door_count(candidate_text: str) -> Tuple[Optional[int], str]:
+    """(number of car doors, how it was known). The COMPUTED door breakdown when present (front +
+    rear per car); else the car count with a flag when a rear entrance cannot be ruled out."""
+    groups = computed_door_groups(candidate_text)
+    if groups.get("total_openings") is not None:
+        return int(groups["total_openings"]), "computed"  # type: ignore[arg-type]
+    detected = detect_car_count_and_single_entrance(candidate_text)
+    if detected:
+        cars, single = detected
+        return cars, ("single_entrance" if single else "cars_only")
+    cars = known_car_count(candidate_text)
+    return cars, ("cars_only" if cars else "unknown")
 
 
 def car_and_opening_counts(candidate_text: str) -> Dict[str, Optional[int]]:
@@ -274,3 +398,34 @@ def car_and_opening_counts(candidate_text: str) -> Dict[str, Optional[int]]:
         cars, single = detected
         return {"cars": cars, "openings": cars if single else None}
     return {"cars": None, "openings": None}
+
+
+_CAR_GUIDES_CALLED_RE = re.compile(r"\bcar\s+(?:roller\s+)?guides?\b|\bcar\s+rollers?\b", re.IGNORECASE)
+_CWT_GUIDES_CALLED_RE = re.compile(
+    r"\b(?:cwt|counter\s*-?\s*weights?)\s+(?:roller\s+)?(?:guides?|rollers?)\b", re.IGNORECASE
+)
+
+
+def roller_guides_car_and_cwt_called_out(candidate_text: str) -> bool:
+    """True when the customer/spec names BOTH car roller guides and counterweight roller guides —
+    e.g. "2 sets ... car roller guides" and "2 sets cwt roller guides" (T-006 is then satisfied)."""
+    text = re.sub(r"\s+", " ", candidate_text or "")
+    return bool(_CAR_GUIDES_CALLED_RE.search(text) and _CWT_GUIDES_CALLED_RE.search(text))
+
+
+_CAR_GUIDE_SETS_RE = re.compile(
+    r"(\d+)\s+sets?\s+(?:of\s+)?(?:[A-Za-z/&,]+\s+){0,5}?car\s+(?:roller\s+)?guides?\b", re.IGNORECASE
+)
+_CWT_GUIDE_SETS_RE = re.compile(
+    r"(\d+)\s+sets?\s+(?:of\s+)?(?:cwt|counter\s*-?\s*weights?)\s+(?:roller\s+)?guides?\b", re.IGNORECASE
+)
+
+
+def explicit_guide_sets(candidate_text: str) -> Dict[str, Optional[int]]:
+    """The customer's own count of FULL roller-guide sets, from its email ("2 sets ... car roller
+    guides", "2 sets cwt roller guides"). One full set = 4 individual assemblies (WRG-002), so the
+    quantity to quote is sets x 4. None when the email states no number of sets."""
+    block = re.sub(r"\s+", " ", _email_block(candidate_text))
+    car = _CAR_GUIDE_SETS_RE.search(block)
+    cwt = _CWT_GUIDE_SETS_RE.search(block)
+    return {"car": int(car.group(1)) if car else None, "cwt": int(cwt.group(1)) if cwt else None}

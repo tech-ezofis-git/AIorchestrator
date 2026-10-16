@@ -514,6 +514,117 @@ def test_quote_estimator_applies_git_consistency_checks():
     assert "Existing Equipment Information" in build_candidate_text(shaw)["subsections"]
 
 
+def test_quote_estimator_applies_git_auto_add_and_qty_rules():
+    from app.ftl.quote_estimator.agent import (
+        _clear_panel_zero_override,
+        _enforce_contact_phone_from_email,
+        _enforce_detector_presence,
+        _enforce_governor_qty_matches_car_count,
+        _enforce_not_required_from_ftl,
+        _enforce_roller_guide_set_qty,
+    )
+
+    email = (
+        "## Email\n"
+        "From: customer@example.com\n"
+        "Subject: RFQ\n\n"
+        "Please quote 2 sets of car roller guides and 2 sets of counterweight roller guides "
+        "for 2 elevators. Provide CabSafe or equivalent door detection on every car door. "
+        "Governors as required. Phone 416-555-0199.\n"
+        "- Door operators (not required from FTL)\n"
+    )
+
+    guides = _enforce_roller_guide_set_qty(
+        {
+            "line_items": [
+                {
+                    "product_code": "WRG_MOTION_GEAR150",
+                    "category": "roller_guide",
+                    "description": "car guide",
+                    "qty": 4,
+                    "unit_price": 1,
+                },
+                {
+                    "product_code": "WRG_MOTION_GEAR80",
+                    "category": "roller_guide",
+                    "description": "counterweight guide",
+                    "qty": 4,
+                    "unit_price": 1,
+                },
+            ],
+            "assumptions": [],
+        },
+        email,
+    )
+    by_code = {it["product_code"]: it["qty"] for it in guides["line_items"]}
+    assert by_code["WRG_MOTION_GEAR150"] == 8
+    assert by_code["WRG_MOTION_GEAR80"] == 8
+
+    gov = _enforce_governor_qty_matches_car_count(
+        {
+            "line_items": [
+                {
+                    "product_code": "WG_OL35_GOVERNOR_RC",
+                    "category": "governor",
+                    "description": "governor",
+                    "qty": 5,
+                    "unit_price": 1,
+                }
+            ],
+            "assumptions": [],
+        },
+        email,
+    )
+    assert gov["line_items"][0]["qty"] == 2
+
+    detector = _enforce_detector_presence({"line_items": [], "assumptions": []}, email)
+    assert any(it.get("category") == "door_protective_device" for it in detector["line_items"])
+
+    cleared = _clear_panel_zero_override(
+        {
+            "line_items": [
+                {
+                    "product_code": "1S_42_CAR_DOOR_PANEL",
+                    "category": "car_door_panel",
+                    "qty": 2,
+                    "unit_price": 1635,
+                    "subtotal_override": 0,
+                }
+            ]
+        }
+    )
+    assert "subtotal_override" not in cleared["line_items"][0]
+
+    excluded = _enforce_not_required_from_ftl(
+        {
+            "line_items": [
+                {
+                    "product_code": "SGV2_DOOR_OP_2T42_L",
+                    "category": "door_operator",
+                    "qty": 2,
+                    "unit_price": 1,
+                },
+                {
+                    "product_code": "VISIONPLUS_3D_DETECTOR",
+                    "category": "door_protective_device",
+                    "qty": 2,
+                    "unit_price": 1,
+                },
+            ],
+            "assumptions": [],
+            "remarks": "Scope includes door operators and detectors.",
+        },
+        email,
+    )
+    assert [it["category"] for it in excluded["line_items"]] == ["door_protective_device"]
+
+    phone = _enforce_contact_phone_from_email(
+        {"contact_phone": "(416) 978-2427", "assumptions": []},
+        email,
+    )
+    assert phone["contact_phone"] == ""
+
+
 def test_short_parts_list_is_not_cut_down_to_one_window():
     from app.ftl.quote_estimator.extract import build_candidate_text
 
