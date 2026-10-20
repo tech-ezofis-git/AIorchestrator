@@ -33,7 +33,7 @@ import email
 import re
 from email import policy
 from email.parser import BytesParser
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import pdfplumber
 from docx import Document as DocxDocument
@@ -988,3 +988,73 @@ def render_candidate_text_for_model(candidate: Dict[str, Any], email_meta: Optio
         lines.append("")
 
     return "\n".join(lines).strip()
+
+
+# ---------------------------------------------------------------------------------------------
+# Attachments the estimator cannot read (photographed / scanned surveys, drawings, spreadsheets)
+# ---------------------------------------------------------------------------------------------
+UNREAD_ATTACHMENTS_MARKER = "## Attachments NOT read by the estimator"
+_UNREAD_IMAGE_EXTS = ("jpg", "jpeg", "png", "heic", "heif", "tif", "tiff", "bmp", "gif", "webp")
+_UNREAD_OTHER_EXTS = ("xls", "xlsx", "xlsm", "csv", "dwg", "dxf", "zip", "ppt", "pptx", "doc")
+_SIGNATURE_IMAGE_MAX_BYTES = 200_000  # logos / signature images in a forwarded email are smaller than any real photo or scan
+
+
+def _used_filename_set(used_filename: Union[str, Iterable[str], None] = "") -> set:
+    if not used_filename:
+        return set()
+    if isinstance(used_filename, str):
+        return {used_filename}
+    return {str(name) for name in used_filename if name}
+
+
+def unread_attachments(
+    attachments: List[Dict[str, Any]],
+    used_filename: Union[str, Iterable[str], None] = "",
+) -> List[Dict[str, Any]]:
+    """Attachments whose content never reaches the model as text: photos / scans of a survey, CAD,
+    spreadsheets. Small images (email-signature logos) are ignored. Files the spec text was taken
+    from (`used_filename`) are not listed — including an image we successfully OCR'd."""
+    used = _used_filename_set(used_filename)
+    out: List[Dict[str, Any]] = []
+    for a in attachments or []:
+        name = a.get("filename") or ""
+        ext = name.lower().rsplit(".", 1)[-1] if "." in name else ""
+        size = len(a.get("bytes") or b"")
+        if name in used:
+            continue
+        if ext in _UNREAD_IMAGE_EXTS and size >= _SIGNATURE_IMAGE_MAX_BYTES:
+            out.append({"filename": name, "kind": "image", "bytes": size})
+        elif ext in _UNREAD_OTHER_EXTS:
+            out.append({"filename": name, "kind": ext, "bytes": size})
+    return out
+
+
+def apply_unread_attachments(
+    rendered_candidate_text: str,
+    attachments: List[Dict[str, Any]],
+    used_filename: Union[str, Iterable[str], None] = "",
+) -> str:
+    """Append a plain statement of what could not be read, so neither the model nor the controls
+    can mistake a missing survey for a survey that said nothing."""
+    unread = unread_attachments(attachments, used_filename)
+    if not unread:
+        return rendered_candidate_text
+    lines = [UNREAD_ATTACHMENTS_MARKER]
+    for u in unread:
+        lines.append(f"- {u['filename']} ({u['kind']}, {u['bytes'] / 1_000_000:.1f} MB)")
+    lines.append(
+        "The content of these files (for example a photographed or scanned survey) is NOT available to the estimator. "
+        "Nothing in them is known: door type, opening size, hand, clutch / OEM, panels, detector and quantities must not be "
+        "guessed from the email alone."
+    )
+    return rendered_candidate_text.rstrip() + "\n\n" + "\n".join(lines) + "\n"
+
+
+def has_unread_attachments(candidate_text: str) -> List[str]:
+    """File names listed in the 'not read' section of a candidate text ([] when there is none)."""
+    t = candidate_text or ""
+    i = t.find(UNREAD_ATTACHMENTS_MARKER)
+    if i < 0:
+        return []
+    block = t[i + len(UNREAD_ATTACHMENTS_MARKER):]
+    return [m.group(1).strip() for m in re.finditer(r"^- (.+?) \(", block, re.MULTILINE)]

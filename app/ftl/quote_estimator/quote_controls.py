@@ -9,6 +9,8 @@ always gives the same result:
   * apply_controlled_freight       - the single-SGV2 $375 / $450 / manual rule (COMM-004, T-014)
   * ensure_customer_info           - never replace a known customer fact with TBD
   * enforce_survey_form            - Wittur SGV form-field answers are the door-package spec
+  * enforce_detector_scope         - Quote 1 keeps a detector only when the RFQ mentions detection
+  * enforce_unread_attachments     - HOLD when attached photos / CAD / spreadsheets were not read
   * finalize_quote                 - per-line five-question trace, internal notes, release status
 
 Held items ("HOLD - TECHNICAL REVIEW REQUIRED" and friends) are recorded as structured data in
@@ -26,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.ftl import survey_form
 from app.ftl.qualifier import scope_rules
 from app.ftl.quote_estimator import rules_engine
+from app.ftl.quote_estimator.extract import UNREAD_ATTACHMENTS_MARKER, has_unread_attachments
 
 # ---------------------------------------------------------------------------------------------
 # helpers
@@ -519,6 +522,9 @@ def car_door_decision(candidate_text: str) -> Dict[str, Any]:
         "base_replace": base_replace[:3],
         "base_retain": base_retain[:3],
         "alt_replace": alt_replace[:3],
+        # True when the RFQ says NOTHING about the car doors (as opposed to contradicting itself): any panel /
+        # adaptor line on the estimate is then a guess and is removed.
+        "silent": not (base_replace or base_retain or alt_replace),
     }
 
 
@@ -579,6 +585,25 @@ def enforce_car_door_decision(quote: Dict[str, Any], candidate_text: str = "") -
                 needed="Existing OEM, configuration, opening, hand, complete top-of-door bolt pattern (survey).",
             )
     else:  # unclear
+        if info.get("silent") and (panels or adaptors):
+            # The RFQ never mentions the car doors, so ANY panel / adaptor the model priced is a guess — and it
+            # guesses differently run to run. Remove it; the estimate carries a hold instead (never guess).
+            removed = ", ".join(sorted({str(it.get("product_code") or it.get("description") or "?") for it in panels + adaptors}))
+            items = [it for it in items if it not in panels and it not in adaptors]
+            _add_assumption(
+                quote,
+                f"\U0001F6D1 HOLD FOR REVIEW — car doors: the RFQ says nothing about the car doors, so the door line(s) the agent had "
+                f"guessed ({removed}) were removed rather than priced. " + rules_engine.cite_trigger("RT-004"),
+            )
+            auto_added = []
+            panels, adaptors = [], []
+            add_held_item(
+                quote,
+                item="Car doors — new universal doors vs retained doors",
+                reason="HOLD FOR REVIEW: the RFQ does not say whether the car doors are replaced / skinned or retained, so no door line is priced (CAR DOOR RULE).",
+                rules=["DOOR-004", "DOOR-005", "DOOR-006"],
+                needed="Estimator confirms: replace / skin (universal doors) or retain (OEM adaptor + bolt pattern).",
+            )
         if auto_added:
             items = [it for it in items if it not in auto_added]
             add_held_item(
@@ -1090,6 +1115,63 @@ def release_status(quote: Dict[str, Any]) -> Tuple[str, List[str]]:
         "CLEAR": "CLEAR — all five line questions answered; estimator sign-off still required for discounts and freight",
     }[level]
     return label, list(dict.fromkeys(reasons))
+
+
+_DETECTION_MENTION_RE = re.compile(
+    r"\bdetectors?\b|\bdetection\b|protective\s+device|light\s+curtain|cabsafe|safety\s+edge|door\s+edge|\b3d\b|visionplus|\bpana\b|\bformula\b",
+    re.IGNORECASE,
+)
+
+
+def detection_mentioned(candidate_text: str) -> bool:
+    """True when the RFQ talks about door detection / a 3D edge anywhere (spec clause, survey 10d, email).
+    The 'Detected structure signal' heading is the extractor's own label, not the customer's words."""
+    text = re.sub(r"##\s*Detected structure signal[^\n]*", " ", candidate_text or "")
+    text = text.split(UNREAD_ATTACHMENTS_MARKER)[0]
+    return bool(_DETECTION_MENTION_RE.search(text))
+
+
+def enforce_detector_scope(quote: Dict[str, Any], candidate_text: str = "") -> Dict[str, Any]:
+    """Quote 1 carries a door detector only when the RFQ mentions door detection. When it never does, a
+    detector line is the model's own addition (it adds one on some runs and not on others — which made
+    Quote 2 appear and disappear), so it is removed here and offered on Quote 2 as FTL's recommendation
+    (DET-001, QUOTE-002). A detector that came from a filled Wittur survey (10d) or from the spec is untouched."""
+    items = [dict(it) for it in _lines(quote)]
+    dets = [it for it in items if it.get("category") == "door_protective_device"]
+    if not dets or not any(it.get("category") == "door_operator" for it in items):
+        return quote
+    if detection_mentioned(candidate_text):
+        return quote
+    quote = dict(quote)
+    quote["line_items"] = [it for it in items if it not in dets]
+    _add_assumption(
+        quote,
+        "ℹ No door detector on Quote 1: the RFQ never mentions door detection, so a detector line is not part of the customer's "
+        "specification. FTL's Formula VisionPlus 3D detector is offered on Quote 2 (DET-001, QUOTE-001/002).",
+    )
+    return quote
+
+
+def enforce_unread_attachments(quote: Dict[str, Any], candidate_text: str = "") -> Dict[str, Any]:
+    """The email attaches files the estimator cannot read (photographed / scanned survey, CAD, spreadsheets).
+    Whatever they say is unknown: the estimate is held so nobody releases a price built on the email alone."""
+    names = has_unread_attachments(candidate_text)
+    if not names:
+        return quote
+    quote = dict(quote)
+    add_held_item(
+        quote,
+        item="Attached files not read",
+        reason=(
+            "The email attaches " + ", ".join(names[:4]) + (f" (+{len(names) - 4} more)" if len(names) > 4 else "")
+            + ", which the estimator cannot read (photographed / scanned survey or drawing). Door type, opening size, hand, "
+            "clutch / OEM, panels, detector and quantities in this estimate come from the email text only."
+        ),
+        rules=["OUT-003", "QUOTE-001"],
+        needed="Estimator reads the attachment(s) and confirms or corrects the operator type, quantities and door package — or the customer sends a fillable / typed survey.",
+        level="HOLD",
+    )
+    return quote
 
 
 def finalize_quote(quote: Dict[str, Any], candidate_text: str = "") -> Dict[str, Any]:

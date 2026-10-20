@@ -3242,6 +3242,8 @@ def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any
     quote = _enforce_not_required_from_ftl(quote, candidate_text)
     # --- end Stage 2 rulebook enforcement ---
     quote = quote_controls.enforce_survey_form(quote, candidate_text)  # again: later steps must not drift from the form
+    quote = quote_controls.enforce_detector_scope(quote, candidate_text)  # Quote 1 = the spec: no detector the RFQ never mentions
+    quote = quote_controls.enforce_unread_attachments(quote, candidate_text)
     quote = _check_door_tools_presence(quote)
     quote = quote_controls.enforce_programming_tool(quote, candidate_text)
     quote = quote_controls.apply_controlled_freight(quote, candidate_text)
