@@ -1,6 +1,11 @@
 """Public Quote 2 / Quote 3 / compare envelope — API flatten only, no model call."""
 
-from app.ftl.quote_estimator.quote_public import TRACE_PUBLIC, public_quote_payload
+from app.ftl.quote_estimator.quote_public import (
+    TRACE_PUBLIC,
+    TRACE_Q2_PUBLIC,
+    TRACE_Q3_PUBLIC,
+    public_quote_payload,
+)
 
 
 def _line(category, code, qty, price, **extra):
@@ -63,11 +68,15 @@ def test_quote_result_stays_quote_1_and_header_is_not_copied_to_variants():
     assert "quote_2 Project" not in q1["quote_2"]
     assert "quote_2 Company Name" not in q1["quote_2"]
     assert "Line Item" in q1
-    trace = q1["Line Item"][0][TRACE_PUBLIC]
-    assert trace["Why"]
-    assert trace["Quantity Source"]
-    assert trace["Rule"]
-    assert "Price Source" in trace
+    assert TRACE_PUBLIC not in q1["Line Item"][0]
+    traces = q1[TRACE_PUBLIC]
+    assert traces and traces[0]["Product"]
+    assert traces[0]["Why"]
+    assert traces[0]["Quantity Source"]
+    assert traces[0]["Rule"]
+    assert "Price Source" in traces[0]
+    assert TRACE_Q2_PUBLIC in q1
+    assert all(TRACE_PUBLIC not in it for it in q1["quote_2"].get("quote_2 Line Item") or [])
 
 
 def test_gal_lock_conversion_emits_prefixed_quote_2_diffs_only():
@@ -82,9 +91,13 @@ def test_gal_lock_conversion_emits_prefixed_quote_2_diffs_only():
     assert "Car Door Panel" in cats
     assert "Panel Adaptor" not in cats
     panel = next(it for it in q2["quote_2 Line Item"] if it["Category"] == "Car Door Panel")
-    assert panel[TRACE_PUBLIC]["Why"]
-    assert panel[TRACE_PUBLIC]["Rule"]
-    assert "DOOR-004" in panel[TRACE_PUBLIC]["Rule"] or "PANEL-001" in panel[TRACE_PUBLIC]["Rule"]
+    assert TRACE_PUBLIC not in panel
+    q1 = public["quote_result"]
+    q2_traces = q1[TRACE_Q2_PUBLIC]
+    panel_trace = next(t for t in q2_traces if t["Product"] == panel["Product"])
+    assert panel_trace["Why"]
+    assert panel_trace["Rule"]
+    assert "DOOR-004" in panel_trace["Rule"] or "PANEL-001" in panel_trace["Rule"]
     compare = public["quote_result"]["compare"]["quote_2"]
     assert compare is not None
     assert "Line Item" in compare
@@ -93,7 +106,7 @@ def test_gal_lock_conversion_emits_prefixed_quote_2_diffs_only():
     added = compare["Line Item"].get("Added") or []
     added_codes = [it.get("Product") for it in added]
     assert any("VISIONPLUS" in str(c) or "UNIVERSAL" in str(c) for c in added_codes)
-    assert any(it.get(TRACE_PUBLIC) for it in added)
+    assert all(TRACE_PUBLIC not in it for it in added)
 
 
 def test_no_approved_upgrade_keeps_quote_2_status_only():
@@ -102,6 +115,7 @@ def test_no_approved_upgrade_keeps_quote_2_status_only():
     assert q2["quote_2 Status"] == "NO VALID RECOMMENDED VARIANT"
     assert "quote_2 Line Item" not in q2
     assert "quote_2 Hst" not in q2
+    assert TRACE_Q2_PUBLIC not in public["quote_result"]
     assert public["quote_result"]["compare"]["quote_2"] is None
 
 
@@ -109,6 +123,7 @@ def test_quote_3_alternate_and_no_third():
     none = public_quote_payload(_quote1(detector=True), candidate_text=PLAIN)
     assert none["quote_result"]["quote_3"]["quote_3 Status"] == "NO VALID THIRD OPTION"
     assert none["quote_result"]["compare"]["quote_3"] is None
+    assert TRACE_Q3_PUBLIC not in none["quote_result"]
     assert list(none["quote_result"]["quote_3"].keys()) == ["quote_3 Status", "quote_3 Reason", "quote_3 Rules"]
 
     alt = public_quote_payload(_quote1(detector=True), candidate_text=ALT)
@@ -116,6 +131,8 @@ def test_quote_3_alternate_and_no_third():
     assert q3["quote_3 Status"] == "GENERATED"
     assert "quote_3 Line Item" in q3
     assert "quote_3 Hst" in q3
+    assert TRACE_Q3_PUBLIC in alt["quote_result"]
+    assert alt["quote_result"][TRACE_Q3_PUBLIC]
     assert alt["quote_result"]["compare"]["quote_3"] is not None
     assert "Line Item" in alt["quote_result"]["compare"]["quote_3"]
 

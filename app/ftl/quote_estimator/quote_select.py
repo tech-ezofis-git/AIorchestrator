@@ -6,7 +6,16 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 _STATUS_GENERATED = "GENERATED"
-_SKIP_TOP = frozenset({"quote_2", "quote_3", "compare", "quote 2", "quote 3"})
+_SKIP_TOP = frozenset(
+    {
+        "quote_2",
+        "quote_3",
+        "compare",
+        "quote 2",
+        "quote 3",
+        "line_traceability",
+    }
+)
 _SKIP_OVERLAY = frozenset({"status", "reason", "rules"})
 
 _TYPE_ALIASES = {

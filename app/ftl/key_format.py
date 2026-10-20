@@ -34,7 +34,7 @@ PUBLIC_KEY_NAMES = {
     "unit_price": "Price",
     "qty_source": "Quantity Source",
     "price_source": "Price Source",
-    "trace": "Line Traceability (Why, Quantity Source, Rule, Price Source)",
+    "trace": "Line Traceability",
 }
 
 

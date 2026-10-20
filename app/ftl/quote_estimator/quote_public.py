@@ -13,7 +13,9 @@ from app.ftl.quote_estimator import quote_variants as qv
 from app.ftl.quote_estimator import rules_engine
 from app.ftl.quote_estimator.quote_template import compute_totals
 
-TRACE_PUBLIC = "Line Traceability (Why, Quantity Source, Rule, Price Source)"
+TRACE_PUBLIC = "Line Traceability"
+TRACE_Q2_PUBLIC = "quote_2 Line Traceability"
+TRACE_Q3_PUBLIC = "quote_3 Line Traceability"
 
 # Status envelope is always emitted, even when no variant was generated.
 _STATUS_KEYS = ("status", "reason", "rules")
@@ -77,15 +79,38 @@ def _with_trace(quote: Dict[str, Any], candidate_text: str = "") -> Dict[str, An
 
 def _public_line(item: Dict[str, Any]) -> Dict[str, Any]:
     row = dict(item)
-    trace = row.pop("trace", None)
-    row.pop("origin", None)
-    public = title_keys(row)
-    public[TRACE_PUBLIC] = _public_trace(trace)
-    return public
+    for key in ("trace", "origin", "why", "qty_source", "price_source", "rules", "price_verified"):
+        row.pop(key, None)
+    return title_keys(row)
 
 
 def _public_lines(items: Any) -> List[Dict[str, Any]]:
     return [_public_line(it) for it in (items or []) if isinstance(it, dict)]
+
+
+def _trace_entry(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    trace = _public_trace(item.get("trace"))
+    if not trace:
+        return None
+    return {"Product": str(item.get("product_code") or ""), **trace}
+
+
+def _public_trace_list(quote: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for item in quote.get("line_items") or []:
+        if not isinstance(item, dict):
+            continue
+        entry = _trace_entry(item)
+        if entry:
+            rows.append(entry)
+    return rows
+
+
+def _generated_quote(info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    result = info.get("result")
+    if not result or info.get("status") != qv.STATUS_GENERATED:
+        return None
+    return result
 
 
 def _with_totals(quote: Dict[str, Any]) -> Dict[str, Any]:
@@ -172,8 +197,13 @@ def _line_from_quote(quote: Dict[str, Any], code: Any) -> Optional[Dict[str, Any
 
 def _compare_line(slim: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:
     full = _line_from_quote(source, slim.get("product_code")) or slim
-    public = title_keys(slim)
-    public[TRACE_PUBLIC] = _public_trace(full.get("trace"))
+    row = dict(slim)
+    row.pop("trace", None)
+    full_row = dict(full)
+    full_row.pop("trace", None)
+    public = title_keys(row)
+    if not public.get("Product") and full_row.get("product_code"):
+        public["Product"] = full_row.get("product_code")
     return public
 
 
@@ -265,10 +295,17 @@ def public_quote_payload(
     body = {k: v for k, v in q1.items() if k != "line_items"}
     quote_result = title_keys(body)
     quote_result["Line Item"] = _public_lines(q1.get("line_items"))
+    quote_result[TRACE_PUBLIC] = _public_trace_list(q1)
     quote_result["quote_2"] = _variant_object("quote_2", q2, q1)
     quote_result["quote_3"] = _variant_object("quote_3", q3, q1)
     quote_result["compare"] = {
         "quote_2": _compare_object(q1, q2),
         "quote_3": _compare_object(q1, q3),
     }
+    q2_quote = _generated_quote(q2)
+    if q2_quote:
+        quote_result[TRACE_Q2_PUBLIC] = _public_trace_list(_with_trace(q2_quote, candidate_text))
+    q3_quote = _generated_quote(q3)
+    if q3_quote:
+        quote_result[TRACE_Q3_PUBLIC] = _public_trace_list(_with_trace(q3_quote, candidate_text))
     return {"quote_result": quote_result}
