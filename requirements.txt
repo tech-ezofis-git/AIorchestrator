@@ -4,7 +4,7 @@ pydantic==2.10.6
 pydantic-settings==2.5.2
 litellm==1.93.2
 openai==2.20.0
-aiohttp==3.14.3
+aiohttp==3.14.4
 redis==5.0.8
 python-multipart==0.0.31
 azure-storage-blob==12.23.1
