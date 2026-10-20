@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "rulebook")
@@ -262,3 +263,62 @@ def detector_power_supply_row() -> Optional[Dict[str, Any]]:
 
 def universal_door_panel_rows() -> List[Dict[str, Any]]:
     return [p for p in PRODUCT_MASTER if "Universal Car Door" in (p.get("type") or "")]
+
+
+INFLOW_SOURCE_LABEL = "inFlow live selling price (rulebook snapshot)"
+MASTER_SOURCE_LABEL = "Stage 2 Product Master"
+
+
+def rulebook_version() -> str:
+    return str((PRICE_BOOK.get("version") if isinstance(PRICE_BOOK, dict) else None) or "1.0")
+
+
+def universal_panel_row(door_type: str, width: Any) -> Optional[Dict[str, Any]]:
+    """Product Master row for a universal car door panel of `door_type` (1S/2C/2T) at 84 in."""
+    try:
+        w = int(float(width))
+    except (TypeError, ValueError):
+        return None
+    prefix = f"{door_type.upper()}_"
+    needle = f"- {w} X 84"
+    for p in PRODUCT_MASTER:
+        code = p.get("ftl_product_code") or ""
+        if code.startswith(prefix) and "UNIVERSAL_CAR_DOOR_PANEL" in code and needle in code:
+            return p
+    return None
+
+
+def universal_panel_row_from_text(text: str) -> Optional[Dict[str, Any]]:
+    m = re.match(
+        r"\s*(1S|2C|2T)_[A-Z0-9_]*UNIVERSAL_CAR_DOOR[A-Z0-9_]*\s*-\s*(\d+)\s*X\s*(\d+)",
+        text or "",
+        re.IGNORECASE,
+    )
+    if not m or int(m.group(3)) != 84:
+        return None
+    return universal_panel_row(m.group(1), m.group(2))
+
+
+def resolve_master_row(code: str) -> Optional[Dict[str, Any]]:
+    """Exact-code Product Master lookup with documented fallbacks only — never fuzzy."""
+    if not code:
+        return None
+    row = product_master_row(code)
+    if row:
+        return row
+    row = product_master_row(code + "/RH")
+    if row:
+        return row
+    row = universal_panel_row_from_text(code)
+    if row:
+        return row
+    stripped = re.sub(r"_(LH|RH)$", "", code, flags=re.IGNORECASE)
+    if stripped != code:
+        row = (
+            product_master_row(stripped)
+            or product_master_row(stripped + "_LH/RH")
+            or product_master_row(stripped + "_LH")
+        )
+        if row:
+            return row
+    return None

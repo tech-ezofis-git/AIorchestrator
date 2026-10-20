@@ -19,6 +19,7 @@ from app.ftl.qualifier import (
     skill_store as qualifier_skill_store,
 )
 from app.ftl.key_format import snake_key, snake_keys, title_keys
+from app.ftl.quote_estimator.quote_public import public_quote_payload
 from app.ftl.qualifier.output_format import to_public as qualifier_to_public
 from app.ftl.quote_estimator import (
     pricelist_store as quote_pricelist_store,
@@ -321,10 +322,18 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
             ap_agent_job_id=ap_agent_job_id,
             ezofis=getattr(request.app.state, "ezofis_client", None),
         )
+        public = public_quote_payload(
+            res["quote_result"],
+            variants=res.get("quote_variants"),
+            candidate_text=res.get("candidate_text") or "",
+        )
         return {
             "status": "success",
             "estimate_number": res["estimate_number"],
-            "quote_result": title_keys(res["quote_result"]),
+            "quote_result": public["quote_result"],
+            "quote_2": public["quote_2"],
+            "quote_3": public["quote_3"],
+            "compare": public["compare"],
             "pdf_download_url": res["pdf_download_url"],
             "total_tokens": res["total_tokens"],
         }

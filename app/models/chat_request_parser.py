@@ -79,6 +79,19 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             parsed_quote = None
         if isinstance(parsed_quote, dict):
             quote_result = parsed_quote
+    quote_type = (
+        _form_str(form.get("quote_type"))
+        or _form_str(form.get("quoteType"))
+        or _form_str(form.get("Quote Type"))
+    )
+    quote_2 = _parse_optional_json_object(
+        _form_str(form.get("quote_2")) or _form_str(form.get("quote2")) or _form_str(form.get("Quote 2")),
+        field="quote_2",
+    )
+    quote_3 = _parse_optional_json_object(
+        _form_str(form.get("quote_3")) or _form_str(form.get("quote3")) or _form_str(form.get("Quote 3")),
+        field="quote_3",
+    )
     template_type = (
         _form_str(form.get("template_type"))
         or _form_str(form.get("templateType"))
@@ -298,6 +311,9 @@ async def _parse_multipart(request: Request) -> ParsedChatRequest:
             candidate_text=candidate_text,
             qualifier_result=qualifier_result,
             quote_result=quote_result,
+            quote_2=quote_2,
+            quote_3=quote_3,
+            quote_type=quote_type,
             template_type=template_type,
             parameters=parameters,
             tableparameters=tableparameters,

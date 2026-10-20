@@ -24,6 +24,8 @@ from app.ftl.quote_estimator import (
     skill_store,
     agent as quote_agent,
 )
+from app.ftl.quote_estimator.quote_public import derive_quote_variants, public_quote_payload
+from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
 from app.ftl.quote_estimator.quote_pdf import generate_quote_pdf
 from app.ftl.quote_estimator.quote_template import compute_totals, render_quote_html
 from app.ftl.quote_estimator.template_pdf import render_template_pdf
@@ -352,6 +354,12 @@ class FtlQuoteEstimatorAgent:
             if totals.get("line_items"):
                 quote_result["line_items"] = totals["line_items"]
 
+            try:
+                variants = derive_quote_variants(quote_result, rendered)
+            except Exception:
+                logger.exception("ftl_quote_variants_failed")
+                variants = []
+
             # Store quote
             raw_file_bytes = file_bytes
             if raw_file_bytes is None and filepath and os.path.exists(filepath):
@@ -377,6 +385,7 @@ class FtlQuoteEstimatorAgent:
 
             return {
                 "quote_result": quote_result,
+                "quote_variants": variants,
                 "estimate_number": estimate_number,
                 "rendered_html": rendered_html,
                 "pdf_available": pdf_available,
@@ -418,6 +427,9 @@ class FtlQuoteEstimatorAgent:
         quote_input = job.get("quote_result")
         form_data = job.get("form_data")
         template_json = job.get("template_json")
+        quote_type = job.get("quote_type") or job.get("quoteType")
+        quote_2 = job.get("quote_2")
+        quote_3 = job.get("quote_3")
         raw_job_id = (
             job.get("ap_agent_job_id")
             or job.get("apAgentJobId")
@@ -445,6 +457,16 @@ class FtlQuoteEstimatorAgent:
             if error:
                 return {"reply": f"### ⚠️ Quote PDF Failed\n\n{error}", "usage": None, "error": error}
             try:
+                form_data, quote_n = form_data_for_quote_type(
+                    form_data=form_data,
+                    quote_type=quote_type,
+                    quote_2=quote_2,
+                    quote_3=quote_3,
+                    quote_result=quote_input if isinstance(quote_input, dict) else None,
+                )
+            except ValueError as exc:
+                return {"reply": f"### ⚠️ Quote PDF Failed\n\n{str(exc)}", "usage": None, "error": str(exc)}
+            try:
                 res = await asyncio.to_thread(render_pdf_from_template, template_json, form_data)
             except Exception as exc:
                 logger.exception("ftl_template_pdf_render_error")
@@ -454,7 +476,7 @@ class FtlQuoteEstimatorAgent:
                     "error": str(exc),
                 }
             return {
-                "reply": f"PDF generated for {res['estimate_number']} ({res['page_count']} page(s)).",
+                "reply": f"PDF generated for {res['estimate_number']} (Quote {quote_n}, {res['page_count']} page(s)).",
                 "usage": None,
                 "estimate_number": res["estimate_number"],
                 "pdf_base64": res["pdf_base64"],
@@ -463,7 +485,16 @@ class FtlQuoteEstimatorAgent:
 
         if isinstance(quote_input, dict) and quote_input:
             try:
-                res = await asyncio.to_thread(render_pdf_from_quote, quote_input, template_type)
+                selected, _quote_n = form_data_for_quote_type(
+                    form_data=form_data if isinstance(form_data, dict) else None,
+                    quote_type=quote_type,
+                    quote_2=quote_2,
+                    quote_3=quote_3,
+                    quote_result=quote_input,
+                )
+                res = await asyncio.to_thread(render_pdf_from_quote, selected, template_type)
+            except ValueError as exc:
+                return {"reply": f"### ⚠️ Quote PDF Failed\n\n{str(exc)}", "usage": None, "error": str(exc)}
             except Exception as exc:
                 logger.exception("ftl_quote_pdf_render_error")
                 return {
@@ -499,10 +530,18 @@ class FtlQuoteEstimatorAgent:
             quote = res["quote_result"]
             est_num = res["estimate_number"]
             reply_md = format_quote_markdown(quote, est_num)
+            public = public_quote_payload(
+                quote,
+                variants=res.get("quote_variants"),
+                candidate_text=res.get("candidate_text") or "",
+            )
             return {
                 "reply": reply_md,
                 "usage": {"total_tokens": res["total_tokens"]},
-                "quote_result": title_keys(quote),
+                "quote_result": public["quote_result"],
+                "quote_2": public["quote_2"],
+                "quote_3": public["quote_3"],
+                "compare": public["compare"],
                 "estimate_number": est_num,
                 "pdf_download_url": res["pdf_download_url"],
                 "pdf_base64": res.get("pdf_base64"),

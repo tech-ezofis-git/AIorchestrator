@@ -147,6 +147,82 @@ def test_rejects_non_template():
         render_template_pdf({"foo": 1}, {})
 
 
+def test_quote_type_quote_2_fills_prefixed_line_items(client, monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("model must not be called for template input")
+
+    monkeypatch.setattr("app.ftl.quote_estimator.agent.run_quote_estimation", fail)
+    res = client.post(
+        "/chat",
+        json={
+            "session_id": "ftl-tpl-q2",
+            "intent": "ftl_quote_estimator",
+            "payload": {
+                "quoteType": "Quote 2",
+                "formData": {
+                    "Order Number": "EST-900201",
+                    "Company Name": "ATTA Elevators",
+                    "Line Item": _items(1),
+                    "Total": 10.0,
+                    "quote_2": {
+                        "quote_2 Status": "GENERATED",
+                        "quote_2 Order Number": "EST-900201-Q2",
+                        "quote_2 Line Item": [
+                            {
+                                "Product": "FS_VISIONPLUS_3D_CAR_DOOR_DET",
+                                "Description": "3D detector",
+                                "Qty": 2,
+                                "Price": 1295.0,
+                                "Subtotal": 2590.0,
+                            }
+                        ],
+                        "quote_2 Total": 2590.0,
+                    },
+                },
+                "templateJson": _template(),
+            },
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    pdf = base64.b64decode(body["pdf_base64"])
+    text = _pages_text(pdf)[0]
+    assert "VISIONPLUS" in text and "3D detector" in text
+    assert "SKU-0" not in text
+    assert "Quote 2" in body["reply"]
+    assert body["pdf_filename"] == "EST-900201-Q2.pdf"
+
+
+def test_quote_type_quote_2_rejected_when_not_generated(client, monkeypatch):
+    monkeypatch.setattr(
+        "app.ftl.quote_estimator.agent.run_quote_estimation",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no model")),
+    )
+    res = client.post(
+        "/chat",
+        json={
+            "session_id": "ftl-tpl-q2-miss",
+            "intent": "ftl_quote_estimator",
+            "payload": {
+                "quoteType": "Quote 2",
+                "formData": {
+                    "Order Number": "EST-1",
+                    "Line Item": _items(1),
+                    "quote_2": {
+                        "quote_2 Status": "NO VALID RECOMMENDED VARIANT",
+                        "quote_2 Reason": "No approved rule.",
+                    },
+                },
+                "templateJson": _template(),
+            },
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert not body.get("pdf_base64")
+    assert "GENERATED" in body["reply"]
+
+
 @pytest.mark.parametrize("encode", [_b64, lambda t: "data:application/json;base64," + _b64(t), lambda t: t])
 def test_chat_returns_pdf_base64(client, monkeypatch, encode):
     def fail(*args, **kwargs):
