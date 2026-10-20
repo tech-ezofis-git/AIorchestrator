@@ -55,11 +55,13 @@ ALT = (
 def test_quote_result_stays_quote_1_and_header_is_not_copied_to_variants():
     public = public_quote_payload(_quote1(), candidate_text=GAL)
     q1 = public["quote_result"]
+    assert set(public) == {"quote_result"}
     assert q1["Order Number"] == "EST-900201"
     assert q1["Project"] == "Monfort Hospital Cars 5 & 6"
     assert q1["Company Name"] == "ATTA Elevators"
-    assert "quote_2 Project" not in public["quote_2"]
-    assert "quote_2 Company Name" not in public["quote_2"]
+    assert "quote_2" in q1 and "quote_3" in q1 and "compare" in q1
+    assert "quote_2 Project" not in q1["quote_2"]
+    assert "quote_2 Company Name" not in q1["quote_2"]
     assert "Line Item" in q1
     trace = q1["Line Item"][0][TRACE_PUBLIC]
     assert trace["Why"]
@@ -70,7 +72,7 @@ def test_quote_result_stays_quote_1_and_header_is_not_copied_to_variants():
 
 def test_gal_lock_conversion_emits_prefixed_quote_2_diffs_only():
     public = public_quote_payload(_quote1(), candidate_text=GAL)
-    q2 = public["quote_2"]
+    q2 = public["quote_result"]["quote_2"]
     assert q2["quote_2 Status"] == "GENERATED"
     assert "quote_2 Line Item" in q2
     assert "quote_2 Hst" in q2
@@ -83,7 +85,7 @@ def test_gal_lock_conversion_emits_prefixed_quote_2_diffs_only():
     assert panel[TRACE_PUBLIC]["Why"]
     assert panel[TRACE_PUBLIC]["Rule"]
     assert "DOOR-004" in panel[TRACE_PUBLIC]["Rule"] or "PANEL-001" in panel[TRACE_PUBLIC]["Rule"]
-    compare = public["compare"]["quote_2"]
+    compare = public["quote_result"]["compare"]["quote_2"]
     assert compare is not None
     assert "Line Item" in compare
     assert "Hst" in compare
@@ -96,23 +98,44 @@ def test_gal_lock_conversion_emits_prefixed_quote_2_diffs_only():
 
 def test_no_approved_upgrade_keeps_quote_2_status_only():
     public = public_quote_payload(_quote1(detector=True, adaptor=False), candidate_text=PLAIN)
-    q2 = public["quote_2"]
+    q2 = public["quote_result"]["quote_2"]
     assert q2["quote_2 Status"] == "NO VALID RECOMMENDED VARIANT"
     assert "quote_2 Line Item" not in q2
     assert "quote_2 Hst" not in q2
-    assert public["compare"]["quote_2"] is None
+    assert public["quote_result"]["compare"]["quote_2"] is None
 
 
 def test_quote_3_alternate_and_no_third():
     none = public_quote_payload(_quote1(detector=True), candidate_text=PLAIN)
-    assert none["quote_3"]["quote_3 Status"] == "NO VALID THIRD OPTION"
-    assert none["compare"]["quote_3"] is None
-    assert list(none["quote_3"].keys()) == ["quote_3 Status", "quote_3 Reason", "quote_3 Rules"]
+    assert none["quote_result"]["quote_3"]["quote_3 Status"] == "NO VALID THIRD OPTION"
+    assert none["quote_result"]["compare"]["quote_3"] is None
+    assert list(none["quote_result"]["quote_3"].keys()) == ["quote_3 Status", "quote_3 Reason", "quote_3 Rules"]
 
     alt = public_quote_payload(_quote1(detector=True), candidate_text=ALT)
-    q3 = alt["quote_3"]
+    q3 = alt["quote_result"]["quote_3"]
     assert q3["quote_3 Status"] == "GENERATED"
     assert "quote_3 Line Item" in q3
     assert "quote_3 Hst" in q3
-    assert alt["compare"]["quote_3"] is not None
-    assert "Line Item" in alt["compare"]["quote_3"]
+    assert alt["quote_result"]["compare"]["quote_3"] is not None
+    assert "Line Item" in alt["quote_result"]["compare"]["quote_3"]
+
+
+def test_nested_quote_2_inside_quote_result_is_used_for_pdf_select():
+    from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
+
+    form, n = form_data_for_quote_type(
+        quote_type="Quote 2",
+        quote_result={
+            "Order Number": "EST-1",
+            "Line Item": [{"Product": "A"}],
+            "quote_2": {
+                "quote_2 Status": "GENERATED",
+                "quote_2 Line Item": [{"Product": "B"}],
+            },
+            "compare": {"quote_2": {"Hst": {"From": 1, "To": 2}}},
+        },
+    )
+    assert n == 2
+    assert form["Line Item"][0]["Product"] == "B"
+    assert "quote_2" not in form
+    assert "compare" not in form

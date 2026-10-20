@@ -1092,27 +1092,9 @@ class ChatResponse(BaseModel):
     )
     quote_result: Optional[dict[str, Any]] = Field(
         default=None,
-        description="FTL Quote Estimator Quote 1 — line items, quantities, pricing, totals, and notes.",
-    )
-    quote_2: Optional[dict[str, Any]] = Field(
-        default=None,
         description=(
-            "FTL Quote 2 (FTL recommended). Prefixed keys (quote_2 Status, quote_2 Line Item, …) "
-            "and only fields that differ from Quote 1."
-        ),
-    )
-    quote_3: Optional[dict[str, Any]] = Field(
-        default=None,
-        description=(
-            "FTL Quote 3 (alternate / complete). Prefixed keys (quote_3 Status, quote_3 Hst, …) "
-            "and only fields that differ from Quote 1."
-        ),
-    )
-    compare: Optional[dict[str, Any]] = Field(
-        default=None,
-        description=(
-            "Quote 1 vs Quote 2 / Quote 3 diffs only (unprefixed Line Item, Hst, Total). "
-            "Null under a variant when that variant was not generated."
+            "FTL Quote Estimator output. Quote 1 fields plus nested quote_2 / quote_3 "
+            "(prefixed changed fields) and compare (unprefixed diffs only)."
         ),
     )
     ftp_result: Optional[dict[str, Any]] = Field(

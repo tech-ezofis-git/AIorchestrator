@@ -28,7 +28,7 @@ try:
         panel_set_prices,
         search_pricelist,
     )
-    from app.ftl.quote_estimator import rules_engine
+    from app.ftl.quote_estimator import quote_controls, rules_engine
     from app.ftl.qualifier import scope_rules
 except ImportError:
     from pricelist_store import (
@@ -39,6 +39,7 @@ except ImportError:
         panel_set_prices,
         search_pricelist,
     )
+    import quote_controls
     import rules_engine
     import scope_rules
 
@@ -3206,9 +3207,12 @@ def _strip_excluded_from_remarks(remarks: str, cats: Any) -> str:
         out = re.sub(rf",?\s*(?:and\s+)?{pat}(?=\s*[.;])", "", out, flags=re.IGNORECASE)  # trailing "…, and X."
     return re.sub(r"\s{2,}", " ", out).strip()
 
+
 def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
     quote = _validate_quote_payload(quote)
     quote = _canonicalize_product_codes(quote)
+    # Wittur survey form: the customer's typed answers ARE the door-package spec (no-op otherwise)
+    quote = quote_controls.enforce_survey_form(quote, candidate_text)
     quote = _enforce_scope_table(quote, candidate_text)
     quote = _check_door_package_completeness(quote, candidate_text)
     quote = _enforce_governor_presence(quote, candidate_text)
@@ -3237,13 +3241,25 @@ def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any
     quote = _enforce_detector_presence(quote, candidate_text)
     quote = _enforce_not_required_from_ftl(quote, candidate_text)
     # --- end Stage 2 rulebook enforcement ---
+    quote = quote_controls.enforce_survey_form(quote, candidate_text)  # again: later steps must not drift from the form
     quote = _check_door_tools_presence(quote)
-    quote = _apply_temporary_flat_freight(quote)
+    quote = quote_controls.enforce_programming_tool(quote, candidate_text)
+    quote = quote_controls.apply_controlled_freight(quote, candidate_text)
     quote = _compose_remarks(quote, candidate_text)
     quote = _compose_remarks_from_final_quote(quote, candidate_text)
     quote = _enforce_contact_phone_from_email(quote, candidate_text)
+    quote = quote_controls.ensure_customer_info(quote, candidate_text)
     quote = _sanitize_quote(quote)
+    quote = _canonicalize_product_codes(quote)
+    quote = quote_controls.apply_inflow_price_authority(quote)
+    quote = quote_controls.enforce_no_automatic_discounts(quote, candidate_text)
+    quote = quote_controls.finalize_quote(quote, candidate_text)
     return quote
+
+
+def postprocess_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any]:
+    """Deterministic pipeline after the model submits a quote (git name; used by tests)."""
+    return _finalize_quote(quote, candidate_text)
 
 
 def _incomplete_scope_nudge(quote: Dict[str, Any], candidate_text: str) -> str:

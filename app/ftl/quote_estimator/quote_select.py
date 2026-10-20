@@ -72,13 +72,19 @@ def _variant_from(form_data: Dict[str, Any], explicit: Any, n: int) -> Optional[
     return prefixed or None
 
 
+def _skip_variant_key(key: Any) -> bool:
+    nk = _norm_key(key)
+    return nk in _SKIP_TOP or nk.startswith("quote_2") or nk.startswith("quote_3")
+
+
 def _base_form(form_data: Dict[str, Any], quote_result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     base: Dict[str, Any] = {}
     if isinstance(quote_result, dict):
-        base.update(quote_result)
+        for key, value in quote_result.items():
+            if not _skip_variant_key(key):
+                base[key] = value
     for key, value in form_data.items():
-        nk = _norm_key(key)
-        if nk in _SKIP_TOP or nk.startswith("quote_2") or nk.startswith("quote_3"):
+        if _skip_variant_key(key):
             continue
         base[key] = value
     return base
@@ -105,7 +111,10 @@ def form_data_for_quote_type(
     base = _base_form(form, quote_result)
     if n == 1:
         return base, 1
-    variant = _variant_from(form, quote_2 if n == 2 else quote_3, n)
+    explicit = quote_2 if n == 2 else quote_3
+    variant = _variant_from(form, explicit, n)
+    if not variant and isinstance(quote_result, dict):
+        variant = _variant_from(quote_result, None, n)
     if not variant:
         raise ValueError(
             f"Quote {n} data was not sent. Pass quote_{n} (or nest it in formData) to generate that PDF."

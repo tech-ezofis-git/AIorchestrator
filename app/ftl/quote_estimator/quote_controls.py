@@ -8,6 +8,7 @@ always gives the same result:
   * enforce_programming_tool       - one per project, never auto-free (BUNDLE-002)
   * apply_controlled_freight       - the single-SGV2 $375 / $450 / manual rule (COMM-004, T-014)
   * ensure_customer_info           - never replace a known customer fact with TBD
+  * enforce_survey_form            - Wittur SGV form-field answers are the door-package spec
   * finalize_quote                 - per-line five-question trace, internal notes, release status
 
 Held items ("HOLD - TECHNICAL REVIEW REQUIRED" and friends) are recorded as structured data in
@@ -22,6 +23,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.ftl import survey_form
 from app.ftl.qualifier import scope_rules
 from app.ftl.quote_estimator import rules_engine
 
@@ -369,6 +371,21 @@ def apply_controlled_freight(quote: Dict[str, Any], candidate_text: str = "") ->
     if zone == "unknown" and zone_proj != "unknown":
         zone, place, source = zone_proj, place_proj, "project address"
     conflict = zone_ship != "unknown" and zone_proj != "unknown" and zone_ship != zone_proj
+    sv = survey_form.survey_facts_from_text(candidate_text)
+    survey_site = str((sv or {}).get("project") or "").strip()
+    if survey_site and not conflict:
+        zone_site, place_site = classify_ship_to(survey_site)
+        if zone_site == "unknown" and zone_ship != "unknown":
+            # the survey's job-site is somewhere the controlled lists cannot place, but the ship-to address is in the lists
+            conflict = True
+            place_proj = survey_site
+        elif zone_site != "unknown" and zone_ship != "unknown" and zone_site != zone_ship:
+            conflict, place_proj = True, place_site
+
+    if zone == "unknown" and survey_site and not conflict:
+        z_s, p_s = classify_ship_to(survey_site)
+        if z_s != "unknown":
+            zone, place, source = z_s, p_s, "survey project address"
 
     basis: Dict[str, Any] = {"rule": "COMM-004", "operators": ops, "larger_project": larger, "zone": zone, "place": place}
     if ops == 1 and not larger and not conflict and zone in ("gta", "within_150km"):
@@ -463,10 +480,18 @@ def car_door_decision(candidate_text: str) -> Dict[str, Any]:
     'alternate_only' (replacement is priced only as an alternate -> the base quote retains the
     existing doors), or 'unclear' (no statement, or the base scope contradicts itself -> HOLD FOR
     REVIEW). Sentence-level and deliberately conservative: it never infers from silence."""
-    text = candidate_text or ""
+    text = survey_form.strip_survey_template_text(candidate_text or "")
     base_replace: List[str] = []
     base_retain: List[str] = []
     alt_replace: List[str] = []
+    sv = survey_form.survey_facts_from_text(text)
+    if sv and sv.get("filled"):
+        for n, c in (sv.get("configs") or {}).items():
+            raw = str(c.get("cab_panel") or "").strip()
+            if raw == "0":
+                base_retain.append(f"Survey config #{n}, 10a Cab door panel: 0 = retain existing")
+            elif re.match(r"^\d+(\.\d+)?\s*[- ]?\s*[A-Fa-f]$", raw):
+                base_replace.append(f"Survey config #{n}, 10a Cab door panel: {raw} = new double-skin panel")
     if scope_rules.scope_table_confirms_new(text, ("car door",)):
         base_replace.append("Equipment scope table: Car Door Equipment = New")
     for raw in _CD_SENTENCE_SPLIT_RE.split(text):
@@ -779,6 +804,193 @@ def annotate_line_traceability(quote: Dict[str, Any], candidate_text: str = "") 
     return quote
 
 
+# ---------------------------------------------------------------------------------------------
+# Wittur SGV survey form — the answers typed into the PDF are the specification
+# ---------------------------------------------------------------------------------------------
+_SURVEY_DOOR_CATEGORIES = ("door_operator", "clutch", "panel_adaptor", "car_door_panel", "door_protective_device", "door_tools")
+_SURVEY_CLUTCH_OEM = {"GAL/ECI": "G.M.D.", "MAC": "G.M.D.", "DOVER": "G.M.D.", "OTIS 6940": "OTIS", "WH E5A": "WEST"}
+_SURVEY_ADAPTOR_OEM = {"GAL": "GAL", "MAC": "MAC", "DOVER": "DOV"}
+_SURVEY_RULES = ["QTY-002", "RT-001"]
+
+
+def _survey_line(row: Dict[str, Any], category: str, qty: float, note: str, origin: str = "SPEC") -> Dict[str, Any]:
+    return {
+        "product_code": row["ftl_product_code"],
+        "description": row.get("description") or row["ftl_product_code"],
+        "category": category,
+        "qty": qty,
+        "unit_price": float(row.get("price_cad") or 0),
+        "needs_engineering_review": True,
+        "note": note,
+        "origin": origin,
+    }
+
+
+def enforce_survey_form(quote: Dict[str, Any], candidate_text: str = "") -> Dict[str, Any]:
+    """When the RFQ is a Wittur SGV survey form, quantities, door type, size, clutch and detector
+    come from the typed form fields — never from the model's reading of the blank template."""
+    sv = survey_form.survey_facts_from_text(candidate_text)
+    if not sv:
+        return quote
+    quote = dict(quote)
+    items = [dict(it) for it in _lines(quote)]
+    survey_cats = _SURVEY_DOOR_CATEGORIES
+
+    if not sv.get("filled"):
+        kept = [
+            it for it in items
+            if it.get("category") not in survey_cats and it.get("product_code") != "SGV2_CAR_DOOR_RESTRICTOR"
+        ]
+        if len(kept) != len(items):
+            _add_assumption(
+                quote,
+                "\U0001F6D1 HOLD — the Wittur survey form attached to this RFQ is NOT filled in (no operator quantity, door type or "
+                "opening size), so the door package was removed rather than guessed.",
+            )
+        quote["line_items"] = kept
+        add_held_item(
+            quote,
+            item="Wittur survey form not filled in",
+            reason="The PDF form has no operator quantity, door type or opening size, so no SGV2 door package can be sized or priced.",
+            rules=_SURVEY_RULES,
+            needed="The completed Wittur SGV survey form (sections 1-11) from the customer.",
+        )
+        return quote
+
+    configs = sv.get("configs") or {}
+    problems: List[str] = []
+    new_lines: List[Dict[str, Any]] = []
+    total_ops = 0.0
+    model_ops = sum(_qty(it) for it in items if it.get("category") == "door_operator")
+
+    for n, c in sorted(configs.items(), key=lambda kv: int(kv[0])):
+        qty = float(c.get("operator_qty") or 0)
+        if qty <= 0:
+            continue
+        total_ops += qty
+        fam, hand = c.get("door_family"), c.get("hand")
+        width = c.get("clear_opening_in")
+        tag = f"survey config #{n} ({c.get('door_type')}, CO {width:g} in, qty {qty:g})" if width else f"survey config #{n}"
+        op_row = None
+        if fam in ("1S", "2C", "2T") and hand in ("L", "R") and width:
+            op_row = rules_engine.resolve_master_row(f"SGV2_DOOR_OP_{fam}{int(width)}_{hand}")
+        if op_row:
+            new_lines.append(_survey_line(op_row, "door_operator", qty, f"✓ From {tag}. Door hand is as written on the form (Wittur's top-down convention is opposite to the usual North American one — confirm).", "SPEC"))
+        else:
+            problems.append(f"Config #{n}: door type {c.get('door_type') or 'blank'} / width {width or 'blank'} has no stocked SGV2 operator in the Product Master")
+            add_held_item(
+                quote,
+                item=f"Door operator — survey config #{n}",
+                reason=f"Door type {c.get('door_type') or '(blank)'} at {width or '(blank)'} in clear opening cannot be matched to a stocked SGV2 operator.",
+                rules=["PANEL-001", "RT-001"],
+                needed="Confirm door type (1S / 2C / 2T), hand and clear opening on the Wittur form.",
+            )
+            continue
+        iface = str(c.get("clutch_interface") or "").strip().upper()
+        oem = _SURVEY_CLUTCH_OEM.get(iface)
+        cl_row = rules_engine.resolve_master_row(f"SGV2_CLUTCH_{oem}_{hand}") if oem else None
+        if cl_row:
+            new_lines.append(_survey_line(cl_row, "clutch", qty, f"✓ From {tag}: clutch interface {iface}, one clutch c/w car-door interlock per operator.", "SPEC"))
+        else:
+            add_held_item(
+                quote,
+                item=f"Clutch — survey config #{n}",
+                reason=f"Clutch interface '{iface or '(blank)'}' is not a stocked clutch (GAL/ECI, MAC, DOVER, OTIS 6940, WH E5A). AMD and OTHER need a custom quote with the lock-roller survey.",
+                rules=["OTIS-001", "RT-004"],
+                needed="Final clutch interface, or the custom-clutch survey and a photo.",
+            )
+        cab = str(c.get("cab_panel") or "").strip()
+        panel_iface = str(c.get("cab_panel_interface") or "").strip().upper()
+        if cab == "0":
+            ad_row = None
+            if fam == "1S" and hand in ("L", "R") and width and panel_iface in _SURVEY_ADAPTOR_OEM:
+                ad_row = rules_engine.resolve_master_row(f"SGV2(1S)_PANEL_ADAPTOR_{_SURVEY_ADAPTOR_OEM[panel_iface]}{int(width)}_{hand}H")
+            if ad_row:
+                new_lines.append(_survey_line(ad_row, "panel_adaptor", qty, f"✓ From {tag}: existing cab door retained, panel interface {panel_iface}. Confirm the bolt pattern (A-F, S).", "SPEC"))
+            else:
+                add_held_item(
+                    quote,
+                    item="Car door panel adaptor",
+                    reason=(
+                        f"Survey config #{n}: the existing cab door is retained but 10b cab door panel interface is "
+                        f"{panel_iface or 'NOT SELECTED'}"
+                        + (" (OTHER = custom quote required)" if panel_iface == "OTHER" else "")
+                        + " — no stocked adaptor can be chosen."
+                    ),
+                    rules=["DOOR-006", "RT-004", "OTIS-001"],
+                    needed="10b panel interface (AMD / MAC / DOVER / GAL / ARMOR), or the pendent-bolt survey and photo for a custom quote.",
+                )
+        elif re.match(r"^\d+(\.\d+)?\s*[- ]?\s*[A-Fa-f]$", cab):
+            pn_row = rules_engine.universal_panel_row(fam or "", width) if fam in ("1S", "2C", "2T") else None
+            if pn_row:
+                new_lines.append(_survey_line(pn_row, "car_door_panel", qty * (1 if fam == "1S" else 2), f"✓ From {tag}: new double-skin panel {cab}. Confirm finish / clear height.", "SPEC"))
+            else:
+                add_held_item(quote, item="Car door panel", reason=f"New panel requested ({cab}) but no stocked universal door matches {fam} {width} in x {c.get('clear_height_in') or '?'} in.", rules=["DOOR-004", "PANEL-001"], needed="Door type, width x height and finish.")
+        else:
+            add_held_item(quote, item="Car door panel", reason=f"Survey config #{n}: 10a cab door panel answer '{cab or '(blank)'}' is not 0 (retain) or a thickness + finish code.", rules=["DOOR-004", "DOOR-006"], needed="Retain existing, or new panel thickness and finish.")
+        mount = str(c.get("mounting") or "").strip()
+        if mount and mount.upper() not in ("V2-01", "0"):
+            add_held_item(
+                quote,
+                item=f"Operator mounting — survey config #{n}",
+                reason=f"9 Operator mounting is '{mount}', not the standard V2-01 brackets or 0 (none); no mounting hardware is priced.",
+                rules=["RT-001"],
+                needed="What 'Custom' mounting requires (drawing / photo).",
+                level="REVIEW",
+            )
+
+    det = sv.get("detector") or {}
+    det_type = str(det.get("type") or "").strip()
+    det_qty = det.get("qty")
+    items = [it for it in items if it.get("category") not in ("door_operator", "clutch", "panel_adaptor", "car_door_panel")]
+    for it in items:
+        if it.get("product_code") == "SGV2_CAR_DOOR_RESTRICTOR":
+            it["qty"] = total_ops
+    items += new_lines
+    if re.search(r"vision\s*plus", det_type, re.IGNORECASE):
+        d_row = rules_engine.detector_row()
+        items = [it for it in items if it.get("category") != "door_protective_device"]
+        q_det = float(det_qty) if det_qty not in (None, 0) else total_ops
+        if d_row:
+            items.append(_survey_line(d_row, "door_protective_device", q_det, f"✓ From survey 10d: {det_type}, qty {q_det:g}. FTL standard detector is the Formula VisionPlus 3D (FZU-1442US01); the form says '2D/3D' — confirm 3D.", "SPEC"))
+        if abs(q_det - total_ops) > 0.01:
+            add_held_item(quote, item="Detector quantity", reason=f"Survey 10d detector qty {q_det:g} differs from the operator qty {total_ops:g}.", rules=["DET-001"], needed="Confirm one detector per opening.", level="REVIEW")
+    else:
+        items = [it for it in items if it.get("category") != "door_protective_device"]
+        if det_type and det_type.lower() not in ("none", ""):
+            add_held_item(quote, item="Door protection", reason=f"Survey 10d selects '{det_type}', which is not FTL's standard Formula VisionPlus detector — not priced.", rules=["DET-001"], needed="Confirm the detector (FTL standard: Formula VisionPlus 3D FZU-1442US01).", level="REVIEW")
+
+    tool_qty = [c.get("programming_tool_qty") for c in configs.values() if c.get("programming_tool_qty") is not None]
+    if tool_qty and max(tool_qty) <= 0 and any(it.get("category") == "door_tools" for it in items):
+        add_held_item(quote, item="Programming tool", reason="Survey section 11 asks for 0 programming tools; FTL's rule is one per project at its inFlow price.", rules=["BUNDLE-002"], needed="Estimator confirms whether the customer already owns one.", level="REVIEW")
+
+    if sv.get("custom_clutch") and any(str(c.get("clutch_interface") or "").upper() in _SURVEY_CLUTCH_OEM for c in configs.values()):
+        add_held_item(
+            quote,
+            item="Custom clutch survey vs standard clutch interface",
+            reason="Section 8 selects a standard clutch interface, yet the custom clutch/coupler page was also filled in (" + "; ".join(f"{k}={v}" for k, v in list(sv["custom_clutch"].items())[:5]) + ").",
+            rules=["OTIS-001", "RT-004"],
+            needed="Confirm whether a standard clutch is enough or a custom clutch is needed.",
+            level="REVIEW",
+        )
+    c_name = str((sv.get("contact") or {}).get("name") or "").strip()
+    q_contact = str(quote.get("contact_name") or "").strip()
+    if c_name and q_contact and c_name.lower() != q_contact.lower() and not is_placeholder(q_contact):
+        add_held_item(quote, item="Contact differs from the survey", reason=f"The survey lists {c_name} as contact; the enquiry came from {q_contact}.", rules=["SRC-001"], needed="Confirm who the quote is addressed to.", level="REVIEW")
+    site = str(sv.get("project") or "")
+    subj_nums = set(re.findall(r"\b\d{1,5}\b", str(quote.get("project_name") or "")))
+    site_nums = set(re.findall(r"\b\d{1,5}\b", site))
+    if site and subj_nums and site_nums and not (subj_nums & site_nums):
+        add_held_item(quote, item="Project address mismatch", reason=f"The survey's project address is '{site}', the enquiry / quote says '{quote.get('project_name')}'.", rules=["SRC-001"], needed="Confirm the correct job-site address.", level="REVIEW")
+
+    if abs(model_ops - total_ops) > 0.01 and model_ops:
+        _add_assumption(quote, f"✎ Operator quantity set to the survey's {total_ops:g} (the draft had {model_ops:g}) — quantities come from the customer's form, never inferred.")
+    for p in problems:
+        _add_assumption(quote, "\U0001F6D1 HOLD — " + p + ".")
+    quote["line_items"] = items
+    return quote
+
+
 def build_internal_notes(quote: Dict[str, Any], candidate_text: str = "") -> Dict[str, List[str]]:
     """What was confirmed (and from where), what is unknown, what needs technical review and what
     survey information is still needed — never used to justify a guessed product or quantity."""
@@ -812,6 +1024,24 @@ def build_internal_notes(quote: Dict[str, Any], candidate_text: str = "") -> Dic
             confirmed.append(f"{label}: {quote.get(key)}")
     if not is_placeholder(quote.get("project_name")):
         confirmed.append(f"Project: {quote.get('project_name')}")
+
+    sv = survey_form.survey_facts_from_text(candidate_text)
+    if sv and sv.get("filled"):
+        for n, c in (sv.get("configs") or {}).items():
+            confirmed.append(
+                f"Survey config #{n}: elevator {c.get('elevator', '?')} side {c.get('side', '?')}, {c.get('operator_qty'):g} x {c.get('door_type')}, "
+                f"CO {c.get('clear_opening_in')} in x CH {c.get('clear_height_in')} in, clutch {c.get('clutch_interface')}, cab door "
+                f"{'retained' if str(c.get('cab_panel')) == '0' else c.get('cab_panel')}, programming tool {c.get('programming_tool_qty')}."
+            )
+        if (sv.get("detector") or {}).get("type"):
+            confirmed.append(f"Survey 10d detector: {sv['detector']['type']} x {sv['detector'].get('qty')}.")
+        if sv.get("controller"):
+            confirmed.append(f"Survey 10c main controller: {sv['controller']}.")
+        for m in sv.get("missing") or []:
+            survey.append(f"Survey form: {m} is not filled in.")
+    elif sv:
+        unknown.append("The Wittur survey form attached to this RFQ is not filled in — no quantities, door type or sizes are known.")
+        survey.append("The completed Wittur SGV survey form (sections 1-11).")
 
     cats = {it.get("category") for it in _lines(quote)}
     if "panel_adaptor" in cats:

@@ -137,9 +137,10 @@ def test_chat_ftl_quote_estimator_intent(client, monkeypatch):
     assert body["session_id"] == "session-ftl-quote-1"
     assert "quote_result" in body and body["quote_result"] is not None
     assert body["quote_result"]["Project"] == "77 King St W"
-    assert "quote_2 Status" in body["quote_2"]
-    assert "quote_3 Status" in body["quote_3"]
-    assert "quote_2" in body["compare"] and "quote_3" in body["compare"]
+    assert "quote_2 Status" in body["quote_result"]["quote_2"]
+    assert "quote_3 Status" in body["quote_result"]["quote_3"]
+    assert "quote_2" in body["quote_result"]["compare"] and "quote_3" in body["quote_result"]["compare"]
+    assert "quote_2" not in body and "quote_3" not in body and "compare" not in body
     assert "rendered_html" not in body
     assert "pdf_download_url" in body and body["pdf_download_url"].startswith("/api/ftl/quote/pdf/")
     assert "Sales Estimate" in body["reply"]

@@ -1,5 +1,6 @@
-"""Public /chat quote shape: Quote 1 stays on quote_result; Quote 2 / Quote 3 / compare
-are flattened at the API boundary only. The agent JSON (snake_case Quote 1) is unchanged.
+"""Public /chat quote shape: Quote 1 fields stay on quote_result; Quote 2 / Quote 3 /
+compare are nested under that same object at the API boundary only. The agent JSON
+(snake_case Quote 1) is unchanged.
 """
 
 from __future__ import annotations
@@ -243,8 +244,8 @@ def public_quote_payload(
     variants: Optional[List[Dict[str, Any]]] = None,
     candidate_text: str = "",
 ) -> Dict[str, Any]:
-    """API-only envelope. quote_result is Title-Case Quote 1; quote_2 / quote_3 hold prefixed
-    status + changed fields; compare holds unprefixed diffs only."""
+    """API-only envelope. quote_result is Title-Case Quote 1 plus nested quote_2 / quote_3
+    (prefixed changed fields) and compare (unprefixed diffs only)."""
     q1 = _with_trace(_with_totals(quote1), candidate_text)
     if variants is None:
         variants = derive_quote_variants(q1, candidate_text)
@@ -264,12 +265,10 @@ def public_quote_payload(
     body = {k: v for k, v in q1.items() if k != "line_items"}
     quote_result = title_keys(body)
     quote_result["Line Item"] = _public_lines(q1.get("line_items"))
-    return {
-        "quote_result": quote_result,
-        "quote_2": _variant_object("quote_2", q2, q1),
-        "quote_3": _variant_object("quote_3", q3, q1),
-        "compare": {
-            "quote_2": _compare_object(q1, q2),
-            "quote_3": _compare_object(q1, q3),
-        },
+    quote_result["quote_2"] = _variant_object("quote_2", q2, q1)
+    quote_result["quote_3"] = _variant_object("quote_3", q3, q1)
+    quote_result["compare"] = {
+        "quote_2": _compare_object(q1, q2),
+        "quote_3": _compare_object(q1, q3),
     }
+    return {"quote_result": quote_result}

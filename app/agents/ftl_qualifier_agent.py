@@ -116,6 +116,7 @@ class FtlQualifierAgent:
     ) -> Tuple[str, Dict[str, Any], str]:
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "pdf"
         email_meta: Dict[str, Any] = {}
+        survey_pdfs: List[bytes] = []
         if ext == "eml":
             parsed = extract.parse_eml_bytes(file_bytes)
             email_meta = {k: v for k, v in parsed.items() if k != "attachments"}
@@ -128,8 +129,14 @@ class FtlQualifierAgent:
                 )
             else:
                 full_text = parsed.get("body_text", "")
+            survey_pdfs = [
+                a["bytes"]
+                for a in attachments
+                if (a.get("filename") or "").lower().endswith(".pdf") and a.get("bytes")
+            ]
         elif ext == "pdf":
             full_text = await extract_pdf_text_hybrid(file_bytes)
+            survey_pdfs = [file_bytes]
         elif ext == "docx":
             full_text = extract.extract_docx_text(file_bytes)
         elif is_image_filename(filename):
@@ -139,6 +146,7 @@ class FtlQualifierAgent:
 
         candidate = extract.build_candidate_text(full_text, email_meta=email_meta or None)
         rendered = extract.render_candidate_text_for_model(candidate, email_meta=email_meta or None)
+        rendered = extract.apply_survey_form_from_pdfs(rendered, survey_pdfs)
         return rendered, email_meta, ext
 
     async def qualify(

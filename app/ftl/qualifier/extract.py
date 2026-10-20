@@ -39,6 +39,18 @@ import pdfplumber
 from docx import Document as DocxDocument
 from io import BytesIO
 
+from app.ftl.survey_form import (  # noqa: F401
+    SURVEY_FACTS_PREFIX,
+    SURVEY_FORM_MARKER,
+    _panel_meaning,
+    apply_survey_form,
+    apply_survey_form_from_pdfs,
+    extract_survey_form_section,
+    parse_wittur_survey_form,
+    strip_survey_template_text,
+    survey_facts_from_text,
+)
+
 try:
     import pymupdf as fitz  # PyMuPDF's current package name; keep the `fitz` alias so every call
     # site below (fitz.open, etc.) needs no changes. Importing this way avoids the "the `fitz` API

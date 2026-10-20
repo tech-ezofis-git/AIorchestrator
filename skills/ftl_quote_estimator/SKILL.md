@@ -11,6 +11,15 @@ attached specification), select the Wittur/FTL catalog items it calls for, deter
 price them against the current pricelist, and produce a structured Sales Estimate — the same shape
 FTL's own team issues as a customer-facing quote.
 
+## Wittur survey form section — the customer's typed answers ARE the door-package spec
+When the RFQ includes a Wittur "SGV Car Door Modernization Order/Survey Form", the answers are typed into the PDF's
+form fields and appear under "## Wittur SGV survey form" with a SURVEY_FACTS_JSON line. Use ONLY those answers:
+operator quantity (5a), door type and hand (6), clear opening and height (7), clutch interface (8), cab door panel
+(10a: 0 = retain existing, a thickness + finish code = new panel), cab door panel interface (10b), detector (10d)
+and programming tool (11). Never take a quantity, door type, size or finish from the form's printed template text,
+never invent a quantity when an answer is missing, and if the section says the form is NOT FILLED IN price no door
+package at all. Whatever is blank or says OTHER / Custom is a flagged question, not something to fill in.
+
 ## Non-goals
 - Do not decide whether FTL should pursue this RFQ — assume it's already qualified. Your job
   starts after that decision, not before it.

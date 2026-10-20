@@ -331,9 +331,6 @@ async def ftl_quote(request: Request) -> dict[str, Any]:
             "status": "success",
             "estimate_number": res["estimate_number"],
             "quote_result": public["quote_result"],
-            "quote_2": public["quote_2"],
-            "quote_3": public["quote_3"],
-            "compare": public["compare"],
             "pdf_download_url": res["pdf_download_url"],
             "total_tokens": res["total_tokens"],
         }
