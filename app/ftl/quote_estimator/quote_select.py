@@ -85,6 +85,30 @@ def _skip_variant_key(key: Any) -> bool:
     return nk in _SKIP_TOP or nk.startswith("quote_2") or nk.startswith("quote_3")
 
 
+def _is_remarks_key(key: Any) -> bool:
+    nk = _norm_key(key)
+    return nk in {
+        "remarks",
+        "notes",
+        "notes_remarks",
+        "notes_and_remarks",
+        "assumptions",
+        "internal_notes",
+        "release_status",
+        "release_reasons",
+        "held_items",
+    } or nk.endswith("_remarks")
+
+
+def _merge_field(dst: Dict[str, Any], key: Any, value: Any) -> None:
+    """Empty Remarks/Notes must not wipe a value already copied from quote_result."""
+    if _empty_value(value) and _is_remarks_key(key) and any(
+        _is_remarks_key(existing) and not _empty_value(cell) for existing, cell in dst.items()
+    ):
+        return
+    dst[key] = value
+
+
 def _base_form(form_data: Dict[str, Any], quote_result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     base: Dict[str, Any] = {}
     if isinstance(quote_result, dict):
@@ -94,7 +118,7 @@ def _base_form(form_data: Dict[str, Any], quote_result: Optional[Dict[str, Any]]
     for key, value in form_data.items():
         if _skip_variant_key(key):
             continue
-        base[key] = value
+        _merge_field(base, key, value)
     return base
 
 
@@ -182,7 +206,8 @@ def form_data_for_quote_type(
     if not variant_has_form_values(variant, n):
         return None, n
     merged = dict(base)
-    merged.update(_unprefix_variant(variant, n))
+    for key, value in _unprefix_variant(variant, n).items():
+        _merge_field(merged, key, value)
     order = order_number_for_quote(merged, variant, n)
     merged["Order Number"] = order
     return merged, n

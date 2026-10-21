@@ -909,7 +909,10 @@ def resolve_text_content(field: Dict[str, Any], data: Dict[str, Any]) -> str:
             base = ""
 
     resolved = substitute_variables(normalize_text(base), field.get("variables", []), data)
-    return collapse_exact_duplicated_text(resolved)
+    resolved = collapse_exact_duplicated_text(resolved)
+    if wants_money_format(field):
+        return _format_money(resolved)
+    return resolved
 
 
 def _format_table_val(val: Any) -> str:
@@ -950,6 +953,12 @@ def _is_money_header(header: str) -> bool:
     return any(part in token for part in ("unitprice", "price", "amount", "subtotal", "total"))
 
 
+_MONEY_FIELD_KEYS = frozenset({
+    "subtotal", "discount", "freight", "hst", "gst", "pst", "tax",
+    "total", "amount", "price", "unit_price", "unitprice", "freight_estimate",
+})
+
+
 def _format_money(val: Any) -> str:
     text = _format_table_val(val)
     if not text or text.startswith("$"):
@@ -958,6 +967,19 @@ def _format_money(val: Any) -> str:
         return f"${float(text.replace(',', '')):,.2f}"
     except (TypeError, ValueError):
         return text
+
+
+def wants_money_format(field: Dict[str, Any]) -> bool:
+    """True when the field is an amount (format: money, or a totals/price dataKey)."""
+    fmt = str(field.get("format") or field.get("valueFormat") or "").strip().lower()
+    if fmt in {"money", "currency", "cad", "usd"}:
+        return True
+    for key in (field.get("dataKey"), field.get("label"), field.get("name")):
+        token = re.sub(r"\([^)]*\)", "", str(key or ""))
+        token = re.sub(r"[\s_\-]+", "_", token.strip().lower()).strip("_")
+        if token in _MONEY_FIELD_KEYS:
+            return True
+    return False
 
 
 def resolve_table_rows(field: Dict[str, Any], data: Dict[str, Any]) -> List[List[Any]]:

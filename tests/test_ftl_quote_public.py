@@ -198,6 +198,46 @@ def test_quote_2_without_form_values_is_skipped():
     assert form is None
 
 
+def test_empty_form_remarks_does_not_wipe_quote_result_remarks():
+    from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
+
+    form, n = form_data_for_quote_type(
+        quote_type="Quote 1",
+        quote_result={
+            "Order Number": "EST-1",
+            "Line Item": [{"Product": "A"}],
+            "Remarks": "Cars 1 and 2. Quoted: 2 door operator(s).",
+        },
+        form_data={
+            "Order Number": "EST-1",
+            "Line Item": [{"Product": "A"}],
+            "Remarks": "",
+            "Notes": "",
+        },
+    )
+    assert n == 1
+    assert form["Remarks"] == "Cars 1 and 2. Quoted: 2 door operator(s)."
+
+
+def test_empty_quote_2_remarks_keeps_quote_1_remarks():
+    from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
+
+    form, n = form_data_for_quote_type(
+        quote_type="Quote 2",
+        form_data={
+            "Order Number": "EST-1",
+            "Line Item": [{"Product": "A"}],
+            "Remarks": "Quote 1 remarks stay on Quote 2 when quote_2 Remarks is blank.",
+            "quote_2": {
+                "quote_2 Line Item": [{"Product": "B"}],
+                "quote_2 Remarks": "",
+            },
+        },
+    )
+    assert n == 2
+    assert "Quote 1 remarks stay on Quote 2" in form["Remarks"]
+
+
 def test_quote_3_with_empty_line_item_is_skipped_even_if_total_is_set():
     from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
 

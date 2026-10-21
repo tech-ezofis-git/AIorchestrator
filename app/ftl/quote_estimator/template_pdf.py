@@ -18,6 +18,8 @@ from app.pdf_skills.template_renderer import (
     resolve_metadata_value,
     resolve_table_rows,
     safe_float,
+    wants_money_format,
+    _format_money,
 )
 
 FOOTER_ZONE_MM = 25.0
@@ -46,7 +48,112 @@ def prepare_form_data(value: Any) -> Any:
         out["Customer"] = out["Company Name"]
     if out.get("Phone Number") and "Phone" not in out:
         out["Phone"] = out["Phone Number"]
+    _fill_remarks(out)
+    _fill_internal_notes(out)
     return out
+
+
+def _wanted_keys(*keys: str) -> set:
+    return {internal_key(key) for key in keys} | {str(key).strip().lower() for key in keys}
+
+
+def _first_plain_text(data: Dict[str, Any], *keys: str) -> str:
+    wanted = _wanted_keys(*keys)
+    for name, value in data.items():
+        if str(name).strip().lower() not in wanted and internal_key(name) not in wanted:
+            continue
+        if isinstance(value, dict):
+            continue
+        if isinstance(value, list):
+            text = "\n".join(str(item).strip() for item in value if not isinstance(item, dict) and str(item).strip())
+        else:
+            text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _plain_lines(data: Dict[str, Any], *keys: str) -> List[str]:
+    wanted = _wanted_keys(*keys)
+    for name, value in data.items():
+        if str(name).strip().lower() not in wanted and internal_key(name) not in wanted:
+            continue
+        if isinstance(value, str) and value.strip():
+            return [line.strip("•- ").strip() for line in value.splitlines() if line.strip()]
+        if isinstance(value, list):
+            lines = []
+            for item in value:
+                if isinstance(item, dict) or not str(item).strip():
+                    continue
+                lines.append(str(item).strip())
+            if lines:
+                return lines
+    return []
+
+
+def _held_lines(data: Dict[str, Any]) -> List[str]:
+    for name, value in data.items():
+        if internal_key(name) != "held_items" or not isinstance(value, list):
+            continue
+        lines = []
+        for item in value:
+            if not isinstance(item, dict):
+                if str(item).strip():
+                    lines.append(str(item).strip())
+                continue
+            title = str(item.get("item") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            if title and reason:
+                lines.append(f"{title} — {reason}")
+            elif title or reason:
+                lines.append(title or reason)
+        return lines
+    return []
+
+
+def _looks_internal_notes(text: str) -> bool:
+    lower = text.lower()
+    return lower.startswith("release status") or "internal review" in lower
+
+
+def _fill_remarks(data: Dict[str, Any]) -> None:
+    """Customer Remarks box: project name, then quote remarks (Seth's HTML layout)."""
+    remarks = _first_plain_text(data, "Remarks")
+    if not remarks:
+        notes = _first_plain_text(data, "Notes", "Notes & Remarks")
+        if notes and not _looks_internal_notes(notes):
+            remarks = notes
+    project = _first_plain_text(data, "Project", "Project Name")
+    if not remarks and project:
+        remarks = project
+    elif remarks and project and project not in remarks:
+        remarks = f"{project}\n{remarks}"
+    if remarks:
+        data["Remarks"] = remarks
+        if "remarks" not in data:
+            data["remarks"] = remarks
+
+
+def _fill_internal_notes(data: Dict[str, Any]) -> None:
+    """Yellow Internal review notes box: release status + held / assumption bullets."""
+    existing = data.get("Internal Notes")
+    if isinstance(existing, str) and existing.strip():
+        return
+    notes = _first_plain_text(data, "Notes")
+    if notes and _looks_internal_notes(notes):
+        data["Internal Notes"] = notes
+        return
+    status = _first_plain_text(data, "Release Status")
+    bullets = _plain_lines(data, "Release Reasons") or _held_lines(data) or _plain_lines(data, "Assumptions")
+    lines: List[str] = []
+    if status:
+        lines.append(f"Release status: {status}")
+    for bullet in bullets:
+        token = bullet if bullet.startswith("•") else f"• {bullet}"
+        if token not in lines:
+            lines.append(token)
+    if lines:
+        data["Internal Notes"] = "\n".join(lines)
 
 
 def _format_top_level(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -313,9 +420,12 @@ def _container_fields(box: Dict[str, Any], data: Dict[str, Any], to_unit: float)
             "width": half,
             "height": row_h,
         }
+        display = "" if value is None else str(value)
+        if wants_money_format(child):
+            display = _format_money(value)
         texts.append({**style, "name": f"{name}Label", "content": str(child.get("label") or ""),
                       "alignment": "left", "position": {"x": x + pad, "y": top}})
-        texts.append({**style, "name": f"{name}Value", "content": "" if value is None else str(value),
+        texts.append({**style, "name": f"{name}Value", "content": display,
                       "alignment": "right", "position": {"x": x + pad + half, "y": top}})
     return shapes + texts
 

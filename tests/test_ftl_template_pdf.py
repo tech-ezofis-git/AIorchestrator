@@ -408,15 +408,27 @@ def _quote_template():
                  {"name": "Total", "type": "key_value", "label": "TOTAL (CAD)", "dataKey": "Total",
                   "fontName": "Helvetica-Bold", "fontSize": 11},
              ]},
-            {"name": "Remarks Label", "type": "text", "readOnly": True, "content": "NOTES & REMARKS",
-             "fontColor": "#102C47", "fontName": "Helvetica-Bold", "fontSize": 7.8,
+            {"name": "Remarks Label", "type": "text", "readOnly": True, "content": "Remarks",
+             "fontColor": "#1F3A5F", "fontName": "Helvetica-Bold", "fontSize": 8,
              "position": {"x": 16, "y": 0}, "width": 75, "height": 5,
              "flowAfter": "Totals Container", "flowGap": 10},
             {"name": "Remarks", "type": "text", "dataKey": "Remarks",
-             "fontColor": "#64748B", "fontSize": 8, "boxed": True,
-             "boxBackgroundColor": "#FFFFFF", "boxBorderColor": "#D7E1EB", "boxPadding": 4,
+             "fontColor": "#333333", "fontSize": 8, "boxed": True, "dynamicHeight": True,
+             "boxBackgroundColor": "#F4F6F9", "boxBorderColor": "#DDE3EC", "boxPadding": 4,
              "position": {"x": 16, "y": 0}, "width": 178, "height": 28,
              "flowAfter": "Remarks Label", "flowGap": 2},
+            {"name": "Internal Notes Label", "type": "text", "readOnly": True,
+             "content": "Internal review notes (not part of the customer-facing estimate)",
+             "fontColor": "#7A5C00", "fontName": "Helvetica-Bold", "fontSize": 8,
+             "hideIfEmpty": "Internal Notes",
+             "position": {"x": 16, "y": 0}, "width": 178, "height": 5,
+             "flowAfter": "Remarks", "flowGap": 6},
+            {"name": "Internal Notes", "type": "text", "dataKey": "Internal Notes",
+             "fontColor": "#5C4600", "fontSize": 8, "boxed": True, "dynamicHeight": True,
+             "boxBackgroundColor": "#FFF8E1", "boxBorderColor": "#F0D98C", "boxPadding": 4,
+             "hideIfEmpty": True,
+             "position": {"x": 16, "y": 0}, "width": 178, "height": 36,
+             "flowAfter": "Internal Notes Label", "flowGap": 2},
         ]],
     }
 
@@ -447,6 +459,60 @@ def test_quote_template_keeps_card_and_navy_backgrounds():
         assert (0.973, 0.98, 0.988) in fills  # #F8FAFC zebra row
         assert "VISIONPLUS_3D_DETECTOR" in text
         assert "3D detector" in text
-        assert "NOTES & REMARKS" in text
+        assert "Remarks" in text
+        assert "Lead times confirmed at order." in text
+        assert "Internal review notes" not in text
         assert "TOTAL (CAD)" in text
+        assert "$2,590.00" in text and "$698.50" in text
+        assert "$3,288.50" in text and "$3,715.99" in text
         assert _span_color(page, "DESCRIPTION / PRODUCT") == _span_color(page, "TOTAL (CAD)") == 0xFFFFFF
+
+
+def test_container_formats_numeric_totals_as_money():
+    form = {"subtotal": 3450, "total": 3898.5, "freight": 0}
+    text = _pages_text(render_template_pdf(_branded_template(""), form)[0])[0]
+    assert "$3,450.00" in text
+    assert "$3,898.50" in text
+    assert "Freight" not in text
+
+
+def test_remarks_body_filled_from_notes_and_project():
+    form = {
+        "Project": "145 Richmond Avenue West",
+        "Notes": "Confirm door type, width and hand before release.",
+        "Line Item": _items(1),
+        "Subtotal": 10,
+        "Total": 11.3,
+    }
+    text = _pages_text(render_template_pdf(_quote_template(), form)[0])[0]
+    assert "Remarks" in text
+    assert "145 Richmond Avenue West" in text
+    assert "Confirm door type, width and hand before release." in text
+    assert "$10.00" in text and "$11.30" in text
+
+
+def test_remarks_and_internal_notes_match_estimator_layout():
+    form = {
+        "Project": "145 Richmond Avenue West",
+        "Remarks": (
+            "Quote based on email request for a Wittur 4C-R (SGV2) car door operator modernization. "
+            "Attached survey images were not available to extract required details."
+        ),
+        "Release Status": "HOLD — technical / commercial review required before release",
+        "Release Reasons": [
+            "Attached files not read — The email attaches 1000011914.jpg, 1000011913.jpg, 1000011877.jpg.",
+            "Freight — this is not a single SGV2 package (no door operator) — larger and multi-unit projects follow the manual project-freight review",
+            "Line SGV2_DOOR_TOOLS cannot auto-release.",
+            "Line SGV2_CAR_DOOR_RESTRICTOR cannot auto-release.",
+        ],
+        "Line Item": _items(1),
+        "Subtotal": 10,
+        "Total": 11.3,
+    }
+    text = _pages_text(render_template_pdf(_quote_template(), form)[0])[0]
+    assert "145 Richmond Avenue West" in text
+    assert "Wittur 4C-R (SGV2) car door operator modernization" in text
+    assert "Internal review notes (not part of the customer-facing estimate)" in text
+    assert "Release status: HOLD" in text
+    assert "Attached files not read" in text
+    assert "SGV2_DOOR_TOOLS cannot auto-release" in text
