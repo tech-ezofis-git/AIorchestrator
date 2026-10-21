@@ -118,10 +118,24 @@ async def test_photo_only_eml_quotes_the_email_not_ocr(monkeypatch):
 
 
 def test_same_quote_every_run():
-    drafts = {"A bare": BASE, "B +panels": BASE + [PANEL], "C +panels +detector": BASE + [PANEL, DET]}
+    drafts = {
+        "A bare": BASE,
+        "B +panels": BASE + [PANEL],
+        "C +panels +detector": BASE + [PANEL, DET],
+        "D tools only": [_line("door_tools", "SGV2_DOOR_TOOLS", 1, 698.5)],
+        "E empty": [],
+    }
     outs = {k: agent.postprocess_quote(_draft(copy.deepcopy(v)), THIN) for k, v in drafts.items()}
     sigs = {k: _sig(o) for k, o in outs.items()}
-    assert sigs["A bare"] == sigs["B +panels"] == sigs["C +panels +detector"]
+    assert sigs["A bare"] == sigs["B +panels"] == sigs["C +panels +detector"] == sigs["D tools only"] == sigs["E empty"]
+    expected = {
+        ("door_operator", "SGV2_DOOR_OP_2C42_L", 1),
+        ("clutch", "SGV2_CLUTCH_G.M.D._L", 1),
+        ("other", "SGV2_CAR_DOOR_RESTRICTOR", 1),
+        ("door_tools", "SGV2_DOOR_TOOLS", 1),
+    }
+    for k, o in outs.items():
+        assert set(_sig(o)) == expected, (k, _sig(o))
     for k, o in outs.items():
         cats = {i["category"] for i in o["line_items"]}
         assert not (cats & {"door_protective_device", "car_door_panel", "panel_adaptor"}), k

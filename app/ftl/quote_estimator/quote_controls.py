@@ -5,7 +5,8 @@ always gives the same result:
 
   * apply_inflow_price_authority   - every priced line is set from the inFlow record (COMM-001/006/007)
   * enforce_no_automatic_discounts - no override, negative or "discount" line survives (COMM-002/003)
-  * enforce_programming_tool       - one per project, never auto-free (BUNDLE-002)
+  * enforce_programming_tool       - one per project, never auto-free (BUNDLE-002); insert if missing
+  * ensure_core_door_package       - Wittur door RFQ always gets operator + clutch (Seth 4-line Quote 1)
   * apply_controlled_freight       - the single-SGV2 $375 / $450 / manual rule (COMM-004, T-014)
   * ensure_customer_info           - never replace a known customer fact with TBD
   * enforce_survey_form            - Wittur SGV form-field answers are the door-package spec
@@ -283,8 +284,20 @@ def enforce_programming_tool(quote: Dict[str, Any], candidate_text: str = "") ->
     quote = dict(quote)
     items = [dict(it) for it in _lines(quote)]
     tools = [it for it in items if it.get("category") == "door_tools" or it.get("product_code") == "SGV2_DOOR_TOOLS"]
+    has_operator = any(it.get("category") == "door_operator" for it in items)
     if not tools:
-        return quote
+        row = rules_engine.door_tools_row()
+        if not has_operator or not row:
+            return quote
+        items.append(_survey_line(
+            row,
+            "door_tools",
+            1.0,
+            "ℹ AUTO-ADDED — one Wittur programming tool per project whenever door operators are quoted (BUNDLE-002).",
+            "FTL_RULE",
+        ))
+        quote["line_items"] = items
+        tools = [items[-1]]
     row = rules_engine.product_master_row("SGV2_DOOR_TOOLS") or {}
     price = row.get("price_cad")
     for it in tools:
@@ -849,6 +862,98 @@ def _survey_line(row: Dict[str, Any], category: str, qty: float, note: str, orig
         "note": note,
         "origin": origin,
     }
+
+
+_SGV2_RFQ_RE = re.compile(
+    r"\bwittur\b|\bsgv2\b|\bsgv\b|4c-r|door\s+operator|freight\s+car\s+door",
+    re.IGNORECASE,
+)
+_OP_CODE_RE = re.compile(r"SGV2_DOOR_OP_(1S|2C|2T)(\d+)_(LH|RH|L|R)$", re.IGNORECASE)
+_DEFAULT_OPERATOR_CODES = ("SGV2_DOOR_OP_2C42_L", "SGV2_DOOR_OP_2C42_LH")
+
+
+def _sgv2_door_rfq(candidate_text: str) -> bool:
+    body = (candidate_text or "").split(UNREAD_ATTACHMENTS_MARKER)[0]
+    return bool(_SGV2_RFQ_RE.search(body))
+
+
+def _operator_hand(code: str) -> str:
+    match = _OP_CODE_RE.search(code or "")
+    if not match:
+        return "L"
+    suffix = match.group(3).upper()
+    return "R" if suffix in {"R", "RH"} else "L"
+
+
+def _master_row(*codes: str) -> Optional[Dict[str, Any]]:
+    for code in codes:
+        row = rules_engine.resolve_master_row(code)
+        if row:
+            return row
+    return None
+
+
+def ensure_core_door_package(quote: Dict[str, Any], candidate_text: str = "") -> Dict[str, Any]:
+    """Quote 1 for a Wittur/SGV2 door-operator email is operator + clutch (+ restrictor + tool later).
+
+    The model omits the operator on some runs of the same photo-only EML (Seth's Gradio log of
+    145 Richmond flipped 0/1/2/4/5 lines). When the RFQ is clearly that job and no Wittur survey
+    form is driving the package, insert the same placeholder 2C 42 L + GAL clutch Seth's good
+    runs use, flagged for engineering review. Detector and car doors stay off Quote 1.
+    """
+    if survey_form.survey_facts_from_text(candidate_text):
+        return quote
+    if not _sgv2_door_rfq(candidate_text):
+        return quote
+    if any("door_operator" in cats for _t, cats in scope_rules.not_required_from_ftl(candidate_text or "")):
+        return quote
+
+    quote = dict(quote)
+    items = [dict(it) for it in _lines(quote)]
+    ops = [it for it in items if it.get("category") == "door_operator"]
+    if not ops:
+        row = _master_row(*_DEFAULT_OPERATOR_CODES)
+        if row:
+            items.append(_survey_line(
+                row,
+                "door_operator",
+                1.0,
+                "⚠ AUTO-ADDED — door type, width, hand and opening quantity were not in the email; "
+                "placeholder SGV2 2C 42\" L based on Wittur 4C-R / SGV2 wording. Confirm from the "
+                "survey before release.",
+                "FTL_RULE",
+            ))
+            add_held_item(
+                quote,
+                item="Door operator configuration",
+                reason="Email names a Wittur/SGV2 operator but not door type, width, hand or quantity; Quote 1 uses a 2C 42\" L placeholder.",
+                rules=["RT-001", "QTY-002"],
+                needed="Estimator confirms door type (1S/2C/2T), width, hand and opening count from the survey.",
+            )
+            ops = [items[-1]]
+
+    op_qty = sum(_qty(it) for it in ops)
+    if ops and not any(it.get("category") == "clutch" for it in items) and op_qty > 0:
+        hand = _operator_hand(str(ops[0].get("product_code") or ""))
+        cl_row = _master_row(f"SGV2_CLUTCH_G.M.D._{hand}", f"SGV2_CLUTCH_G.M.D._{hand}H")
+        if cl_row:
+            items.append(_survey_line(
+                cl_row,
+                "clutch",
+                op_qty,
+                "⚠ AUTO-ADDED — clutch OEM/hand were not in the email; GAL G.M.D. matching the "
+                "operator hand. Confirm from the survey before release.",
+                "FTL_RULE",
+            ))
+            add_held_item(
+                quote,
+                item="Clutch OEM",
+                reason="Clutch OEM is not in the email; Quote 1 uses GAL G.M.D. matching the operator hand.",
+                rules=["OTIS-001", "RT-004"],
+                needed="Estimator confirms clutch interface (GAL/Otis/West) from the survey.",
+            )
+    quote["line_items"] = items
+    return quote
 
 
 def enforce_survey_form(quote: Dict[str, Any], candidate_text: str = "") -> Dict[str, Any]:

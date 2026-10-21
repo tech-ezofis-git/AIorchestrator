@@ -3234,6 +3234,7 @@ def _finalize_quote(quote: Dict[str, Any], candidate_text: str) -> Dict[str, Any
     quote = _normalize_door_tools_code(quote)
     quote = _apply_universal_door_panel_conflict_notes(quote)
     quote = _enforce_panel_vs_adaptor_exclusivity(quote)
+    quote = quote_controls.ensure_core_door_package(quote, candidate_text)
     quote = _enforce_car_door_panel_presence(quote)
     quote = _clear_panel_zero_override(quote)
     quote = _drop_stale_panel_assumptions(quote)
