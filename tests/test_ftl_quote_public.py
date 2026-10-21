@@ -153,6 +153,46 @@ def test_nested_quote_2_inside_quote_result_is_used_for_pdf_select():
         },
     )
     assert n == 2
+    assert form is not None
     assert form["Line Item"][0]["Product"] == "B"
+    assert form["Order Number"] == "EST-1-Q2"
     assert "quote_2" not in form
     assert "compare" not in form
+
+
+def test_manual_quote_2_without_generated_status_is_used():
+    from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
+
+    form, n = form_data_for_quote_type(
+        quote_type="Quote 2",
+        form_data={
+            "Order Number": "EST-9",
+            "Line Item": [{"Product": "A"}],
+            "quote_2": {
+                "quote_2 Order Number": "EST-9-UI",
+                "quote_2 Line Item": [{"Product": "Manual-Q2"}],
+                "quote_2 Total": 100,
+            },
+        },
+    )
+    assert n == 2
+    assert form["Line Item"][0]["Product"] == "Manual-Q2"
+    assert form["Order Number"] == "EST-9-UI"
+
+
+def test_quote_2_without_form_values_is_skipped():
+    from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
+
+    form, n = form_data_for_quote_type(
+        quote_type="Quote 2",
+        form_data={
+            "Order Number": "EST-1",
+            "Line Item": [{"Product": "A"}],
+            "quote_2": {
+                "quote_2 Status": "NO VALID RECOMMENDED VARIANT",
+                "quote_2 Reason": "No approved rule.",
+            },
+        },
+    )
+    assert n == 2
+    assert form is None

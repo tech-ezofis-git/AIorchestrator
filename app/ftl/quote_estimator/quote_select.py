@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Optional, Tuple
 
-_STATUS_GENERATED = "GENERATED"
 _SKIP_TOP = frozenset(
     {
         "quote_2",
@@ -99,11 +98,53 @@ def _base_form(form_data: Dict[str, Any], quote_result: Optional[Dict[str, Any]]
     return base
 
 
-def _status_of(variant: Dict[str, Any], n: int) -> str:
-    for key in (f"quote_{n} Status", f"quote_{n}_Status", "Status", "status"):
-        if key in variant and variant[key] not in (None, ""):
-            return str(variant[key]).strip()
-    return _STATUS_GENERATED
+def _empty_value(value: Any) -> bool:
+    return value in (None, "", [], {})
+
+
+def _is_compare_lines(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return any(_norm_key(k) in ("added", "removed", "changed") for k in value)
+
+
+def variant_has_form_values(variant: Optional[Dict[str, Any]], n: int) -> bool:
+    """True when the UI/agent sent fillable fields for this quote (not status-only)."""
+    if not isinstance(variant, dict) or not variant:
+        return False
+    overlay = _unprefix_variant(variant, n)
+    for key, value in overlay.items():
+        if _empty_value(value):
+            continue
+        nk = _norm_key(key)
+        if nk in _SKIP_OVERLAY:
+            continue
+        if nk in ("line_item", "line_items") and _is_compare_lines(value):
+            continue
+        return True
+    return False
+
+
+def _order_from(obj: Dict[str, Any]) -> str:
+    for key, value in obj.items():
+        if _norm_key(key) in ("order_number", "estimate_number") and str(value or "").strip():
+            return str(value).strip()
+    return ""
+
+
+def order_number_for_quote(merged: Dict[str, Any], variant: Optional[Dict[str, Any]], n: int) -> str:
+    """Filename / Order Number for this quote: variant first, then Quote 1 plus -Qn."""
+    overlay = _unprefix_variant(variant, n) if isinstance(variant, dict) else {}
+    from_variant = _order_from(overlay)
+    if from_variant:
+        return from_variant
+    base = _order_from(merged) or "ESTIMATE"
+    if n == 1:
+        return base
+    token = re.sub(r"[\s_\-]+", "", base).upper()
+    if token.endswith(f"Q{n}"):
+        return base
+    return f"{base}-Q{n}"
 
 
 def form_data_for_quote_type(
@@ -113,24 +154,28 @@ def form_data_for_quote_type(
     quote_2: Optional[Dict[str, Any]] = None,
     quote_3: Optional[Dict[str, Any]] = None,
     quote_result: Optional[Dict[str, Any]] = None,
-) -> Tuple[Dict[str, Any], int]:
-    """Return (template formData, 1|2|3). Quote 2/3 overlay unprefixed fields onto Quote 1."""
+) -> Tuple[Optional[Dict[str, Any]], int]:
+    """Return (template formData, 1|2|3). Quote 2/3 overlay unprefixed fields onto Quote 1.
+
+    Missing / status-only Quote 2 or 3 returns (None, n) so the caller can skip the PDF.
+    Status GENERATED is not required — the UI may send a manually built quote_2.
+    """
     form = form_data if isinstance(form_data, dict) else {}
     n = parse_quote_type(quote_type)
     base = _base_form(form, quote_result)
     if n == 1:
+        order = order_number_for_quote(base, None, 1)
+        if order:
+            base["Order Number"] = order
         return base, 1
     explicit = quote_2 if n == 2 else quote_3
     variant = _variant_from(form, explicit, n)
     if not variant and isinstance(quote_result, dict):
         variant = _variant_from(quote_result, None, n)
-    if not variant:
-        raise ValueError(
-            f"Quote {n} data was not sent. Pass quote_{n} (or nest it in formData) to generate that PDF."
-        )
-    status = _status_of(variant, n)
-    if status.upper() != _STATUS_GENERATED:
-        raise ValueError(f"Quote {n} is '{status}'. A PDF is only generated when Status is GENERATED.")
+    if not variant_has_form_values(variant, n):
+        return None, n
     merged = dict(base)
     merged.update(_unprefix_variant(variant, n))
+    order = order_number_for_quote(merged, variant, n)
+    merged["Order Number"] = order
     return merged, n

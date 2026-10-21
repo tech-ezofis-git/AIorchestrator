@@ -480,6 +480,11 @@ class FtlQuoteEstimatorAgent:
                 )
             except ValueError as exc:
                 return {"reply": f"### ⚠️ Quote PDF Failed\n\n{str(exc)}", "usage": None, "error": str(exc)}
+            if form_data is None:
+                return {
+                    "reply": f"Quote {quote_n} has no form data; PDF skipped.",
+                    "usage": None,
+                }
             try:
                 res = await asyncio.to_thread(render_pdf_from_template, template_json, form_data)
             except Exception as exc:
@@ -499,13 +504,21 @@ class FtlQuoteEstimatorAgent:
 
         if isinstance(quote_input, dict) and quote_input:
             try:
-                selected, _quote_n = form_data_for_quote_type(
+                selected, quote_n = form_data_for_quote_type(
                     form_data=form_data if isinstance(form_data, dict) else None,
                     quote_type=quote_type,
                     quote_2=quote_2,
                     quote_3=quote_3,
                     quote_result=quote_input,
                 )
+            except ValueError as exc:
+                return {"reply": f"### ⚠️ Quote PDF Failed\n\n{str(exc)}", "usage": None, "error": str(exc)}
+            if selected is None:
+                return {
+                    "reply": f"Quote {quote_n} has no form data; PDF skipped.",
+                    "usage": None,
+                }
+            try:
                 res = await asyncio.to_thread(render_pdf_from_quote, selected, template_type)
             except ValueError as exc:
                 return {"reply": f"### ⚠️ Quote PDF Failed\n\n{str(exc)}", "usage": None, "error": str(exc)}
