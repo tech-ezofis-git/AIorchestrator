@@ -224,6 +224,36 @@ def test_quote_type_quote_2_skipped_when_no_form_values(client, monkeypatch):
     assert not body.get("error")
 
 
+def test_quote_type_quote_3_skipped_when_line_item_empty(client, monkeypatch):
+    monkeypatch.setattr(
+        "app.ftl.quote_estimator.agent.run_quote_estimation",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no model")),
+    )
+    res = client.post(
+        "/chat",
+        json={
+            "session_id": "ftl-tpl-q3-empty",
+            "intent": "ftl_quote_estimator",
+            "payload": {
+                "quoteType": "quote_3",
+                "formData": {
+                    "Order Number": "EST-900001",
+                    "Line Item": _items(1),
+                    "Total": "158206.4",
+                    "quote_3 Line Item": [],
+                    "quote_3 Total": "158206.4",
+                },
+                "templateJson": _template(),
+            },
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert not body.get("pdf_base64")
+    assert "skipped" in body["reply"].lower()
+    assert not body.get("error")
+
+
 def test_quote_type_quote_2_from_ui_formdata_without_generated_status(client, monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("model must not be called for template input")
@@ -329,3 +359,84 @@ def test_chat_multipart_template(client):
     )
     assert res.status_code == 200, res.text
     assert base64.b64decode(res.json()["pdf_base64"]).startswith(b"%PDF")
+
+
+def _quote_template():
+    return {
+        "basePdf": {"width": 210, "height": 297, "padding": [0, 0, 0, 0]},
+        "schemas": [[
+            {"name": "TopBar", "type": "rectangle", "backgroundColor": "#102C47",
+             "position": {"x": 0, "y": 0}, "width": 210, "height": 3},
+            {"name": "BillCard", "type": "rectangle", "backgroundColor": "#F1F5F9",
+             "position": {"x": 16, "y": 63}, "width": 85, "height": 25},
+            {"name": "ShipCard", "type": "rectangle", "backgroundColor": "#F1F5F9",
+             "position": {"x": 109, "y": 63}, "width": 85, "height": 25},
+            {"name": "BillLabel", "type": "text", "readOnly": True, "content": "BILL TO",
+             "fontColor": "#102C47", "fontName": "Helvetica-Bold", "fontSize": 7.5,
+             "position": {"x": 20, "y": 66}, "width": 40, "height": 5},
+            {"name": "Billing Address", "type": "text", "dataKey": "Billing Address",
+             "fontColor": "#26384A", "fontSize": 8,
+             "position": {"x": 20, "y": 72}, "width": 76, "height": 14},
+            {"name": "Items Table", "type": "table", "dataKey": "Line Item",
+             "position": {"x": 16, "y": 104}, "width": 178,
+             "head": ["#", "DESCRIPTION / PRODUCT", "QTY", "UNIT PRICE", "AMOUNT"],
+             "columns": ["#", "Product", "Qty", "Price", "Subtotal"],
+             "headWidthPercentages": [8, 46, 10, 18, 18],
+             "headStyles": {"backgroundColor": "#102C47", "textColor": "#FFFFFF", "fontName": "Helvetica-Bold"},
+             "bodyStyles": {"backgroundColor": "#FFFFFF", "borderBottom": "0.5px solid #D7E1EB"},
+             "multiLineColumns": {
+                 "Product": [
+                     {"key": "Product", "fontName": "Helvetica-Bold"},
+                     {"key": "Description", "hideIfEmpty": True},
+                 ]
+             }},
+            {"name": "Totals Container", "type": "container",
+             "position": {"x": 123, "y": 0}, "width": 71, "height": 36,
+             "flowAfter": "Items Table", "flowGap": 8,
+             "children": [
+                 {"name": "Subtotal", "type": "key_value", "label": "Subtotal", "dataKey": "Subtotal",
+                  "textColor": "#64748B", "fontSize": 9},
+                 {"name": "Total", "type": "key_value", "label": "TOTAL (CAD)", "dataKey": "Total",
+                  "fontName": "Helvetica-Bold", "fontSize": 11},
+             ]},
+            {"name": "Remarks Label", "type": "text", "readOnly": True, "content": "NOTES & REMARKS",
+             "fontColor": "#102C47", "fontName": "Helvetica-Bold", "fontSize": 7.8,
+             "position": {"x": 16, "y": 0}, "width": 75, "height": 5,
+             "flowAfter": "Totals Container", "flowGap": 10},
+            {"name": "Remarks", "type": "text", "dataKey": "Remarks",
+             "fontColor": "#64748B", "fontSize": 8, "boxed": True,
+             "boxBackgroundColor": "#FFFFFF", "boxBorderColor": "#D7E1EB", "boxPadding": 4,
+             "position": {"x": 16, "y": 0}, "width": 178, "height": 28,
+             "flowAfter": "Remarks Label", "flowGap": 2},
+        ]],
+    }
+
+
+def test_quote_template_keeps_card_and_navy_backgrounds():
+    form = {
+        "Billing Address": "40 North Rivermede Rd.",
+        "Line Item": [
+            {"Product": "VISIONPLUS_3D_DETECTOR", "Description": "3D detector", "Qty": 2, "Price": 1295, "Subtotal": 2590},
+            {"Product": "SGV2_DOOR_TOOLS", "Description": "Programming tool", "Qty": 1, "Price": 698.5, "Subtotal": 698.5},
+        ],
+        "Subtotal": 3288.5,
+        "Total": 3715.99,
+        "Remarks": "Lead times confirmed at order.",
+    }
+    pdf, pages = render_template_pdf(_quote_template(), form)
+    assert pages == 1
+    with fitz.open(stream=pdf, filetype="pdf") as doc:
+        page = doc[0]
+        text = page.get_text()
+        fills = []
+        for drawing in page.get_drawings():
+            fill = drawing.get("fill")
+            if fill:
+                fills.append(tuple(round(c, 3) for c in fill[:3]))
+        assert (0.063, 0.173, 0.278) in fills  # #102C47 navy
+        assert (0.945, 0.961, 0.976) in fills  # #F1F5F9 bill/ship cards
+        assert (0.973, 0.98, 0.988) in fills  # #F8FAFC zebra row
+        assert "VISIONPLUS_3D_DETECTOR" in text
+        assert "3D detector" in text
+        assert "NOTES & REMARKS" in text
+        assert "TOTAL (CAD)" in text

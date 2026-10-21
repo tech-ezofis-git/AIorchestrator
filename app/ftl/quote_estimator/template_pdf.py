@@ -42,6 +42,10 @@ def prepare_form_data(value: Any) -> Any:
         for alias in (title_key(key), internal_key(key)):
             if alias not in out:
                 out[alias] = out[key]
+    if out.get("Company Name") and "Customer" not in out:
+        out["Customer"] = out["Company Name"]
+    if out.get("Phone Number") and "Phone" not in out:
+        out["Phone"] = out["Phone Number"]
     return out
 
 
@@ -70,10 +74,76 @@ def _y(field: Dict[str, Any]) -> float:
     return safe_float((field.get("position") or {}).get("y"), 0.0)
 
 
+def _is_empty_value(value: Any) -> bool:
+    return value in (None, "", [], {}) or (isinstance(value, str) and not value.strip())
+
+
+def _should_hide(field: Dict[str, Any], data: Dict[str, Any]) -> bool:
+    flag = field.get("hideIfEmpty")
+    if not flag:
+        return False
+    if flag is True:
+        return _is_empty_value(resolve_metadata_value(field, data, ""))
+    key = str(flag)
+    if key in data:
+        return _is_empty_value(data.get(key))
+    wanted = key.strip().lower()
+    for name, value in data.items():
+        if str(name).strip().lower() == wanted:
+            return _is_empty_value(value)
+    return True
+
+
+def _drop_hidden(fields: List[Dict[str, Any]], data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [field for field in fields if not _should_hide(field, data)]
+
+
+def _field_height(field: Dict[str, Any], data: Dict[str, Any]) -> float:
+    height = safe_float(field.get("height"), 0.0)
+    if str(field.get("type", "")).lower() == "container":
+        return max(height, 20.0)
+    if field.get("dynamicHeight"):
+        text = str(resolve_metadata_value(field, data, field.get("content") or "") or "")
+        lines = max(1, text.count("\n") + 1)
+        return max(height, 4.2 * lines + 8.0)
+    return height or 5.0
+
+
+def _place_flow_fields(
+    flow_fields: List[Dict[str, Any]],
+    bottoms: Dict[str, float],
+    data: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """Set y from flowAfter + flowGap so totals/notes sit under a variable-height table."""
+    placed: List[Dict[str, Any]] = []
+    remaining = [deepcopy(field) for field in flow_fields]
+    for _ in range(len(remaining) + 2):
+        if not remaining:
+            break
+        leftover: List[Dict[str, Any]] = []
+        progressed = False
+        for field in remaining:
+            anchor = str(field.get("flowAfter") or "")
+            if anchor not in bottoms:
+                leftover.append(field)
+                continue
+            pos = dict(field.get("position") or {})
+            pos["y"] = bottoms[anchor] + safe_float(field.get("flowGap"), 0.0)
+            field["position"] = pos
+            bottoms[str(field.get("name") or "")] = pos["y"] + _field_height(field, data)
+            placed.append(field)
+            progressed = True
+        remaining = leftover
+        if not progressed:
+            placed.extend(remaining)
+            break
+    return placed
+
+
 def _paginate(fields: List[Dict[str, Any]], data: Dict[str, Any], page_w: float, page_h: float, unit: str) -> List[Page]:
     table = next((f for f in fields if str(f.get("type", "")).lower() == "table"), None)
     if table is None:
-        return [(fields, data)]
+        return [(_place_flow_fields([f for f in fields if f.get("flowAfter")], {}, data) or fields, data)]
 
     to_unit = 1.0 if unit == "mm" else 72.0 / 25.4
     table_y = _y(table)
@@ -84,43 +154,67 @@ def _paginate(fields: List[Dict[str, Any]], data: Dict[str, Any], page_w: float,
         return measure_table_height_mm(table, chunk, table_w_pts) * to_unit
 
     others = [f for f in fields if f is not table]
-    above = [f for f in others if _y(f) <= table_y]
-    below = [f for f in others if _y(f) > table_y]
+    flow = [f for f in others if f.get("flowAfter")]
+    fixed = [f for f in others if not f.get("flowAfter")]
+    above = [f for f in fixed if _y(f) <= table_y]
+    below = [f for f in fixed if _y(f) > table_y]
     footer_top = page_h - FOOTER_ZONE_MM * to_unit
     footer = [f for f in below if _y(f) >= footer_top]
     summary = [f for f in below if _y(f) < footer_top]
 
     gap = TABLE_GAP_MM * to_unit
-    last_limit = min((_y(f) for f in summary or footer), default=page_h - 10 * to_unit) - table_y - gap
+    flow_reserve = sum(safe_float(f.get("flowGap"), 0.0) + _field_height(f, data) for f in flow)
+    if flow:
+        last_limit = page_h - FOOTER_ZONE_MM * to_unit - flow_reserve - table_y - gap
+    else:
+        last_limit = min((_y(f) for f in summary or footer), default=page_h - 10 * to_unit) - table_y - gap
     mid_limit = min((_y(f) for f in footer), default=page_h - 10 * to_unit) - table_y - gap
 
     if not rows or height(rows) <= last_limit:
-        return [(fields, data)]
-
-    chunks: List[List[List[str]]] = []
-    remaining = rows
-    while remaining:
-        if height(remaining) <= last_limit:
-            chunks.append(remaining)
-            break
-        take = 1
-        while take < len(remaining) and height(remaining[: take + 1]) <= mid_limit:
-            take += 1
-        chunks.append(remaining[:take])
-        remaining = remaining[take:]
-        if not remaining:
-            # The final chunk must still leave room for the summary block.
+        chunks = [rows]
+        if flow and table_y + height(rows) + flow_reserve > page_h - FOOTER_ZONE_MM * to_unit:
             chunks.append([])
+    else:
+        chunks = []
+        remaining = rows
+        while remaining:
+            if height(remaining) <= last_limit:
+                chunks.append(remaining)
+                break
+            take = 1
+            while take < len(remaining) and height(remaining[: take + 1]) <= mid_limit:
+                take += 1
+            chunks.append(remaining[:take])
+            remaining = remaining[take:]
+            if not remaining:
+                table_bottom = table_y + height(chunks[-1])
+                needs_summary_page = (not flow) or (
+                    table_bottom + flow_reserve > page_h - FOOTER_ZONE_MM * to_unit
+                )
+                if needs_summary_page:
+                    chunks.append([])
 
     keys = {k for k in (table.get("dataKey"), table.get("name")) if k}
     pages: List[Page] = []
     total = len(chunks)
+    table_name = str(table.get("name") or "Items Table")
     for idx, chunk in enumerate(chunks, start=1):
-        page_fields = above + [table] + footer + (summary if idx == total else [])
-        page_fields = page_fields + [_page_number_field(idx, total, page_w, page_h, to_unit)]
         page_data = dict(data)
         for key in keys:
             page_data[key] = chunk
+        last = idx == total
+        extras = (summary if last and not flow else [])
+        flow_placed: List[Dict[str, Any]] = []
+        show_table = bool(chunk) or not last or total == 1
+        if last and flow:
+            bottoms = {table_name: table_y + (height(chunk) if chunk else 0)}
+            if not chunk:
+                below_header = max((_y(f) + _field_height(f, page_data) for f in above), default=table_y)
+                bottoms[table_name] = below_header + gap
+            flow_placed = _place_flow_fields(flow, bottoms, page_data)
+        page_fields = above + ([table] if show_table else []) + footer + extras + flow_placed
+        if total > 1:
+            page_fields = page_fields + [_page_number_field(idx, total, page_w, page_h, to_unit)]
         pages.append((page_fields, page_data))
     return pages
 
@@ -197,15 +291,24 @@ def _container_fields(box: Dict[str, Any], data: Dict[str, Any], to_unit: float)
     for idx, (child, value) in enumerate(rows):
         top = y + idx * row_h
         name = f"{prefix}{child.get('name') or idx}"
-        if child.get("backgroundColor"):
-            shapes.append(rect(f"{name}Background", top, row_h, child))
+        row_src = dict(child)
+        font_color = child.get("textColor") or child.get("fontColor") or "#000000"
+        if (
+            not box.get("backgroundColor")
+            and not child.get("backgroundColor")
+            and str(child.get("label") or "").strip().lower().startswith("total")
+        ):
+            row_src["backgroundColor"] = "#102C47"
+            font_color = "#FFFFFF"
+        if row_src.get("backgroundColor"):
+            shapes.append(rect(f"{name}Background", top, row_h, row_src))
         style = {
             "type": "text",
             "readOnly": True,
             "preserveColors": True,
             "fontSize": child.get("fontSize", 9),
             "fontName": child.get("fontName", "Helvetica"),
-            "fontColor": child.get("textColor") or child.get("fontColor") or "#000000",
+            "fontColor": font_color,
             "verticalAlignment": "middle",
             "width": half,
             "height": row_h,
@@ -238,11 +341,12 @@ def render_template_pdf(template: Dict[str, Any], form_data: Dict[str, Any], tit
 
     data = _format_top_level(prepare_form_data(form_data))
     to_unit = 1.0 if unit == "mm" else 72.0 / 25.4
-    schemas = [_expand_containers(page, data, to_unit) for page in schemas]
+    schemas = [_drop_hidden(page, data) for page in schemas]
     if len(schemas) == 1:
         pages = _paginate(schemas[0], data, page_w, page_h, unit)
     else:
         pages = [(page, data) for page in schemas]
+    pages = [(_expand_containers(fields, page_data, to_unit), page_data) for fields, page_data in pages]
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(page_w_pts, page_h_pts))

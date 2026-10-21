@@ -196,3 +196,22 @@ def test_quote_2_without_form_values_is_skipped():
     )
     assert n == 2
     assert form is None
+
+
+def test_quote_3_with_empty_line_item_is_skipped_even_if_total_is_set():
+    from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
+
+    form, n = form_data_for_quote_type(
+        quote_type="quote_3",
+        form_data={
+            "Order Number": "EST-900001",
+            "Line Item": [{"Product": "A"}],
+            "Total": "158206.4",
+            "quote_3 Line Item": [],
+            "quote_3 Total": "158206.4",
+            "quote_3 HST": "",
+            "quote_3 Subtotal": "",
+        },
+    )
+    assert n == 3
+    assert form is None

@@ -108,20 +108,26 @@ def _is_compare_lines(value: Any) -> bool:
     return any(_norm_key(k) in ("added", "removed", "changed") for k in value)
 
 
+def _line_rows(value: Any) -> list:
+    if _is_compare_lines(value) or not isinstance(value, list):
+        return []
+    rows = []
+    for row in value:
+        if isinstance(row, dict) and any(
+            not str(key).startswith("_") and not _empty_value(cell) for key, cell in row.items()
+        ):
+            rows.append(row)
+    return rows
+
+
 def variant_has_form_values(variant: Optional[Dict[str, Any]], n: int) -> bool:
-    """True when the UI/agent sent fillable fields for this quote (not status-only)."""
+    """True when this quote has real line items (not status/totals copied from Quote 1)."""
     if not isinstance(variant, dict) or not variant:
         return False
     overlay = _unprefix_variant(variant, n)
     for key, value in overlay.items():
-        if _empty_value(value):
-            continue
-        nk = _norm_key(key)
-        if nk in _SKIP_OVERLAY:
-            continue
-        if nk in ("line_item", "line_items") and _is_compare_lines(value):
-            continue
-        return True
+        if _norm_key(key) in ("line_item", "line_items") and _line_rows(value):
+            return True
     return False
 
 
@@ -157,8 +163,9 @@ def form_data_for_quote_type(
 ) -> Tuple[Optional[Dict[str, Any]], int]:
     """Return (template formData, 1|2|3). Quote 2/3 overlay unprefixed fields onto Quote 1.
 
-    Missing / status-only Quote 2 or 3 returns (None, n) so the caller can skip the PDF.
+    Missing / empty-line Quote 2 or 3 returns (None, n) so the caller can skip the PDF.
     Status GENERATED is not required — the UI may send a manually built quote_2.
+    Totals copied from Quote 1 are not enough; that quote must have Line Item rows.
     """
     form = form_data if isinstance(form_data, dict) else {}
     n = parse_quote_type(quote_type)

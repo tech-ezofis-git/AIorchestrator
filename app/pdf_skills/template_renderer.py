@@ -928,6 +928,38 @@ def _format_table_val(val: Any) -> str:
     return s
 
 
+def _row_value(row: Dict[str, Any], *names: str) -> Any:
+    wanted = {normalize_key(name) for name in names if name}
+    for key, value in row.items():
+        if normalize_key(key) in wanted and value not in (None, ""):
+            return value
+    return None
+
+
+def _is_row_num_header(header: str) -> bool:
+    raw = str(header or "").strip().lower()
+    return raw in {"#", "no", "no."}
+
+
+def _is_money_header(header: str) -> bool:
+    if _is_row_num_header(header):
+        return False
+    token = normalize_key(header)
+    if not token or token in {"qty", "quantity"}:
+        return False
+    return any(part in token for part in ("unitprice", "price", "amount", "subtotal", "total"))
+
+
+def _format_money(val: Any) -> str:
+    text = _format_table_val(val)
+    if not text or text.startswith("$"):
+        return text
+    try:
+        return f"${float(text.replace(',', '')):,.2f}"
+    except (TypeError, ValueError):
+        return text
+
+
 def resolve_table_rows(field: Dict[str, Any], data: Dict[str, Any]) -> List[List[Any]]:
     # 1. Try to find raw table data using field lookups
     raw = resolve_metadata_value(field, data, None)
@@ -969,21 +1001,33 @@ def resolve_table_rows(field: Dict[str, Any], data: Dict[str, Any]) -> List[List
         elif isinstance(row, dict):
             mapped_row: list[Any] = []
             if headers:
-                for h in headers:
-                    norm_h = normalize_key(h)
+                columns = [str(c).strip() for c in (field.get("columns") or [])]
+                multiline = field.get("multiLineColumns") or {}
+                for idx, h in enumerate(headers):
+                    col_key = columns[idx] if idx < len(columns) else ""
+                    specs = multiline.get(col_key) or multiline.get(h) if isinstance(multiline, dict) else None
                     val = None
-                    # Exact or normalized match in dict
-                    for k, v in row.items():
-                        if normalize_key(k) == norm_h:
-                            val = v
-                            break
+                    if isinstance(specs, list) and specs:
+                        parts = []
+                        for spec in specs:
+                            if not isinstance(spec, dict):
+                                continue
+                            part = _row_value(row, spec.get("key"))
+                            if spec.get("hideIfEmpty") and part in (None, ""):
+                                continue
+                            if part not in (None, ""):
+                                parts.append(str(part).strip())
+                        val = "\n".join(parts)
+                    else:
+                        val = _row_value(row, col_key, h)
+                    norm_h = normalize_key(h)
                     # Synonym lookups if not found directly
                     if val is None or val == "":
                         if "costhead" in norm_h or norm_h in ["costhead", "head", "category", "service"]:
                             val = row.get("cost_head") or row.get("head") or row.get("category") or row.get("service") or row.get("item") or row.get("name")
                         elif "vendor" in norm_h:
                             val = row.get("vendor") or row.get("supplier") or row.get("vendor_basis") or row.get("basis")
-                        elif "description" in norm_h:
+                        elif "description" in norm_h and "product" not in normalize_key(col_key):
                             val = row.get("cost_description") or row.get("description") or row.get("desc") or row.get("details") or row.get("service_cost_item") or row.get("service") or row.get("item")
                         elif "quantity" in norm_h or "qty" in norm_h:
                             val = row.get("quantity") or row.get("qty") or row.get("count") or (1 if row.get("rate") is not None or row.get("amount") is not None else "")
@@ -1016,8 +1060,15 @@ def resolve_table_rows(field: Dict[str, Any], data: Dict[str, Any]) -> List[List
                                     val = amt_val + tax_amt_val
                                 except (ValueError, TypeError):
                                     pass
+                        elif _is_row_num_header(h) or _is_row_num_header(col_key):
+                            val = f"{len(rows) + 1:02d}"
 
-                    mapped_row.append(_format_table_val(val))
+                    if _is_money_header(h) or _is_money_header(col_key):
+                        mapped_row.append(_format_money(val))
+                    elif (_is_row_num_header(h) or _is_row_num_header(col_key)) and str(val or "").replace(".", "", 1).isdigit():
+                        mapped_row.append(f"{int(float(val)):02d}")
+                    else:
+                        mapped_row.append(_format_table_val(val))
                 rows.append(mapped_row)
             else:
                 rows.append([_format_table_val(v) for v in row.values()])
@@ -1375,9 +1426,11 @@ def render_text_box(
     else:
         font_name = resolve_font_name(field.get("fontName", "Helvetica"))
 
-    if field.get("preserveColors"):
+    explicit_font = bool(raw_font_color)
+    explicit_bg = bool(raw_bg_color)
+    if field.get("preserveColors") or explicit_font or explicit_bg:
         fill_color = hex_to_color(field.get("fontColor"), colors.black) or colors.black
-        bg_color = hex_to_color(field.get("backgroundColor"))
+        bg_color = hex_to_color(field.get("backgroundColor")) if explicit_bg else None
     # 1. White on Deep Navy for header bars and BALANCE DUE / TOTAL PDA
     elif field_name in [
         "BalanceDueLabel",
@@ -1430,6 +1483,16 @@ def render_text_box(
             if bg_color is None and not is_static_label_field(field):
                 bg_color = hex_to_color("#FFFFFF")
 
+    if field.get("boxed"):
+        if bg_color is None:
+            bg_color = hex_to_color(field.get("boxBackgroundColor"), colors.white) or colors.white
+        if stroke_color is None:
+            stroke_color = hex_to_color(field.get("boxBorderColor"), hex_to_color("#D7E1EB"))
+            stroke_width = max(stroke_width, 0.6)
+        if field.get("boxPadding") not in (None, ""):
+            field = dict(field)
+            field["padding"] = field.get("boxPadding")
+
     inner_padding = parse_inner_padding_points(field.get("padding", 0))
     inner_width = max(0.0, width - inner_padding["left"] - inner_padding["right"])
 
@@ -1453,6 +1516,20 @@ def render_text_box(
         stroke_color=stroke_color,
         stroke_width=stroke_width,
     )
+
+
+def _table_cell_paragraph(val: Any, p_style: ParagraphStyle, font_size: float) -> Paragraph:
+    cell_text = str(val or "")
+    if "\n" in cell_text:
+        first, rest = cell_text.split("\n", 1)
+        html = f'<font name="Helvetica-Bold" size="{font_size}">{escape(first)}</font>'
+        if rest.strip():
+            html += (
+                f'<br/><font name="Helvetica" size="{max(6.5, font_size - 1.1)}" color="#6B7C8F">'
+                f"{escape(rest)}</font>"
+            )
+        return Paragraph(html, p_style)
+    return Paragraph(escape(cell_text), p_style)
 
 
 def compute_column_widths(total_width: float, percentages: Sequence[Any], col_count: int) -> List[float]:
@@ -1572,21 +1649,41 @@ def render_table_box(
             if c_idx in numeric_col_indices:
                 c_style_dict["alignment"] = "right"
             p_style = build_paragraph_style(f"td_{id(field)}_{r_num}_{c_idx}", c_style_dict)
-            d_row.append(Paragraph(escape(str(val)), p_style))
+            d_row.append(_table_cell_paragraph(val, p_style, safe_float(c_style_dict.get("fontSize", default_td_size), default_td_size)))
         table_data.append(d_row)
 
-        b_bg = hex_to_color(body_style.get("backgroundColor"))
-        alt_bg = hex_to_color(body_style.get("alternateBackgroundColor", "#f5f5f5"))
-        if b_bg:
-            style_commands.append(("BACKGROUND", (0, row_idx), (-1, row_idx), b_bg))
-        elif alt_bg and r_num % 2 == 1:
+        raw_body_bg = str(body_style.get("backgroundColor") or "").strip()
+        b_bg = hex_to_color(raw_body_bg) if raw_body_bg else None
+        head_bg = str(head_style.get("backgroundColor") or "").lower()
+        navy_head = any(token in head_bg for token in ("#0f2b46", "#102c47", "#0b3557", "#13253b"))
+        white_body = (not raw_body_bg) or raw_body_bg.lower() in ("#ffffff", "#fff", "white")
+        alt_raw = body_style.get("alternateBackgroundColor")
+        if alt_raw:
+            alt_bg = hex_to_color(alt_raw)
+        elif navy_head and white_body:
+            alt_bg = hex_to_color("#F8FAFC")
+        elif not b_bg:
+            alt_bg = hex_to_color("#f5f5f5")
+        else:
+            alt_bg = None
+        if alt_bg and r_num % 2 == 1:
             style_commands.append(("BACKGROUND", (0, row_idx), (-1, row_idx), alt_bg))
+        elif b_bg:
+            style_commands.append(("BACKGROUND", (0, row_idx), (-1, row_idx), b_bg))
         row_idx += 1
 
-    # Border & Grid
-    border_col = hex_to_color(field.get("tableStyles", {}).get("borderColor") or body_style.get("borderColor") or "#CBD5E1") or colors.HexColor("#CBD5E1")
-    border_w = safe_float(field.get("tableStyles", {}).get("borderWidth", 0.4), 0.4)
-    style_commands.append(("GRID", (0, 0), (-1, -1), border_w, border_col))
+    # Border & Grid. Quote templates use row rules only; PDA templates keep a full grid.
+    table_styles = field.get("tableStyles") or {}
+    body_rule = str(body_style.get("borderBottom") or "")
+    explicit_grid = table_styles.get("borderWidth")
+    if explicit_grid in (0, 0.0, "0") or (body_rule and explicit_grid in (None, "")):
+        match = re.search(r"#[0-9A-Fa-f]{3,8}", body_rule)
+        line_col = hex_to_color(match.group(0) if match else "#D7E1EB") or colors.HexColor("#D7E1EB")
+        style_commands.append(("LINEBELOW", (0, 0), (-1, -1), 0.45, line_col))
+    else:
+        border_col = hex_to_color(table_styles.get("borderColor") or body_style.get("borderColor") or "#CBD5E1") or colors.HexColor("#CBD5E1")
+        border_w = safe_float(table_styles.get("borderWidth", 0.4), 0.4)
+        style_commands.append(("GRID", (0, 0), (-1, -1), border_w, border_col))
 
     if not table_data:
         return
@@ -1753,7 +1850,7 @@ def measure_table_height_mm(
             if c_idx in numeric_col_indices:
                 c_style["alignment"] = "right"
             p_style = build_paragraph_style(f"m_td_{r_num}_{c_idx}", c_style)
-            d_row.append(Paragraph(escape(str(val)), p_style))
+            d_row.append(_table_cell_paragraph(val, p_style, safe_float(c_style.get("fontSize", default_td_size), default_td_size)))
         table_data.append(d_row)
 
     if not table_data:
