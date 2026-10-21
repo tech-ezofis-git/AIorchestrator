@@ -1543,11 +1543,25 @@ def compute_column_widths(total_width: float, percentages: Sequence[Any], col_co
     return [total_width / col_count] * col_count
 
 
+_NAVY_HEX = ("#0f2b46", "#102c47", "#0b3557", "#13253b")
+
+
+def _style_font_color(style_dict: Dict[str, Any], default: Optional[Color] = None) -> Color:
+    """pdfme tables use ``textColor``; this renderer historically read ``fontColor``."""
+    fallback = default if default is not None else colors.black
+    raw = style_dict.get("fontColor") or style_dict.get("textColor")
+    if not raw:
+        bg = str(style_dict.get("backgroundColor") or "").lower()
+        if any(token in bg for token in _NAVY_HEX):
+            raw = "#FFFFFF"
+    return hex_to_color(raw, fallback) or fallback
+
+
 def build_paragraph_style(style_name: str, style_dict: Dict[str, Any]) -> ParagraphStyle:
     font_name = resolve_font_name(style_dict.get("fontName", "Helvetica"))
     font_size = safe_float(style_dict.get("fontSize", 9), 9.0)
     lh = safe_float(style_dict.get("lineHeight", 1.2), 1.2)
-    text_col = hex_to_color(style_dict.get("fontColor"), colors.black) or colors.black
+    text_col = _style_font_color(style_dict, colors.black)
 
     return ParagraphStyle(
         name=style_name,
@@ -1655,7 +1669,7 @@ def render_table_box(
         raw_body_bg = str(body_style.get("backgroundColor") or "").strip()
         b_bg = hex_to_color(raw_body_bg) if raw_body_bg else None
         head_bg = str(head_style.get("backgroundColor") or "").lower()
-        navy_head = any(token in head_bg for token in ("#0f2b46", "#102c47", "#0b3557", "#13253b"))
+        navy_head = any(token in head_bg for token in _NAVY_HEX)
         white_body = (not raw_body_bg) or raw_body_bg.lower() in ("#ffffff", "#fff", "white")
         alt_raw = body_style.get("alternateBackgroundColor")
         if alt_raw:

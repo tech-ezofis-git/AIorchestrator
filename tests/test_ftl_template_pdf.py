@@ -50,6 +50,15 @@ def _pages_text(pdf_bytes):
         return [page.get_text() for page in doc]
 
 
+def _span_color(page, needle: str) -> int:
+    for block in page.get_text("dict")["blocks"]:
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                if needle in span.get("text", ""):
+                    return int(span.get("color") or 0)
+    raise AssertionError(f"missing {needle!r}")
+
+
 def test_fills_fields_and_table():
     form = {"Order Number": "EST-900061", "Company Name": "ATTA Elevators", "Line Item": _items(2), "Total": 20.0}
     pdf, pages = render_template_pdf(_template(), form)
@@ -440,3 +449,4 @@ def test_quote_template_keeps_card_and_navy_backgrounds():
         assert "3D detector" in text
         assert "NOTES & REMARKS" in text
         assert "TOTAL (CAD)" in text
+        assert _span_color(page, "DESCRIPTION / PRODUCT") == _span_color(page, "TOTAL (CAD)") == 0xFFFFFF
