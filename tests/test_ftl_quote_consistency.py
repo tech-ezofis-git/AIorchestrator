@@ -7,6 +7,11 @@ Quote 1 now carries only what the RFQ supports; unread survey photos are a HOLD.
 from __future__ import annotations
 
 import copy
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+import pytest
 
 from app.ftl.quote_estimator import agent, extract
 from app.ftl.quote_estimator import quote_controls as qc
@@ -72,8 +77,44 @@ def test_unread_attachments():
     assert extract.has_unread_attachments(THIN) == ["1000011914.jpg", "1000011913.jpg"]
     assert extract.unread_attachments([{"filename": "spec.pdf", "bytes": b"x" * 9_000_000}], "spec.pdf") == []
     assert extract.apply_unread_attachments(THIN_EMAIL, [PHOTOS[2]]) == THIN_EMAIL
-    ocr_used = extract.unread_attachments(PHOTOS, ["1000011914.jpg"])
-    assert [u["filename"] for u in ocr_used] == ["1000011913.jpg"]
+    # Survey photos stay unread even if we could OCR them — qty must not come from photo text.
+    assert [u["filename"] for u in extract.unread_attachments(PHOTOS, "")] == [
+        "1000011914.jpg",
+        "1000011913.jpg",
+    ]
+
+
+def _richmond_photo_eml() -> bytes:
+    msg = MIMEMultipart()
+    msg["From"] = "Mark Minnick <mark.minnick@march-elevator.ca>"
+    msg["Subject"] = "145 Richmond Ave W - freight car door operator"
+    msg.attach(
+        MIMEText(
+            "HI Scott can you please quote the attached survey for a wittur 4C-R operator.\n",
+            "plain",
+        )
+    )
+    photo = MIMEImage(b"\xff\xd8" + b"x" * 300_000, _subtype="jpeg")
+    photo.add_header("Content-Disposition", "attachment", filename="1000011914.jpg")
+    msg.attach(photo)
+    return msg.as_bytes()
+
+
+@pytest.mark.asyncio
+async def test_photo_only_eml_quotes_the_email_not_ocr(monkeypatch):
+    from app.agents.ftl_quote_estimator_agent import FtlQuoteEstimatorAgent
+
+    async def fail_ocr(*_args, **_kwargs):
+        raise AssertionError("survey photos must not be OCR'd into the spec")
+
+    monkeypatch.setattr("app.agents.ftl_quote_estimator_agent.ocr_image_file", fail_ocr)
+    rendered, _, ext = await FtlQuoteEstimatorAgent()._build_candidate_from_bytes(
+        _richmond_photo_eml(), "richmond.eml"
+    )
+    assert ext == "eml"
+    assert "4C-R" in rendered
+    assert extract.has_unread_attachments(rendered) == ["1000011914.jpg"]
+    assert "8 openings" not in rendered.lower()
 
 
 def test_same_quote_every_run():

@@ -13,7 +13,7 @@ from app.ftl.page_text import (
     extract_pdf_text_hybrid,
     is_image_filename,
     ocr_image_file,
-    prefer_spec_attachment,
+    prefer_document_spec_attachment,
     text_is_usable,
 )
 from app.ftl.key_format import snake_keys, title_keys
@@ -222,30 +222,14 @@ class FtlQuoteEstimatorAgent:
             email_meta = {k: v for k, v in parsed.items() if k != "attachments"}
             attachments = parsed.get("attachments") or []
             eml_attachments = attachments
-            spec_attachment = prefer_spec_attachment(attachments)
+            # Same as the standalone estimator: only a PDF/DOCX is the spec. Survey
+            # photos are listed unread (HOLD) instead of OCR'd into opening counts.
+            spec_attachment = prefer_document_spec_attachment(attachments)
             spec_text = ""
             if spec_attachment:
                 spec_name = spec_attachment.get("filename") or ""
                 spec_text = await self._text_from_attachment(spec_name, spec_attachment["bytes"])
-                # A PDF/DOCX spec was read as text. An image is only "used" when OCR produced text.
-                spec_ext = spec_name.rsplit(".", 1)[-1].lower() if "." in spec_name else ""
-                if spec_ext in ("pdf", "docx") or text_is_usable(spec_text):
-                    used_filenames.append(spec_name)
-            extra_chunks: List[str] = []
-            for attachment in attachments:
-                name = attachment.get("filename") or ""
-                if not name or name in used_filenames:
-                    continue
-                if not is_image_filename(name):
-                    continue
-                if len(attachment.get("bytes") or b"") < extract._SIGNATURE_IMAGE_MAX_BYTES:
-                    continue
-                ocr_text = await self._text_from_attachment(name, attachment["bytes"])
-                if text_is_usable(ocr_text):
-                    extra_chunks.append(ocr_text)
-                    used_filenames.append(name)
-            if extra_chunks:
-                spec_text = (spec_text + "\n\n" + "\n\n".join(extra_chunks)).strip()
+                used_filenames.append(spec_name)
             # A real spec PDF is quoted on its own, the same way the standalone
             # estimator does. A thin attachment must not hide a product list that
             # lives in the email.

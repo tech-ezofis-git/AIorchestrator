@@ -2,7 +2,12 @@
 import pymupdf
 import pytest
 
-from app.ftl.page_text import extract_pdf_text_hybrid, prefer_spec_attachment, text_is_usable
+from app.ftl.page_text import (
+    extract_pdf_text_hybrid,
+    prefer_document_spec_attachment,
+    prefer_spec_attachment,
+    text_is_usable,
+)
 
 
 def _mixed_pdf() -> bytes:
@@ -51,3 +56,14 @@ def test_prefer_spec_attachment_picks_pdf_over_logo():
         ]
     )
     assert chosen["filename"] == "spec.pdf"
+
+
+def test_prefer_document_spec_attachment_ignores_survey_photos():
+    photos_only = [
+        {"filename": "1000011914.jpg", "bytes": b"img"},
+        {"filename": "1000011913.jpg", "bytes": b"img"},
+    ]
+    assert prefer_document_spec_attachment(photos_only) is None
+    with_pdf = photos_only + [{"filename": "survey.pdf", "bytes": b"%PDF"}]
+    assert prefer_document_spec_attachment(with_pdf)["filename"] == "survey.pdf"
+    assert prefer_spec_attachment(photos_only)["filename"] == "1000011914.jpg"

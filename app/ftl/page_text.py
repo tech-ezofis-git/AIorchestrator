@@ -65,6 +65,26 @@ def prefer_spec_attachment(attachments: List[dict]):
     return ranked[0][1]
 
 
+def prefer_document_spec_attachment(attachments: List[dict]):
+    """PDF or DOCX only. Photographed surveys are not the spec — quoting from their OCR
+    invented opening counts (7/8) on tickets that only asked for one operator."""
+    ranked = []
+    for attachment in attachments:
+        name = attachment.get("filename") or ""
+        ext = file_extension(name)
+        if ext == ".pdf":
+            rank = 0
+        elif ext == ".docx":
+            rank = 1
+        else:
+            continue
+        ranked.append((rank, attachment))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: item[0])
+    return ranked[0][1]
+
+
 def text_is_usable(text: str) -> bool:
     return sum(ch.isalnum() for ch in (text or "")) >= _MIN_ALNUM
 
