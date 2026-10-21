@@ -853,9 +853,9 @@ def resolve_metadata_value(field: Dict[str, Any], data: Dict[str, Any], default:
         for alt in ["balance_due", "balance", "balance_due_to_principal", "net_due"]:
             if alt in data:
                 return data[alt]
-    if "remarks" in field_name or "notes" in field_name:
-        for alt in ["remarks", "notes", "comments", "remark"]:
-            if alt in data:
+    if field_name in {"remarks", "notes", "comments", "remark"}:
+        for alt in ["remarks", "notes", "comments", "remark", "Remarks", "Notes"]:
+            if alt in data and data[alt] not in (None, ""):
                 return data[alt]
 
     return default
@@ -937,6 +937,35 @@ def _row_value(row: Dict[str, Any], *names: str) -> Any:
         if normalize_key(key) in wanted and value not in (None, ""):
             return value
     return None
+
+
+def _numeric_cell(value: Any) -> Optional[float]:
+    text = str(value or "").replace(",", "").replace("$", "").strip()
+    if not text:
+        return None
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _line_qty(row: Dict[str, Any]) -> Any:
+    return _row_value(row, "qty", "quantity", "count")
+
+
+def _line_price(row: Dict[str, Any]) -> Any:
+    return _row_value(row, "price", "unit_price", "unitprice", "unit price", "rate")
+
+
+def _line_amount(row: Dict[str, Any]) -> Any:
+    amount = _row_value(row, "subtotal", "amount", "cost", "actual")
+    if amount not in (None, ""):
+        return amount
+    qty = _numeric_cell(_line_qty(row))
+    price = _numeric_cell(_line_price(row))
+    if qty is None or price is None:
+        return None
+    return qty * price
 
 
 def _is_row_num_header(header: str) -> bool:
@@ -1052,16 +1081,13 @@ def resolve_table_rows(field: Dict[str, Any], data: Dict[str, Any]) -> List[List
                         elif "description" in norm_h and "product" not in normalize_key(col_key):
                             val = row.get("cost_description") or row.get("description") or row.get("desc") or row.get("details") or row.get("service_cost_item") or row.get("service") or row.get("item")
                         elif "quantity" in norm_h or "qty" in norm_h:
-                            val = row.get("quantity") or row.get("qty") or row.get("count") or (1 if row.get("rate") is not None or row.get("amount") is not None else "")
-                        elif "rate" in norm_h:
-                            val = row.get("rate") or row.get("unit_price") or row.get("unit_cost") or row.get("price")
-                        elif norm_h == "amount":
-                            val = row.get("amount") or row.get("cost") or row.get("subtotal") or row.get("actual")
-                            if (val is None or val == "") and row.get("rate") is not None and row.get("quantity") is not None:
-                                try:
-                                    val = float(str(row["rate"]).replace(",", "").strip()) * float(str(row["quantity"]).replace(",", "").strip())
-                                except (ValueError, TypeError):
-                                    pass
+                            val = _line_qty(row)
+                            if val in (None, ""):
+                                val = row.get("count") or (1 if _line_price(row) is not None else "")
+                        elif "unitprice" in norm_h or norm_h in {"price", "rate"}:
+                            val = _line_price(row)
+                        elif norm_h in {"amount", "subtotal"}:
+                            val = _line_amount(row)
                         elif "tax" in norm_h and "%" in h:
                             val = row.get("tax(%)") or row.get("tax_%") or row.get("tax_percent") or row.get("tax_pct") or row.get("tax_rate") or row.get("tax") or "7.45"
                         elif "taxamount" in norm_h or ("tax" in norm_h and "amount" in norm_h):
@@ -1085,7 +1111,10 @@ def resolve_table_rows(field: Dict[str, Any], data: Dict[str, Any]) -> List[List
                         elif _is_row_num_header(h) or _is_row_num_header(col_key):
                             val = f"{len(rows) + 1:02d}"
 
-                    if _is_money_header(h) or _is_money_header(col_key):
+                    if "qty" in normalize_key(h) or "qty" in normalize_key(col_key) or "quantity" in normalize_key(h):
+                        qty_num = _numeric_cell(val)
+                        mapped_row.append(f"{qty_num:g}" if qty_num is not None else _format_table_val(val))
+                    elif _is_money_header(h) or _is_money_header(col_key):
                         mapped_row.append(_format_money(val))
                     elif (_is_row_num_header(h) or _is_row_num_header(col_key)) and str(val or "").replace(".", "", 1).isdigit():
                         mapped_row.append(f"{int(float(val)):02d}")
@@ -1324,7 +1353,12 @@ def draw_text_lines_in_box(
 
     if lines:
         align = (field.get("alignment", "left") or "left").lower()
-        valign = (field.get("verticalAlignment", "middle") or "middle").lower()
+        if "verticalAlignment" in field:
+            valign = str(field.get("verticalAlignment") or "middle").lower()
+        elif field.get("boxed"):
+            valign = "top"
+        else:
+            valign = "middle"
         if is_grid_box_field(field):
             valign = "middle"
 

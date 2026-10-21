@@ -516,3 +516,60 @@ def test_remarks_and_internal_notes_match_estimator_layout():
     assert "Release status: HOLD" in text
     assert "Attached files not read" in text
     assert "SGV2_DOOR_TOOLS cannot auto-release" in text
+
+
+def test_amount_column_fills_from_subtotal_or_qty_times_price():
+    tpl = _quote_template()
+    table = next(field for field in tpl["schemas"][0] if field.get("type") == "table")
+    table["columns"] = ["#", "Product", "Qty", "Price", "Amount"]
+    form = {
+        "Line Item": [
+            {"Product": "SGV2_DOOR_OP_2C42_R", "Qty": "1.0", "Price": "5730.32"},
+            {"Product": "VISIONPLUS", "Qty": 2, "Price": 1295, "Subtotal": 2590},
+        ],
+        "Subtotal": 8320.32,
+        "Total": 9401.96,
+    }
+    text = _pages_text(render_template_pdf(tpl, form)[0])[0]
+    assert "$5,730.32" in text
+    assert text.count("$5,730.32") >= 2
+    assert "$1,295.00" in text and "$2,590.00" in text
+    assert "\n1\n" in text or " 1 " in text or "\n1\n" in text.replace("1.0", "1")
+
+
+def test_remarks_does_not_repeat_project_or_duplicate_paragraph():
+    form = {
+        "Project": "145 Richmond Ave W",
+        "Remarks": (
+            "145 Richmond Avenue West – historical RFQ forward received (attachments not readable here). "
+            "Request: 'wittur 4C-R operator'.\n"
+            "This estimate cannot be fully resolved without the attached survey details.\n"
+            "145 Richmond Avenue West – historical RFQ forward received (attachments not readable here). "
+            "Request: 'wittur 4C-R operator'.\n"
+            "This estimate cannot be fully resolved without the attached survey details."
+        ),
+        "Line Item": _items(4),
+        "Subtotal": 40,
+        "Total": 45.2,
+    }
+    pdf, pages = render_template_pdf(_quote_template(), form)
+    text = _pages_text(pdf)[0]
+    assert pages == 1
+    assert text.count("historical RFQ forward received") == 1
+    assert text.count("145 Richmond") == 1
+    assert "Internal review notes" not in text
+
+
+def test_review_flags_on_line_items_fill_internal_notes():
+    form = {
+        "Project": "145 Richmond Ave W",
+        "Line Item": [
+            {"Product": "SGV2_DOOR_TOOLS", "Qty": 1, "Price": 698.5, "Needs Engineering Review": True},
+        ],
+        "Subtotal": 698.5,
+        "Total": 789.31,
+    }
+    text = _pages_text(render_template_pdf(_quote_template(), form)[0])[0]
+    assert "Internal review notes (not part of the customer-facing estimate)" in text
+    assert "Line SGV2_DOOR_TOOLS cannot auto-release." in text
+    assert "145 Richmond Ave W" in text

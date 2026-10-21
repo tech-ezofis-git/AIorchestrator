@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import io
+import re
 from copy import deepcopy
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from reportlab.pdfgen import canvas
@@ -50,6 +52,7 @@ def prepare_form_data(value: Any) -> Any:
         out["Phone"] = out["Phone Number"]
     _fill_remarks(out)
     _fill_internal_notes(out)
+    _fill_quote_defaults(out)
     return out
 
 
@@ -116,6 +119,50 @@ def _looks_internal_notes(text: str) -> bool:
     return lower.startswith("release status") or "internal review" in lower
 
 
+def _norm_words(text: str) -> str:
+    expanded = (
+        str(text or "")
+        .lower()
+        .replace("avenue", "ave")
+        .replace("street", "st")
+        .replace("west", "w")
+        .replace("east", "e")
+        .replace("north", "n")
+        .replace("south", "s")
+    )
+    return re.sub(r"[^a-z0-9]+", " ", expanded).strip()
+
+
+def _covers(inner: str, outer: str) -> bool:
+    a, b = _norm_words(inner), _norm_words(outer)
+    return bool(a and b and (a in b or b in a))
+
+
+def _dedupe_text(text: str) -> str:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return ""
+    half = len(stripped) // 2
+    for idx in range(max(1, half - 40), min(len(stripped), half + 40)):
+        left, right = stripped[:idx].strip(), stripped[idx:].strip()
+        if left and _norm_words(left) == _norm_words(right):
+            stripped = left
+            break
+    seen = set()
+    lines = []
+    for line in stripped.split("\n"):
+        key = _norm_words(line)
+        if not key:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(line.rstrip())
+    return "\n".join(lines).strip()
+
+
 def _fill_remarks(data: Dict[str, Any]) -> None:
     """Customer Remarks box: project name, then quote remarks (Seth's HTML layout)."""
     remarks = _first_plain_text(data, "Remarks")
@@ -123,10 +170,11 @@ def _fill_remarks(data: Dict[str, Any]) -> None:
         notes = _first_plain_text(data, "Notes", "Notes & Remarks")
         if notes and not _looks_internal_notes(notes):
             remarks = notes
+    remarks = _dedupe_text(remarks)
     project = _first_plain_text(data, "Project", "Project Name")
     if not remarks and project:
         remarks = project
-    elif remarks and project and project not in remarks:
+    elif remarks and project and not _covers(project, remarks):
         remarks = f"{project}\n{remarks}"
     if remarks:
         data["Remarks"] = remarks
@@ -134,26 +182,68 @@ def _fill_remarks(data: Dict[str, Any]) -> None:
             data["remarks"] = remarks
 
 
+def _line_items(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    for key in ("Line Item", "line_items", "Line Items"):
+        value = data.get(key)
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, dict)]
+    return []
+
+
+def _review_lines_from_items(data: Dict[str, Any]) -> List[str]:
+    lines = []
+    for row in _line_items(data):
+        flag = row.get("Needs Engineering Review") or row.get("needs_engineering_review") or row.get("hold")
+        if flag in (True, "true", "True", "HOLD", "hold"):
+            code = row.get("Product") or row.get("product_code") or "item"
+            lines.append(f"Line {code} cannot auto-release.")
+    return lines
+
+
 def _fill_internal_notes(data: Dict[str, Any]) -> None:
     """Yellow Internal review notes box: release status + held / assumption bullets."""
+    remarks = _first_plain_text(data, "Remarks")
     existing = data.get("Internal Notes")
-    if isinstance(existing, str) and existing.strip():
+    if isinstance(existing, str) and existing.strip() and not _covers(existing, remarks):
         return
     notes = _first_plain_text(data, "Notes")
-    if notes and _looks_internal_notes(notes):
+    if notes and _looks_internal_notes(notes) and not _covers(notes, remarks):
         data["Internal Notes"] = notes
         return
     status = _first_plain_text(data, "Release Status")
-    bullets = _plain_lines(data, "Release Reasons") or _held_lines(data) or _plain_lines(data, "Assumptions")
+    bullets = _plain_lines(data, "Release Reasons") or _held_lines(data)
+    if not bullets:
+        bullets = [line for line in _plain_lines(data, "Assumptions") if not _covers(line, remarks)]
+    if not bullets:
+        bullets = _review_lines_from_items(data)
     lines: List[str] = []
     if status:
         lines.append(f"Release status: {status}")
+    elif bullets:
+        lines.append("Release status: HOLD — technical / commercial review required before release")
     for bullet in bullets:
         token = bullet if bullet.startswith("•") else f"• {bullet}"
-        if token not in lines:
+        if token not in lines and not _covers(token, remarks):
             lines.append(token)
+    if len(lines) == 1 and lines[0].lower().startswith("release status"):
+        lines = []
     if lines:
         data["Internal Notes"] = "\n".join(lines)
+    else:
+        data.pop("Internal Notes", None)
+
+
+def _fill_quote_defaults(data: Dict[str, Any]) -> None:
+    if not _first_plain_text(data, "Date", "Quote Date"):
+        today = date.today()
+        data["Date"] = f"{today:%B} {today.day}, {today.year}"
+    company = _first_plain_text(data, "Company Name", "Customer")
+    for key in ("Billing Address", "Shipping Address", "billing_address", "shipping_address"):
+        addr = str(data.get(key) or "").strip()
+        if company and addr and company not in addr:
+            data[key] = f"{company}\n{addr}"
+        elif company and not addr:
+            data[key] = company
 
 
 def _format_top_level(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -185,11 +275,22 @@ def _is_empty_value(value: Any) -> bool:
     return value in (None, "", [], {}) or (isinstance(value, str) and not value.strip())
 
 
+def _paired_label_key(field: Dict[str, Any]) -> str:
+    name = str(field.get("name") or "")
+    for suffix in (" Label", "Label", " Title", "Title"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)].strip()
+    return ""
+
+
 def _should_hide(field: Dict[str, Any], data: Dict[str, Any]) -> bool:
     flag = field.get("hideIfEmpty")
     if not flag:
         return False
     if flag is True:
+        if field.get("readOnly") and not field.get("dataKey"):
+            paired = _paired_label_key(field)
+            return _is_empty_value(data.get(paired)) if paired else False
         return _is_empty_value(resolve_metadata_value(field, data, ""))
     key = str(flag)
     if key in data:
@@ -211,8 +312,14 @@ def _field_height(field: Dict[str, Any], data: Dict[str, Any]) -> float:
         return max(height, 20.0)
     if field.get("dynamicHeight"):
         text = str(resolve_metadata_value(field, data, field.get("content") or "") or "")
-        lines = max(1, text.count("\n") + 1)
-        return max(height, 4.2 * lines + 8.0)
+        width = max(safe_float(field.get("width"), 178.0), 40.0)
+        font = max(safe_float(field.get("fontSize"), 8.0), 6.0)
+        chars = max(20, int(width / (font * 0.35)))
+        wrapped = 0
+        for para in (text.split("\n") or [""]):
+            wrapped += max(1, (len(para) + chars - 1) // chars) if para else 1
+        computed = 4.4 * max(1, wrapped) + (10.0 if field.get("boxed") else 6.0)
+        return max(12.0, computed)
     return height or 5.0
 
 
@@ -237,12 +344,21 @@ def _place_flow_fields(
             pos = dict(field.get("position") or {})
             pos["y"] = bottoms[anchor] + safe_float(field.get("flowGap"), 0.0)
             field["position"] = pos
-            bottoms[str(field.get("name") or "")] = pos["y"] + _field_height(field, data)
+            field["height"] = _field_height(field, data)
+            bottoms[str(field.get("name") or "")] = pos["y"] + field["height"]
             placed.append(field)
             progressed = True
         remaining = leftover
         if not progressed:
-            placed.extend(remaining)
+            last = max(bottoms.values()) if bottoms else 0.0
+            for field in leftover:
+                pos = dict(field.get("position") or {})
+                pos["y"] = last + safe_float(field.get("flowGap"), 0.0)
+                field["position"] = pos
+                field["height"] = _field_height(field, data)
+                last = pos["y"] + field["height"]
+                bottoms[str(field.get("name") or "")] = last
+                placed.append(field)
             break
     return placed
 
@@ -277,10 +393,8 @@ def _paginate(fields: List[Dict[str, Any]], data: Dict[str, Any], page_w: float,
         last_limit = min((_y(f) for f in summary or footer), default=page_h - 10 * to_unit) - table_y - gap
     mid_limit = min((_y(f) for f in footer), default=page_h - 10 * to_unit) - table_y - gap
 
-    if not rows or height(rows) <= last_limit:
+    if not rows or height(rows) <= mid_limit:
         chunks = [rows]
-        if flow and table_y + height(rows) + flow_reserve > page_h - FOOTER_ZONE_MM * to_unit:
-            chunks.append([])
     else:
         chunks = []
         remaining = rows
