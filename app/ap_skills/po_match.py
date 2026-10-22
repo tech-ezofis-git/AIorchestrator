@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.ap_skills.name_embedder import embedder_from
 from app.ap_skills.types import (
     ApContext,
     ApSkillResult,
@@ -196,7 +197,8 @@ async def run(ctx: ApContext) -> ApSkillResult:
     reasons: list[str] = [f"PO {po_number} found."]
     inv_vendor = field_text(invoice, "vendor", "supplier")
     po_vendor = field_text(po, "vendor", "supplier", "Vendor Name", "Vendor")
-    sim = name_similarity(inv_vendor, po_vendor) if inv_vendor and po_vendor else 0.0
+    name_score = await _name_score_fn(ctx, invoice, po if isinstance(po, dict) else {}, inv_vendor, po_vendor)
+    sim = name_score(inv_vendor, po_vendor) if inv_vendor and po_vendor else 0.0
     score += round(30.0 * sim, 2)
     if sim >= 0.85:
         reasons.append("Vendor matches PO.")
@@ -239,26 +241,51 @@ async def run(ctx: ApContext) -> ApSkillResult:
     po_row = build_po_row(invoice, po if isinstance(po, dict) else {})
     if po_row:
         data["po_row"] = po_row
-    _stamp_invoice_line_scores(invoice, po if isinstance(po, dict) else {})
+    from app.ap_skills.agent_validation_response import _field_matching, _line_matching
+
+    po_dict = po if isinstance(po, dict) else {}
+    data["field_matching"] = _field_matching(invoice, po_dict, text_score=name_score)
+    data["line_matching"] = _line_matching(invoice, po_dict, text_score=name_score)
+    _stamp_invoice_line_scores(invoice, po_dict, matched=data["line_matching"])
     return ApSkillResult(
         skill_id=SKILL_ID,
         data=data,
     )
 
 
-def _stamp_invoice_line_scores(invoice: dict[str, Any], po: dict[str, Any]) -> None:
+async def _name_score_fn(ctx: ApContext, invoice: dict[str, Any], po: dict[str, Any], inv_vendor: str, po_vendor: str):
+    """Warm name embeddings, then return a sync 0..1 scorer. Falls back to letters."""
+    from app.ap_skills.agent_validation_response import _invoice_lines, _po_lines
+
+    texts = [inv_vendor, po_vendor]
+    for line in _invoice_lines(invoice) + _po_lines(po):
+        texts.append(field_text(line, "description", "Description", "item", "name"))
+    embedder = embedder_from(ctx)
+    if embedder is not None:
+        await embedder.warm(texts)
+        return embedder.score
+    return name_similarity
+
+
+def _stamp_invoice_line_scores(
+    invoice: dict[str, Any],
+    po: dict[str, Any],
+    *,
+    matched: list | None = None,
+) -> None:
     """Copy each line match score onto the invoice rows the ticket grid reads.
 
     The grid shows Amount from qty and price, and Score / Total from fields
     that extract_invoice does not set. An empty score renders as 0%, and the
     footer total stays 0.00.
     """
-    from app.ap_skills.agent_validation_response import _line_matching
-
     lines = invoice.get("line_items")
     if not isinstance(lines, list) or not lines:
         return
-    matched = _line_matching(invoice, po)
+    if matched is None:
+        from app.ap_skills.agent_validation_response import _line_matching
+
+        matched = _line_matching(invoice, po)
     for index, line in enumerate(lines):
         if not isinstance(line, dict):
             continue

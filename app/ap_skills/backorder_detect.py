@@ -1,6 +1,7 @@
 """backorder_detect — invoice qty vs PO qty (short-ship). Skipped unless tenant-enabled."""
 from __future__ import annotations
 
+from app.ap_skills.name_embedder import embedder_from
 from app.ap_skills.types import (
     ApContext,
     ApSkillError,
@@ -47,7 +48,17 @@ async def run(ctx: ApContext) -> ApSkillResult:
     raw_po_lines = po.get("lines") if isinstance(po.get("lines"), list) else []
     po_lines = [line for line in raw_po_lines if isinstance(line, dict)]
 
-    matched_indexes = match_lines_by_description(po_lines, inv_lines, describe=_description)
+    embedder = embedder_from(ctx)
+    if embedder is not None:
+        await embedder.warm(
+            [_description(line) for line in po_lines] + [_description(line) for line in inv_lines]
+        )
+    matched_indexes = match_lines_by_description(
+        po_lines,
+        inv_lines,
+        describe=_description,
+        score_fn=embedder.score if embedder is not None else None,
+    )
 
     missing = []
     for position, (po_line, inv_index) in enumerate(zip(po_lines, matched_indexes)):

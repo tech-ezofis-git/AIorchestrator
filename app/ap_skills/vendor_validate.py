@@ -1,6 +1,7 @@
 """vendor_validate — invoice vendor vs PO vendor or vendor master. Not always-on."""
 from __future__ import annotations
 
+from app.ap_skills.name_embedder import embedder_from
 from app.ap_skills.types import (
     ApContext,
     ApSkillResult,
@@ -10,6 +11,14 @@ from app.ap_skills.types import (
 )
 
 SKILL_ID = "vendor_validate"
+
+
+async def _vendor_similarity(ctx: ApContext, vendor: str, expected: str) -> float:
+    embedder = embedder_from(ctx)
+    if embedder is None:
+        return name_similarity(vendor, expected)
+    await embedder.warm([vendor, expected])
+    return embedder.score(vendor, expected)
 
 
 async def run(ctx: ApContext) -> ApSkillResult:
@@ -44,7 +53,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
                     "status": status,
                     "vendor": vendor,
                     "expected": expected,
-                    "match_score": round(name_similarity(vendor, expected) * 100, 2),
+                    "match_score": round(await _vendor_similarity(ctx, vendor, expected) * 100, 2),
                     "source": "vendor_master",
                     "reason": f"Vendor master status {status}.",
                     # Code-review finding #4: EzofisClient.lookup_vendor
@@ -57,7 +66,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
             )
 
     if expected:
-        sim = name_similarity(vendor, expected)
+        sim = await _vendor_similarity(ctx, vendor, expected)
         matched = sim >= 0.85
         return ApSkillResult(
             skill_id=SKILL_ID,

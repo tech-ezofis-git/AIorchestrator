@@ -585,6 +585,7 @@ async def lifespan(app: FastAPI):
         llm_adapter=llm_adapter,
         db_pool=db_pool,
         tenant_pools=tenant_pools,
+        embedding_adapter=embedding_adapter,
     )
 
     # Constructed only after dispatcher (needs store_memory/fetch_memories
