@@ -633,7 +633,11 @@ async def lifespan(app: FastAPI):
     audit_store = AuditStore(db_pool)
 
     ftl_qualifier_agent = FtlQualifierAgent(ezofis=ezofis_client)
-    ftl_quote_estimator_agent = FtlQuoteEstimatorAgent(ezofis=ezofis_client)
+    ftl_quote_estimator_agent = FtlQuoteEstimatorAgent(
+        ezofis=ezofis_client,
+        tenant_pools=tenant_pools,
+        catalog_store=catalog_store,
+    )
     form_sync_service = FormSyncService(llm_adapter)
     form_sync_agent = FormSyncAgent(form_sync_service)
 

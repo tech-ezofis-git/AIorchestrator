@@ -26,6 +26,7 @@ from app.ftl.quote_estimator import (
 )
 from app.ftl.quote_estimator.quote_public import derive_quote_variants, public_quote_payload
 from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
+from app.ftl.quote_estimator.rfq_master import apply_rfq_master_addresses
 from app.ftl.quote_estimator.quote_pdf import generate_quote_pdf
 from app.ftl.quote_estimator.quote_template import compute_totals, render_quote_html
 from app.ftl.quote_estimator.template_pdf import render_template_pdf
@@ -186,6 +187,8 @@ class FtlQuoteEstimatorAgent:
     def __init__(self, ezofis: Any = None, **kwargs: Any) -> None:
         os.makedirs(PDF_DIR, exist_ok=True)
         self._ezofis = ezofis or kwargs.get("ezofis")
+        self._tenant_pools = kwargs.get("tenant_pools")
+        self._catalog_store = kwargs.get("catalog_store")
 
     async def _pdf_text(self, content: bytes) -> str:
         """Same page text as the standalone estimator (PyMuPDF, then pdfplumber).
@@ -336,6 +339,13 @@ class FtlQuoteEstimatorAgent:
                 return fn(skill, rendered, **kwargs)
 
             quote_result, total_tokens = await asyncio.to_thread(_run)
+            quote_result = await apply_rfq_master_addresses(
+                quote_result,
+                candidate_text=rendered,
+                tenant_id=tenant_id,
+                tenant_pools=self._tenant_pools,
+                catalog_store=self._catalog_store,
+            )
 
             estimate_number = quote_result.get("estimate_number") or quotes_store.next_estimate_number()
             quote_result["estimate_number"] = estimate_number
