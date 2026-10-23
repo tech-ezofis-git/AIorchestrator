@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from app.ap_pipeline.policy import review_label
 from app.ap_skills.agent_validation_text import enrichment_for_finalize, resolve_source_type
@@ -69,8 +69,12 @@ def build_aiagent_response(
         "reason": base_reason,
         "source_type": source_type,
         "debug": {
-            "Side-by-side Field Matching": _field_matching(invoice, po),
-            "Side-by-side Line Item matching": _line_matching(invoice, po),
+            "Side-by-side Field Matching": po_match.get("field_matching")
+            if isinstance(po_match.get("field_matching"), list)
+            else _field_matching(invoice, po),
+            "Side-by-side Line Item matching": po_match.get("line_matching")
+            if isinstance(po_match.get("line_matching"), list)
+            else _line_matching(invoice, po),
         },
         "po_row": po_row or None,
         "payment_terms": payment_terms,
@@ -83,7 +87,13 @@ def build_aiagent_response(
     return {k: v for k, v in response.items() if v is not None}
 
 
-def _field_score(inv: Any, po: Any, *, kind: str = "text") -> float:
+def _field_score(
+    inv: Any,
+    po: Any,
+    *,
+    kind: str = "text",
+    text_score: Optional[Callable[[str, str], float]] = None,
+) -> float:
     if inv in (None, "") and po in (None, ""):
         return 100.0
     if inv in (None, "") or po in (None, ""):
@@ -102,11 +112,19 @@ def _field_score(inv: Any, po: Any, *, kind: str = "text") -> float:
         if delta <= 0.05:
             return 80.0
         return 0.0
-    sim = name_similarity(str(inv), str(po))
-    return round(sim * 100.0, 2)
+    if text_score is not None:
+        sim = text_score(str(inv), str(po))
+    else:
+        sim = name_similarity(str(inv), str(po))
+    return round(float(sim) * 100.0, 2)
 
 
-def _field_matching(invoice: dict[str, Any], po: dict[str, Any]) -> list[dict[str, Any]]:
+def _field_matching(
+    invoice: dict[str, Any],
+    po: dict[str, Any],
+    *,
+    text_score: Optional[Callable[[str, str], float]] = None,
+) -> list[dict[str, Any]]:
     if not po:
         return []
     inv_total = field_number(invoice, "total", "amount", "Invoice Amount")
@@ -147,13 +165,19 @@ def _field_matching(invoice: dict[str, Any], po: dict[str, Any]) -> list[dict[st
                 "Field": label,
                 "Invoice Value": _display(inv_v),
                 "PO Value": _display(po_v),
-                "Score": _field_score(inv_v, po_v, kind=kind),
+                "Score": _field_score(inv_v, po_v, kind=kind, text_score=text_score),
             }
         )
     return rows
 
 
-def _line_matching(invoice: dict[str, Any], po: dict[str, Any]) -> list[dict[str, Any]]:
+def _line_matching(
+    invoice: dict[str, Any],
+    po: dict[str, Any],
+    *,
+    text_score: Optional[Callable[[str, str], float]] = None,
+    pair_score: Optional[Callable[[str, str], float]] = None,
+) -> list[dict[str, Any]]:
     inv_lines = _invoice_lines(invoice)
     po_lines = _po_lines(po)
     if not inv_lines or not po_lines:
@@ -162,7 +186,9 @@ def _line_matching(invoice: dict[str, Any], po: dict[str, Any]) -> list[dict[str
     def _desc(row: dict[str, Any]) -> str:
         return field_text(row, "description", "Description", "item", "name")
 
-    paired = match_lines_by_description(inv_lines, po_lines, describe=_desc)
+    paired = match_lines_by_description(
+        inv_lines, po_lines, describe=_desc, score_fn=pair_score or text_score
+    )
     out: list[dict[str, Any]] = []
     for inv_i, po_i in enumerate(paired):
         inv = inv_lines[inv_i]
@@ -184,7 +210,9 @@ def _line_matching(invoice: dict[str, Any], po: dict[str, Any]) -> list[dict[str
         inv_amt = field_number(inv, "amount", "line_amount", "Extended")
         po_amt = field_number(po_line, "amount", "line_amount", "Extended") if po_line else None
 
-        desc_score = _field_score(inv_desc, po_desc, kind="text") if po_line else 0.0
+        desc_score = (
+            _field_score(inv_desc, po_desc, kind="text", text_score=text_score) if po_line else 0.0
+        )
         qty_score = _field_score(
             inv_qty_disp if inv_qty_disp != "" else None,
             po_qty_disp if po_qty_disp != "" else None,

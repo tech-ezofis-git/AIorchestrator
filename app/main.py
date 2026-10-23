@@ -515,7 +515,10 @@ async def lifespan(app: FastAPI):
     dispatcher.register_tool(SEARCH_FORMS_SCHEMA, make_search_forms_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_COMMENTS_SCHEMA, make_search_comments_handler(tenant_pools, catalog_store))
     dispatcher.register_tool(SEARCH_TICKETS_SCHEMA, make_search_tickets_handler(tenant_pools, catalog_store))
-    dispatcher.register_tool(SEARCH_REPO_RAG_SCHEMA, make_search_repo_rag_handler(hybrid_search, vector_store))
+    dispatcher.register_tool(
+        SEARCH_REPO_RAG_SCHEMA,
+        make_search_repo_rag_handler(hybrid_search, vector_store, tenant_pools, catalog_store),
+    )
     dispatcher.register_tool(
         CHATBOT_START_WORKFLOW_SCHEMA, make_chatbot_start_workflow_handler(ezofis_client)
     )
@@ -585,6 +588,7 @@ async def lifespan(app: FastAPI):
         llm_adapter=llm_adapter,
         db_pool=db_pool,
         tenant_pools=tenant_pools,
+        embedding_adapter=embedding_adapter,
     )
 
     # Constructed only after dispatcher (needs store_memory/fetch_memories

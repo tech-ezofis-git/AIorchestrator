@@ -86,6 +86,8 @@ class ApContext:
     # app/catalog/tenant_llm.py's module docstring for why.
     llm_overrides: Optional[dict[str, Any]] = None
     llm_fallback_overrides: Optional[dict[str, Any]] = None
+    # Name-only embedder (text-embedding-3-small). None keeps letter matching.
+    name_embedder: Any = None
 
 
 class ApSkill(Protocol):
@@ -215,6 +217,7 @@ def match_lines_by_description(
     *,
     describe: Callable[[dict[str, Any]], str],
     floor: float = DEFAULT_LINE_MATCH_FLOOR,
+    score_fn: Optional[Callable[[str, str], float]] = None,
 ) -> list[Optional[int]]:
     """Best `right_lines` index for each `left_lines` entry, by
     `name_similarity` on `describe(line)`. Returns a list the same length
@@ -246,7 +249,8 @@ def match_lines_by_description(
         for index, right_line in enumerate(right_lines):
             if index in used:
                 continue
-            score = name_similarity(left_desc, describe(right_line))
+            compare = score_fn or name_similarity
+            score = compare(left_desc, describe(right_line))
             if score > best_score:
                 best_index, best_score = index, score
         # best_index and best_score are always assigned together above, and

@@ -1,7 +1,7 @@
 """Global Search Dispatcher tools — agent always calls these; LLM does not choose them."""
 from typing import Any, Optional
 
-from app.global_search.rag_search import search_documents_rag
+from app.global_search.rag_search import drop_deleted_document_hits, search_documents_rag
 from app.global_search.sql_search import (
     search_comments,
     search_document_metadata,
@@ -206,7 +206,14 @@ def make_search_tickets_handler(tenant_pools: Any, catalog_store: Any = None):
     return handler
 
 
-def make_search_repo_rag_handler(hybrid_search: HybridSearch, vector_store: VectorStore):
+def make_search_repo_rag_handler(
+    hybrid_search: HybridSearch,
+    vector_store: VectorStore,
+    tenant_pools: Any = None,
+    catalog_store: Any = None,
+):
+    acquire = _search_db(tenant_pools, catalog_store) if tenant_pools is not None else None
+
     async def handler(
         *,
         query: str,
@@ -225,6 +232,12 @@ def make_search_repo_rag_handler(hybrid_search: HybridSearch, vector_store: Vect
             workspace_id=workspace_id,
             query_embedding=query_embedding,
         )
+        if acquire is not None and (tenant_id or "").strip():
+            try:
+                db = await acquire(tenant_id)
+            except Exception:
+                db = None
+            hits = await drop_deleted_document_hits(db, hits)
         return [h.model_dump() for h in hits]
 
     return handler

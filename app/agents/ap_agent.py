@@ -34,6 +34,7 @@ class ApAgent:
         llm_adapter: Any = None,
         db_pool: Any = None,
         tenant_pools: Any = None,
+        embedding_adapter: Any = None,
     ):
         self._dispatcher = dispatcher
         self._response_composer = response_composer
@@ -42,6 +43,7 @@ class ApAgent:
         self._llm = llm_adapter
         self._db_pool = db_pool
         self._tenant_pools = tenant_pools
+        self._embedding_adapter = embedding_adapter
         self._runner: Optional[ApSkillRunner] = None
 
     def _cfg(self) -> Settings:
@@ -61,6 +63,7 @@ class ApAgent:
                 settings=self._cfg(),
                 dispatcher=self._dispatcher,
                 llm=self._llm,
+                embedding_adapter=self._embedding_adapter,
             )
         return self._runner
 

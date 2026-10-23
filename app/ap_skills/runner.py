@@ -25,6 +25,7 @@ from app.ap_skills import (
 )
 from app.ap_skills.ap_metadata import extras_from_artifacts, merge_ids_into_job, push_extract_metadata, resolve_metadata_ids
 from app.ap_skills.ap_progress import ApProgressReporter, RUNNER_OWNED_FLAG, progress_ids
+from app.ap_skills.name_embedder import NameEmbedder
 from app.ap_skills.planner import ensure_ezofis_hana_po_lookup, maybe_reorder, resolve_skills
 from app.ap_skills.store import ApStore
 from app.ap_skills.types import (
@@ -134,12 +135,14 @@ class ApSkillRunner:
         settings: Any,
         dispatcher: Any = None,
         llm: Any = None,
+        embedding_adapter: Any = None,
     ):
         self._store = store
         self._ezofis = ezofis
         self._settings = settings
         self._dispatcher = dispatcher
         self._llm = llm
+        self._embedding_adapter = embedding_adapter
 
     async def run(self, *, session_id: str, document_job: dict[str, Any]) -> dict[str, Any]:
         tenant_id = str(document_job.get("tenant_id") or "default").strip() or "default"
@@ -328,6 +331,7 @@ class ApSkillRunner:
             form_id=(str(document_job.get("form_id") or "").strip() or None),
             llm_overrides=document_job.get("llm_overrides"),
             llm_fallback_overrides=document_job.get("llm_fallback_overrides"),
+            name_embedder=NameEmbedder(self._embedding_adapter),
         )
         try:
             ids = resolve_metadata_ids(document_job, ctx.form_id)
