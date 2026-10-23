@@ -26,7 +26,7 @@ from app.ftl.quote_estimator import (
 )
 from app.ftl.quote_estimator.quote_public import derive_quote_variants, public_quote_payload
 from app.ftl.quote_estimator.quote_select import form_data_for_quote_type
-from app.ftl.quote_estimator.rfq_master import apply_rfq_master_addresses
+from app.ftl.quote_estimator.rfq_master import apply_rfq_master_addresses, qualifier_lookup_text
 from app.ftl.quote_estimator.quote_pdf import generate_quote_pdf
 from app.ftl.quote_estimator.quote_template import compute_totals, render_quote_html
 from app.ftl.quote_estimator.template_pdf import render_template_pdf
@@ -291,12 +291,17 @@ class FtlQuoteEstimatorAgent:
             # Qualifier Result is ignored. The quote is built from the .eml (or its text).
             await progress.update("PROCESSING", "Reading the RFQ email", 20)
 
+            email_meta: Dict[str, Any] = {}
             if file_bytes is not None:
-                rendered, _, input_type = await self._build_candidate_from_bytes(file_bytes, input_filename)
+                rendered, email_meta, input_type = await self._build_candidate_from_bytes(
+                    file_bytes, input_filename
+                )
             elif filepath is not None and os.path.exists(filepath):
                 with open(filepath, "rb") as f:
                     fb = f.read()
-                rendered, _, input_type = await self._build_candidate_from_bytes(fb, input_filename)
+                rendered, email_meta, input_type = await self._build_candidate_from_bytes(
+                    fb, input_filename
+                )
             elif candidate_text:
                 rendered = candidate_text
             elif raw_text:
@@ -306,6 +311,16 @@ class FtlQuoteEstimatorAgent:
                 raise ValueError(
                     "No RFQ email provided. Send the .eml file, or the email text in Candidate Text."
                 )
+
+            lookup_parts = [rendered or ""]
+            if candidate_text and candidate_text != rendered:
+                lookup_parts.append(candidate_text)
+            if raw_text and raw_text not in lookup_parts:
+                lookup_parts.append(raw_text)
+            qualifier_blob = qualifier_lookup_text(qualifier_result)
+            if qualifier_blob:
+                lookup_parts.append(qualifier_blob)
+            lookup_text = "\n".join(part for part in lookup_parts if part)
 
             # --- 40%: Preparing quote line items ---
             await progress.update("PROCESSING", "Preparing quote line items", 40)
@@ -341,7 +356,8 @@ class FtlQuoteEstimatorAgent:
             quote_result, total_tokens = await asyncio.to_thread(_run)
             quote_result = await apply_rfq_master_addresses(
                 quote_result,
-                candidate_text=rendered,
+                candidate_text=lookup_text,
+                email_meta=email_meta or None,
                 tenant_id=tenant_id,
                 tenant_pools=self._tenant_pools,
                 catalog_store=self._catalog_store,
@@ -555,7 +571,7 @@ class FtlQuoteEstimatorAgent:
                 filepath=filepath,
                 candidate_text=candidate_text,
                 raw_text=raw_text,
-                qualifier_result=None,  # quote is built from the email, not Qualifier Result
+                qualifier_result=job.get("qualifier_result"),  # lookup only — the quote is still priced from the email
                 template_type=template_type,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),

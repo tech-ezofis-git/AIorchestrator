@@ -9,6 +9,7 @@ keeps the EML values.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, Optional
@@ -35,6 +36,10 @@ _LEGAL_RE = re.compile(
     re.I,
 )
 _PUNCT_RE = re.compile(r"[^a-z0-9]+")
+_COMPANY_LINE_RE = re.compile(
+    r"(?:company(?:\s+name)?|customer(?:\s+name)?)\s*[:\-]\s*(.+)",
+    re.I,
+)
 _STREET_ABBR = (
     ("avenue", "ave"),
     ("street", "st"),
@@ -175,23 +180,115 @@ def _address_overlap(left: str, right: str) -> bool:
     return has_number and len(shared) >= 3
 
 
+def flatten_master_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Lift JSON/object columns so Email / Billing_Address are readable at the top level."""
+    out = dict(row or {})
+    extra: dict[str, Any] = {}
+    for value in list(out.values()):
+        parsed: Any = value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text or text[0] not in "{[":
+                continue
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                continue
+        if not isinstance(parsed, dict):
+            continue
+        for key, inner in parsed.items():
+            if extra.get(key) in (None, ""):
+                extra[key] = inner
+    for key, inner in extra.items():
+        if out.get(key) in (None, ""):
+            out[key] = inner
+    return out
+
+
 def master_field(row: dict[str, Any], aliases: tuple[str, ...]) -> str:
-    return _text(_ci_get(row, *aliases))
+    return _text(_ci_get(flatten_master_row(row), *aliases))
 
 
-def lookup_keys(quote: dict[str, Any], candidate_text: str = "") -> dict[str, Any]:
-    emails = customer_emails(
-        quote.get("email"),
+def _field(quote: dict[str, Any], *names: str) -> str:
+    """Read a quote field from snake_case or Title Case public keys."""
+    return _text(_ci_get(quote, *names))
+
+
+def _lookup_blob(
+    quote: dict[str, Any],
+    candidate_text: str = "",
+    email_meta: Optional[dict[str, Any]] = None,
+) -> str:
+    parts = [
         candidate_text,
-        quote.get("contact_name"),
-        quote.get("customer_name"),
-    )
+        _field(quote, "email", "Email"),
+        _field(quote, "customer_name", "Company Name", "Company"),
+        _field(quote, "contact_name", "Contact", "Contact Name"),
+        _field(quote, "billing_address", "Billing Address"),
+        _field(quote, "shipping_address", "Shipping Address"),
+    ]
+    meta = email_meta if isinstance(email_meta, dict) else {}
+    if meta:
+        parts.extend(
+            [
+                _text(meta.get("from")),
+                _text(meta.get("to")),
+                _text(meta.get("cc")),
+                _text(meta.get("subject")),
+                _text(meta.get("body_text")),
+            ]
+        )
+        fwd = meta.get("forwarded_sender")
+        if isinstance(fwd, dict):
+            parts.extend([_text(fwd.get("name")), _text(fwd.get("email"))])
+    return "\n".join(part for part in parts if part)
+
+
+def companies_from_text(text: str) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _COMPANY_LINE_RE.finditer(text or ""):
+        name = _text(match.group(1)).split("\n")[0][:80]
+        key = normalize_company(name)
+        if not name or len(key) < 3 or key in seen:
+            continue
+        seen.add(key)
+        found.append(name)
+    return found
+
+
+def qualifier_lookup_text(qualifier: Optional[dict[str, Any]]) -> str:
+    """Customer identity from Qualifier Result — used only to find the RFQ Master row."""
+    if not isinstance(qualifier, dict):
+        return ""
+    parts = [
+        _text(_ci_get(qualifier, "email", "Email")),
+        _text(_ci_get(qualifier, "customer_name", "Company Name", "Company", "Customer Name")),
+        _text(_ci_get(qualifier, "contact_name", "Contact", "Contact Name")),
+        _text(_ci_get(qualifier, "billing_address", "Billing Address")),
+        _text(_ci_get(qualifier, "shipping_address", "Shipping Address")),
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def lookup_keys(
+    quote: dict[str, Any],
+    candidate_text: str = "",
+    email_meta: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    blob = _lookup_blob(quote, candidate_text, email_meta)
+    emails = customer_emails(blob)
+    company = _field(quote, "customer_name", "Company Name", "Company")
+    if not company:
+        named = companies_from_text(blob)
+        company = named[0] if named else ""
     return {
         "emails": emails,
         "domains": [email_domain(e) for e in emails if email_domain(e)],
-        "company": _text(quote.get("customer_name")),
-        "billing": _text(quote.get("billing_address")),
-        "shipping": _text(quote.get("shipping_address")),
+        "company": company,
+        "billing": _field(quote, "billing_address", "Billing Address"),
+        "shipping": _field(quote, "shipping_address", "Shipping Address"),
+        "text": blob,
     }
 
 
@@ -210,11 +307,14 @@ def score_master_row(row: dict[str, Any], keys: dict[str, Any]) -> int:
 
     quote_company = normalize_company(keys.get("company") or "")
     master_company = normalize_company(row_company)
+    haystack = normalize_company(keys.get("text") or "")
     if quote_company and master_company:
         if quote_company == master_company:
             score += 30
         elif quote_company in master_company or master_company in quote_company:
             score += 20
+    elif master_company and len(master_company) >= 6 and master_company in haystack:
+        score += 25
 
     fetched = " ".join(
         part for part in (keys.get("billing"), keys.get("shipping")) if part
@@ -234,18 +334,20 @@ def pick_master_row(
     rows: list[dict[str, Any]],
     quote: dict[str, Any],
     candidate_text: str = "",
+    email_meta: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
-    keys = lookup_keys(quote, candidate_text)
-    if not (keys["emails"] or keys["company"] or keys["billing"] or keys["shipping"]):
+    keys = lookup_keys(quote, candidate_text, email_meta)
+    if not (keys["emails"] or keys["company"] or keys["billing"] or keys["shipping"] or keys["text"]):
         return None
     best: Optional[dict[str, Any]] = None
     best_score = 0
     for row in rows:
         if not isinstance(row, dict):
             continue
-        score = score_master_row(row, keys)
+        flat = flatten_master_row(row)
+        score = score_master_row(flat, keys)
         if score > best_score:
-            best, best_score = row, score
+            best, best_score = flat, score
     return best if best_score > 0 else None
 
 
@@ -266,10 +368,11 @@ def overlay_master_addresses(
     quote: dict[str, Any],
     rows: list[dict[str, Any]],
     candidate_text: str = "",
+    email_meta: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Write Billing/Shipping from a matched RFQ Master row; otherwise keep EML values."""
     out = dict(quote)
-    row = pick_master_row(rows, out, candidate_text)
+    row = pick_master_row(rows, out, candidate_text, email_meta)
     if not row:
         return _with_address_source_tags(out)
     billing = master_field(row, BILLING_ALIASES)
@@ -278,8 +381,12 @@ def overlay_master_addresses(
     shipping_from_master = bool(shipping)
     if billing_from_master:
         out["billing_address"] = billing
+        if "Billing Address" in out:
+            out["Billing Address"] = billing
     if shipping_from_master:
         out["shipping_address"] = shipping
+        if "Shipping Address" in out:
+            out["Shipping Address"] = shipping
     if billing_from_master or shipping_from_master:
         notes = list(out.get("assumptions") or [])
         note = "ℹ Billing / Shipping Address filled from RFQ Master."
@@ -354,6 +461,7 @@ async def fetch_rfq_master_rows(
     db: Any,
     quote: dict[str, Any],
     candidate_text: str = "",
+    email_meta: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     loc = await _locate_table(db)
     if loc is None:
@@ -374,7 +482,7 @@ async def fetch_rfq_master_rows(
         )
         return []
 
-    keys = lookup_keys(quote, candidate_text)
+    keys = lookup_keys(quote, candidate_text, email_meta)
     where: list[str] = ["TRUE"]
     params: list[Any] = []
     clauses: list[str] = []
@@ -425,7 +533,7 @@ async def fetch_rfq_master_rows(
             f"SELECT * FROM {quote_ident(schema)}.{quote_ident(table)} "
             f"WHERE TRUE{deleted} LIMIT {_ROW_CAP}"
         )
-    return [_row_as_dict(row) for row in (rows or [])]
+    return [flatten_master_row(_row_as_dict(row)) for row in (rows or [])]
 
 
 async def _acquire_db(
@@ -449,6 +557,7 @@ async def apply_rfq_master_addresses(
     quote: dict[str, Any],
     *,
     candidate_text: str = "",
+    email_meta: Optional[dict[str, Any]] = None,
     tenant_id: Optional[str] = None,
     tenant_pools: Any = None,
     catalog_store: Any = None,
@@ -466,12 +575,14 @@ async def apply_rfq_master_addresses(
                 catalog_store=catalog_store,
             )
             if db is None:
-                return overlay_master_addresses(quote, [], candidate_text)
-            master_rows = await fetch_rfq_master_rows(db, quote, candidate_text)
-        return overlay_master_addresses(quote, master_rows, candidate_text)
+                return overlay_master_addresses(quote, [], candidate_text, email_meta)
+            master_rows = await fetch_rfq_master_rows(
+                db, quote, candidate_text, email_meta
+            )
+        return overlay_master_addresses(quote, master_rows, candidate_text, email_meta)
     except Exception as exc:
         logger.warning(
             "ftl_rfq_master_lookup_failed",
             extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
         )
-        return overlay_master_addresses(quote, [], candidate_text)
+        return overlay_master_addresses(quote, [], candidate_text, email_meta)

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.ftl.quote_estimator.rfq_master import (
@@ -105,7 +107,8 @@ def test_skips_ftl_forwarder_and_uses_inner_customer_email():
         "is: Julie House <jhouse@attaelevators.com>."
     )
     row = pick_master_row([ATTA, MARCH], quote, candidate)
-    assert row is ATTA
+    assert row == ATTA
+    assert row["Email"] == ATTA["Email"]
 
 
 @pytest.mark.asyncio
@@ -124,3 +127,99 @@ async def test_apply_with_supplied_rows():
     assert out["billing_address"] == ATTA["Billing_Address"]
     assert out["billing_address_from_master"] is True
     assert out["shipping_address_from_master"] is True
+
+
+def _empty_quote():
+    return {
+        "customer_name": "",
+        "email": "",
+        "billing_address": "",
+        "shipping_address": "",
+        "assumptions": [],
+    }
+
+
+def test_empty_quote_uses_candidate_email():
+    candidate = "From: Julie House <jhouse@attaelevators.com>\nNeed a quote for door operators."
+    out = overlay_master_addresses(_empty_quote(), [ATTA, MARCH], candidate)
+    assert out["billing_address"] == ATTA["Billing_Address"]
+    assert out["shipping_address"] == ATTA["Shipping_Address"]
+    assert out["billing_address_from_master"] is True
+    assert out["shipping_address_from_master"] is True
+
+
+def test_title_case_empty_quote_still_overlays():
+    quote = {
+        "Company Name": "",
+        "Email": "",
+        "Billing Address": "",
+        "Shipping Address": "",
+        "assumptions": [],
+    }
+    out = overlay_master_addresses(quote, [ATTA], "Contact: jhouse@attaelevators.com")
+    assert out["billing_address"] == ATTA["Billing_Address"]
+    assert out["Billing Address"] == ATTA["Billing_Address"]
+    assert out["shipping_address"] == ATTA["Shipping_Address"]
+    assert out["billing_address_from_master"] is True
+
+
+def test_email_meta_forwarded_sender_when_quote_blank():
+    meta = {
+        "from": "John Lewis <john@ftl-distribution.ca>",
+        "forwarded_sender": {"name": "Julie House", "email": "jhouse@attaelevators.com"},
+        "body_text": "Please quote SGV doors. HIEGHT.",
+    }
+    out = overlay_master_addresses(
+        _empty_quote(), [ATTA, MARCH], "HIEGHT", email_meta=meta
+    )
+    assert out["billing_address"] == ATTA["Billing_Address"]
+    assert out["shipping_address"] == ATTA["Shipping_Address"]
+    assert out["billing_address_from_master"] is True
+
+
+def test_company_line_in_body_when_quote_blank():
+    out = overlay_master_addresses(
+        _empty_quote(),
+        [ATTA, MARCH],
+        "Company Name: ATTA Elevators\nKeyword fragment: HIEGHT",
+    )
+    assert out["billing_address"] == ATTA["Billing_Address"]
+    assert out["shipping_address"] == ATTA["Shipping_Address"]
+
+
+def test_company_name_in_signature_when_quote_blank():
+    out = overlay_master_addresses(
+        _empty_quote(),
+        [ATTA, MARCH],
+        "Thanks,\nJulie House\nATTA Elevators\n40 North Rivermede",
+    )
+    assert out["billing_address"] == ATTA["Billing_Address"]
+
+
+def test_json_payload_row_overlays_addresses():
+    row = {
+        "data": json.dumps(
+            {
+                "Email": "jhouse@attaelevators.com",
+                "Company_Name": "ATTA Elevators",
+                "Billing_Address": ATTA["Billing_Address"],
+                "Shipping_Address": ATTA["Shipping_Address"],
+            }
+        )
+    }
+    out = overlay_master_addresses(_quote(), [row])
+    assert out["billing_address"] == ATTA["Billing_Address"]
+    assert out["shipping_address"] == ATTA["Shipping_Address"]
+    assert out["billing_address_from_master"] is True
+
+
+@pytest.mark.asyncio
+async def test_apply_empty_quote_with_candidate_email():
+    out = await apply_rfq_master_addresses(
+        _empty_quote(),
+        candidate_text="Please quote jhouse@attaelevators.com",
+        rows=[ATTA, MARCH],
+    )
+    assert out["billing_address"] == ATTA["Billing_Address"]
+    assert out["shipping_address"] == ATTA["Shipping_Address"]
+    assert out["billing_address_from_master"] is True
