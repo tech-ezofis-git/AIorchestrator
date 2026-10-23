@@ -20,11 +20,76 @@ from app.knowledge.vector_store import VectorStore
 logger = logging.getLogger("orchestrator.global_search")
 
 _DELETED_TRUE = frozenset({"1", "true", "t", "yes", "y"})
-_ITEM_ID_KEYS = ("itemid", "item_id", "repositoryitemid", "ifileid", "id")
+_ITEM_ID_KEYS = ("id", "itemid", "item_id", "repositoryitemid", "ifileid")
 _STATUS_LIVE = "live"
 _STATUS_DELETED = "deleted"
 _STATUS_MISSING = "missing"
 _STATUS_UNKNOWN = "unknown"
+
+
+def _items_table_name(repository_id: str) -> str:
+    compact = (repository_id or "").replace("-", "").lower()
+    return f"items_{compact[:8]}" if len(compact) >= 8 else ""
+
+
+async def _row_deleted_flag(
+    db: Any,
+    schema: str,
+    table: str,
+    compact: str,
+    *,
+    id_keys: tuple[str, ...] = _ITEM_ID_KEYS,
+) -> Optional[bool]:
+    """True deleted or missing, False live, None when this table could not be checked."""
+    try:
+        by_lower, _types = await fetch_columns(db, schema, table)
+    except Exception:
+        return None
+    item_col = next((by_lower[key] for key in id_keys if key in by_lower), None)
+    if not item_col:
+        return None
+    deleted_col = pick_deleted_column(by_lower)
+    deleted_sql = (
+        f"lower(COALESCE(CAST({quote_ident(deleted_col)} AS text), '0'))"
+        if deleted_col
+        else "'0'"
+    )
+    sql = (
+        f"SELECT {deleted_sql} AS deleted "
+        f"FROM {qualified(schema, table)} "
+        f"WHERE lower(replace(CAST({quote_ident(item_col)} AS text), '-', '')) = $1 "
+        f"LIMIT 1"
+    )
+    try:
+        row = await db.fetchrow(sql, compact)
+    except Exception:
+        logger.warning(
+            "rag_deleted_lookup_failed",
+            extra={"table": f"{schema}.{table}"},
+        )
+        return None
+    if row is None:
+        return True
+    flag = str(row_get(row, "deleted") or "0").strip().lower()
+    return flag in _DELETED_TRUE
+
+
+async def _items_id_present(db: Any, schema: str, table: str, compact: str) -> Optional[bool]:
+    """True when `id` matches, False when the table has no such row, None on error."""
+    sql = (
+        f"SELECT 1 AS present FROM {qualified(schema, table)} "
+        f"WHERE lower(replace(CAST({quote_ident('id')} AS text), '-', '')) = $1 "
+        f"LIMIT 1"
+    )
+    try:
+        row = await db.fetchrow(sql, compact)
+    except Exception as exc:
+        logger.warning(
+            "rag_items_id_lookup_failed",
+            extra={"table": f"{schema}.{table}", "error": str(exc)[:200]},
+        )
+        return None
+    return row is not None
 
 
 async def _item_status(db: Any, *, item_id: str, repository_id: str = "") -> str:
@@ -32,55 +97,50 @@ async def _item_status(db: Any, *, item_id: str, repository_id: str = "") -> str
     compact = (item_id or "").replace("-", "").lower()
     if not compact or db is None:
         return _STATUS_UNKNOWN
-    tables: list[tuple[str, str]] = []
+    repo_tables: list[tuple[str, str]] = []
     if repository_id:
-        tables.extend(await find_items_tables_for_repository(db, repository_id))
+        table_name = _items_table_name(repository_id)
+        if table_name:
+            present = await _items_id_present(db, "repository", table_name, compact)
+            if present is False:
+                logger.info(
+                    "rag_hit_missing_items_row",
+                    extra={"table": f"repository.{table_name}", "item_id": item_id},
+                )
+                return _STATUS_MISSING
+            if present is True:
+                flag = await _row_deleted_flag(db, "repository", table_name, compact)
+                if flag is True:
+                    return _STATUS_DELETED
+                if flag is False:
+                    return _STATUS_LIVE
+                return _STATUS_LIVE
+        for located in await find_items_tables_for_repository(db, repository_id):
+            if located not in repo_tables:
+                repo_tables.append(located)
+    checked = False
+    for schema, table in repo_tables:
+        flag = await _row_deleted_flag(db, schema, table, compact)
+        if flag is None:
+            continue
+        checked = True
+        if flag is False:
+            return _STATUS_LIVE
+    if checked:
+        return _STATUS_MISSING
     located = await find_table(
         db,
         ("repositoryitem", "repositoryitems", "repository_item"),
         prefer_schemas=("dbo", "repository", "public"),
     )
-    if located and located not in tables:
-        tables.append(located)
-    saw_query = False
-    for schema, table in tables:
-        try:
-            by_lower, _types = await fetch_columns(db, schema, table)
-        except Exception:
-            continue
-        item_col = next((by_lower[key] for key in _ITEM_ID_KEYS if key in by_lower), None)
-        if not item_col:
-            continue
-        deleted_col = pick_deleted_column(by_lower)
-        deleted_sql = (
-            f"lower(COALESCE(CAST({quote_ident(deleted_col)} AS text), '0'))"
-            if deleted_col
-            else "'0'"
-        )
-        sql = (
-            f"SELECT {deleted_sql} AS deleted "
-            f"FROM {qualified(schema, table)} "
-            f"WHERE lower(replace(CAST({quote_ident(item_col)} AS text), '-', '')) = $1 "
-            f"LIMIT 1"
-        )
-        try:
-            row = await db.fetchrow(sql, compact)
-        except Exception:
-            logger.warning(
-                "rag_deleted_lookup_failed",
-                extra={"table": f"{schema}.{table}"},
-            )
-            continue
-        saw_query = True
-        if row is None:
-            continue
-        flag = str(row_get(row, "deleted") or "0").strip().lower()
-        if flag in _DELETED_TRUE:
-            return _STATUS_DELETED
+    if located is None:
+        return _STATUS_MISSING if repository_id else _STATUS_UNKNOWN
+    flag = await _row_deleted_flag(db, located[0], located[1], compact)
+    if flag is True:
+        return _STATUS_DELETED
+    if flag is False:
         return _STATUS_LIVE
-    if saw_query:
-        return _STATUS_MISSING
-    return _STATUS_UNKNOWN
+    return _STATUS_MISSING if repository_id else _STATUS_UNKNOWN
 
 
 async def item_marked_deleted(db: Any, *, item_id: str, repository_id: str = "") -> bool:
