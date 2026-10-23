@@ -249,6 +249,19 @@ def pick_master_row(
     return best if best_score > 0 else None
 
 
+def _with_address_source_tags(
+    quote: dict[str, Any],
+    *,
+    billing_from_master: bool = False,
+    shipping_from_master: bool = False,
+) -> dict[str, Any]:
+    """Always stamp whether each address was written from RFQ Master."""
+    out = dict(quote)
+    out["billing_address_from_master"] = bool(billing_from_master)
+    out["shipping_address_from_master"] = bool(shipping_from_master)
+    return out
+
+
 def overlay_master_addresses(
     quote: dict[str, Any],
     rows: list[dict[str, Any]],
@@ -258,24 +271,27 @@ def overlay_master_addresses(
     out = dict(quote)
     row = pick_master_row(rows, out, candidate_text)
     if not row:
-        return out
+        return _with_address_source_tags(out)
     billing = master_field(row, BILLING_ALIASES)
     shipping = master_field(row, SHIPPING_ALIASES)
-    changed = False
-    if billing:
+    billing_from_master = bool(billing)
+    shipping_from_master = bool(shipping)
+    if billing_from_master:
         out["billing_address"] = billing
-        changed = True
-    if shipping:
+    if shipping_from_master:
         out["shipping_address"] = shipping
-        changed = True
-    if changed:
+    if billing_from_master or shipping_from_master:
         notes = list(out.get("assumptions") or [])
         note = "ℹ Billing / Shipping Address filled from RFQ Master."
         if note not in notes:
             notes.append(note)
         out["assumptions"] = notes
         out["rfq_master_match"] = RFQ_MASTER_FORM_NAME
-    return out
+    return _with_address_source_tags(
+        out,
+        billing_from_master=billing_from_master,
+        shipping_from_master=shipping_from_master,
+    )
 
 
 def _pick_column(columns: list[str], aliases: tuple[str, ...]) -> Optional[str]:
@@ -450,7 +466,7 @@ async def apply_rfq_master_addresses(
                 catalog_store=catalog_store,
             )
             if db is None:
-                return quote
+                return overlay_master_addresses(quote, [], candidate_text)
             master_rows = await fetch_rfq_master_rows(db, quote, candidate_text)
         return overlay_master_addresses(quote, master_rows, candidate_text)
     except Exception as exc:
@@ -458,4 +474,4 @@ async def apply_rfq_master_addresses(
             "ftl_rfq_master_lookup_failed",
             extra={"error_type": type(exc).__name__, "error": str(exc)[:200]},
         )
-        return quote
+        return overlay_master_addresses(quote, [], candidate_text)

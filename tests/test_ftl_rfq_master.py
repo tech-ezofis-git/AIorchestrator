@@ -38,6 +38,8 @@ def test_email_match_overlays_bill_and_ship():
     assert out["billing_address"] == ATTA["Billing_Address"]
     assert out["shipping_address"] == ATTA["Shipping_Address"]
     assert out["rfq_master_match"] == "RFQ Master"
+    assert out["billing_address_from_master"] is True
+    assert out["shipping_address_from_master"] is True
 
 
 def test_company_match_when_email_missing():
@@ -76,6 +78,8 @@ def test_no_master_row_keeps_eml_addresses():
     assert out["billing_address"] == "Jobsite TBD"
     assert out["shipping_address"] == "145 Richmond Ave W"
     assert "rfq_master_match" not in out
+    assert out["billing_address_from_master"] is False
+    assert out["shipping_address_from_master"] is False
 
 
 def test_empty_master_field_keeps_eml():
@@ -89,6 +93,8 @@ def test_empty_master_field_keeps_eml():
     out = overlay_master_addresses(quote, [row])
     assert out["billing_address"] == row["Billing_Address"]
     assert out["shipping_address"] == "120 Bloor Street East, Toronto, ON"
+    assert out["billing_address_from_master"] is True
+    assert out["shipping_address_from_master"] is False
 
 
 def test_skips_ftl_forwarder_and_uses_inner_customer_email():
@@ -108,9 +114,13 @@ async def test_apply_without_tenant_keeps_quote():
     out = await apply_rfq_master_addresses(quote, tenant_id=None)
     assert out["billing_address"] == quote["billing_address"]
     assert out["shipping_address"] == quote["shipping_address"]
+    assert out["billing_address_from_master"] is False
+    assert out["shipping_address_from_master"] is False
 
 
 @pytest.mark.asyncio
 async def test_apply_with_supplied_rows():
     out = await apply_rfq_master_addresses(_quote(), rows=[ATTA])
     assert out["billing_address"] == ATTA["Billing_Address"]
+    assert out["billing_address_from_master"] is True
+    assert out["shipping_address_from_master"] is True
