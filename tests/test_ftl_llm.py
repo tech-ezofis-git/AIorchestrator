@@ -128,6 +128,32 @@ def test_resolve_fallback_llm_config_finds_azure_preset(monkeypatch):
     assert fallback["model"] in ("azure/gpt-4.1-mini", "azure/gpt-4.1-nano")
 
 
+def test_resolve_fallback_llm_configs_keeps_second_fallback():
+    from app.ftl.llm import resolve_fallback_llm_configs
+
+    chain = resolve_fallback_llm_configs(
+        {"model": "openai/qwen3.5-9b"},
+        [
+            {
+                "model": "azure/gpt-4.1-mini",
+                "api_base": "https://tenant-a.openai.azure.com",
+                "api_key": "tenant-fb1-key",
+                "api_version": "2025-01-01-preview",
+            },
+            {
+                "model": "azure/gpt-4o-mini",
+                "api_base": "https://tenant-b.openai.azure.com",
+                "api_key": "tenant-fb2-key",
+                "api_version": "2025-01-01-preview",
+            },
+        ],
+    )
+    models = [item["model"] for item in chain]
+    assert models[:2] == ["azure/gpt-4.1-mini", "azure/gpt-4o-mini"]
+    assert chain[0]["api_key"] == "tenant-fb1-key"
+    assert chain[1]["api_key"] == "tenant-fb2-key"
+
+
 def test_resolve_fallback_llm_config_respects_explicit_overrides():
     from app.ftl.llm import resolve_fallback_llm_config
 
@@ -154,7 +180,7 @@ def test_qualifier_fallback_when_primary_fails(monkeypatch):
     def fake_open_client(config, **kwargs):
         model = str(config.get("model") or "")
         calls.append(model)
-        if "qwen" in model:
+        if "qwen" in model or "gpt-4.1-mini" in model:
             raise ConnectionError("Primary ACI container unreachable")
 
         class FakeMessage:
@@ -189,10 +215,26 @@ def test_qualifier_fallback_when_primary_fails(monkeypatch):
         skill={},
         candidate_text="Elevator door modernizations",
         llm_overrides={"model": "openai/qwen3.5-9b", "api_key": "test", "api_base": "http://dead-host/v1"},
+        fallback_overrides=[
+            {
+                "model": "azure/gpt-4.1-mini",
+                "api_base": "https://tenant-a.openai.azure.com",
+                "api_key": "fb1-key",
+                "api_version": "2025-01-01-preview",
+            },
+            {
+                "model": "azure/gpt-4o-mini",
+                "api_base": "https://tenant-b.openai.azure.com",
+                "api_key": "fb2-key",
+                "api_version": "2025-01-01-preview",
+            },
+        ],
         progress_callback=on_progress,
     )
     assert res["project_name"] == "Test Fallback"
     assert any("Switching to backup AI model" in m[0] for m in progress_reports)
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert "qwen" in calls[0]
+    assert "gpt-4.1-mini" in calls[1]
+    assert "gpt-4o-mini" in calls[2]
 

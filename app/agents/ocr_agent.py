@@ -213,6 +213,7 @@ class OcrAgent:
                 primary_overrides=overrides,
                 max_recommended_fields=settings.ocr_max_recommended_fields,
                 error=exc,
+                job=job,
                 fallback_overrides=fallback_overrides,
             )
 
@@ -263,35 +264,47 @@ class OcrAgent:
         primary_overrides: dict[str, Any],
         max_recommended_fields: int,
         error: Exception,
+        job: Optional[dict[str, Any]] = None,
         fallback_overrides: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
-        """Retry OCR structuring on the tenant/console/env fallback model.
+        """Retry OCR structuring on fallback, then 2nd fallback, then env.
 
         Every tier here is a plain overrides dict passed into
         `chat_completion(**overrides)` for that one retry call — none of
         this mutates the shared adapter (see app/llm/adapter.py)."""
+        from app.catalog.tenant_llm import job_fallback_chain
+
         settings = self._cfg()
-        if not fallback_overrides:
+        chain = job_fallback_chain(job)
+        if not chain and fallback_overrides:
+            chain = [fallback_overrides] if isinstance(fallback_overrides, dict) else list(fallback_overrides or [])
+        if not chain:
             console_fallback = (
                 self._runtime_models.fallback_preset_id if self._runtime_models else None
             )
-            fallback_overrides = resolve_preset_overrides(console_fallback) if console_fallback else None
+            resolved = resolve_preset_overrides(console_fallback) if console_fallback else None
+            if resolved:
+                chain = [resolved]
 
-        if fallback_overrides:
+        last_exc = error
+        for overrides in chain:
             logger.warning(
                 "ocr_structuring_fallback_preset",
-                extra={"model": fallback_overrides.get("model")},
+                extra={"model": overrides.get("model")},
             )
-            return await extract_fields_skill(
-                llm=self._llm_for_skill(),
-                instruction=instruction,
-                ocr_text=ocr_text,
-                parameters=parameters,
-                tableparameters=tableparameters,
-                page_label=page_label,
-                max_recommended_fields=max_recommended_fields,
-                llm_overrides=fallback_overrides,
-            )
+            try:
+                return await extract_fields_skill(
+                    llm=self._llm_for_skill(),
+                    instruction=instruction,
+                    ocr_text=ocr_text,
+                    parameters=parameters,
+                    tableparameters=tableparameters,
+                    page_label=page_label,
+                    max_recommended_fields=max_recommended_fields,
+                    llm_overrides=overrides,
+                )
+            except Exception as exc:
+                last_exc = exc
 
         env_fallback = (settings.ocr_fallback_model or "").strip() or None
         primary_model = primary_overrides.get("model")
@@ -300,8 +313,6 @@ class OcrAgent:
                 "ocr_structuring_fallback_model",
                 extra={"model": env_fallback},
             )
-            # Keep the primary call's api_base/api_key/api_version (if any
-            # were explicitly resolved) and only swap the model name.
             env_overrides = {**primary_overrides, "model": env_fallback}
             return await extract_fields_skill(
                 llm=self._llm_for_skill(),
@@ -314,7 +325,7 @@ class OcrAgent:
                 llm_overrides=env_overrides,
             )
 
-        raise error
+        raise last_exc
 
 
 def _align_document_type(fields: list[dict[str, Any]], document_type: Any) -> list[dict[str, Any]]:

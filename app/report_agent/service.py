@@ -90,25 +90,25 @@ class ReportAgentService:
         self,
         tenant_id: Optional[str],
         model: Optional[str] = None,
-    ) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
-        """Return (primary_overrides, fallback_overrides) for chat_completion."""
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Return (primary_overrides, fallback override dicts) for chat_completion."""
         if model:
-            return {"model": model}, None
+            return {"model": model}, []
         tid = (tenant_id or "").strip()
         if not tid or self._catalog_store is None:
-            return {}, None
+            return {}, []
         resolved = await apply_tenant_agent_llm(self._catalog_store, tid, "report")
         primary: dict[str, Any] = {}
         preset = resolved.get("overrides")
         if isinstance(preset, dict):
             primary.update({k: v for k, v in preset.items() if v is not None})
+        fallbacks = list(resolved.get("fallback_chain") or [])
         fallback = resolved.get("fallback_overrides")
-        if not isinstance(fallback, dict) or not fallback:
-            fallback = None
-        # Avoid retrying the exact same primary preset as "fallback"
-        if fallback and primary and fallback.get("model") == primary.get("model"):
-            fallback = None
-        return primary, fallback
+        if not fallbacks and isinstance(fallback, dict) and fallback:
+            fallbacks = [fallback]
+        if primary:
+            fallbacks = [item for item in fallbacks if item.get("model") != primary.get("model")]
+        return primary, fallbacks
 
     async def _chat(
         self,
@@ -124,25 +124,35 @@ class ReportAgentService:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        primary, fallback = await self._resolve_llm_presets(tenant_id, model)
+        primary, fallbacks = await self._resolve_llm_presets(tenant_id, model)
+        if isinstance(fallbacks, dict):
+            fallbacks = [fallbacks]
+        elif not isinstance(fallbacks, list):
+            fallbacks = []
         try:
             result = await self._llm.chat_completion(messages, **primary)
         except LLMAdapterError as primary_exc:
-            if not fallback:
+            if not fallbacks:
                 raise RuntimeError(f"Report Agent model call failed: {primary_exc}") from primary_exc
-            logger.warning(
-                "report_agent_llm_primary_failed_retrying_fallback",
-                extra={
-                    "error": str(primary_exc)[:200],
-                    "fallback_model": fallback.get("model"),
-                },
-            )
-            try:
-                result = await self._llm.chat_completion(messages, **fallback)
-            except LLMAdapterError as fallback_exc:
+            last_exc: LLMAdapterError = primary_exc
+            for fallback in fallbacks:
+                logger.warning(
+                    "report_agent_llm_primary_failed_retrying_fallback",
+                    extra={
+                        "error": str(last_exc)[:200],
+                        "fallback_model": fallback.get("model"),
+                    },
+                )
+                try:
+                    result = await self._llm.chat_completion(messages, **fallback)
+                    last_exc = None  # type: ignore[assignment]
+                    break
+                except LLMAdapterError as fallback_exc:
+                    last_exc = fallback_exc
+            if last_exc is not None:
                 raise RuntimeError(
-                    f"Report Agent model call failed (primary and fallback): {fallback_exc}"
-                ) from fallback_exc
+                    f"Report Agent model call failed (primary and fallback): {last_exc}"
+                ) from last_exc
         return str(result.get("content") or ""), result.get("usage")
 
     async def list_scope_options(

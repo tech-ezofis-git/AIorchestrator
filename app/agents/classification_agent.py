@@ -146,13 +146,16 @@ class ClassificationAgent:
         )
 
     def _fallback_candidates(self, job: dict[str, Any], *, primary: Optional[str]) -> list[dict[str, Any]]:
-        """Fallback LLM settings, in the same order the agent always used: catalog/runtime preset, then env model."""
-        fallback_overrides = job.get("llm_fallback_overrides")
-        if not isinstance(fallback_overrides, dict) or not fallback_overrides:
-            fallback_preset = job.get("catalog_fallback_preset") or (
-                self._runtime_models.fallback_preset_id if self._runtime_models else None
-            )
-            fallback_overrides = resolve_preset_overrides(fallback_preset) if fallback_preset else None
+        """Fallback LLM settings: catalog fallback, 2nd fallback, then env model."""
+        from app.catalog.tenant_llm import job_fallback_chain
+
+        chain = job_fallback_chain(job)
+        if chain:
+            return list(chain)
+        fallback_preset = job.get("catalog_fallback_preset") or (
+            self._runtime_models.fallback_preset_id if self._runtime_models else None
+        )
+        fallback_overrides = resolve_preset_overrides(fallback_preset) if fallback_preset else None
         if fallback_overrides:
             return [fallback_overrides]
         env_fallback = (self._cfg().ocr_fallback_model or "").strip() or None

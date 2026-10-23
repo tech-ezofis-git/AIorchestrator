@@ -1680,6 +1680,7 @@
   }
   .catalog-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-3); }
   .catalog-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 14px; }
+  .catalog-form.catalog-form-3 { grid-template-columns: 1fr 1fr 1fr; }
   .catalog-form[hidden] { display: none !important; }
   .catalog-form label { font-size: 12px; color: var(--ink-2); display: block; margin-bottom: 4px; }
   .catalog-form input, .catalog-form textarea, .catalog-form select {
@@ -1758,7 +1759,7 @@
   .layout.tenant-gate-active { pointer-events: none; user-select: none; opacity: 0.55; }
   .btn-danger { background: #fff1f0; color: var(--error-main); padding: 4px 8px; font-size: 11px; }
   .kind-pill { font-size: 10px; padding: 2px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-secondary); }
-  @media (max-width: 860px) { .catalog-form { grid-template-columns: 1fr; } .catalog-form .span-2 { grid-column: auto; } }
+  @media (max-width: 860px) { .catalog-form, .catalog-form.catalog-form-3 { grid-template-columns: 1fr; } .catalog-form .span-2 { grid-column: auto; } }
 
   /* —— Base44 AP document / pipeline panels —— */
   .ap-panel-b44 {
@@ -2355,6 +2356,9 @@
 
       <label for="llmFallbackPreset">Fallback</label>
       <select id="llmFallbackPreset"></select>
+      <label for="llmFallback2Preset">2nd fallback</label>
+      <select id="llmFallback2Preset"></select>
+      <div class="field-hint">If fallback fails, the 2nd fallback is tried next.</div>
       <div class="field-hint" id="llmKeyHint" style="margin-top:6px"></div>
 
       <div class="row" style="margin-top:10px">
@@ -3468,7 +3472,7 @@ vendor_validate</textarea>
   <div class="catalog-page">
   <section class="card catalog-card">
     <h2>Tenant</h2>
-    <p class="lede">Choose a tenant to view its agents grid and set default / fallback models. Available models can be added or removed below at any time.</p>
+    <p class="lede">Choose a tenant to view its agents grid and set default / fallback / 2nd fallback models. Available models can be added or removed below at any time.</p>
     <div class="catalog-tenant-row">
       <div>
         <label for="catTenantSelect">Tenant</label>
@@ -3482,8 +3486,8 @@ vendor_validate</textarea>
 
   <section class="card catalog-card" id="catalogTenantWorkspace" hidden>
     <h2>Agents</h2>
-    <p class="lede">Built-in agents are registered in code. Custom agents run as LLM specialists (system prompt + keyword triggers). Set tenant <strong>default / fallback</strong> above, or override <strong>model + fallback per agent</strong>, then click <strong>Save tenant settings</strong>. Per-agent fallback applies only when that agent has its own primary model; otherwise it uses the tenant fallback. Disabled agents are hidden from the Chat console sidebar for this tenant.</p>
-    <form class="catalog-form" id="catalogTenantForm" style="margin-top:0">
+    <p class="lede">Built-in agents are registered in code. Custom agents run as LLM specialists (system prompt + keyword triggers). Set tenant <strong>default / fallback / 2nd fallback</strong> above, or override <strong>model + fallbacks per agent</strong>, then click <strong>Save tenant settings</strong>. Per-agent fallbacks apply only when that agent has its own primary model; empty fallbacks use the tenant fallbacks. If the 2nd fallback fails, the 3rd model in the chain is the last attempt. Disabled agents are hidden from the Chat console sidebar for this tenant.</p>
+    <form class="catalog-form catalog-form-3" id="catalogTenantForm" style="margin-top:0">
       <div>
         <label for="catTenantDefault">default model</label>
         <select id="catTenantDefault" required></select>
@@ -3491,6 +3495,10 @@ vendor_validate</textarea>
       <div>
         <label for="catTenantFallback">fallback model</label>
         <select id="catTenantFallback"></select>
+      </div>
+      <div>
+        <label for="catTenantFallback2">2nd fallback</label>
+        <select id="catTenantFallback2"></select>
       </div>
     </form>
     <div class="catalog-status" id="catalogTenantStatus"></div>
@@ -3500,7 +3508,7 @@ vendor_validate</textarea>
     </div>
     <div style="overflow-x:auto">
       <table class="catalog-table" id="catalogAgentsTable">
-        <thead><tr><th>Slug</th><th>Name</th><th>Kind</th><th>Model</th><th>Fallback</th><th>Enabled</th><th>Triggers</th><th></th></tr></thead>
+        <thead><tr><th>Slug</th><th>Name</th><th>Kind</th><th>Model</th><th>Fallback</th><th>2nd fallback</th><th>Enabled</th><th>Triggers</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -3621,6 +3629,7 @@ document.getElementById('newSessionBtn').addEventListener('click', () => {
 // --- Model panel (default + OCR fallback presets) -----------------------
 const llmDefaultSelect = document.getElementById('llmDefaultPreset');
 const llmFallbackSelect = document.getElementById('llmFallbackPreset');
+const llmFallback2Select = document.getElementById('llmFallback2Preset');
 const llmDefaultHint = document.getElementById('llmDefaultHint');
 const llmKeyHint = document.getElementById('llmKeyHint');
 const llmStatus = document.getElementById('llmStatus');
@@ -3910,8 +3919,12 @@ async function loadLlmPresetsAndConfig() {
     llmPresets = presetsData.presets || [];
     const defaultId = data.default_preset_id || data.preset_id || presetsData.default_preset_id || (llmPresets[0] && llmPresets[0].id);
     const fallbackId = data.fallback_preset_id || '';
+    const fallback2Id = data.fallback2_preset_id || '';
     fillPresetSelect(llmDefaultSelect, llmPresets, defaultId);
     fillPresetSelect(llmFallbackSelect, llmPresets, fallbackId, { includeNone: true });
+    if (llmFallback2Select) {
+      fillPresetSelect(llmFallback2Select, llmPresets, fallback2Id, { includeNone: true });
+    }
     fillPresetSelect(summaryModelSelect, llmPresets, '', { includeNone: true });
     if (summaryModelSelect.options.length && summaryModelSelect.options[0].value === '') {
       summaryModelSelect.options[0].textContent = 'Console default';
@@ -3977,6 +3990,7 @@ async function saveLlmConfig() {
   const payload = {
     default_preset_id: llmDefaultSelect.value,
     fallback_preset_id: llmFallbackSelect.value,
+    fallback2_preset_id: llmFallback2Select ? llmFallback2Select.value : '',
   };
   llmSaveBtn.disabled = true;
   try {
@@ -3986,7 +4000,8 @@ async function saveLlmConfig() {
     const data = await res.json();
     if (res.ok) {
       const fb = data.fallback_preset_id ? `; fallback ${data.fallback_preset_id}` : '';
-      setLlmStatus('ok', `Saved — default ${data.default_preset_id || data.preset_id}${fb}.`);
+      const fb2 = data.fallback2_preset_id ? `; 2nd fallback ${data.fallback2_preset_id}` : '';
+      setLlmStatus('ok', `Saved — default ${data.default_preset_id || data.preset_id}${fb}${fb2}.`);
       await loadLlmPresetsAndConfig();
     } else {
       setLlmStatus('fail', 'Save failed: ' + (data.detail || res.status));
@@ -10656,26 +10671,30 @@ function modelOptionsForSelect() {
   return catalogModelsCache.map(m => ({ id: m.id, label: m.label, region: m.region }));
 }
 
-function syncAgentFallbackSelect(modelSel, fallbackSel, draft) {
+function syncAgentFallbackSelect(modelSel, fallbackSel, draft, fallback2Sel) {
   const hasPrimary = Boolean(modelSel && modelSel.value);
-  if (!fallbackSel || !draft) return;
-  fallbackSel.disabled = !hasPrimary;
-  if (!hasPrimary) {
-    draft.fallback_model_id = '';
-    fallbackSel.value = '';
-    if (fallbackSel.options.length && fallbackSel.options[0].value === '') {
-      fallbackSel.options[0].textContent = 'Tenant fallback';
+  const selects = [fallbackSel, fallback2Sel].filter(Boolean);
+  if (!draft || !selects.length) return;
+  selects.forEach((sel, index) => {
+    const key = index === 0 ? 'fallback_model_id' : 'fallback2_model_id';
+    const emptyLabel = index === 0 ? 'Tenant fallback' : 'Tenant 2nd fallback';
+    sel.disabled = !hasPrimary;
+    if (!hasPrimary) {
+      draft[key] = '';
+      sel.value = '';
+      sel.title = 'Set a primary model first to override fallback for this agent';
+    } else {
+      sel.title = index === 0
+        ? 'Fallback model for this agent (tenant)'
+        : '2nd fallback model for this agent (tenant)';
     }
-    fallbackSel.title = 'Set a primary model first to override fallback for this agent';
-  } else {
-    if (fallbackSel.options.length && fallbackSel.options[0].value === '') {
-      fallbackSel.options[0].textContent = 'Tenant fallback';
+    if (sel.options.length && sel.options[0].value === '') {
+      sel.options[0].textContent = emptyLabel;
     }
-    fallbackSel.title = 'Fallback model for this agent (tenant)';
-  }
+  });
 }
 
-async function saveTenantAgentModel(agentSlug, modelId, fallbackModelId) {
+async function saveTenantAgentModel(agentSlug, modelId, fallbackModelId, fallback2ModelId) {
   const status = document.getElementById('catalogAgentStatus');
   const tenantId = selectedCatalogTenantId();
   if (!tenantId) {
@@ -10690,6 +10709,7 @@ async function saveTenantAgentModel(agentSlug, modelId, fallbackModelId) {
       agent_slug: agentSlug,
       model_id: modelId || null,
       fallback_model_id: modelId ? (fallbackModelId || null) : null,
+      fallback2_model_id: modelId ? (fallback2ModelId || null) : null,
     }),
   });
   const data = await readResponseJson(res);
@@ -10725,19 +10745,23 @@ async function loadCatalogAgents() {
         '<td></td>' +
         '<td></td>' +
         '<td></td>' +
+        '<td></td>' +
         '<td>' + escapeHtml(triggers) + '</td>' +
         '<td class="catalog-actions"></td>';
       const modelCell = tr.children[3];
       const fallbackCell = tr.children[4];
+      const fallback2Cell = tr.children[5];
       const modelSel = document.createElement('select');
       modelSel.title = 'Primary model for this agent (tenant)';
       const fallbackSel = document.createElement('select');
+      const fallback2Sel = document.createElement('select');
       const mapped = catalogTenantAgentModels[agent.slug];
       catalogAgentsDraft[agent.slug] = {
         id: agent.id,
         enabled: Boolean(agent.enabled),
         model_id: mapped ? (mapped.model_id || '') : '',
         fallback_model_id: mapped ? (mapped.fallback_model_id || '') : '',
+        fallback2_model_id: mapped ? (mapped.fallback2_model_id || '') : '',
       };
       fillPresetSelect(modelSel, modelOptionsForSelect(), catalogAgentsDraft[agent.slug].model_id, { includeNone: true });
       if (modelSel.options.length && modelSel.options[0].value === '') {
@@ -10747,17 +10771,25 @@ async function loadCatalogAgents() {
       if (fallbackSel.options.length && fallbackSel.options[0].value === '') {
         fallbackSel.options[0].textContent = 'Tenant fallback';
       }
+      fillPresetSelect(fallback2Sel, modelOptionsForSelect(), catalogAgentsDraft[agent.slug].fallback2_model_id, { includeNone: true });
+      if (fallback2Sel.options.length && fallback2Sel.options[0].value === '') {
+        fallback2Sel.options[0].textContent = 'Tenant 2nd fallback';
+      }
       modelSel.addEventListener('change', () => {
         catalogAgentsDraft[agent.slug].model_id = modelSel.value;
-        syncAgentFallbackSelect(modelSel, fallbackSel, catalogAgentsDraft[agent.slug]);
+        syncAgentFallbackSelect(modelSel, fallbackSel, catalogAgentsDraft[agent.slug], fallback2Sel);
       });
       fallbackSel.addEventListener('change', () => {
         catalogAgentsDraft[agent.slug].fallback_model_id = fallbackSel.value;
       });
-      syncAgentFallbackSelect(modelSel, fallbackSel, catalogAgentsDraft[agent.slug]);
+      fallback2Sel.addEventListener('change', () => {
+        catalogAgentsDraft[agent.slug].fallback2_model_id = fallback2Sel.value;
+      });
+      syncAgentFallbackSelect(modelSel, fallbackSel, catalogAgentsDraft[agent.slug], fallback2Sel);
       modelCell.appendChild(modelSel);
       fallbackCell.appendChild(fallbackSel);
-      const enabledCell = tr.children[5];
+      fallback2Cell.appendChild(fallback2Sel);
+      const enabledCell = tr.children[6];
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = catalogAgentsDraft[agent.slug].enabled;
@@ -11003,11 +11035,15 @@ document.getElementById('catalogModelForm').addEventListener('submit', async (e)
 function fillTenantModelSelects() {
   const defSel = document.getElementById('catTenantDefault');
   const fbSel = document.getElementById('catTenantFallback');
+  const fb2Sel = document.getElementById('catTenantFallback2');
   if (!defSel || !fbSel) return;
   const currentDef = defSel.value;
   const currentFb = fbSel.value;
-  fillPresetSelect(defSel, catalogModelsCache.map(m => ({ id: m.id, label: m.label, region: m.region })), currentDef);
-  fillPresetSelect(fbSel, catalogModelsCache.map(m => ({ id: m.id, label: m.label, region: m.region })), currentFb, { includeNone: true });
+  const currentFb2 = fb2Sel ? fb2Sel.value : '';
+  const options = catalogModelsCache.map(m => ({ id: m.id, label: m.label, region: m.region }));
+  fillPresetSelect(defSel, options, currentDef);
+  fillPresetSelect(fbSel, options, currentFb, { includeNone: true });
+  if (fb2Sel) fillPresetSelect(fb2Sel, options, currentFb2, { includeNone: true });
 }
 
 async function loadSelectedTenantModels() {
@@ -11023,7 +11059,9 @@ async function loadSelectedTenantModels() {
     if (row) {
       document.getElementById('catTenantDefault').value = row.default_model_id || '';
       document.getElementById('catTenantFallback').value = row.fallback_model_id || '';
-      catStatus(status, '', 'Loaded default / fallback for this tenant.');
+      const fb2 = document.getElementById('catTenantFallback2');
+      if (fb2) fb2.value = row.fallback2_model_id || '';
+      catStatus(status, '', 'Loaded default / fallback / 2nd fallback for this tenant.');
     } else {
       catStatus(status, '', 'No default / fallback saved yet for this tenant.');
     }
@@ -11054,6 +11092,7 @@ async function saveAllCatalogTenantSettings() {
       tenant_id: tenantId,
       default_model_id: document.getElementById('catTenantDefault').value,
       fallback_model_id: document.getElementById('catTenantFallback').value || null,
+      fallback2_model_id: (document.getElementById('catTenantFallback2') || {}).value || null,
     };
     const tenantRes = await fetch('/console/catalog/tenant-models', {
       method: 'PUT',
@@ -11080,6 +11119,7 @@ async function saveAllCatalogTenantSettings() {
           agent_slug: slug,
           model_id: draft.model_id || null,
           fallback_model_id: draft.model_id ? (draft.fallback_model_id || null) : null,
+          fallback2_model_id: draft.model_id ? (draft.fallback2_model_id || null) : null,
         }),
       });
       const modelData = await readResponseJson(modelRes);

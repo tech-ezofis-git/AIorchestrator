@@ -559,7 +559,7 @@ class FtlQuoteEstimatorAgent:
                 template_type=template_type,
                 model_override=model,
                 llm_overrides=job.get("llm_overrides"),
-                llm_fallback_overrides=job.get("llm_fallback_overrides"),
+                llm_fallback_overrides=job.get("llm_fallback_chain") or job.get("llm_fallback_overrides"),
                 tenant_id=tenant_id,
                 ap_agent_job_id=ap_agent_job_id,
                 ezofis=ezofis,

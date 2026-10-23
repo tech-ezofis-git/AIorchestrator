@@ -18,6 +18,7 @@ def test_get_llm_config_reflects_startup_settings(client):
     assert body["preset_id"] == "ezofis-gpu-box"
     assert body["default_preset_id"] == "ezofis-gpu-box"
     assert body["fallback_preset_id"] in (None, "gpt-4.1-mini")
+    assert body["fallback2_preset_id"] in (None, "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4o-mini")
     assert body["has_api_key"] is True
 
 
@@ -62,9 +63,17 @@ def test_post_llm_config_sets_default_and_fallback_presets(client):
     assert body["preset_id"] == "gpt-4.1-nano"
     assert body["model"] == "azure/gpt-4.1-nano"
 
-    cleared = client.post("/console/llm-config", json={"fallback_preset_id": ""})
+    with_second = client.post(
+        "/console/llm-config",
+        json={"fallback2_preset_id": "gpt-4.1-mini"},
+    )
+    assert with_second.status_code == 200
+    assert with_second.json()["fallback2_preset_id"] == "gpt-4.1-mini"
+
+    cleared = client.post("/console/llm-config", json={"fallback_preset_id": "", "fallback2_preset_id": ""})
     assert cleared.status_code == 200
     assert cleared.json()["fallback_preset_id"] is None
+    assert cleared.json()["fallback2_preset_id"] is None
     assert cleared.json()["default_preset_id"] == "gpt-4.1-nano"
 
 
@@ -78,7 +87,11 @@ def test_llm_config_selection_persists_in_redis_across_reload(client):
 
     client.post(
         "/console/llm-config",
-        json={"default_preset_id": "gpt-4.1-mini", "fallback_preset_id": "gpt-4o-mini"},
+        json={
+            "default_preset_id": "gpt-4.1-mini",
+            "fallback_preset_id": "gpt-4o-mini",
+            "fallback2_preset_id": "gpt-4.1-nano",
+        },
     )
 
     reloaded = RuntimeModelSelection()
@@ -86,6 +99,7 @@ def test_llm_config_selection_persists_in_redis_across_reload(client):
     assert loaded is True
     assert reloaded.default_preset_id == "gpt-4.1-mini"
     assert reloaded.fallback_preset_id == "gpt-4o-mini"
+    assert reloaded.fallback2_preset_id == "gpt-4.1-nano"
 
 
 def test_catalog_runtime_presets_use_env_key_when_db_key_empty(client):
@@ -129,6 +143,12 @@ def test_llm_config_rejects_preset_without_api_key(client):
 
 def test_post_llm_config_unknown_preset_returns_400(client):
     response = client.post("/console/llm-config", json={"preset_id": "no-such-model"})
+
+    assert response.status_code == 400
+
+
+def test_post_llm_config_unknown_second_fallback_returns_400(client):
+    response = client.post("/console/llm-config", json={"fallback2_preset_id": "no-such-model"})
 
     assert response.status_code == 400
 

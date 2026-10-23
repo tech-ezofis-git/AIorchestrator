@@ -256,7 +256,7 @@ async def test_generate_prompt_retries_fallback_on_timeout(monkeypatch):
         return object()
 
     async def fake_presets(tenant_id, model=None):
-        return {"model": "primary-model"}, {"model": "fallback-model"}
+        return {"model": "primary-model"}, [{"model": "fallback-model"}, {"model": "fallback2-model"}]
 
     monkeypatch.setattr("app.report_agent.service.get_database_schema", fake_schema)
     monkeypatch.setattr(service, "_resolve_db", fake_db)

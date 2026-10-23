@@ -3613,7 +3613,7 @@ def run_quote_estimation(
     from app.ftl.llm import (
         open_client,
         prefers_json_mode,
-        resolve_fallback_llm_config,
+        resolve_fallback_llm_configs,
         resolve_llm_config,
     )
 
@@ -3656,8 +3656,9 @@ def run_quote_estimation(
             primary_exc,
             extra={"primary_model": primary_model, "error": str(primary_exc)},
         )
-        fb_config = resolve_fallback_llm_config(config, fallback_overrides)
-        if fb_config:
+        fb_configs = resolve_fallback_llm_configs(config, fallback_overrides)
+        last_exc = primary_exc
+        for fb_config in fb_configs:
             if progress_callback:
                 try:
                     progress_callback("Switching to backup AI model...", 63)
@@ -3666,9 +3667,10 @@ def run_quote_estimation(
             try:
                 return _execute_loop(fb_config)
             except Exception as fb_exc:
+                last_exc = fb_exc
                 logger.error(
                     "Fallback LLM %s also failed in quote estimator loop: %s",
                     fb_config.get("model"),
                     fb_exc,
                 )
-        raise primary_exc
+        raise last_exc

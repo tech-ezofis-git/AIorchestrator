@@ -89,6 +89,7 @@ async def maybe_reorder(
     llm: Any,
     use_planner: bool,
     llm_overrides: Optional[dict[str, Any]] = None,
+    llm_fallback_overrides: Any = None,
     tenant_id: Optional[str] = None,
     settings: Any = None,
 ) -> list[str]:
@@ -107,7 +108,10 @@ async def maybe_reorder(
         logger.warning("ap_planner_instructions_failed", extra={"error_type": "instructions"})
         system = _PLANNER_PROMPT
     try:
-        result = await llm.chat_completion(
+        from app.catalog.tenant_llm import chat_completion_with_fallbacks, fallback_override_chain
+
+        result = await chat_completion_with_fallbacks(
+            llm,
             [
                 {"role": "system", "content": system},
                 {
@@ -115,7 +119,8 @@ async def maybe_reorder(
                     "content": json.dumps({"allowed_skills": skills}, default=str),
                 },
             ],
-            **(llm_overrides or {}),
+            primary=llm_overrides or {},
+            fallbacks=fallback_override_chain(llm_fallback_overrides),
         )
         content = (result or {}).get("content") or ""
         start = content.find("{")

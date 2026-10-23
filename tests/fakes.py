@@ -231,7 +231,11 @@ class FakeDBPool:
         if "FROM catalog_tenant_models" in query and "default_model_id" in query:
             model_id = str(args[0])
             for tenant in self.catalog_tenant_models.values():
-                if str(tenant["default_model_id"]) == model_id or str(tenant.get("fallback_model_id") or "") == model_id:
+                if (
+                    str(tenant["default_model_id"]) == model_id
+                    or str(tenant.get("fallback_model_id") or "") == model_id
+                    or str(tenant.get("fallback2_model_id") or "") == model_id
+                ):
                     return {"tenant_id": tenant["tenant_id"]}
             return None
         if "FROM catalog_tenant_agent_models t" in query and "agent_slug = $2" in query:
@@ -243,30 +247,38 @@ class FakeDBPool:
     def _join_tenant_agent_row(self, row: dict[str, Any]) -> dict[str, Any]:
         model = self._catalog_model_by_id(row["model_id"]) if row.get("model_id") else None
         fallback = self._catalog_model_by_id(row["fallback_model_id"]) if row.get("fallback_model_id") else None
+        fallback2 = self._catalog_model_by_id(row["fallback2_model_id"]) if row.get("fallback2_model_id") else None
         return {
             "tenant_id": row["tenant_id"],
             "agent_slug": row["agent_slug"],
             "model_id": row.get("model_id"),
             "fallback_model_id": row.get("fallback_model_id"),
+            "fallback2_model_id": row.get("fallback2_model_id"),
             "updated_at": row.get("updated_at"),
             "model_slug": model.get("slug") if model else None,
             "model_label": model.get("label") if model else None,
             "fallback_slug": fallback.get("slug") if fallback else None,
             "fallback_label": fallback.get("label") if fallback else None,
+            "fallback2_slug": fallback2.get("slug") if fallback2 else None,
+            "fallback2_label": fallback2.get("label") if fallback2 else None,
         }
 
     def _join_tenant_row(self, tenant: dict[str, Any]) -> dict[str, Any]:
         default = self._catalog_model_by_id(tenant["default_model_id"]) or {}
         fallback = self._catalog_model_by_id(tenant.get("fallback_model_id")) if tenant.get("fallback_model_id") else None
+        fallback2 = self._catalog_model_by_id(tenant.get("fallback2_model_id")) if tenant.get("fallback2_model_id") else None
         return {
             "tenant_id": tenant["tenant_id"],
             "default_model_id": tenant["default_model_id"],
             "fallback_model_id": tenant.get("fallback_model_id"),
+            "fallback2_model_id": tenant.get("fallback2_model_id"),
             "updated_at": tenant.get("updated_at"),
             "default_slug": default.get("slug"),
             "default_label": default.get("label"),
             "fallback_slug": fallback.get("slug") if fallback else None,
             "fallback_label": fallback.get("label") if fallback else None,
+            "fallback2_slug": fallback2.get("slug") if fallback2 else None,
+            "fallback2_label": fallback2.get("label") if fallback2 else None,
         }
 
     def _handle_catalog_fetch(self, query: str, args: tuple[Any, ...]) -> list[Any]:
@@ -365,22 +377,29 @@ class FakeDBPool:
             }
             return
         if "INSERT INTO catalog_tenant_models" in query:
-            tenant_id, default_model_id, fallback_model_id = args
+            tenant_id = args[0]
+            default_model_id = args[1]
+            fallback_model_id = args[2] if len(args) > 2 else None
+            fallback2_model_id = args[3] if len(args) > 3 else None
             self.catalog_tenant_models[str(tenant_id)] = {
                 "tenant_id": tenant_id,
                 "default_model_id": default_model_id,
                 "fallback_model_id": fallback_model_id,
+                "fallback2_model_id": fallback2_model_id,
                 "updated_at": self._now(),
             }
             return
         if "INSERT INTO catalog_tenant_agent_models" in query:
-            tenant_id, agent_slug, model_id, fallback_model_id = args
+            tenant_id, agent_slug, model_id = args[0], args[1], args[2]
+            fallback_model_id = args[3] if len(args) > 3 else None
+            fallback2_model_id = args[4] if len(args) > 4 else None
             key = f"{tenant_id}:{agent_slug}"
             self.catalog_tenant_agent_models[key] = {
                 "tenant_id": tenant_id,
                 "agent_slug": agent_slug,
                 "model_id": model_id,
                 "fallback_model_id": fallback_model_id,
+                "fallback2_model_id": fallback2_model_id,
                 "updated_at": self._now(),
             }
             return

@@ -288,6 +288,8 @@ class ApSkillRunner:
             llm=self._llm,
             use_planner=use_planner and requested is None,
             llm_overrides=document_job.get("llm_overrides"),
+            llm_fallback_overrides=document_job.get("llm_fallback_chain")
+            or document_job.get("llm_fallback_overrides"),
             tenant_id=tenant_id,
             settings=self._settings,
         )

@@ -189,6 +189,7 @@ class InsightAgent:
                 primary=model,
                 error=exc,
                 catalog_fallback_preset=job.get("catalog_fallback_preset"),
+                catalog_fallback2_preset=job.get("catalog_fallback2_preset"),
             )
 
         usage = synthesis.get("usage") or {}
@@ -215,17 +216,31 @@ class InsightAgent:
         primary: Optional[str],
         error: Exception,
         catalog_fallback_preset: Optional[str] = None,
+        catalog_fallback2_preset: Optional[str] = None,
     ) -> dict[str, Any]:
         settings = self._cfg()
-        fallback_preset = catalog_fallback_preset or (
-            self._runtime_models.fallback_preset_id if self._runtime_models else None
-        )
+        presets = [
+            catalog_fallback_preset,
+            catalog_fallback2_preset,
+            self._runtime_models.fallback_preset_id if self._runtime_models else None,
+            getattr(self._runtime_models, "fallback2_preset_id", None) if self._runtime_models else None,
+        ]
+        seen: set[str] = set()
+        fallback_presets: list[str] = []
+        for preset in presets:
+            slug = str(preset or "").strip()
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            fallback_presets.append(slug)
         env_fallback = (settings.ocr_fallback_model or "").strip() or None
-
-        if fallback_preset and self._llm is not None and get_preset(fallback_preset):
-            default_preset = (
-                self._runtime_models.default_preset_id if self._runtime_models else None
-            )
+        last_exc = error
+        default_preset = (
+            self._runtime_models.default_preset_id if self._runtime_models else None
+        )
+        for fallback_preset in fallback_presets:
+            if not (self._llm is not None and get_preset(fallback_preset)):
+                continue
             logger.warning(
                 "insight_fallback_preset",
                 extra={"fallback_preset_id": fallback_preset},
@@ -243,6 +258,8 @@ class InsightAgent:
                     insight_area=insight_area,
                     source_text=source_text,
                 )
+            except Exception as exc:
+                last_exc = exc
             finally:
                 if default_preset and get_preset(default_preset):
                     apply_preset(self._llm, default_preset)
@@ -261,7 +278,7 @@ class InsightAgent:
                 source_text=source_text,
             )
 
-        raise error
+        raise last_exc
 
 
 def _job_result(

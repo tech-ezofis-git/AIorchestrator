@@ -802,12 +802,18 @@ async def _structure_with_llm(
         logger.warning("ap_extract_instructions_failed", extra={"error_type": "instructions"})
         system = _EXTRACT_PROMPT
     try:
-        result = await ctx.llm.chat_completion(
+        from app.catalog.tenant_llm import chat_completion_with_fallbacks, job_fallback_chain
+
+        result = await chat_completion_with_fallbacks(
+            ctx.llm,
             [
                 {"role": "system", "content": system},
                 {"role": "user", "content": ocr_text[:12000]},
             ],
-            **(ctx.llm_overrides or {}),
+            primary=ctx.llm_overrides or {},
+            fallbacks=job_fallback_chain(ctx.document_job) or (
+                [ctx.llm_fallback_overrides] if isinstance(ctx.llm_fallback_overrides, dict) else list(ctx.llm_fallback_overrides or [])
+            ),
         )
         usage = (result or {}).get("usage")
         content = (result or {}).get("content") or ""

@@ -116,7 +116,7 @@ from app.services.form_sync_service import FormSyncService
 from app.agents.form_sync_agent import FormSyncAgent
 from app.agents.chat_agent import ChatAgent
 from app.catalog.store import CatalogConflictError, CatalogStore, CatalogStoreUnavailableError
-from app.catalog.tenant_llm import apply_tenant_agent_llm, restore_runtime_llm
+from app.catalog.tenant_llm import apply_tenant_agent_llm, fallback_override_chain, restore_runtime_llm
 from app.catalog.url import catalog_pool_kwargs, normalize_catalog_url
 from app.ap_skills.store import ApStoreUnavailableError
 from app.ap_skills.types import ApRunInProgressError
@@ -197,6 +197,7 @@ from app.llm.model_presets import (
     preset_call_overrides,
     preset_has_api_key,
     resolve_default_preset_id,
+    resolve_preset_overrides,
     set_runtime_presets,
 )
 from app.llm.runtime_models import RuntimeModelSelection
@@ -1177,6 +1178,7 @@ class LLMConfigUpdate(BaseModel):
 
     default_preset_id: Optional[str] = None
     fallback_preset_id: Optional[str] = None
+    fallback2_preset_id: Optional[str] = None
     preset_id: Optional[str] = None  # alias for default_preset_id
     model: Optional[str] = None
     api_base: Optional[str] = None
@@ -1234,6 +1236,12 @@ async def update_llm_config(payload: LLMConfigUpdate, request: Request) -> dict:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    if payload.fallback2_preset_id is not None:
+        try:
+            runtime.set_fallback2(payload.fallback2_preset_id or None)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     # Manual override path (Advanced) — only when no default preset was sent.
     if default_id is None or default_id == "":
         if any(
@@ -1248,7 +1256,11 @@ async def update_llm_config(payload: LLMConfigUpdate, request: Request) -> dict:
             )
 
     # Persist whenever a preset selection field was part of the request.
-    if (default_id is not None and default_id != "") or payload.fallback_preset_id is not None:
+    if (
+        (default_id is not None and default_id != "")
+        or payload.fallback_preset_id is not None
+        or payload.fallback2_preset_id is not None
+    ):
         try:
             await runtime.save_to_redis(redis_client)
         except Exception as exc:
@@ -1811,6 +1823,7 @@ class CatalogTenantModelsUpsert(BaseModel):
     tenant_id: str
     default_model_id: str
     fallback_model_id: Optional[str] = None
+    fallback2_model_id: Optional[str] = None
 
 
 class CatalogTenantAgentModelUpsert(BaseModel):
@@ -1818,6 +1831,7 @@ class CatalogTenantAgentModelUpsert(BaseModel):
     agent_slug: str
     model_id: Optional[str] = None
     fallback_model_id: Optional[str] = None
+    fallback2_model_id: Optional[str] = None
 
 
 def _catalog_store(request: Request) -> CatalogStore:
@@ -2053,6 +2067,7 @@ async def upsert_catalog_tenant_models(payload: CatalogTenantModelsUpsert, reque
             tenant_id=payload.tenant_id,
             default_model_id=payload.default_model_id,
             fallback_model_id=payload.fallback_model_id or None,
+            fallback2_model_id=payload.fallback2_model_id or None,
         )
     except Exception as exc:
         _raise_catalog_http(exc)
@@ -2078,6 +2093,7 @@ async def upsert_catalog_tenant_agent_model(payload: CatalogTenantAgentModelUpse
             agent_slug=payload.agent_slug,
             model_id=payload.model_id,
             fallback_model_id=payload.fallback_model_id or None,
+            fallback2_model_id=payload.fallback2_model_id or None,
         )
     except Exception as exc:
         _raise_catalog_http(exc)
@@ -3093,14 +3109,18 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
     # branches to realize was unused.)
     llm_overrides: Optional[dict] = None
     llm_fallback_overrides: Optional[dict] = None
+    llm_fallback_chain: list[dict] = []
     catalog_fallback_preset: Optional[str] = None
+    catalog_fallback2_preset: Optional[str] = None
     if explicit_model.strip():
         llm_overrides = preset_call_overrides(explicit_model) or {"model": explicit_model.strip()}
     elif tenant_id and catalog_store is not None:
         resolved_tenant_llm = await apply_tenant_agent_llm(catalog_store, tenant_id, agent_slug)
         llm_overrides = resolved_tenant_llm["overrides"]
         llm_fallback_overrides = resolved_tenant_llm["fallback_overrides"]
+        llm_fallback_chain = list(resolved_tenant_llm.get("fallback_chain") or [])
         catalog_fallback_preset = resolved_tenant_llm.get("fallback_slug")
+        catalog_fallback2_preset = resolved_tenant_llm.get("fallback2_slug")
         # Code-review (ultrareview) finding: this used to mutate the shared
         # adapter unconditionally here, with a comment claiming it only
         # applied to "non-document-job" intents — but nothing actually
@@ -3151,11 +3171,24 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 "username": p.sftp_username,
                 "password": p.sftp_password,
             }
+    runtime_fallback = resolve_preset_overrides(runtime_models.fallback_preset_id) if runtime_models.fallback_preset_id else None
+    runtime_fallback2 = resolve_preset_overrides(getattr(runtime_models, "fallback2_preset_id", None)) if getattr(runtime_models, "fallback2_preset_id", None) else None
+    llm_fallback_chain = fallback_override_chain(llm_fallback_chain, runtime_fallback, runtime_fallback2)
+    if not llm_fallback_overrides and llm_fallback_chain:
+        llm_fallback_overrides = llm_fallback_chain[0]
+    if not catalog_fallback_preset and runtime_models.fallback_preset_id:
+        catalog_fallback_preset = runtime_models.fallback_preset_id
+    if not catalog_fallback2_preset and getattr(runtime_models, "fallback2_preset_id", None):
+        catalog_fallback2_preset = runtime_models.fallback2_preset_id
     if document_job is not None:
         document_job["llm_overrides"] = llm_overrides
         document_job["llm_fallback_overrides"] = llm_fallback_overrides
+        document_job["llm_fallback2_overrides"] = llm_fallback_chain[1] if len(llm_fallback_chain) > 1 else None
+        document_job["llm_fallback_chain"] = llm_fallback_chain
         if catalog_fallback_preset:
             document_job["catalog_fallback_preset"] = catalog_fallback_preset
+        if catalog_fallback2_preset:
+            document_job["catalog_fallback2_preset"] = catalog_fallback2_preset
 
     try:
         if custom_agent:
@@ -3165,6 +3198,8 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 message=message,
                 history=history,
                 catalog_agent=custom_agent,
+                document_job=document_job,
+                llm_fallback_chain=llm_fallback_chain,
             )
         elif intent == Intent.CLASSIFICATION:
             try:
@@ -3227,6 +3262,14 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 document_job["prepared_prompt"] or {},
                 llm_overrides=document_job.get("llm_overrides"),
             )
+            for overrides in llm_fallback_chain:
+                if llm_reasoner_result.get("status") == "SUCCEEDED":
+                    break
+                llm_reasoner_result = await run_llm_reasoning(
+                    llm_adapter,
+                    document_job["prepared_prompt"] or {},
+                    llm_overrides=overrides,
+                )
             if llm_reasoner_result["status"] == "SUCCEEDED":
                 reply = f"LLM reasoning completed for '{llm_reasoner_result['intent'] or 'prompt'}'."
             else:
@@ -3309,6 +3352,7 @@ async def chat(request: Request, background_tasks: BackgroundTasks) -> ChatRespo
                 message=message,
                 history=history,
                 document_job=document_job,
+                llm_fallback_chain=llm_fallback_chain,
                 ezofis=getattr(request.app.state, "ezofis_client", None),
             )
     except ApRunInProgressError as exc:

@@ -22,6 +22,7 @@ def test_list_catalog_agents_seeds_builtins(client):
         "ocr",
         "pdf",
         "prompt",
+        "ramco_ocr",
         "report",
         "search",
         "summary",
@@ -306,6 +307,70 @@ def test_get_catalog_tenant_models_by_id(client):
     row = found.json()["tenant_model"]
     assert row["default_model_id"] == models[0]["id"]
     assert row["fallback_model_id"] == models[1]["id"]
+
+
+def test_tenant_second_fallback_is_saved_and_returned(client):
+    models = client.get("/console/catalog/models").json()["models"]
+    tenant_id = "tenant-fallback2-test"
+    saved = client.put(
+        "/console/catalog/tenant-models",
+        json={
+            "tenant_id": tenant_id,
+            "default_model_id": models[0]["id"],
+            "fallback_model_id": models[1]["id"],
+            "fallback2_model_id": models[2]["id"],
+        },
+    )
+    assert saved.status_code == 200
+    row = saved.json()
+    assert row["fallback_model_id"] == models[1]["id"]
+    assert row["fallback2_model_id"] == models[2]["id"]
+
+    mapped = client.put(
+        "/console/catalog/tenant-agent-models",
+        json={
+            "tenant_id": tenant_id,
+            "agent_slug": "chat",
+            "model_id": models[0]["id"],
+            "fallback_model_id": models[1]["id"],
+            "fallback2_model_id": models[2]["id"],
+        },
+    )
+    assert mapped.status_code == 200
+    assert mapped.json()["mapping"]["fallback2_model_id"] == models[2]["id"]
+
+
+def test_per_agent_primary_inherits_tenant_second_fallback(client):
+    import asyncio
+
+    from app.catalog.tenant_llm import apply_tenant_agent_llm
+
+    models = client.get("/console/catalog/models").json()["models"]
+    tenant_id = "tenant-inherit-fallback2"
+    client.put(
+        "/console/catalog/tenant-models",
+        json={
+            "tenant_id": tenant_id,
+            "default_model_id": models[0]["id"],
+            "fallback_model_id": models[1]["id"],
+            "fallback2_model_id": models[3]["id"],
+        },
+    )
+    client.put(
+        "/console/catalog/tenant-agent-models",
+        json={
+            "tenant_id": tenant_id,
+            "agent_slug": "chat",
+            "model_id": models[4]["id"],
+        },
+    )
+    resolved = asyncio.run(
+        apply_tenant_agent_llm(client.app.state.catalog_store, tenant_id, "chat")
+    )
+    assert resolved["default_slug"] == models[4]["slug"]
+    assert resolved["fallback_slug"] == models[1]["slug"]
+    assert resolved["fallback2_slug"] == models[3]["slug"]
+    assert len(resolved["fallback_chain"]) == 2
 
 
 def test_patch_custom_agent_name(client):

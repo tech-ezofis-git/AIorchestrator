@@ -189,7 +189,8 @@ class SummaryAgent:
                 error=exc,
                 tenant_id=tenant_id,
                 catalog_fallback_preset=job.get("catalog_fallback_preset"),
-                fallback_overrides=fallback_overrides if isinstance(fallback_overrides, dict) else None,
+                fallback_overrides=fallback_overrides,
+                job=job,
             )
 
         usage = synthesis.get("usage") or {}
@@ -216,33 +217,44 @@ class SummaryAgent:
         error: Exception,
         tenant_id: Optional[str] = None,
         catalog_fallback_preset: Optional[str] = None,
-        fallback_overrides: Optional[dict[str, Any]] = None,
+        fallback_overrides: Any = None,
+        job: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
+        from app.catalog.tenant_llm import job_fallback_chain
+
         settings = self._cfg()
-        if not fallback_overrides:
+        chain = job_fallback_chain(job)
+        if not chain and fallback_overrides:
+            chain = [fallback_overrides] if isinstance(fallback_overrides, dict) else list(fallback_overrides or [])
+        if not chain:
             fallback_preset = catalog_fallback_preset or (
                 self._runtime_models.fallback_preset_id if self._runtime_models else None
             )
-            fallback_overrides = resolve_preset_overrides(fallback_preset) if fallback_preset else None
+            resolved = resolve_preset_overrides(fallback_preset) if fallback_preset else None
+            if resolved:
+                chain = [resolved]
         env_fallback = (settings.ocr_fallback_model or "").strip() or None
-
-        if fallback_overrides:
+        last_exc = error
+        for overrides in chain:
             logger.warning(
                 "summary_fallback_preset",
-                extra={"model": fallback_overrides.get("model")},
+                extra={"model": overrides.get("model")},
             )
-            return await summarize_document_skill(
-                llm=self._llm_for_skill(),
-                text=text,
-                source=source,
-                page_label=page_label,
-                model=None,
-                content_kind=content_kind,
-                source_text=source_text,
-                key_facts_count=key_facts_count,
-                tenant_id=tenant_id,
-                llm_overrides=fallback_overrides,
-            )
+            try:
+                return await summarize_document_skill(
+                    llm=self._llm_for_skill(),
+                    text=text,
+                    source=source,
+                    page_label=page_label,
+                    model=None,
+                    content_kind=content_kind,
+                    source_text=source_text,
+                    key_facts_count=key_facts_count,
+                    tenant_id=tenant_id,
+                    llm_overrides=overrides,
+                )
+            except Exception as exc:
+                last_exc = exc
 
         if env_fallback and env_fallback != primary:
             logger.warning("summary_fallback_model", extra={"model": env_fallback})
@@ -257,8 +269,7 @@ class SummaryAgent:
                 key_facts_count=key_facts_count,
                 tenant_id=tenant_id,
             )
-
-        raise error
+        raise last_exc
 
 
 def _document_job_result(

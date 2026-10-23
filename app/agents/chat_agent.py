@@ -33,6 +33,7 @@ from typing import Any, Protocol
 
 from app.core.dispatcher import Dispatcher
 from app.core.response_composer import ResponseComposer
+from app.catalog.tenant_llm import chat_completion_with_fallbacks, job_fallback_chain
 from app.llm.adapter import LLMAdapter
 
 logger = logging.getLogger("orchestrator.chat_agent")
@@ -81,7 +82,16 @@ class ChatAgent:
         self._response_composer = response_composer
         self._user_context_provider = user_context_provider
 
-    async def handle(self, *, session_id: str, message: str, history: list[dict[str, str]], **_: object) -> dict:
+    async def handle(
+        self,
+        *,
+        session_id: str,
+        message: str,
+        history: list[dict[str, str]],
+        document_job: Any = None,
+        llm_fallback_chain: Any = None,
+        **_: object,
+    ) -> dict:
         """Returns {"reply": str, "usage": dict | None}."""
         user_context = await self._user_context_provider.get_user_context(session_id)
         user_id = user_context.user_id
@@ -89,7 +99,13 @@ class ChatAgent:
         if _is_memory_write_trigger(message):
             return await self._handle_memory_write(user_id=user_id, message=message)
 
-        return await self._handle_normal_chat(user_id=user_id, message=message, history=history)
+        return await self._handle_normal_chat(
+            user_id=user_id,
+            message=message,
+            history=history,
+            document_job=document_job,
+            llm_fallback_chain=llm_fallback_chain,
+        )
 
     async def _handle_memory_write(self, *, user_id: str, message: str) -> dict:
         synthesis = await self._response_composer.synthesize_memory_fact(instruction=message)
@@ -106,7 +122,15 @@ class ChatAgent:
             "usage": synthesis["usage"],
         }
 
-    async def _handle_normal_chat(self, *, user_id: str, message: str, history: list[dict[str, str]]) -> dict:
+    async def _handle_normal_chat(
+        self,
+        *,
+        user_id: str,
+        message: str,
+        history: list[dict[str, str]],
+        document_job: Any = None,
+        llm_fallback_chain: Any = None,
+    ) -> dict:
         memories = await self._fetch_memories(user_id)
 
         messages = [{"role": "system", "content": _SYSTEM_PROMPT}]
@@ -121,7 +145,8 @@ class ChatAgent:
             )
         messages.append({"role": "user", "content": message})
 
-        result = await self._llm.chat_completion(messages)
+        fallbacks = list(llm_fallback_chain or []) or job_fallback_chain(document_job)
+        result = await chat_completion_with_fallbacks(self._llm, messages, fallbacks=fallbacks)
         return {"reply": result["content"], "usage": result["usage"]}
 
     async def _fetch_memories(self, user_id: str) -> list[str]:

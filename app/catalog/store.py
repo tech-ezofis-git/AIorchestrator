@@ -19,6 +19,7 @@ _MIGRATIONS = (
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0007_add_agent_default_model.sql",
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0008_create_agent_pack_tables.sql",
     Path(__file__).resolve().parents[2] / "db" / "migrations" / "0009_create_ap_pipeline_tables.sql",
+    Path(__file__).resolve().parents[2] / "db" / "migrations" / "0012_add_catalog_fallback2_model.sql",
 )
 # Preset ids include dots (gpt-4.1-nano). Letters, digits, dots, hyphens, underscores.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -574,7 +575,7 @@ class CatalogStore:
         in_use = await self._run(
             "fetchrow",
             "SELECT tenant_id FROM catalog_tenant_models "
-            "WHERE default_model_id = $1 OR fallback_model_id = $1",
+            "WHERE default_model_id = $1 OR fallback_model_id = $1 OR fallback2_model_id = $1",
             uuid.UUID(str(model_id)),
         )
         if in_use:
@@ -590,12 +591,14 @@ class CatalogStore:
     async def list_tenant_models(self) -> list[dict[str, Any]]:
         rows = await self._run(
             "fetch",
-            "SELECT t.tenant_id, t.default_model_id, t.fallback_model_id, t.updated_at, "
+            "SELECT t.tenant_id, t.default_model_id, t.fallback_model_id, t.fallback2_model_id, t.updated_at, "
             "d.slug AS default_slug, d.label AS default_label, "
-            "f.slug AS fallback_slug, f.label AS fallback_label "
+            "f.slug AS fallback_slug, f.label AS fallback_label, "
+            "f2.slug AS fallback2_slug, f2.label AS fallback2_label "
             "FROM catalog_tenant_models t "
             "JOIN catalog_models d ON d.id = t.default_model_id "
             "LEFT JOIN catalog_models f ON f.id = t.fallback_model_id "
+            "LEFT JOIN catalog_models f2 ON f2.id = t.fallback2_model_id "
             "ORDER BY t.tenant_id ASC",
         )
         return [_public_tenant(row) for row in rows]
@@ -606,12 +609,14 @@ class CatalogStore:
             return None
         row = await self._run(
             "fetchrow",
-            "SELECT t.tenant_id, t.default_model_id, t.fallback_model_id, t.updated_at, "
+            "SELECT t.tenant_id, t.default_model_id, t.fallback_model_id, t.fallback2_model_id, t.updated_at, "
             "d.slug AS default_slug, d.label AS default_label, "
-            "f.slug AS fallback_slug, f.label AS fallback_label "
+            "f.slug AS fallback_slug, f.label AS fallback_label, "
+            "f2.slug AS fallback2_slug, f2.label AS fallback2_label "
             "FROM catalog_tenant_models t "
             "JOIN catalog_models d ON d.id = t.default_model_id "
             "LEFT JOIN catalog_models f ON f.id = t.fallback_model_id "
+            "LEFT JOIN catalog_models f2 ON f2.id = t.fallback2_model_id "
             "WHERE t.tenant_id = $1",
             tenant_id,
         )
@@ -623,12 +628,14 @@ class CatalogStore:
         tenant_id: str,
         default_model_id: str,
         fallback_model_id: Optional[str] = None,
+        fallback2_model_id: Optional[str] = None,
     ) -> dict[str, Any]:
         tenant_id = (tenant_id or "").strip()
         if not tenant_id:
             raise ValueError("tenant_id is required.")
         default_uuid = uuid.UUID(str(default_model_id))
         fallback_uuid = uuid.UUID(str(fallback_model_id)) if fallback_model_id else None
+        fallback2_uuid = uuid.UUID(str(fallback2_model_id)) if fallback2_model_id else None
         default_row = await self._run(
             "fetchrow",
             "SELECT id FROM catalog_models WHERE id = $1",
@@ -644,24 +651,37 @@ class CatalogStore:
             )
             if fallback_row is None:
                 raise ValueError("fallback_model_id is not a known model.")
+        if fallback2_uuid is not None:
+            fallback2_row = await self._run(
+                "fetchrow",
+                "SELECT id FROM catalog_models WHERE id = $1",
+                fallback2_uuid,
+            )
+            if fallback2_row is None:
+                raise ValueError("fallback2_model_id is not a known model.")
         await self._run(
             "execute",
-            "INSERT INTO catalog_tenant_models (tenant_id, default_model_id, fallback_model_id) "
-            "VALUES ($1, $2, $3) "
+            "INSERT INTO catalog_tenant_models "
+            "(tenant_id, default_model_id, fallback_model_id, fallback2_model_id) "
+            "VALUES ($1, $2, $3, $4) "
             "ON CONFLICT (tenant_id) DO UPDATE SET default_model_id = EXCLUDED.default_model_id, "
-            "fallback_model_id = EXCLUDED.fallback_model_id, updated_at = now()",
+            "fallback_model_id = EXCLUDED.fallback_model_id, "
+            "fallback2_model_id = EXCLUDED.fallback2_model_id, updated_at = now()",
             tenant_id,
             default_uuid,
             fallback_uuid,
+            fallback2_uuid,
         )
         row = await self._run(
             "fetchrow",
-            "SELECT t.tenant_id, t.default_model_id, t.fallback_model_id, t.updated_at, "
+            "SELECT t.tenant_id, t.default_model_id, t.fallback_model_id, t.fallback2_model_id, t.updated_at, "
             "d.slug AS default_slug, d.label AS default_label, "
-            "f.slug AS fallback_slug, f.label AS fallback_label "
+            "f.slug AS fallback_slug, f.label AS fallback_label, "
+            "f2.slug AS fallback2_slug, f2.label AS fallback2_label "
             "FROM catalog_tenant_models t "
             "JOIN catalog_models d ON d.id = t.default_model_id "
             "LEFT JOIN catalog_models f ON f.id = t.fallback_model_id "
+            "LEFT JOIN catalog_models f2 ON f2.id = t.fallback2_model_id "
             "WHERE t.tenant_id = $1",
             tenant_id,
         )
@@ -673,12 +693,14 @@ class CatalogStore:
             return []
         rows = await self._run(
             "fetch",
-            "SELECT t.tenant_id, t.agent_slug, t.model_id, t.fallback_model_id, t.updated_at, "
+            "SELECT t.tenant_id, t.agent_slug, t.model_id, t.fallback_model_id, t.fallback2_model_id, t.updated_at, "
             "m.slug AS model_slug, m.label AS model_label, "
-            "f.slug AS fallback_slug, f.label AS fallback_label "
+            "f.slug AS fallback_slug, f.label AS fallback_label, "
+            "f2.slug AS fallback2_slug, f2.label AS fallback2_label "
             "FROM catalog_tenant_agent_models t "
             "LEFT JOIN catalog_models m ON m.id = t.model_id "
             "LEFT JOIN catalog_models f ON f.id = t.fallback_model_id "
+            "LEFT JOIN catalog_models f2 ON f2.id = t.fallback2_model_id "
             "WHERE t.tenant_id = $1 "
             "ORDER BY t.agent_slug ASC",
             tenant_id,
@@ -692,12 +714,14 @@ class CatalogStore:
             return None
         row = await self._run(
             "fetchrow",
-            "SELECT t.tenant_id, t.agent_slug, t.model_id, t.fallback_model_id, t.updated_at, "
+            "SELECT t.tenant_id, t.agent_slug, t.model_id, t.fallback_model_id, t.fallback2_model_id, t.updated_at, "
             "m.slug AS model_slug, m.label AS model_label, "
-            "f.slug AS fallback_slug, f.label AS fallback_label "
+            "f.slug AS fallback_slug, f.label AS fallback_label, "
+            "f2.slug AS fallback2_slug, f2.label AS fallback2_label "
             "FROM catalog_tenant_agent_models t "
             "LEFT JOIN catalog_models m ON m.id = t.model_id "
             "LEFT JOIN catalog_models f ON f.id = t.fallback_model_id "
+            "LEFT JOIN catalog_models f2 ON f2.id = t.fallback2_model_id "
             "WHERE t.tenant_id = $1 AND t.agent_slug = $2",
             tenant_id,
             agent_slug,
@@ -711,6 +735,7 @@ class CatalogStore:
         agent_slug: str,
         model_id: Optional[str],
         fallback_model_id: Optional[str] = None,
+        fallback2_model_id: Optional[str] = None,
     ) -> Optional[dict[str, Any]]:
         tenant_id = (tenant_id or "").strip()
         agent_slug = normalize_slug(agent_slug)
@@ -729,6 +754,7 @@ class CatalogStore:
             return None
         model_uuid = uuid.UUID(str(model_id))
         fallback_uuid = uuid.UUID(str(fallback_model_id)) if fallback_model_id else None
+        fallback2_uuid = uuid.UUID(str(fallback2_model_id)) if fallback2_model_id else None
         model_row = await self._run(
             "fetchrow",
             "SELECT id FROM catalog_models WHERE id = $1",
@@ -744,16 +770,27 @@ class CatalogStore:
             )
             if fallback_row is None:
                 raise ValueError("fallback_model_id is not a known model.")
+        if fallback2_uuid is not None:
+            fallback2_row = await self._run(
+                "fetchrow",
+                "SELECT id FROM catalog_models WHERE id = $1",
+                fallback2_uuid,
+            )
+            if fallback2_row is None:
+                raise ValueError("fallback2_model_id is not a known model.")
         await self._run(
             "execute",
-            "INSERT INTO catalog_tenant_agent_models (tenant_id, agent_slug, model_id, fallback_model_id) "
-            "VALUES ($1, $2, $3, $4) "
+            "INSERT INTO catalog_tenant_agent_models "
+            "(tenant_id, agent_slug, model_id, fallback_model_id, fallback2_model_id) "
+            "VALUES ($1, $2, $3, $4, $5) "
             "ON CONFLICT (tenant_id, agent_slug) DO UPDATE SET "
-            "model_id = EXCLUDED.model_id, fallback_model_id = EXCLUDED.fallback_model_id, updated_at = now()",
+            "model_id = EXCLUDED.model_id, fallback_model_id = EXCLUDED.fallback_model_id, "
+            "fallback2_model_id = EXCLUDED.fallback2_model_id, updated_at = now()",
             tenant_id,
             agent_slug,
             model_uuid,
             fallback_uuid,
+            fallback2_uuid,
         )
         return await self.get_tenant_agent_model(tenant_id, agent_slug)
 
@@ -762,47 +799,57 @@ class CatalogStore:
         tenant_id: str,
         agent_slug: str,
     ) -> dict[str, Optional[str]]:
-        """Per-agent mapping first, then tenant-wide default/fallback."""
+        """Per-agent mapping first, then tenant-wide default/fallback/2nd fallback."""
+        tenant = await self.get_tenant_models(tenant_id)
         per_agent = await self.get_tenant_agent_model(tenant_id, agent_slug)
         if per_agent and per_agent.get("model_slug"):
             return {
                 "default_slug": per_agent.get("model_slug"),
-                "fallback_slug": per_agent.get("fallback_slug"),
+                "fallback_slug": per_agent.get("fallback_slug") or (tenant or {}).get("fallback_slug"),
+                "fallback2_slug": per_agent.get("fallback2_slug") or (tenant or {}).get("fallback2_slug"),
             }
-        tenant = await self.get_tenant_models(tenant_id)
         if tenant:
             return {
                 "default_slug": tenant.get("default_slug"),
                 "fallback_slug": tenant.get("fallback_slug"),
+                "fallback2_slug": tenant.get("fallback2_slug"),
             }
-        return {"default_slug": None, "fallback_slug": None}
+        return {"default_slug": None, "fallback_slug": None, "fallback2_slug": None}
 
 
 def _public_tenant_agent(row: Any) -> dict[str, Any]:
     model_id = _row_get(row, "model_id")
     fallback_id = _row_get(row, "fallback_model_id")
+    fallback2_id = _row_get(row, "fallback2_model_id")
     return {
         "tenant_id": _row_get(row, "tenant_id"),
         "agent_slug": _row_get(row, "agent_slug"),
         "model_id": str(model_id) if model_id else None,
         "fallback_model_id": str(fallback_id) if fallback_id else None,
+        "fallback2_model_id": str(fallback2_id) if fallback2_id else None,
         "model_slug": _row_get(row, "model_slug"),
         "model_label": _row_get(row, "model_label"),
         "fallback_slug": _row_get(row, "fallback_slug"),
         "fallback_label": _row_get(row, "fallback_label"),
+        "fallback2_slug": _row_get(row, "fallback2_slug"),
+        "fallback2_label": _row_get(row, "fallback2_label"),
         "updated_at": _fmt_dt(_row_get(row, "updated_at")),
     }
 
 
 def _public_tenant(row: Any) -> dict[str, Any]:
     fallback_id = _row_get(row, "fallback_model_id")
+    fallback2_id = _row_get(row, "fallback2_model_id")
     return {
         "tenant_id": _row_get(row, "tenant_id"),
         "default_model_id": str(_row_get(row, "default_model_id")),
         "fallback_model_id": str(fallback_id) if fallback_id else None,
+        "fallback2_model_id": str(fallback2_id) if fallback2_id else None,
         "default_slug": _row_get(row, "default_slug"),
         "default_label": _row_get(row, "default_label"),
         "fallback_slug": _row_get(row, "fallback_slug"),
         "fallback_label": _row_get(row, "fallback_label"),
+        "fallback2_slug": _row_get(row, "fallback2_slug"),
+        "fallback2_label": _row_get(row, "fallback2_label"),
         "updated_at": _fmt_dt(_row_get(row, "updated_at")),
     }

@@ -28,11 +28,13 @@ class RedisLike(Protocol):
 class RuntimeModelSelection:
     default_preset_id: str = DEFAULT_PRESET_ID
     fallback_preset_id: Optional[str] = None
+    fallback2_preset_id: Optional[str] = None
 
     def describe(self) -> dict:
         return {
             "default_preset_id": self.default_preset_id,
             "fallback_preset_id": self.fallback_preset_id,
+            "fallback2_preset_id": self.fallback2_preset_id,
         }
 
     def set_default(self, preset_id: str) -> None:
@@ -47,6 +49,14 @@ class RuntimeModelSelection:
             self.fallback_preset_id = preset_id
         else:
             self.fallback_preset_id = None
+
+    def set_fallback2(self, preset_id: Optional[str]) -> None:
+        if preset_id:
+            if get_preset(preset_id) is None:
+                raise ValueError(f"Unknown fallback2_preset_id: {preset_id}")
+            self.fallback2_preset_id = preset_id
+        else:
+            self.fallback2_preset_id = None
 
     async def load_from_redis(self, redis: RedisLike) -> bool:
         """Apply a previously Saved selection. Returns True if Redis had one."""
@@ -72,6 +82,9 @@ class RuntimeModelSelection:
         fallback_id = data.get("fallback_preset_id")
         if fallback_id is not None:
             fallback_id = str(fallback_id).strip() or None
+        fallback2_id = data.get("fallback2_preset_id")
+        if fallback2_id is not None:
+            fallback2_id = str(fallback2_id).strip() or None
 
         changed = False
         if default_id and get_preset(default_id):
@@ -85,6 +98,13 @@ class RuntimeModelSelection:
         elif get_preset(fallback_id):
             self.fallback_preset_id = fallback_id
             changed = True
+        if fallback2_id is None:
+            if "fallback2_preset_id" in data:
+                self.fallback2_preset_id = None
+                changed = True
+        elif get_preset(fallback2_id):
+            self.fallback2_preset_id = fallback2_id
+            changed = True
 
         if changed:
             logger.info(
@@ -92,6 +112,7 @@ class RuntimeModelSelection:
                 extra={
                     "default_preset_id": self.default_preset_id,
                     "fallback_preset_id": self.fallback_preset_id,
+                    "fallback2_preset_id": self.fallback2_preset_id,
                 },
             )
         return changed
@@ -112,5 +133,6 @@ class RuntimeModelSelection:
             extra={
                 "default_preset_id": self.default_preset_id,
                 "fallback_preset_id": self.fallback_preset_id,
+                "fallback2_preset_id": self.fallback2_preset_id,
             },
         )

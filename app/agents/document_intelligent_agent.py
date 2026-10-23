@@ -163,7 +163,8 @@ class DocumentIntelligentAgent:
                 failures=failures,
                 tenant_id=tenant_id,
                 catalog_fallback_preset=job.get("catalog_fallback_preset"),
-                fallback_overrides=fallback_overrides if isinstance(fallback_overrides, dict) else None,
+                fallback_overrides=fallback_overrides,
+                job=job,
             )
 
         if synthesis is None:
@@ -205,20 +206,28 @@ class DocumentIntelligentAgent:
         failures: list[str],
         tenant_id: Optional[str] = None,
         catalog_fallback_preset: Optional[str] = None,
-        fallback_overrides: Optional[dict[str, Any]] = None,
+        fallback_overrides: Any = None,
+        job: Optional[dict[str, Any]] = None,
     ) -> tuple[Optional[dict[str, Any]], str]:
         """Try the fallback models in order; return (synthesis, model) or (None, last model tried)."""
+        from app.catalog.tenant_llm import job_fallback_chain
+
         settings = self._cfg()
-        if not fallback_overrides:
+        chain = job_fallback_chain(job)
+        if not chain and fallback_overrides:
+            chain = [fallback_overrides] if isinstance(fallback_overrides, dict) else list(fallback_overrides or [])
+        if not chain:
             fallback_preset = catalog_fallback_preset or (
                 self._runtime_models.fallback_preset_id if self._runtime_models else None
             )
-            fallback_overrides = resolve_preset_overrides(fallback_preset) if fallback_preset else None
+            resolved = resolve_preset_overrides(fallback_preset) if fallback_preset else None
+            if resolved:
+                chain = [resolved]
         env_fallback = (settings.ocr_fallback_model or "").strip() or None
 
         attempts: list[tuple[str, Optional[str], Optional[dict[str, Any]]]] = []
-        if fallback_overrides:
-            attempts.append((str(fallback_overrides.get("model") or "fallback model"), None, fallback_overrides))
+        for overrides in chain:
+            attempts.append((str(overrides.get("model") or "fallback model"), None, overrides))
         if env_fallback and env_fallback != primary and all(name != env_fallback for name, _, _ in attempts):
             attempts.append((env_fallback, env_fallback, None))
 

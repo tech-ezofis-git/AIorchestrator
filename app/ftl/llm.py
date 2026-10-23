@@ -52,6 +52,48 @@ def resolve_llm_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, 
     return preset
 
 
+def resolve_fallback_llm_configs(
+    primary_config: Optional[dict[str, Any]] = None,
+    fallback_overrides: Any = None,
+) -> list[dict[str, Any]]:
+    """Resolve fallback LLM configs in order: catalog fallback, 2nd fallback, then Azure presets."""
+    chain: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    primary_model = str((primary_config or {}).get("model") or "").strip().lower()
+    if primary_model:
+        seen.add(primary_model)
+
+    parts = fallback_overrides if isinstance(fallback_overrides, (list, tuple)) else [fallback_overrides]
+    for part in parts:
+        if not isinstance(part, dict) or not part:
+            continue
+        try:
+            resolved = resolve_llm_config(part)
+        except Exception:
+            continue
+        if not resolved or not resolved.get("api_key"):
+            continue
+        model = str(resolved.get("model") or "").strip().lower()
+        if model and model in seen:
+            continue
+        if model:
+            seen.add(model)
+        chain.append(resolved)
+
+    for pid in ("gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o-mini"):
+        candidate = resolve_preset_overrides(pid)
+        if not candidate or not candidate.get("api_key"):
+            continue
+        c_model = str(candidate.get("model") or "").strip().lower()
+        if c_model in seen or pid.lower() in seen:
+            continue
+        if c_model:
+            seen.add(c_model)
+        chain.append(candidate)
+        break
+    return chain
+
+
 def resolve_fallback_llm_config(
     primary_config: Optional[dict[str, Any]] = None,
     fallback_overrides: Optional[dict[str, Any]] = None,
@@ -62,24 +104,8 @@ def resolve_fallback_llm_config(
     Otherwise, picks an available Azure preset (gpt-4.1-mini, gpt-4.1-nano, gpt-4o-mini)
     different from the primary model that has an active API key.
     """
-    if fallback_overrides:
-        try:
-            resolved = resolve_llm_config(fallback_overrides)
-            if resolved and resolved.get("api_key"):
-                return resolved
-        except Exception:
-            pass
-
-    primary_model = str((primary_config or {}).get("model") or "").strip().lower()
-    fallback_candidates = ["gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o-mini"]
-    for pid in fallback_candidates:
-        candidate = resolve_preset_overrides(pid)
-        if not candidate or not candidate.get("api_key"):
-            continue
-        c_model = str(candidate.get("model") or "").strip().lower()
-        if c_model != primary_model and pid != primary_model:
-            return candidate
-    return None
+    chain = resolve_fallback_llm_configs(primary_config, fallback_overrides)
+    return chain[0] if chain else None
 
 
 def open_client(
