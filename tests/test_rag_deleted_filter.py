@@ -1,12 +1,16 @@
-"""Deep Hits are dropped when the live repository row is marked deleted."""
+"""Deep Hits are dropped unless the live repository row exists and is not deleted."""
 import pytest
 
-from app.global_search.rag_search import drop_deleted_document_hits, item_marked_deleted
+from app.global_search.rag_search import (
+    drop_deleted_document_hits,
+    item_is_live,
+    item_marked_deleted,
+)
 from app.global_search.types import SearchHit
 
 
 class _Db:
-    def __init__(self, flag: str):
+    def __init__(self, flag: str | None):
         self._flag = flag
 
     async def fetch(self, query, *args):
@@ -20,18 +24,22 @@ class _Db:
         return []
 
     async def fetchrow(self, query, *args):
+        if self._flag is None:
+            return None
         return {"deleted": self._flag}
 
 
-def _hit() -> SearchHit:
-    return SearchHit(
-        type="document",
-        entity_type="document",
-        entity_id="item-1",
-        entity_name="20170509083834691.pdf",
-        matchSource="content",
-        id={"itemId": "item-1", "repositoryId": "abcd1234-1111-1111-1111-111111111111"},
-    )
+def _hit(**overrides) -> SearchHit:
+    data = {
+        "type": "document",
+        "entity_type": "document",
+        "entity_id": "item-1",
+        "entity_name": "20170509083834691.pdf",
+        "matchSource": "content",
+        "id": {"itemId": "item-1", "repositoryId": "abcd1234-1111-1111-1111-111111111111"},
+    }
+    data.update(overrides)
+    return SearchHit(**data)
 
 
 @pytest.mark.asyncio
@@ -50,3 +58,20 @@ async def test_live_repository_row_is_kept():
     hits = await drop_deleted_document_hits(_Db("0"), [_hit()])
     assert len(hits) == 1
     assert hits[0].entity_name == "20170509083834691.pdf"
+    assert await item_is_live(
+        _Db("0"),
+        item_id="item-1",
+        repository_id="abcd1234-1111-1111-1111-111111111111",
+    )
+
+
+@pytest.mark.asyncio
+async def test_missing_repository_row_is_dropped():
+    hits = await drop_deleted_document_hits(_Db(None), [_hit()])
+    assert hits == []
+
+
+@pytest.mark.asyncio
+async def test_unverified_hits_are_dropped_without_db():
+    hits = await drop_deleted_document_hits(None, [_hit()])
+    assert hits == []

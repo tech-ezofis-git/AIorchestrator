@@ -232,12 +232,13 @@ def make_search_repo_rag_handler(
             workspace_id=workspace_id,
             query_embedding=query_embedding,
         )
-        if acquire is not None and (tenant_id or "").strip():
-            try:
-                db = await acquire(tenant_id)
-            except Exception:
-                db = None
-            hits = await drop_deleted_document_hits(db, hits)
+        if not (tenant_id or "").strip() or acquire is None:
+            return []
+        try:
+            db = await acquire(tenant_id)
+        except Exception:
+            db = None
+        hits = await drop_deleted_document_hits(db, hits)
         return [h.model_dump() for h in hits]
 
     return handler

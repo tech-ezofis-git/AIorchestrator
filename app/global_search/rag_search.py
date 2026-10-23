@@ -21,17 +21,17 @@ logger = logging.getLogger("orchestrator.global_search")
 
 _DELETED_TRUE = frozenset({"1", "true", "t", "yes", "y"})
 _ITEM_ID_KEYS = ("itemid", "item_id", "repositoryitemid", "ifileid", "id")
+_STATUS_LIVE = "live"
+_STATUS_DELETED = "deleted"
+_STATUS_MISSING = "missing"
+_STATUS_UNKNOWN = "unknown"
 
 
-async def item_marked_deleted(db: Any, *, item_id: str, repository_id: str = "") -> bool:
-    """True only when the live repository row exists and is flagged deleted.
-
-    A missing row is left in the results. The items table name varies by
-    repository, and hiding every unresolved id would drop live files.
-    """
+async def _item_status(db: Any, *, item_id: str, repository_id: str = "") -> str:
+    """live | deleted | missing | unknown for one repository item id."""
     compact = (item_id or "").replace("-", "").lower()
     if not compact or db is None:
-        return False
+        return _STATUS_UNKNOWN
     tables: list[tuple[str, str]] = []
     if repository_id:
         tables.extend(await find_items_tables_for_repository(db, repository_id))
@@ -42,17 +42,23 @@ async def item_marked_deleted(db: Any, *, item_id: str, repository_id: str = "")
     )
     if located and located not in tables:
         tables.append(located)
+    saw_query = False
     for schema, table in tables:
         try:
             by_lower, _types = await fetch_columns(db, schema, table)
         except Exception:
             continue
         item_col = next((by_lower[key] for key in _ITEM_ID_KEYS if key in by_lower), None)
-        deleted_col = pick_deleted_column(by_lower)
-        if not item_col or not deleted_col:
+        if not item_col:
             continue
+        deleted_col = pick_deleted_column(by_lower)
+        deleted_sql = (
+            f"lower(COALESCE(CAST({quote_ident(deleted_col)} AS text), '0'))"
+            if deleted_col
+            else "'0'"
+        )
         sql = (
-            f"SELECT lower(COALESCE(CAST({quote_ident(deleted_col)} AS text), '0')) AS deleted "
+            f"SELECT {deleted_sql} AS deleted "
             f"FROM {qualified(schema, table)} "
             f"WHERE lower(replace(CAST({quote_ident(item_col)} AS text), '-', '')) = $1 "
             f"LIMIT 1"
@@ -65,33 +71,59 @@ async def item_marked_deleted(db: Any, *, item_id: str, repository_id: str = "")
                 extra={"table": f"{schema}.{table}"},
             )
             continue
+        saw_query = True
         if row is None:
             continue
         flag = str(row_get(row, "deleted") or "0").strip().lower()
-        return flag in _DELETED_TRUE
-    return False
+        if flag in _DELETED_TRUE:
+            return _STATUS_DELETED
+        return _STATUS_LIVE
+    if saw_query:
+        return _STATUS_MISSING
+    return _STATUS_UNKNOWN
+
+
+async def item_marked_deleted(db: Any, *, item_id: str, repository_id: str = "") -> bool:
+    """True when the live repository row exists and is flagged deleted."""
+    return await _item_status(db, item_id=item_id, repository_id=repository_id) == _STATUS_DELETED
+
+
+async def item_is_live(db: Any, *, item_id: str, repository_id: str = "") -> bool:
+    """True only when a non-deleted repository row exists for this item."""
+    return await _item_status(db, item_id=item_id, repository_id=repository_id) == _STATUS_LIVE
 
 
 async def drop_deleted_document_hits(db: Any, hits: list[SearchHit]) -> list[SearchHit]:
-    if db is None or not hits:
+    """Keep RAG hits that still have a live (not deleted) repository row.
+
+    Stale vector chunks outlive EZOFIS deletes. Missing rows, unknown ids,
+    and unverified lookups are dropped so Chatbot / Global Search do not
+    show deleted files.
+    """
+    if not hits:
         return hits
+    if db is None:
+        logger.warning("rag_deleted_filter_skipped_no_db", extra={"hit_count": len(hits)})
+        return []
     kept: list[SearchHit] = []
+    cache: dict[tuple[str, str], bool] = {}
     for hit in hits:
         ids = hit.id if isinstance(hit.id, dict) else {}
+        item_id = str(ids.get("itemId") or hit.entity_id or "")
+        repository_id = str(ids.get("repositoryId") or "")
+        key = (item_id.replace("-", "").lower(), repository_id.replace("-", "").lower())
         try:
-            deleted = await item_marked_deleted(
-                db,
-                item_id=str(ids.get("itemId") or hit.entity_id or ""),
-                repository_id=str(ids.get("repositoryId") or ""),
-            )
+            live = cache.get(key)
+            if live is None:
+                live = await item_is_live(db, item_id=item_id, repository_id=repository_id)
+                cache[key] = live
         except Exception:
             logger.warning("rag_deleted_filter_failed", extra={"entity_id": hit.entity_id})
-            kept.append(hit)
             continue
-        if deleted:
+        if not live:
             logger.info(
                 "rag_hit_dropped_deleted",
-                extra={"item_id": ids.get("itemId") or hit.entity_id},
+                extra={"item_id": item_id, "repository_id": repository_id},
             )
             continue
         kept.append(hit)
