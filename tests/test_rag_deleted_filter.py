@@ -18,12 +18,14 @@ class _Db:
             return [{"table_schema": "repository", "table_name": "items_abcd1234"}]
         if "information_schema.columns" in query:
             return [
-                {"column_name": "itemid", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "id", "data_type": "uuid", "udt_name": "uuid"},
+                {"column_name": "itemid", "data_type": "text", "udt_name": "text"},
                 {"column_name": "isdeleted", "data_type": "integer", "udt_name": "int4"},
             ]
         return []
 
     async def fetchrow(self, query, *args):
+        assert '"id"' in query or " id " in query.lower()
         if self._flag is None:
             return None
         return {"deleted": self._flag}
@@ -51,6 +53,12 @@ async def test_deleted_repository_row_is_dropped():
         item_id="item-1",
         repository_id="abcd1234-1111-1111-1111-111111111111",
     )
+
+
+@pytest.mark.asyncio
+async def test_missing_repository_row_is_dropped():
+    hits = await drop_deleted_document_hits(_Db(None), [_hit()])
+    assert hits == []
 
 
 @pytest.mark.asyncio

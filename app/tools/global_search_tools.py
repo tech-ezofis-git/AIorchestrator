@@ -168,6 +168,7 @@ def make_search_repo_metadata_handler(tenant_pools: Any, catalog_store: Any = No
         hits = await search_document_metadata(
             db, query, specific_id=specific_id, workspace_id=workspace_id, limit=limit
         )
+        hits = await drop_deleted_document_hits(db, hits)
         return [h.model_dump() for h in hits]
 
     return handler
