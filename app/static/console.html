@@ -9790,6 +9790,8 @@ let reportSpecState = {
   groupBy: [],
   sort: null,
   availableColumns: [],
+  sourceSchema: null,
+  sourceTable: null,
   warnings: [],
 };
 
@@ -9816,6 +9818,8 @@ function reportSpecFromApi(spec) {
     availableColumns: Array.isArray(spec.availableColumns || spec.available_columns)
       ? (spec.availableColumns || spec.available_columns)
       : [],
+    sourceSchema: spec.sourceSchema || spec.source_schema || null,
+    sourceTable: spec.sourceTable || spec.source_table || null,
     warnings: Array.isArray(spec.warnings) ? spec.warnings : [],
   };
 }
@@ -9942,6 +9946,8 @@ function readReportSpecFromForm() {
     groupBy: reportSpecState.groupBy || [],
     sort,
     availableColumns: reportSpecState.availableColumns || [],
+    sourceSchema: reportSpecState.sourceSchema || null,
+    sourceTable: reportSpecState.sourceTable || null,
     warnings: reportSpecState.warnings || [],
   };
 }
@@ -9952,6 +9958,10 @@ function syncReportPromptFromSpec() {
   const lines = [];
   lines.push('Report objective: ' + spec.objective);
   if (spec.reportType) lines.push('Report type and scope: Report type is ' + spec.reportType + '.');
+  if (spec.sourceTable) {
+    const qualified = spec.sourceSchema ? (spec.sourceSchema + '.' + spec.sourceTable) : spec.sourceTable;
+    lines.push('Data sources: Use the table ' + qualified + '. Do not query Workflows, Repositories, or wForm catalog tables for report rows.');
+  }
   if (spec.columns.length) {
     lines.push('Output columns: ' + spec.columns.map(c => c.formula ? (c.key + ' (formula: ' + c.formula + ')') : c.key).join(', ') + '.');
     lines.push('Required fields: ' + spec.columns.map(c => c.key).join(', ') + '.');

@@ -11,9 +11,10 @@ Phase 1 returns a **short client spec**, not a long prose prompt. Map requiremen
 2. **objective** — what the report answers, in business language (1–2 sentences).
 3. **reportType** — plus workflow/repository are supplied by the API input.
 4. **columns** — output columns for the table UI (`key`, `label`, optional `formula`).
-5. **filters** — status / approval / archive conditions when schema-backed.
-6. **groupBy** / **sort** — only when the description implies them.
-7. **availableColumns** — other schema fields the client may add.
-8. **warnings** — ambiguous or missing items (e.g. Score not in schema).
+5. **sourceSchema / sourceTable** — the preferred fact table (`ezfb_*_items` or `items_*`), never a catalog table.
+6. **filters** — status / approval / archive conditions when schema-backed. Do not invent status literals.
+7. **groupBy** / **sort** — only when the description implies them.
+8. **availableColumns** — other schema fields the client may add.
+9. **warnings** — ambiguous or missing items (e.g. Score not in schema).
 
 Do not include pagination, table dumps, join essays, or engine internals in client-facing fields.

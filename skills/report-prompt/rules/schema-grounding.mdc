@@ -7,8 +7,9 @@ alwaysApply: true
 
 - Use only tables and columns present in the approved schema slice in the user message.
 - Do not invent joins, status values, or business fields that are not represented in that schema.
-- Prefer real workflow / instance / mailbox / task tables for workflow-scoped reports.
-- Prefer real repository / items tables for repository-scoped reports.
+- Prefer real workflow form/item tables (`ezfb_*_items`, `inbox_*`, `workflow_instances_*`) for workflow-scoped reports.
+- Prefer real repository item tables (`items_*`) for repository-scoped reports.
+- Never treat `Workflows`, `Repositories`, or `wForm` as the row source. Those are catalogs.
 - Soft-delete and system columns must only be used when they exist in the schema slice.
 - If a needed concept (e.g. "awaiting action", "approved", "archived", "signed", "score") has no clear matching columns, say so in the prompt and do not fabricate a mapping.
 - Never include database credentials, connection strings, or unrestricted raw dumps.

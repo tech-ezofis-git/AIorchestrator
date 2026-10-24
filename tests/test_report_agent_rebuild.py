@@ -412,3 +412,135 @@ async def test_run_report_executes_locked_sql(monkeypatch):
     assert resp.rows == [{"name": "Invoice 1"}]
     assert resp.total_count == 1
     assert resp.debug and "sql" in resp.debug
+
+
+def _pascal_schema() -> DatabaseSchema:
+    schema = DatabaseSchema()
+    schema.tables = [
+        ("workflow", "Workflows"),
+        ("dbo", "ezfb_29171de4_items"),
+    ]
+    cols = {
+        ("workflow", "workflows"): [
+            ColumnMeta("workflow", "Workflows", "Id", "uuid"),
+            ColumnMeta("workflow", "Workflows", "Name", "text"),
+            ColumnMeta("workflow", "Workflows", "IsDeleted", "boolean"),
+        ],
+        ("dbo", "ezfb_29171de4_items"): [
+            ColumnMeta("dbo", "ezfb_29171de4_items", "Invoice_No", "text"),
+            ColumnMeta("dbo", "ezfb_29171de4_items", "Matched_Status", "text"),
+            ColumnMeta("dbo", "ezfb_29171de4_items", "PO_Amount", "numeric"),
+            ColumnMeta("dbo", "ezfb_29171de4_items", "Invoice_Amount", "numeric"),
+            ColumnMeta("dbo", "ezfb_29171de4_items", "IsDeleted", "boolean"),
+        ],
+    }
+    schema.columns_by_table = cols
+    schema.all_columns = [c for lst in cols.values() for c in lst]
+    schema.table_to_workflow = {"29171de4": "Accounts Payable"}
+    return schema
+
+
+def test_lock_preserves_identifier_case():
+    raw = {
+        "title": "Workflows catalog",
+        "reportType": "all_workflows",
+        "sources": [{"alias": "w", "schemaName": "workflow", "table": "workflows"}],
+        "joins": [],
+        "columns": [{"key": "name", "label": "Name", "source": "w.name", "aggregate": "none"}],
+        "filters": [{"field": "w.isDeleted", "op": "eq", "value": False}],
+        "groupBy": [],
+        "orderBy": [],
+        "availableFilters": [],
+        "summary": {},
+        "warnings": [],
+    }
+    locked = lock_report_definition(raw, _pascal_schema())
+    # Catalog source is redirected to the fact table when one exists.
+    assert locked["sources"][0]["table"] == "ezfb_29171de4_items"
+    assert locked["sources"][0]["schemaName"] == "dbo"
+
+
+def test_lock_canonicalizes_columns_on_fact_table():
+    raw = {
+        "title": "Approved invoices",
+        "reportType": "specific_workflow",
+        "sources": [{"alias": "t", "schemaName": "dbo", "table": "ezfb_29171de4_items"}],
+        "joins": [],
+        "columns": [
+            {"key": "invoice_no", "label": "Invoice", "source": "t.invoice_no", "aggregate": "none"},
+            {
+                "key": "Total_Amount",
+                "label": "Total",
+                "source": "t.po_amount + t.invoice_amount",
+                "aggregate": "none",
+            },
+        ],
+        "filters": [{"field": "t.matched_status", "op": "eq", "value": "Total Approved with Score"}],
+        "groupBy": [],
+        "orderBy": [],
+        "availableFilters": [],
+        "summary": {},
+        "warnings": [],
+    }
+    locked = lock_report_definition(raw, _pascal_schema())
+    assert locked["sources"][0]["table"] == "ezfb_29171de4_items"
+    sources = {c["key"]: c["source"] for c in locked["columns"]}
+    assert sources["invoice_no"] == "t.Invoice_No"
+    assert "t.PO_Amount" in sources["Total_Amount"]
+    assert "t.Invoice_Amount" in sources["Total_Amount"]
+    status = next(f for f in locked["filters"] if "Matched_Status" in f["field"])
+    assert status["op"] == "not_null"
+    deleted = next(f for f in locked["filters"] if "IsDeleted" in f["field"])
+    assert deleted["op"] == "not_deleted"
+    data_sql, _count_sql = generate_definition_sql(locked, page=1, page_size=25)
+    assert '"ezfb_29171de4_items"' in data_sql
+    assert "COALESCE" in data_sql
+    assert "LOWER(CAST(" in data_sql or "IS NOT NULL" in data_sql
+
+
+def test_sql_soft_delete_uses_coalesce_not_false_eq():
+    locked = {
+        "sources": [{"alias": "t", "schemaName": "dbo", "table": "ezfb_29171de4_items"}],
+        "joins": [],
+        "columns": [
+            {"key": "Invoice_No", "label": "Invoice", "source": "t.Invoice_No", "aggregate": "none"}
+        ],
+        "filters": [{"field": "t.IsDeleted", "op": "not_deleted", "value": None}],
+        "groupBy": [],
+        "orderBy": [],
+        "availableFilters": [],
+    }
+    data_sql, _ = generate_definition_sql(locked)
+    assert "COALESCE" in data_sql
+    assert '"IsDeleted"' in data_sql
+    assert '= FALSE' not in data_sql.upper().replace("COALESCE", "")
+
+
+def test_report_spec_prompt_includes_source_table():
+    from app.models.report_agent import ReportSpec, ReportSpecColumn
+    from app.report_agent.report_spec import report_spec_to_prompt
+
+    spec = ReportSpec(
+        title="Approved",
+        objective="List approved invoices",
+        report_type="specific_workflow",
+        source_schema="dbo",
+        source_table="ezfb_29171de4_items",
+        columns=[ReportSpecColumn(key="Invoice_No", label="Invoice No")],
+    )
+    prompt = report_spec_to_prompt(spec, workflow_name="Accounts Payable")
+    assert "dbo.ezfb_29171de4_items" in prompt
+    assert "Workflows" in prompt  # instruction not to query catalogs
+
+
+def test_scope_prefers_fact_tables_over_catalog():
+    from app.report_agent.report_types import get_report_type
+    from app.report_agent.schema_scope import preferred_fact_table, scope_schema
+
+    tables = scope_schema(_pascal_schema(), get_report_type("all_workflows"))
+    names = {t.table for t in tables}
+    assert "ezfb_29171de4_items" in names
+    assert "Workflows" not in names
+    preferred = preferred_fact_table(tables)
+    assert preferred is not None
+    assert preferred.table == "ezfb_29171de4_items"

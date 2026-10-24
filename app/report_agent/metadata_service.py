@@ -12,6 +12,18 @@ import re
 _SKIP_SCHEMAS = ("pg_catalog", "information_schema")
 
 
+def _ezfb_table_name(form_id: Optional[str]) -> Optional[str]:
+    raw = str(form_id or "").strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        return f"ezfb_{int(raw)}_items"
+    compact = raw.replace("-", "").lower()
+    if len(compact) >= 8:
+        return f"ezfb_{compact[:8]}_items"
+    return None
+
+
 @dataclass
 class ColumnMeta:
     schema: str
@@ -47,6 +59,25 @@ class DatabaseSchema:
             k_clean = re.sub(r"[^a-zA-Z0-9]", "", key.lower())
             if k_clean and (k_clean in t_clean or t_clean in k_clean):
                 return wf_name
+        return None
+
+    def resolve_table(self, schema_name: Optional[str], table: str) -> Optional[tuple[str, str]]:
+        """Return the live (schema, table) pair with original identifier case."""
+        table_clean = (table or "").strip().strip('"')
+        schema_clean = (schema_name or "").strip().strip('"')
+        if not table_clean:
+            return None
+        if "." in table_clean and not schema_clean:
+            schema_clean, table_clean = table_clean.split(".", 1)
+        if schema_clean:
+            cols = self.get_columns_for_table(schema_clean, table_clean)
+            if cols:
+                return cols[0].schema, cols[0].table
+        for live_schema, live_table in self.tables:
+            if live_table.lower() != table_clean.lower():
+                continue
+            if not schema_clean or live_schema.lower() == schema_clean.lower():
+                return live_schema, live_table
         return None
 
 
@@ -231,6 +262,10 @@ async def _discover_workflow_metadata(db: Any, schema: DatabaseSchema) -> None:
                 schema.table_to_workflow[form_id_clean] = wf_name
                 if len(form_id_clean) >= 8:
                     schema.table_to_workflow[form_id_clean[:8]] = wf_name
+                ezfb = _ezfb_table_name(form_id)
+                if ezfb:
+                    schema.table_to_workflow[ezfb] = wf_name
+                    schema.table_to_workflow[ezfb.replace("_", "")] = wf_name
 
             if repo_id:
                 repo_id_clean = repo_id.replace("-", "").lower()
@@ -320,11 +355,18 @@ async def _discover_repository_metadata(db: Any, schema: DatabaseSchema) -> None
             or col_names_lower.get("title")
         )
         del_col = col_names_lower.get("isdeleted") or col_names_lower.get("is_deleted")
+        items_col = (
+            col_names_lower.get("itemstablename")
+            or col_names_lower.get("items_table_name")
+            or col_names_lower.get("tablename")
+        )
 
         if not id_col or not name_col:
             return
 
         sel_cols = [f'"{id_col}" AS repo_id', f'"{name_col}" AS repo_name']
+        if items_col:
+            sel_cols.append(f'"{items_col}" AS items_table')
         where_clause = f'WHERE ("{del_col}" IS NOT TRUE OR CAST("{del_col}" AS text) = \'0\')' if del_col else ""
         query = f"SELECT {', '.join(sel_cols)} FROM {table_ident} {where_clause};"
         rows = await db.fetch(query)
@@ -339,6 +381,11 @@ async def _discover_repository_metadata(db: Any, schema: DatabaseSchema) -> None
             schema.table_to_workflow[repo_id_clean] = repo_name
             if len(repo_id_clean) >= 8:
                 schema.table_to_workflow[repo_id_clean[:8]] = repo_name
+            items_table = str(_row_get(row, "items_table") or "").strip() if items_col else ""
+            if items_table:
+                token = items_table.split(".")[-1]
+                schema.table_to_workflow[token] = repo_name
+                schema.table_to_workflow[token.lower()] = repo_name
 
     except Exception as exc:
         logger.debug("report_agent_repo_meta_discovery_skipped", extra={"error": str(exc)[:200]})

@@ -17,12 +17,14 @@ from app.models.report_agent import (
     ReportTypeInfo,
     RunReportRequest,
     RunReportResponse,
+    SchemaTableSlice,
     ScopeOption,
 )
 from app.report_agent.data_service import execute_report_query
 from app.report_agent.definition_lock import (
     fallback_definition_from_prompt,
     lock_report_definition,
+    merge_spec_into_definition,
     parse_definition_json,
 )
 from app.report_agent.definition_sql import generate_definition_sql
@@ -41,6 +43,8 @@ from app.report_agent.report_types import (
     validate_report_type_input,
 )
 from app.report_agent.schema_scope import (
+    is_catalog_table,
+    preferred_fact_table,
     resolve_scope_options,
     schema_slice_to_prompt_block,
     scope_schema,
@@ -187,6 +191,7 @@ class ReportAgentService:
             repository_name=request.repository_name,
         )
         schema_block = schema_slice_to_prompt_block(tables)
+        preferred = preferred_fact_table(tables)
         system = await report_system_prompt(
             "prompt",
             tenant_id=request.tenant_id,
@@ -198,15 +203,23 @@ class ReportAgentService:
             "description": (request.description or "").strip(),
             "workflowName": (request.workflow_name or "").strip() or None,
             "repositoryName": (request.repository_name or "").strip() or None,
+            "preferredSource": (
+                {"schemaName": preferred.schema_name, "table": preferred.table}
+                if preferred
+                else None
+            ),
         }
         user = (
             "Build a client-facing short reportSpec JSON for the Report Builder UI.\n"
             "Return ONLY one valid JSON object with keys: title, objective, reportType, "
             "columns[{key,label,formula?}], filters[{field,op,value}], groupBy, sort{field,direction}, "
-            "availableColumns, warnings.\n"
+            "sourceSchema, sourceTable, availableColumns, warnings.\n"
             "No markdown fences, no commentary, no SQL.\n"
-            "Use only columns from the approved schema slice. Prefer simple formulas like "
-            "PO_Amount + Invoice_Amount or SUM(Amount) when the description asks for totals.\n\n"
+            "Use only columns from the approved schema slice. Set sourceSchema/sourceTable to the "
+            "preferredSource fact table (ezfb_*_items or items_*), never Workflows/Repositories/wForm.\n"
+            "Do not invent status literals; use not_null when the stored value is unknown. "
+            "Prefer simple formulas like PO_Amount + Invoice_Amount or SUM(Amount) when the "
+            "description asks for totals.\n\n"
             f"Input:\n{json.dumps(user_payload, indent=2)}\n\n"
             f"{schema_block}\n"
         )
@@ -270,6 +283,11 @@ class ReportAgentService:
             for w in warnings:
                 if w not in spec.warnings:
                     spec.warnings.append(w)
+
+        if preferred and (not spec.source_table or is_catalog_table(spec.source_table)):
+            spec = spec.model_copy(
+                update={"source_schema": preferred.schema_name, "source_table": preferred.table}
+            )
 
         if not spec.available_columns:
             from app.report_agent.report_spec import available_columns_from_tables
@@ -369,6 +387,15 @@ class ReportAgentService:
             tables = deduped[:18]
 
         schema_block = schema_slice_to_prompt_block(tables)
+        preferred = preferred_fact_table(tables)
+        if spec is not None and spec.source_table:
+            resolved = schema.resolve_table(spec.source_schema, spec.source_table)
+            if resolved:
+                preferred = SchemaTableSlice(
+                    schema_name=resolved[0],
+                    table=resolved[1],
+                    columns=preferred.columns if preferred else [],
+                )
         system = await report_system_prompt(
             "run",
             tenant_id=request.tenant_id,
@@ -384,11 +411,19 @@ class ReportAgentService:
             "pageSize": request.page_size,
             "sort": request.sort.model_dump() if request.sort else None,
             "reportPrompt": prompt,
+            "preferredSource": (
+                {"schemaName": preferred.schema_name, "table": preferred.table}
+                if preferred
+                else None
+            ),
         }
         user = (
             "Interpret the report prompt into locked reportDefinition JSON.\n"
             "Return ONLY one valid JSON object. No markdown fences, no commentary, "
-            "no trailing commas, no undefined values.\n\n"
+            "no trailing commas, no undefined values.\n"
+            "sources[0] must be preferredSource (the fact table with report rows). "
+            "Never use Workflows, Repositories, or wForm as the row source.\n"
+            "Do not invent status equality values; use not_null when unknown.\n\n"
             f"Input:\n{json.dumps(user_payload, indent=2)}\n\n"
             f"{schema_block}\n"
         )
@@ -431,6 +466,8 @@ class ReportAgentService:
                 schema,
                 report_type=rt.key if rt else request.report_type,
                 title=(request.report_type or "Report"),
+                preferred_schema=preferred.schema_name if preferred else None,
+                preferred_table=preferred.table if preferred else None,
             )
             if raw_def is None:
                 duration_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -467,10 +504,14 @@ class ReportAgentService:
                 duration_ms=duration_ms,
             )
 
+        if spec is not None:
+            raw_def = merge_spec_into_definition(raw_def, spec)
         locked = lock_report_definition(
             raw_def,
             schema,
             report_type=rt.key if rt else request.report_type,
+            preferred_schema=preferred.schema_name if preferred else None,
+            preferred_table=preferred.table if preferred else None,
         )
         warnings.extend(locked.get("warnings") or [])
 

@@ -35,7 +35,7 @@ REPORT_TYPES: dict[str, ReportTypeDefinition] = {
         description="Report across all workflows based on the user description.",
         scope="workflows",
         example_description="Awaiting for your action",
-        schema_focus=("workflow", "wworkflow", "inbox_", "workflow_instances_", "workflow_tasks_"),
+        schema_focus=("workflow", "wworkflow", "inbox_", "workflow_instances_", "workflow_tasks_", "ezfb_"),
     ),
     "specific_workflow": ReportTypeDefinition(
         key="specific_workflow",

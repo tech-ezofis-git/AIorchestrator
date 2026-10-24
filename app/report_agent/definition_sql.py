@@ -1,7 +1,14 @@
 """Build read-only SQL from a locked reportDefinition."""
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
+
+_SOFT_DELETE = frozenset({"isdeleted", "is_deleted"})
+_EXPR_FUNCS = frozenset(
+    {"sum", "count", "avg", "min", "max", "coalesce", "cast", "null", "true", "false", "as"}
+)
+_IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?\b")
 
 
 def _quote_ident(ident: str) -> str:
@@ -23,8 +30,20 @@ def _format_literal(val: Any) -> str:
     return f"'{escaped}'"
 
 
+def _looks_like_expr(text: str) -> bool:
+    return any(ch in (text or "") for ch in "+-*/()")
+
+
 def _resolve_field_sql(field: str, alias_map: dict[str, str]) -> str:
     text = (field or "").strip()
+    if _looks_like_expr(text):
+        def repl(match: re.Match[str]) -> str:
+            token = match.group(0)
+            if token.lower() in _EXPR_FUNCS or token.replace(".", "", 1).isdigit():
+                return token
+            return _resolve_field_sql(token, alias_map)
+
+        return _IDENT_RE.sub(repl, text)
     if "." in text:
         alias, col = text.rsplit(".", 1)
         table_sql = alias_map.get(alias.lower())
@@ -34,17 +53,57 @@ def _resolve_field_sql(field: str, alias_map: dict[str, str]) -> str:
     return _quote_ident(text)
 
 
+def _field_leaf(field: str) -> str:
+    text = (field or "").strip().strip('"')
+    return text.rsplit(".", 1)[-1].strip('"').lower()
+
+
+def _is_soft_delete_keep(filt: dict[str, Any]) -> bool:
+    op = str(filt.get("op") or "").lower()
+    leaf = _field_leaf(str(filt.get("field") or ""))
+    if leaf not in _SOFT_DELETE:
+        return False
+    if op in ("not_deleted", "eq"):
+        val = filt.get("value")
+        return op == "not_deleted" or val in (False, 0, "0", "false", "False", "FALSE", "f", "F", None)
+    return False
+
+
+def _is_numeric_or_bool(val: Any) -> bool:
+    if isinstance(val, bool) or isinstance(val, (int, float)):
+        return True
+    if isinstance(val, str):
+        stripped = val.strip()
+        if stripped.lower() in ("true", "false"):
+            return True
+        try:
+            float(stripped)
+            return True
+        except ValueError:
+            return False
+    return False
+
+
 def _filter_sql(filt: dict[str, Any], alias_map: dict[str, str]) -> Optional[str]:
     field = _resolve_field_sql(str(filt.get("field") or ""), alias_map)
     op = str(filt.get("op") or "eq").lower()
     val = filt.get("value")
+    if _is_soft_delete_keep(filt):
+        return (
+            f"COALESCE((CAST({field} AS text)), 'false') "
+            "NOT IN ('1', 'true', 't', 'TRUE', 'True')"
+        )
     if op == "is_null":
         return f"{field} IS NULL"
     if op == "not_null":
         return f"{field} IS NOT NULL"
     if op == "eq":
+        if isinstance(val, str) and not _is_numeric_or_bool(val):
+            return f"LOWER(CAST({field} AS text)) = LOWER({_format_literal(val)})"
         return f"{field} = {_format_literal(val)}"
     if op == "ne":
+        if isinstance(val, str) and not _is_numeric_or_bool(val):
+            return f"LOWER(CAST({field} AS text)) <> LOWER({_format_literal(val)})"
         return f"{field} <> {_format_literal(val)}"
     if op == "gt":
         return f"{field} > {_format_literal(val)}"

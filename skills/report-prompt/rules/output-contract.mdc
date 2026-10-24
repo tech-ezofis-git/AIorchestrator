@@ -16,8 +16,10 @@ alwaysApply: true
   - `filters` — array of `{ "field", "op", "value" }` (omit when none)
   - `groupBy` — array of field keys (may be empty)
   - `sort` — `{ "field", "direction" }` or null
+  - `sourceSchema` / `sourceTable` — the preferred fact table from the schema slice
   - `availableColumns` — schema-backed column keys the UI may add
   - `warnings` — client-visible gaps only (e.g. missing Score)
 - Keep objective and titles short for client display.
-- Prefer concrete Matched_Status / status values only when they appear in the approved schema; otherwise use a safe schema-backed filter or leave a warning.
+- `sourceTable` must be the preferred items/form table (`ezfb_*_items` or `items_*`). Never `Workflows`, `Repositories`, or `wForm`.
+- Prefer concrete Matched_Status / status values only when they appear in the approved schema; otherwise use `"op": "not_null"` or omit the filter. Never invent status strings from the user description.
 - Formulas must be simple (`A + B`, `SUM(Amount)`, `COUNT(*)`) and reference schema-backed fields only.

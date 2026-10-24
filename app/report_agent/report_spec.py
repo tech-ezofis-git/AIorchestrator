@@ -12,7 +12,7 @@ from app.models.report_agent import (
 )
 from app.report_agent.definition_lock import parse_definition_json
 from app.report_agent.metadata_service import DatabaseSchema
-from app.report_agent.schema_scope import SchemaTableSlice
+from app.report_agent.schema_scope import SchemaTableSlice, preferred_fact_table
 
 
 def available_columns_from_tables(tables: list[SchemaTableSlice], *, limit: int = 80) -> list[str]:
@@ -136,6 +136,8 @@ def normalize_report_spec(
         group_by=group_by,
         sort=sort,
         available_columns=avail or [],
+        source_schema=str(data.get("sourceSchema") or data.get("source_schema") or "").strip() or None,
+        source_table=str(data.get("sourceTable") or data.get("source_table") or "").strip() or None,
         warnings=warn,
     )
 
@@ -205,6 +207,7 @@ def fallback_report_spec(
     if "score" in desc.lower() and "score" not in lower_map:
         warn.append("Score column not found in schema — not included.")
 
+    preferred = preferred_fact_table(tables)
     return ReportSpec(
         title=desc[:80] or "Report",
         objective=desc or "Generate the requested report.",
@@ -214,6 +217,8 @@ def fallback_report_spec(
         group_by=[],
         sort=ReportSpecSort(field=columns[-1].key, direction="desc") if columns else None,
         available_columns=avail,
+        source_schema=(preferred.schema_name if preferred else None),
+        source_table=(preferred.table if preferred else None),
         warnings=warn,
     )
 
@@ -234,6 +239,12 @@ def report_spec_to_prompt(
         if repository_name:
             scope += f" Repository name is {repository_name}."
         lines.append(f"Report type and scope: {scope}")
+    if spec.source_table:
+        qualified = f"{spec.source_schema}.{spec.source_table}" if spec.source_schema else spec.source_table
+        lines.append(
+            f"Data sources: Use the table {qualified}. "
+            "Do not query Workflows, Repositories, or wForm catalog tables for report rows."
+        )
     if spec.columns:
         col_bits = []
         for c in spec.columns:
@@ -281,7 +292,7 @@ def enrich_spec_with_schema(
     lower = {c.lower(): c for c in avail}
     # also allow any schema column name as available
     for col in getattr(schema, "all_columns", []) or []:
-        name = getattr(col, "name", None) or ""
+        name = getattr(col, "column", None) or getattr(col, "name", None) or ""
         if name and name.lower() not in lower:
             lower[name.lower()] = name
             avail.append(name)
@@ -325,6 +336,17 @@ def enrich_spec_with_schema(
             warnings.append(f"Sort field '{sort.field}' not found; cleared.")
             sort = None
 
+    preferred = preferred_fact_table(tables)
+    source_table = spec.source_table
+    source_schema = spec.source_schema
+    if not source_table and preferred:
+        source_schema = preferred.schema_name
+        source_table = preferred.table
+    elif source_table:
+        resolved = schema.resolve_table(source_schema, source_table) if hasattr(schema, "resolve_table") else None
+        if resolved:
+            source_schema, source_table = resolved
+
     return ReportSpec(
         title=spec.title,
         objective=spec.objective,
@@ -334,5 +356,7 @@ def enrich_spec_with_schema(
         group_by=group_by,
         sort=sort,
         available_columns=avail[:80],
+        source_schema=source_schema,
+        source_table=source_table,
         warnings=warnings,
     )

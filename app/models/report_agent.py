@@ -93,6 +93,8 @@ class ReportSpec(BaseModel):
         default_factory=list,
         serialization_alias="availableColumns",
     )
+    source_schema: Optional[str] = Field(default=None, serialization_alias="sourceSchema")
+    source_table: Optional[str] = Field(default=None, serialization_alias="sourceTable")
     warnings: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True)
