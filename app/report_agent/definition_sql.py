@@ -6,9 +6,49 @@ from typing import Any, Optional
 
 _SOFT_DELETE = frozenset({"isdeleted", "is_deleted"})
 _EXPR_FUNCS = frozenset(
-    {"sum", "count", "avg", "min", "max", "coalesce", "cast", "null", "true", "false", "as"}
+    {
+        "sum",
+        "count",
+        "avg",
+        "min",
+        "max",
+        "coalesce",
+        "cast",
+        "null",
+        "true",
+        "false",
+        "as",
+        "case",
+        "when",
+        "then",
+        "else",
+        "end",
+        "and",
+        "or",
+        "not",
+        "between",
+        "current_date",
+        "current_timestamp",
+        "now",
+        "age",
+        "extract",
+        "greatest",
+        "least",
+        "date",
+        "timestamp",
+        "integer",
+        "numeric",
+        "text",
+        "boolean",
+        "interval",
+        "day",
+    }
 )
 _IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?\b")
+_EXPR_HINT = re.compile(
+    r"[+\-*/()]|\b(case|when|sum|count|avg|min|max|coalesce|cast)\b",
+    re.IGNORECASE,
+)
 
 
 def _quote_ident(ident: str) -> str:
@@ -31,7 +71,7 @@ def _format_literal(val: Any) -> str:
 
 
 def _looks_like_expr(text: str) -> bool:
-    return any(ch in (text or "") for ch in "+-*/()")
+    return bool(_EXPR_HINT.search(text or ""))
 
 
 def _resolve_field_sql(field: str, alias_map: dict[str, str]) -> str:

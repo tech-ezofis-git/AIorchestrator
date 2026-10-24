@@ -149,10 +149,15 @@ from app.report_agent import ReportAgentService
 from app.models.report_agent import (
     GeneratePromptRequest,
     GeneratePromptResponse,
+    ReportCatalogItem,
     ReportTypeInfo,
     RunReportRequest,
     RunReportResponse,
+    SaveReportRequest,
+    SavedReportCard,
+    SavedReportDetail,
     ScopeOption,
+    UpdateReportRequest,
 )
 from app.config import get_settings
 from app.dashboard.llm import configure_dashboard_llm
@@ -623,7 +628,15 @@ async def lifespan(app: FastAPI):
         catalog_store=catalog_store,
         llm_adapter=llm_adapter,
         settings=settings,
+        ezofis_client=ezofis_client,
     )
+    try:
+        await report_agent_service.ensure_library_schema()
+    except Exception as exc:
+        logger.warning(
+            "report_library_schema_bootstrap_failed",
+            extra={"error_type": type(exc).__name__},
+        )
     report_agent = ReportAgent(report_agent_service)
 
     rate_limiter = RateLimiter(
@@ -1100,6 +1113,146 @@ async def list_report_types(request: Request) -> list[ReportTypeInfo]:
     """Return extensible Report Builder type registry."""
     service: ReportAgentService = request.app.state.report_agent_service
     return service.list_types()
+
+
+@app.get("/api/report-agent/catalog", response_model=list[ReportCatalogItem])
+async def list_report_catalog(request: Request) -> list[ReportCatalogItem]:
+    """Optional generate-prompt recipes. Library cards come from GET /api/report-agent/reports."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    return service.list_catalog()
+
+
+@app.get("/api/report-agent/reports", response_model=list[SavedReportCard])
+async def list_saved_reports(
+    request: Request,
+    tenant_id: Optional[str] = Query(None, alias="tenantId"),
+    status: Optional[str] = None,
+    domain: Optional[str] = None,
+    q: Optional[str] = None,
+    favorite_only: bool = Query(False, alias="favoriteOnly"),
+) -> list[SavedReportCard]:
+    """Report Library cards — saved prompts loaded from DB."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        rows = await service.list_saved_reports(
+            tenant_id=tenant_id or "",
+            status=status,
+            domain=domain,
+            q=q,
+            favorite_only=favorite_only,
+        )
+        return [SavedReportCard.model_validate(row) for row in rows]
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_library_list_failed")
+        raise HTTPException(status_code=500, detail="Failed to list saved reports.") from exc
+
+
+@app.post("/api/report-agent/reports", response_model=SavedReportDetail)
+async def save_report(request: Request, payload: SaveReportRequest) -> SavedReportDetail:
+    """Save a generated prompt as a Draft library card."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        row = await service.save_report(payload)
+        return SavedReportDetail.model_validate(row)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_library_save_failed")
+        raise HTTPException(status_code=500, detail="Failed to save report.") from exc
+
+
+@app.get("/api/report-agent/reports/{report_id}", response_model=SavedReportDetail)
+async def get_saved_report(
+    request: Request,
+    report_id: str,
+    tenant_id: Optional[str] = Query(None, alias="tenantId"),
+) -> SavedReportDetail:
+    """Load one saved report (prompt + spec) into Builder or the report page."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        row = await service.get_saved_report(report_id, tenant_id=tenant_id or "")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_library_get_failed")
+        raise HTTPException(status_code=500, detail="Failed to load saved report.") from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Saved report not found.")
+    return SavedReportDetail.model_validate(row)
+
+
+@app.patch("/api/report-agent/reports/{report_id}", response_model=SavedReportDetail)
+async def update_saved_report(
+    request: Request,
+    report_id: str,
+    payload: UpdateReportRequest,
+    tenant_id: Optional[str] = Query(None, alias="tenantId"),
+) -> SavedReportDetail:
+    """Update, publish, or favorite a saved report."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        row = await service.update_saved_report(report_id, payload, tenant_id=tenant_id or "")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_library_update_failed")
+        raise HTTPException(status_code=500, detail="Failed to update saved report.") from exc
+    if row is None:
+        raise HTTPException(status_code=404, detail="Saved report not found.")
+    return SavedReportDetail.model_validate(row)
+
+
+@app.delete("/api/report-agent/reports/{report_id}")
+async def delete_saved_report(
+    request: Request,
+    report_id: str,
+    tenant_id: Optional[str] = Query(None, alias="tenantId"),
+) -> dict[str, Any]:
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        deleted = await service.delete_saved_report(report_id, tenant_id=tenant_id or "")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_library_delete_failed")
+        raise HTTPException(status_code=500, detail="Failed to delete saved report.") from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Saved report not found.")
+    return {"ok": True}
+
+
+@app.post("/api/report-agent/reports/{report_id}/run", response_model=RunReportResponse)
+async def run_saved_report(
+    request: Request,
+    report_id: str,
+    tenant_id: Optional[str] = Query(None, alias="tenantId"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=500, alias="pageSize"),
+    model: Optional[str] = None,
+) -> RunReportResponse:
+    """Run a saved library report (same as generate-prompt then run)."""
+    service: ReportAgentService = request.app.state.report_agent_service
+    try:
+        return await service.run_saved_report(
+            report_id,
+            tenant_id=tenant_id or "",
+            page=page,
+            page_size=page_size,
+            model=model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("report_library_run_failed")
+        raise HTTPException(status_code=500, detail=f"Failed to run saved report: {exc}") from exc
 
 
 @app.get("/api/report-agent/scope-options", response_model=list[ScopeOption])

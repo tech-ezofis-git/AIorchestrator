@@ -133,3 +133,94 @@ async def test_lookup_po_without_login_still_mocks():
     assert po is not None
     assert po.get("mock") is True
     assert po.get("vendor") == "ACME Supplies"
+
+
+@pytest.mark.asyncio
+async def test_list_workflows_parses_grouped_browse(monkeypatch):
+    settings = Settings(
+        ezofis_api_base="http://app/api",
+        ezofis_login_email="pilot@ezofis.com",
+        ezofis_login_password="secret",
+        ezofis_env="live",
+    )
+    client = EzofisClient(settings=settings)
+    client.use_access_token("jwt", tenant_id="t1")
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            assert url.endswith("/workflow/all")
+            return _FakeResponse(
+                200,
+                {
+                    "data": [
+                        {
+                            "name": "Finance",
+                            "value": [
+                                {"id": "1", "name": "Accounts Payable"},
+                                {"id": "2", "name": "Leave Request"},
+                            ],
+                        },
+                        {
+                            "name": "HR",
+                            "value": [{"id": "3", "name": "Onboarding"}],
+                        },
+                    ]
+                },
+            )
+
+        async def get(self, url, headers=None):
+            return _FakeResponse(404)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    rows = await client.list_workflows("t1")
+    assert [row["name"] for row in rows] == [
+        "Accounts Payable",
+        "Leave Request",
+        "Onboarding",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_repositories_retries_get_when_post_not_allowed(monkeypatch):
+    settings = Settings(
+        ezofis_api_base="http://app/api",
+        ezofis_login_email="pilot@ezofis.com",
+        ezofis_login_password="secret",
+        ezofis_env="live",
+    )
+    client = EzofisClient(settings=settings)
+    client.use_access_token("jwt", tenant_id="t1")
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            return _FakeResponse(405)
+
+        async def get(self, url, headers=None):
+            if url.endswith("/repositories/all"):
+                return _FakeResponse(
+                    200,
+                    {"items": [{"id": "r1", "name": "AP Documents"}, {"id": "r2", "name": "HR Files"}]},
+                )
+            return _FakeResponse(404)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    rows = await client.list_repositories("t1")
+    assert [row["name"] for row in rows] == ["AP Documents", "HR Files"]

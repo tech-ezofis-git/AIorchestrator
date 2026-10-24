@@ -65,7 +65,14 @@ def test_console_serves_html(client):
     assert 'id="reportPanel"' in response.text
     assert 'id="reportPlanBtn"' in response.text
     assert 'id="reportPromptBtn"' in response.text
+    assert 'id="reportSaveBtn"' in response.text
+    assert 'id="reportSavedSelect"' in response.text
+    assert 'id="reportCatalogWrap"' not in response.text
     assert 'id="reportTypeSelect"' in response.text
+    assert 'id="reportExampleChips"' in response.text
+    assert 'id="reportWorkflowName"' in response.text
+    assert 'id="reportRepositoryName"' in response.text
+    assert "/api/report-agent/scope-options" in response.text
     assert 'id="reportPromptOverride"' in response.text
     assert 'id="reportPlanPreview"' in response.text
     assert "sendReportPlanJob" in response.text

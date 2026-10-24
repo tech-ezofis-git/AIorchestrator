@@ -274,9 +274,10 @@ async def test_generate_prompt_retries_fallback_on_timeout(monkeypatch):
         )
     )
     assert llm.calls == 2
-    assert "Recovered prompt text" in resp.report_prompt
     assert resp.report_spec is not None
     assert resp.report_spec.objective
+    assert "Inbox_Count" in [c.key for c in resp.report_spec.columns]
+    assert resp.report_prompt
 
 
 class _FakeLLMSimple:
@@ -533,6 +534,65 @@ def test_report_spec_prompt_includes_source_table():
     assert "Workflows" in prompt  # instruction not to query catalogs
 
 
+@pytest.mark.asyncio
+async def test_scope_options_use_ezofis_api_when_tenant_db_missing():
+    class _FailingPools:
+        async def acquire_for_global_search(self, tenant_id, catalog_store=None):
+            raise RuntimeError('database "ezofis_Tenant_b843b988" does not exist')
+
+    class _Ezofis:
+        async def list_workflows(self, tenant_id):
+            return [
+                {"id": "1", "name": "Accounts Payable"},
+                {"id": "2", "name": "Leave Request"},
+                {"id": "3", "name": "Purchase Order"},
+            ]
+
+        async def list_repositories(self, tenant_id):
+            return [{"id": "r1", "name": "AP Documents"}]
+
+    service = ReportAgentService(
+        tenant_pools=_FailingPools(),
+        db_pool=_EzofisTenantDb(),
+        ezofis_client=_Ezofis(),
+    )
+    workflows = await service.list_scope_options(
+        scope="workflows",
+        tenant_id="b843b988-00ec-44e3-aca2-b8470133ef63",
+    )
+    assert [w.name for w in workflows] == [
+        "Accounts Payable",
+        "Leave Request",
+        "Purchase Order",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_scope_options_return_empty_not_error_when_tenant_db_missing():
+    class _FailingPools:
+        async def acquire_for_global_search(self, tenant_id, catalog_store=None):
+            raise RuntimeError('database "ezofis_Tenant_b843b988" does not exist')
+
+    service = ReportAgentService(tenant_pools=_FailingPools(), db_pool=None)
+    workflows = await service.list_scope_options(
+        scope="workflows",
+        tenant_id="b843b988-00ec-44e3-aca2-b8470133ef63",
+    )
+    assert workflows == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_db_falls_back_when_tenant_missing():
+    class _FailingPools:
+        async def acquire_for_global_search(self, tenant_id, catalog_store=None):
+            raise RuntimeError('database "ezofis_Tenant_b843b988" does not exist')
+
+    fallback = object()
+    service = ReportAgentService(tenant_pools=_FailingPools(), db_pool=fallback)
+    db = await service._resolve_db("b843b988-00ec-44e3-aca2-b8470133ef63")
+    assert db is fallback
+
+
 def test_scope_prefers_fact_tables_over_catalog():
     from app.report_agent.report_types import get_report_type
     from app.report_agent.schema_scope import preferred_fact_table, scope_schema
@@ -544,3 +604,864 @@ def test_scope_prefers_fact_tables_over_catalog():
     preferred = preferred_fact_table(tables)
     assert preferred is not None
     assert preferred.table == "ezfb_29171de4_items"
+
+
+def _ap_tables(*, with_date: bool = True):
+    from app.models.report_agent import SchemaColumnSlice, SchemaTableSlice
+
+    cols = [
+        SchemaColumnSlice(name="Invoice_No", type="text"),
+        SchemaColumnSlice(name="Supplier", type="text"),
+        SchemaColumnSlice(name="Matched_Status", type="text"),
+        SchemaColumnSlice(name="PO_Amount", type="numeric"),
+        SchemaColumnSlice(name="Invoice_Amount", type="numeric"),
+        SchemaColumnSlice(name="Stage", type="text"),
+    ]
+    if with_date:
+        cols.append(SchemaColumnSlice(name="Invoice_Date", type="date"))
+    return [
+        SchemaTableSlice(schema_name="dbo", table="ezfb_items", columns=cols)
+    ]
+
+
+def test_fallback_ap_aging_differs_from_approved_total():
+    from app.report_agent.report_spec import fallback_report_spec
+
+    tables = _ap_tables()
+    aging = fallback_report_spec(
+        description="AP Aging Report",
+        report_type="specific_workflow",
+        tables=tables,
+    )
+    approved = fallback_report_spec(
+        description="Total Approved with Score",
+        report_type="specific_workflow",
+        tables=tables,
+    )
+    aging_keys = [c.key for c in aging.columns]
+    approved_keys = [c.key for c in approved.columns]
+    assert aging.title == "AP Aging Report"
+    assert approved.title == "Total Approved with Score"
+    assert "Aging_Bucket" in aging_keys
+    assert any(c.formula and "CASE" in c.formula for c in aging.columns)
+    assert "Total_Amount" in approved_keys
+    assert aging_keys != approved_keys
+    assert "Aging_Bucket" in aging.group_by
+
+
+def _all_workflow_tables():
+    from app.models.report_agent import SchemaColumnSlice, SchemaTableSlice
+
+    return [
+        SchemaTableSlice(
+            schema_name="workflow",
+            table="workflow_instances_all",
+            columns=[
+                SchemaColumnSlice(name="workflowName", type="text"),
+                SchemaColumnSlice(name="status", type="text"),
+                SchemaColumnSlice(name="startedBy", type="text"),
+                SchemaColumnSlice(name="createdAtUtc", type="date"),
+                SchemaColumnSlice(name="completedAtUtc", type="date"),
+            ],
+        )
+    ]
+
+
+def _all_repository_tables():
+    from app.models.report_agent import SchemaColumnSlice, SchemaTableSlice
+
+    return [
+        SchemaTableSlice(
+            schema_name="repository",
+            table="items_all",
+            columns=[
+                SchemaColumnSlice(name="Repository_Name", type="text"),
+                SchemaColumnSlice(name="FileName", type="text"),
+                SchemaColumnSlice(name="FileVersion", type="text"),
+                SchemaColumnSlice(name="CreatedBy", type="text"),
+                SchemaColumnSlice(name="CreatedAt", type="date"),
+                SchemaColumnSlice(name="Status", type="text"),
+            ],
+        )
+    ]
+
+
+def test_all_workflow_common_reports_use_shared_instance_fields():
+    from app.report_agent.report_spec import fallback_report_spec
+
+    tables = _all_workflow_tables()
+    aging = fallback_report_spec(description="Aging", report_type="all_workflows", tables=tables)
+    sla = fallback_report_spec(description="SLA", report_type="all_workflows", tables=tables)
+    inbox = fallback_report_spec(description="Total Inbox", report_type="all_workflows", tables=tables)
+    processed = fallback_report_spec(
+        description="Total tickets processed", report_type="all_workflows", tables=tables
+    )
+    assert aging.title == "Aging"
+    assert "Aging_Bucket" in [c.key for c in aging.columns]
+    assert "workflowName" in aging.group_by
+    assert "Invoice_No" not in [c.key for c in aging.columns]
+    assert sla.title == "Workflow SLA Compliance"
+    assert any(c.key == "Sla_Bucket" or (c.formula or "").upper().find("SLA") >= 0 for c in sla.columns)
+    assert "Inbox_Count" in [c.key for c in inbox.columns]
+    assert inbox.group_by and "workflowName" in inbox.group_by
+    assert "Processed_Count" in [c.key for c in processed.columns]
+    assert any(f.field == "completedAtUtc" and f.op == "not_null" for f in processed.filters)
+
+
+def test_all_repository_common_reports_use_shared_document_fields():
+    from app.report_agent.report_spec import fallback_report_spec
+
+    tables = _all_repository_tables()
+    total = fallback_report_spec(description="Total documents", report_type="all_repositories", tables=tables)
+    aging = fallback_report_spec(description="Document aging", report_type="all_repositories", tables=tables)
+    assert "Document_Count" in [c.key for c in total.columns]
+    assert "Repository_Name" in total.group_by
+    assert "Invoice_No" not in [c.key for c in total.columns]
+    assert "Aging_Bucket" in [c.key for c in aging.columns]
+    assert "Repository_Name" in aging.group_by
+
+
+def test_fallback_vendor_outstanding_groups_by_vendor():
+    from app.report_agent.report_spec import fallback_report_spec
+
+    spec = fallback_report_spec(
+        description="Vendor Outstanding Report",
+        report_type="specific_workflow",
+        tables=_ap_tables(),
+    )
+    assert spec.title == "Vendor Outstanding Report"
+    assert "Supplier" in spec.group_by
+    assert any(c.formula and c.formula.startswith("SUM(") for c in spec.columns)
+    assert any(c.formula == "COUNT(*)" for c in spec.columns)
+
+
+def test_merge_spec_replaces_generic_columns_with_catalog():
+    from app.models.report_agent import ReportSpec, ReportSpecColumn
+    from app.report_agent.definition_lock import merge_spec_into_definition
+    from app.report_agent.report_spec import fallback_report_spec
+
+    raw = {
+        "title": "Invoice list",
+        "sources": [{"alias": "t", "schemaName": "dbo", "table": "ezfb_items"}],
+        "columns": [
+            {"key": "Invoice_No", "label": "Invoice No", "source": "t.Invoice_No", "aggregate": "none"}
+        ],
+        "filters": [],
+        "groupBy": [],
+    }
+    spec = fallback_report_spec(
+        description="AP Aging Report",
+        report_type="specific_workflow",
+        tables=_ap_tables(),
+    )
+    merged = merge_spec_into_definition(raw, spec)
+    keys = [c["key"] for c in merged["columns"]]
+    assert "Aging_Bucket" in keys
+    assert merged["title"] == "AP Aging Report"
+    assert merged["groupBy"]
+
+
+def test_aging_case_formula_survives_lock_and_sql():
+    from app.report_agent.definition_lock import lock_report_definition, merge_spec_into_definition
+    from app.report_agent.definition_sql import generate_definition_sql
+    from app.report_agent.report_spec import fallback_report_spec
+
+    schema = _schema()
+    schema.tables.append(("dbo", "ezfb_items"))
+    schema.columns_by_table[("dbo", "ezfb_items")] = [
+        ColumnMeta("dbo", "ezfb_items", "Invoice_No", "text"),
+        ColumnMeta("dbo", "ezfb_items", "Supplier", "text"),
+        ColumnMeta("dbo", "ezfb_items", "Invoice_Amount", "numeric"),
+        ColumnMeta("dbo", "ezfb_items", "Invoice_Date", "date"),
+        ColumnMeta("dbo", "ezfb_items", "Matched_Status", "text"),
+    ]
+    schema.all_columns.extend(schema.columns_by_table[("dbo", "ezfb_items")])
+    spec = fallback_report_spec(
+        description="AP Aging Report",
+        report_type="specific_workflow",
+        tables=_ap_tables(),
+    )
+    raw = {
+        "title": "x",
+        "sources": [{"alias": "t", "schemaName": "dbo", "table": "ezfb_items"}],
+        "columns": [{"key": "Invoice_No", "source": "t.Invoice_No", "aggregate": "none"}],
+        "filters": [],
+        "groupBy": [],
+        "orderBy": [],
+        "availableFilters": [],
+        "summary": {},
+        "warnings": [],
+    }
+    merged = merge_spec_into_definition(raw, spec)
+    locked = lock_report_definition(merged, schema, report_type="specific_workflow")
+    keys = [c["key"] for c in locked["columns"]]
+    assert "Aging_Bucket" in keys
+    data_sql, _count_sql = generate_definition_sql(locked, page=1, page_size=25)
+    assert "CASE" in data_sql.upper()
+    assert "GROUP BY" in data_sql.upper()
+    assert "COUNT(" in data_sql.upper()
+
+
+class _EzofisTenantDb:
+    """Stand-in for a live EZOFIS tenant DB (Workflows / Repositories / ezfb items)."""
+
+    def __init__(self):
+        self.workflows = [
+            {
+                "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "name": "Accounts Payable",
+                "form_id": "29171de4-1111-2222-3333-444455556666",
+                "repository_id": "9f522761-1111-2222-3333-444455556666",
+            }
+        ]
+        self.repos = [
+            {
+                "id": "9f522761-1111-2222-3333-444455556666",
+                "name": "AP Documents",
+                "items_table": "repository.items_9f522761",
+            }
+        ]
+        self.item_columns = [
+            {
+                "table_schema": "dbo",
+                "table_name": "ezfb_29171de4_items",
+                "column_name": "Invoice_No",
+                "data_type": "text",
+                "udt_name": "text",
+                "is_nullable": "YES",
+            },
+            {
+                "table_schema": "dbo",
+                "table_name": "ezfb_29171de4_items",
+                "column_name": "Invoice_Amount",
+                "data_type": "numeric",
+                "udt_name": "numeric",
+                "is_nullable": "YES",
+            },
+            {
+                "table_schema": "dbo",
+                "table_name": "ezfb_29171de4_items",
+                "column_name": "Invoice_Date",
+                "data_type": "timestamp",
+                "udt_name": "timestamp",
+                "is_nullable": "YES",
+            },
+            {
+                "table_schema": "dbo",
+                "table_name": "ezfb_29171de4_items",
+                "column_name": "Supplier",
+                "data_type": "text",
+                "udt_name": "text",
+                "is_nullable": "YES",
+            },
+        ]
+
+    async def fetch(self, sql: str, *args: Any):
+        compact = " ".join(sql.split()).lower()
+        arg0 = args[0] if args else None
+        names = []
+        if isinstance(arg0, (list, tuple)):
+            names = [str(x).lower() for x in arg0]
+        elif arg0 is not None:
+            names = [str(arg0).lower()]
+        if "from information_schema.tables" in compact:
+            if any(n in ("workflows", "wworkflow", "wworkflows") for n in names):
+                return [{"table_schema": "workflow", "table_name": "Workflows"}]
+            if any(n in ("repositories", "wrepository") for n in names):
+                return [{"table_schema": "repository", "table_name": "Repositories"}]
+            if args and "ezfb_" in str(args[0]).lower():
+                return [{"table_schema": "dbo", "table_name": "ezfb_29171de4_items"}]
+            if "like 'ezfb_%_items'" in compact or "ezfb_%_items" in compact:
+                return [{"table_schema": "dbo", "table_name": "ezfb_29171de4_items"}]
+            if args and "items_" in str(args[0]).lower():
+                return [{"table_schema": "repository", "table_name": "items_9f522761"}]
+            return [{"table_schema": "dbo", "table_name": "ezfb_29171de4_items"}]
+        if "from information_schema.columns" in compact:
+            table = str(args[1]).lower() if len(args) > 1 else ""
+            schema = str(args[0]).lower() if args else ""
+            if "workflow" in table or schema == "workflow":
+                return [
+                    {"column_name": "Id"},
+                    {"column_name": "Name"},
+                    {"column_name": "FormId"},
+                    {"column_name": "RepositoryId"},
+                    {"column_name": "IsDeleted"},
+                ]
+            if "repositor" in table or schema == "repository":
+                return [
+                    {"column_name": "Id"},
+                    {"column_name": "Name"},
+                    {"column_name": "ItemsTableName"},
+                    {"column_name": "IsDeleted"},
+                ]
+            return list(self.item_columns)
+        if "from \"workflow\".\"workflows\"" in compact or "from workflow.\"workflows\"" in compact:
+            return list(self.workflows)
+        if "from \"repository\".\"repositories\"" in compact or "from repository.\"repositories\"" in compact:
+            return list(self.repos)
+        if "workflow.\"workflows\"" in compact or "from workflow.workflows" in compact:
+            return list(self.workflows)
+        if "repository.\"repositories\"" in compact or "from repository.repositories" in compact:
+            return list(self.repos)
+        return []
+
+
+@pytest.mark.asyncio
+async def test_scope_options_merges_every_workflow_catalog_table():
+    class _ManyWorkflowDb(_EzofisTenantDb):
+        def __init__(self):
+            super().__init__()
+            self.wworkflow = [
+                {
+                    "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                    "name": "Leave Request",
+                    "form_id": None,
+                    "repository_id": None,
+                },
+                {
+                    "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                    "name": "Purchase Order",
+                    "form_id": None,
+                    "repository_id": None,
+                },
+            ]
+
+        async def fetch(self, sql: str, *args: Any):
+            compact = " ".join(sql.split()).lower()
+            arg0 = args[0] if args else None
+            names = [str(x).lower() for x in arg0] if isinstance(arg0, (list, tuple)) else []
+            if "from information_schema.tables" in compact and any(
+                n in ("workflows", "wworkflow", "wworkflows") for n in names
+            ):
+                return [
+                    {"table_schema": "workflow", "table_name": "Workflows"},
+                    {"table_schema": "dbo", "table_name": "wworkflow"},
+                ]
+            if "from information_schema.columns" in compact:
+                table = str(args[1]).lower() if len(args) > 1 else ""
+                if "wworkflow" in table:
+                    return [{"column_name": "Id"}, {"column_name": "Name"}, {"column_name": "IsDeleted"}]
+            if "from \"dbo\".\"wworkflow\"" in compact:
+                return list(self.wworkflow)
+            return await super().fetch(sql, *args)
+
+    service = ReportAgentService(db_pool=_ManyWorkflowDb())
+    workflows = await service.list_scope_options(scope="workflows", tenant_id="")
+    names = [w.name for w in workflows]
+    assert "Accounts Payable" in names
+    assert "Leave Request" in names
+    assert "Purchase Order" in names
+
+
+@pytest.mark.asyncio
+async def test_scope_options_read_live_workflow_and_repository_tables():
+    service = ReportAgentService(db_pool=_EzofisTenantDb())
+    workflows = await service.list_scope_options(scope="workflows", tenant_id="tenant-1")
+    repos = await service.list_scope_options(scope="repositories", tenant_id="tenant-1")
+    assert [w.name for w in workflows] == ["Accounts Payable"]
+    assert [r.name for r in repos] == ["AP Documents"]
+
+
+@pytest.mark.asyncio
+async def test_generate_prompt_uses_live_ezfb_columns(monkeypatch):
+    service = ReportAgentService(llm_adapter=_FakeLLMSimple("not-json"), db_pool=_EzofisTenantDb())
+
+    async def fake_db(tenant_id):
+        return _EzofisTenantDb()
+
+    monkeypatch.setattr(service, "_resolve_db", fake_db)
+    monkeypatch.setattr(
+        "app.report_agent.service.report_system_prompt",
+        AsyncMock(return_value="system"),
+    )
+
+    resp = await service.generate_prompt(
+        GeneratePromptRequest(
+            report_type="specific_workflow",
+            description="AP Aging Report",
+            workflow_name="Accounts Payable",
+            tenant_id="tenant-1",
+        )
+    )
+    keys = [c.key for c in (resp.report_spec.columns if resp.report_spec else [])]
+    available = resp.report_spec.available_columns if resp.report_spec else []
+    assert "Invoice_No" in available
+    assert "Invoice_Amount" in available
+    assert "Invoice_Date" in available
+    assert "Supplier" in available
+    assert any(k in keys for k in ("Invoice_No", "Invoice_Amount", "Invoice_Date", "Supplier", "Aging_Bucket"))
+    assert resp.report_spec.source_table == "ezfb_29171de4_items"
+
+
+def test_fallback_rfq_description_picks_form_fields_not_invoice():
+    from app.models.report_agent import SchemaColumnSlice, SchemaTableSlice
+    from app.report_agent.report_spec import fallback_report_spec
+
+    tables = [
+        SchemaTableSlice(
+            schema_name="dbo",
+            table="ezfb_787372d8_items",
+            columns=[
+                SchemaColumnSlice(name="Company_Name", type="text"),
+                SchemaColumnSlice(name="Order_Number", type="text"),
+                SchemaColumnSlice(name="Date", type="date"),
+                SchemaColumnSlice(name="Total", type="numeric"),
+                SchemaColumnSlice(name="Email", type="text"),
+            ],
+        )
+    ]
+    spec = fallback_report_spec(
+        description="List RFQ requests with company, order number, date and total",
+        report_type="specific_workflow",
+        tables=tables,
+    )
+    keys = [c.key for c in spec.columns]
+    assert "Company_Name" in keys
+    assert "Order_Number" in keys
+    assert "Invoice_No" not in keys
+    assert "PO_Number" not in keys
+
+
+def test_extract_form_fields_skips_table_children_and_calc_ast():
+    from app.report_agent.form_schema import extract_form_fields
+
+    fields = extract_form_fields(
+        {
+            "panels": [
+                {"type": "SHORT_TEXT", "label": "Company Name", "id": "a1"},
+                {"type": "SHORT_TEXT", "label": "Order Number", "id": "a2"},
+                {"type": "DATE", "label": "Date", "id": "a3"},
+                {"type": "NUMBER", "label": "Total", "id": "a4"},
+                {
+                    "type": "TABLE",
+                    "label": "Line Item",
+                    "id": "tbl",
+                    "settings": {
+                        "columns": [
+                            {"type": "NUMBER", "label": "Qty", "name": "Qty"},
+                            {"type": "NUMBER", "label": "Price", "name": "Price"},
+                        ]
+                    },
+                },
+                {"name": "Calculation", "calculations": [{"type": "", "label": "FIELD", "name": "FIELD"}]},
+            ]
+        }
+    )
+    keys = [f["key"] for f in fields]
+    labels = [f["label"] for f in fields]
+    assert keys == ["Company_Name", "Order_Number", "Date", "Total"]
+    assert "Qty" not in labels
+    assert "Invoice_No" not in keys
+
+
+@pytest.mark.asyncio
+async def test_generate_prompt_uses_selected_workflow_form_not_ap_columns(monkeypatch):
+    class _RfqEzofis:
+        async def list_workflows(self, tenant_id):
+            return [{"id": "wf-rfq", "name": "RFQ Process"}]
+
+        async def get_workflow(self, *, tenant_id, workflow_id):
+            return {
+                "ok": True,
+                "id": workflow_id,
+                "name": "RFQ Process",
+                "formId": "787372d8-d66a-47f6-ba3f-36cb6dffb360",
+            }
+
+        async def get_form(self, *, tenant_id, form_id):
+            return {
+                "ok": True,
+                "id": form_id,
+                "name": "RFQ Form",
+                "formJson": {
+                    "panels": [
+                        {"type": "SHORT_TEXT", "label": "Company Name", "id": "a"},
+                        {"type": "SHORT_TEXT", "label": "Order Number", "id": "b"},
+                        {"type": "DATE", "label": "Date", "id": "c"},
+                        {"type": "CALCULATED", "label": "Total", "id": "d"},
+                        {"type": "EMAIL", "label": "Email", "id": "e"},
+                    ]
+                },
+            }
+
+    invented = (
+        '{"title":"RFQ","objective":"List RFQ","columns":['
+        '{"key":"Invoice_No","label":"Invoice Number"},'
+        '{"key":"PO_Number","label":"PO Number"}'
+        ']}'
+    )
+    service = ReportAgentService(
+        llm_adapter=_FakeLLMSimple(invented),
+        db_pool=_EzofisTenantDb(),
+        ezofis_client=_RfqEzofis(),
+    )
+    monkeypatch.setattr(
+        "app.report_agent.service.report_system_prompt",
+        AsyncMock(return_value="system"),
+    )
+    resp = await service.generate_prompt(
+        GeneratePromptRequest(
+            report_type="specific_workflow",
+            description="Total Approved with Score",
+            workflow_name="RFQ Process",
+            tenant_id="tenant-1",
+        )
+    )
+    available = resp.report_spec.available_columns if resp.report_spec else []
+    keys = [c.key for c in (resp.report_spec.columns if resp.report_spec else [])]
+    assert "Company_Name" in available
+    assert "Order_Number" in available
+    assert "Invoice_No" not in available
+    assert "PO_Number" not in available
+    assert "Invoice_No" not in keys
+    assert "PO_Number" not in keys
+    assert any(k in keys for k in ("Company_Name", "Order_Number", "Date", "Total", "Email"))
+    assert (resp.report_spec.source_table or "").startswith("ezfb_787372d8")
+
+
+def test_extract_repository_fields_uses_sql_column_and_skips_tables():
+    from app.report_agent.form_schema import extract_repository_fields
+
+    fields = extract_repository_fields(
+        [
+            {"name": "Employee Name", "sqlColumnName": "Employee_Name", "type": "SHORT_TEXT"},
+            {"name": "Employee ID", "sqlColumnName": "Employee_ID", "type": "SHORT_TEXT"},
+            {"name": "Date Issued", "sqlColumnName": "Date_Issued", "type": "DATE"},
+            {"name": "Line Items", "sqlColumnName": "Line_Items", "type": "TABLE"},
+        ]
+    )
+    keys = [f["key"] for f in fields]
+    assert "FileName" in keys
+    assert "Employee_Name" in keys
+    assert "Date_Issued" in keys
+    assert "Line_Items" not in keys
+    assert "Invoice_No" not in keys
+
+
+@pytest.mark.asyncio
+async def test_generate_prompt_uses_selected_repository_fields_not_ap_columns(monkeypatch):
+    class _HrRepoEzofis:
+        async def list_repositories(self, tenant_id):
+            return [{"id": "repo-hr", "name": "HR Records"}]
+
+        async def get_repository(self, *, tenant_id, repository_id):
+            return {
+                "ok": True,
+                "id": repository_id,
+                "name": "HR Records",
+                "itemsTableName": "items_7e3343ed",
+                "fields": [
+                    {"name": "Employee Name", "sqlColumnName": "Employee_Name", "type": "SHORT_TEXT"},
+                    {"name": "Employee ID", "sqlColumnName": "Employee_ID", "type": "SHORT_TEXT"},
+                    {"name": "Payslip Month", "sqlColumnName": "Payslip_Month", "type": "SHORT_TEXT"},
+                    {"name": "Date Issued", "sqlColumnName": "Date_Issued", "type": "DATE"},
+                ],
+            }
+
+    invented = (
+        '{"title":"HR","objective":"x","columns":['
+        '{"key":"Invoice_No","label":"Invoice Number"},'
+        '{"key":"PO_Number","label":"PO Number"}'
+        ']}'
+    )
+    service = ReportAgentService(
+        llm_adapter=_FakeLLMSimple(invented),
+        db_pool=_EzofisTenantDb(),
+        ezofis_client=_HrRepoEzofis(),
+    )
+    monkeypatch.setattr(
+        "app.report_agent.service.report_system_prompt",
+        AsyncMock(return_value="system"),
+    )
+    resp = await service.generate_prompt(
+        GeneratePromptRequest(
+            report_type="specific_repository",
+            description="Employee documents by name and payslip month",
+            repository_name="HR Records",
+            tenant_id="tenant-1",
+        )
+    )
+    available = resp.report_spec.available_columns if resp.report_spec else []
+    keys = [c.key for c in (resp.report_spec.columns if resp.report_spec else [])]
+    assert "Employee_Name" in available
+    assert "Payslip_Month" in available
+    assert "Invoice_No" not in available
+    assert "PO_Number" not in available
+    assert "Invoice_No" not in keys
+    assert any(k in keys for k in ("Employee_Name", "Employee_ID", "Payslip_Month", "Date_Issued", "FileName"))
+    assert resp.report_spec.source_table == "items_7e3343ed"
+
+
+@pytest.mark.asyncio
+async def test_generate_prompt_all_workflows_uses_tenant_catalog_not_ap_columns(monkeypatch):
+    class _AllEzofis:
+        async def list_workflows(self, tenant_id):
+            return [
+                {"id": "1", "name": "RFQ Process"},
+                {"id": "2", "name": "Document Approval"},
+                {"id": "3", "name": "Expense Reimbursement"},
+            ]
+
+    service = ReportAgentService(
+        llm_adapter=_FakeLLMSimple("not-json"),
+        db_pool=_EzofisTenantDb(),
+        ezofis_client=_AllEzofis(),
+    )
+    monkeypatch.setattr(
+        "app.report_agent.service.report_system_prompt",
+        AsyncMock(return_value="system"),
+    )
+    resp = await service.generate_prompt(
+        GeneratePromptRequest(
+            report_type="all_workflows",
+            description="Awaiting for your action",
+            tenant_id="tenant-1",
+        )
+    )
+    available = resp.report_spec.available_columns if resp.report_spec else []
+    keys = [c.key for c in (resp.report_spec.columns if resp.report_spec else [])]
+    assert "workflowName" in available
+    assert "status" in available
+    assert "Invoice_No" not in available
+    assert "Invoice_No" not in keys
+    assert "Inbox_Count" in keys
+    assert "workflowName" in keys
+    assert len(keys) >= 3
+    assert resp.report_spec.source_table == "workflow_instances_all"
+
+
+@pytest.mark.asyncio
+async def test_generate_prompt_all_repositories_uses_tenant_catalog_not_ap_columns(monkeypatch):
+    class _AllRepoEzofis:
+        async def list_repositories(self, tenant_id):
+            return [
+                {"id": "r1", "name": "HR Records"},
+                {"id": "r2", "name": "Legal Contracts"},
+                {"id": "r3", "name": "RFQ Documents"},
+            ]
+
+    service = ReportAgentService(
+        llm_adapter=_FakeLLMSimple("not-json"),
+        db_pool=_EzofisTenantDb(),
+        ezofis_client=_AllRepoEzofis(),
+    )
+    monkeypatch.setattr(
+        "app.report_agent.service.report_system_prompt",
+        AsyncMock(return_value="system"),
+    )
+    resp = await service.generate_prompt(
+        GeneratePromptRequest(
+            report_type="all_repositories",
+            description="Total Archived Documents",
+            tenant_id="tenant-1",
+        )
+    )
+    available = resp.report_spec.available_columns if resp.report_spec else []
+    keys = [c.key for c in (resp.report_spec.columns if resp.report_spec else [])]
+    assert "Repository_Name" in available
+    assert "FileName" in available
+    assert "Invoice_No" not in available
+    assert "PO_Number" not in available
+    assert "Invoice_No" not in keys
+    assert any(k in keys for k in ("Repository_Name", "FileName", "Status", "CreatedBy"))
+    assert resp.report_spec.source_table == "items_all"
+
+
+def test_run_request_accepts_camel_case_report_spec():
+    req = RunReportRequest.model_validate(
+        {
+            "reportType": "all_workflows",
+            "tenantId": "tenant-1",
+            "reportSpec": {
+                "title": "Aging",
+                "reportType": "all_workflows",
+                "sourceSchema": "workflow",
+                "sourceTable": "workflow_instances_all",
+                "groupBy": ["Aging_Bucket", "workflowName"],
+                "availableColumns": ["workflowName", "status"],
+                "columns": [
+                    {"key": "Aging_Bucket", "label": "Aging Bucket"},
+                    {"key": "workflowName", "label": "Workflow"},
+                    {"key": "Request_Count", "label": "Count"},
+                ],
+            },
+        }
+    )
+    assert req.report_spec is not None
+    assert req.report_spec.source_table == "workflow_instances_all"
+    assert req.report_spec.source_schema == "workflow"
+    assert req.report_spec.group_by == ["Aging_Bucket", "workflowName"]
+    assert req.report_spec.available_columns == ["workflowName", "status"]
+    assert req.report_type == "all_workflows"
+
+
+def test_align_rebuilds_two_column_metric_specs():
+    from app.models.report_agent import ReportSpec, ReportSpecColumn
+    from app.report_agent.report_catalog import align_spec_to_intent
+
+    available = ["workflowName", "status", "startedBy", "createdAtUtc", "completedAtUtc"]
+    two_col = ReportSpec(
+        title="Total Inbox",
+        objective="Open requests",
+        report_type="all_workflows",
+        columns=[
+            ReportSpecColumn(key="workflowName", label="Workflow"),
+            ReportSpecColumn(key="status", label="Status"),
+        ],
+        group_by=["workflowName", "status"],
+        available_columns=available,
+        source_schema="workflow",
+        source_table="workflow_instances_all",
+    )
+    inbox = align_spec_to_intent(
+        two_col,
+        description="Total Inbox",
+        report_type="all_workflows",
+        available_columns=available,
+        source_schema="workflow",
+        source_table="workflow_instances_all",
+    )
+    inbox_keys = [c.key for c in inbox.columns]
+    assert "Inbox_Count" in inbox_keys
+    assert "workflowName" in inbox_keys
+    assert len(inbox_keys) >= 3
+
+    aging_two = ReportSpec(
+        title="Aging",
+        objective="Aging",
+        report_type="all_workflows",
+        columns=[
+            ReportSpecColumn(key="workflowName", label="Workflow"),
+            ReportSpecColumn(key="status", label="Status"),
+        ],
+        group_by=["workflowName"],
+        available_columns=available,
+        source_schema="workflow",
+        source_table="workflow_instances_all",
+    )
+    aging = align_spec_to_intent(
+        aging_two,
+        description="Aging",
+        report_type="all_workflows",
+        available_columns=available,
+        source_schema="workflow",
+        source_table="workflow_instances_all",
+    )
+    aging_keys = [c.key for c in aging.columns]
+    assert "Aging_Bucket" in aging_keys
+    assert "Request_Count" in aging_keys
+    assert "workflowName" in aging_keys
+    assert len(aging_keys) >= 3
+
+
+@pytest.mark.asyncio
+async def test_generate_prompt_aging_keeps_metric_columns(monkeypatch):
+    two_col = (
+        '{"title":"Aging","objective":"Aging","reportType":"all_workflows",'
+        '"columns":[{"key":"workflowName","label":"Workflow"},'
+        '{"key":"status","label":"Status"}],'
+        '"groupBy":["workflowName","status"],'
+        '"sourceSchema":"workflow","sourceTable":"workflow_instances_all"}'
+    )
+
+    class _AllEzofis:
+        async def list_workflows(self, tenant_id):
+            return [{"id": "1", "name": "RFQ Process"}, {"id": "2", "name": "Expense"}]
+
+    service = ReportAgentService(
+        llm_adapter=_FakeLLMSimple(two_col),
+        db_pool=_EzofisTenantDb(),
+        ezofis_client=_AllEzofis(),
+    )
+    monkeypatch.setattr(
+        "app.report_agent.service.report_system_prompt",
+        AsyncMock(return_value="system"),
+    )
+    resp = await service.generate_prompt(
+        GeneratePromptRequest(
+            report_type="all_workflows",
+            description="Aging",
+            tenant_id="tenant-1",
+        )
+    )
+    keys = [c.key for c in (resp.report_spec.columns if resp.report_spec else [])]
+    assert "Aging_Bucket" in keys
+    assert "Request_Count" in keys
+    assert "workflowName" in keys
+    assert len(keys) >= 3
+
+
+@pytest.mark.asyncio
+async def test_run_report_all_workflows_keeps_generated_columns(monkeypatch):
+    from app.models.report_agent import ReportSpec, ReportSpecColumn
+
+    class _CatalogEzofis:
+        async def list_workflows(self, tenant_id):
+            return [{"id": "w1", "name": "RFQ Process"}, {"id": "w2", "name": "Expense"}]
+
+        async def list_workflow_instances(self, *, tenant_id, workflow_id, limit=200):
+            if workflow_id == "w1":
+                return [
+                    {
+                        "workflowName": "RFQ Process",
+                        "status": "Pending",
+                        "createdAtUtc": "2026-10-20T00:00:00Z",
+                        "completedAtUtc": None,
+                    },
+                    {
+                        "workflowName": "RFQ Process",
+                        "status": "Pending",
+                        "createdAtUtc": "2026-09-01T00:00:00Z",
+                        "completedAtUtc": None,
+                    },
+                    {
+                        "workflowName": "RFQ Process",
+                        "status": "Completed",
+                        "createdAtUtc": "2026-10-01T00:00:00Z",
+                        "completedAtUtc": "2026-10-02T00:00:00Z",
+                    },
+                ]
+            return [
+                {
+                    "workflowName": "Expense",
+                    "status": "Pending",
+                    "createdAtUtc": "2026-10-22T00:00:00Z",
+                    "completedAtUtc": None,
+                }
+            ]
+
+    spec = ReportSpec(
+        title="Aging",
+        objective="Open requests grouped by aging bucket",
+        report_type="all_workflows",
+        columns=[
+            ReportSpecColumn(key="workflowName", label="Workflow"),
+            ReportSpecColumn(key="status", label="Status"),
+        ],
+        group_by=["workflowName", "status"],
+        available_columns=["workflowName", "status", "createdAtUtc", "completedAtUtc"],
+        source_schema="workflow",
+        source_table="workflow_instances_all",
+    )
+    service = ReportAgentService(
+        llm_adapter=_FakeLLMSimple("not-used"),
+        db_pool=_EzofisTenantDb(),
+        ezofis_client=_CatalogEzofis(),
+    )
+    resp = await service.run_report(
+        RunReportRequest(
+            report_spec=spec,
+            report_type="all_workflows",
+            tenant_id="tenant-1",
+            page=1,
+            page_size=25,
+        )
+    )
+    keys = [c.key for c in resp.columns]
+    assert "Aging_Bucket" in keys
+    assert "Request_Count" in keys
+    assert "workflowName" in keys
+    assert len(keys) >= 3
+    assert resp.total_count >= 1
+    assert resp.rows
+    assert all(row.get("Request_Count") for row in resp.rows)

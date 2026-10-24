@@ -38,9 +38,49 @@ _STATUS_LEAVES = frozenset(
     {"status", "matched_status", "stage", "state", "approvalstatus", "matchedstatus"}
 )
 _EXPR_FUNCS = frozenset(
-    {"sum", "count", "avg", "min", "max", "coalesce", "cast", "null", "true", "false", "as"}
+    {
+        "sum",
+        "count",
+        "avg",
+        "min",
+        "max",
+        "coalesce",
+        "cast",
+        "null",
+        "true",
+        "false",
+        "as",
+        "case",
+        "when",
+        "then",
+        "else",
+        "end",
+        "and",
+        "or",
+        "not",
+        "between",
+        "current_date",
+        "current_timestamp",
+        "now",
+        "age",
+        "extract",
+        "greatest",
+        "least",
+        "date",
+        "timestamp",
+        "integer",
+        "numeric",
+        "text",
+        "boolean",
+        "interval",
+        "day",
+    }
 )
 _IDENT_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?\b")
+_EXPR_HINT = re.compile(
+    r"[+\-*/()]|\b(case|when|sum|count|avg|min|max|coalesce|cast)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -147,7 +187,7 @@ def _split_ref(ref: str) -> tuple[str, str]:
 
 
 def _looks_like_expr(text: str) -> bool:
-    return any(ch in (text or "") for ch in "+-*/()")
+    return bool(_EXPR_HINT.search(text or ""))
 
 
 def _leaf_name(ref: str) -> str:
@@ -325,12 +365,25 @@ def lock_report_definition(
         filters_out.append({"field": canon, "op": op, "value": value})
 
     group_by_out: list[str] = []
+    col_by_key = {str(c.get("key") or "").lower(): c for c in columns_out}
     for g in raw.get("groupBy") or raw.get("group_by") or []:
-        canon = _canonical_field(str(g).strip())
+        gtext = str(g).strip()
+        if not gtext:
+            continue
+        canon = _canonical_field(gtext)
         if canon:
             group_by_out.append(canon)
-        else:
-            warnings.append(f"Dropped unknown groupBy '{g}'.")
+            continue
+        col = col_by_key.get(gtext.lower())
+        if col and col.get("source"):
+            group_by_out.append(str(col["source"]))
+            continue
+        if _looks_like_expr(gtext):
+            expr = _canonical_expr(gtext)
+            if expr:
+                group_by_out.append(expr)
+                continue
+        warnings.append(f"Dropped unknown groupBy '{g}'.")
 
     order_by_out: list[dict[str, Any]] = []
     for ob in raw.get("orderBy") or raw.get("order_by") or []:
@@ -401,6 +454,7 @@ def lock_report_definition(
             report_type=rt,
             column_hints=columns_out or raw.get("columns") or [],
             filter_hints=filters_out,
+            group_by_hints=group_by_out or raw.get("groupBy") or raw.get("group_by") or [],
         )
         if grounded:
             extra = list(warnings)
@@ -457,6 +511,7 @@ def definition_from_table(
     report_type: Optional[str] = None,
     column_hints: Optional[list[Any]] = None,
     filter_hints: Optional[list[Any]] = None,
+    group_by_hints: Optional[list[Any]] = None,
 ) -> Optional[dict[str, Any]]:
     """Build a locked definition against one live table, preserving identifier case."""
     index = _index_schema(schema)
@@ -485,6 +540,18 @@ def definition_from_table(
         if formula:
             expr = formula
             invalid = False
+            agg = "none"
+            compact = formula.lower().replace(" ", "")
+            inner = formula
+            if compact.startswith("count("):
+                agg = "count"
+                inner = formula[formula.find("(") + 1 : formula.rfind(")")] or "1"
+                if inner.strip() in ("*", ""):
+                    inner = "1"
+            elif compact.startswith("sum("):
+                agg = "sum"
+                inner = formula[formula.find("(") + 1 : formula.rfind(")")]
+            expr = inner if agg in ("count", "sum") else formula
 
             def repl(match: re.Match[str], _entry: _TableIndex = entry) -> str:
                 nonlocal invalid
@@ -498,11 +565,16 @@ def definition_from_table(
                     return token
                 return f"{alias}.{real}"
 
-            canon = _IDENT_RE.sub(repl, formula)
+            canon = expr if agg == "count" and expr == "1" else _IDENT_RE.sub(repl, expr)
             if not invalid:
                 key = hint.rsplit(".", 1)[-1] if "." in hint else hint
                 columns.append(
-                    {"key": key, "label": key.replace("_", " "), "source": canon, "aggregate": "none"}
+                    {
+                        "key": key,
+                        "label": key.replace("_", " "),
+                        "source": canon,
+                        "aggregate": agg,
+                    }
                 )
                 seen.add(key.lower())
                 continue
@@ -585,6 +657,21 @@ def definition_from_table(
                 value = None
         filters.append({"field": f"{alias}.{real}", "op": op, "value": value})
 
+    group_by: list[str] = []
+    col_by_key = {str(c.get("key") or "").lower(): c for c in columns}
+    for g in group_by_hints or []:
+        gtext = str(g).strip()
+        if not gtext:
+            continue
+        leaf = _leaf_name(gtext) or gtext.lower()
+        col = col_by_key.get(gtext.lower()) or col_by_key.get(leaf)
+        if col and col.get("source"):
+            group_by.append(str(col["source"]))
+            continue
+        real = entry.columns.get(leaf)
+        if real:
+            group_by.append(f"{alias}.{real}")
+
     real_del = next((entry.columns[k] for k in entry.columns if k in _SOFT_DELETE), None)
     if real_del and not any(_leaf_name(str(f.get("field") or "")) in _SOFT_DELETE for f in filters):
         filters.append({"field": f"{alias}.{real_del}", "op": "not_deleted", "value": None})
@@ -609,7 +696,7 @@ def definition_from_table(
         "joins": [],
         "columns": columns,
         "filters": filters,
-        "groupBy": [],
+        "groupBy": group_by,
         "orderBy": [{"field": columns[0]["source"], "direction": "asc"}] if columns else [],
         "availableFilters": available,
         "summary": {},
@@ -634,36 +721,52 @@ def merge_spec_into_definition(raw: dict[str, Any], spec: Any) -> dict[str, Any]
         ]
         out["joins"] = []
 
-    cols = [c for c in (out.get("columns") or []) if isinstance(c, dict)]
-    existing = {str(c.get("key") or "").lower() for c in cols}
-    for col in spec_columns:
-        key = str(getattr(col, "key", "") or "").strip()
-        if not key:
-            continue
-        formula = getattr(col, "formula", None)
-        label = str(getattr(col, "label", None) or key)
-        source = str(formula or key)
-        if key.lower() in existing:
-            if formula:
-                for item in cols:
-                    if str(item.get("key") or "").lower() == key.lower():
-                        item["source"] = source
-                        item["label"] = item.get("label") or label
-            continue
-        cols.append({"key": key, "label": label, "source": source, "aggregate": "none"})
-        existing.add(key.lower())
-    if cols:
+    if spec_columns:
+        cols: list[dict[str, Any]] = []
+        for col in spec_columns:
+            key = str(getattr(col, "key", "") or "").strip()
+            if not key:
+                continue
+            formula = getattr(col, "formula", None)
+            label = str(getattr(col, "label", None) or key)
+            source = str(formula or key)
+            agg = "none"
+            compact = source.lower().replace(" ", "")
+            if compact.startswith("count("):
+                agg = "count"
+                inner = source[source.find("(") + 1 : source.rfind(")")]
+                source = "1" if inner.strip() in ("*", "") else inner
+            elif compact.startswith("sum("):
+                agg = "sum"
+                source = source[source.find("(") + 1 : source.rfind(")")]
+            cols.append({"key": key, "label": label, "source": source, "aggregate": agg})
         out["columns"] = cols
 
-    if spec_filters and not out.get("filters"):
-        out["filters"] = [
+    out["filters"] = [
+        {
+            "field": getattr(f, "field", None),
+            "op": getattr(f, "op", None) or "eq",
+            "value": getattr(f, "value", None),
+        }
+        for f in spec_filters
+        if getattr(f, "field", None)
+    ]
+
+    group_by = [str(g).strip() for g in (getattr(spec, "group_by", None) or []) if str(g).strip()]
+    if group_by:
+        out["groupBy"] = group_by
+
+    title = str(getattr(spec, "title", "") or "").strip()
+    if title:
+        out["title"] = title
+
+    sort = getattr(spec, "sort", None)
+    if sort and getattr(sort, "field", None):
+        out["orderBy"] = [
             {
-                "field": getattr(f, "field", None),
-                "op": getattr(f, "op", None) or "eq",
-                "value": getattr(f, "value", None),
+                "field": str(sort.field).strip(),
+                "direction": str(getattr(sort, "direction", None) or "asc"),
             }
-            for f in spec_filters
-            if getattr(f, "field", None)
         ]
     return out
 

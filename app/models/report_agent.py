@@ -20,6 +20,19 @@ class ScopeOption(BaseModel):
     name: str
 
 
+class ReportCatalogItem(BaseModel):
+    key: str
+    title: str
+    objective: str
+    report_type: str = Field(..., serialization_alias="reportType")
+    scope: str
+    workflow_name: Optional[str] = Field(default=None, serialization_alias="workflowName")
+    repository_name: Optional[str] = Field(default=None, serialization_alias="repositoryName")
+    tag: Optional[str] = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class SchemaColumnSlice(BaseModel):
     name: str
     type: str
@@ -84,17 +97,34 @@ class ReportSpec(BaseModel):
 
     title: str = "Report"
     objective: str = ""
-    report_type: Optional[str] = Field(default=None, serialization_alias="reportType")
+    report_type: Optional[str] = Field(
+        default=None,
+        serialization_alias="reportType",
+        validation_alias=AliasChoices("reportType", "report_type"),
+    )
     columns: list[ReportSpecColumn] = Field(default_factory=list)
     filters: list[ReportSpecFilter] = Field(default_factory=list)
-    group_by: list[str] = Field(default_factory=list, serialization_alias="groupBy")
+    group_by: list[str] = Field(
+        default_factory=list,
+        serialization_alias="groupBy",
+        validation_alias=AliasChoices("groupBy", "group_by"),
+    )
     sort: Optional[ReportSpecSort] = None
     available_columns: list[str] = Field(
         default_factory=list,
         serialization_alias="availableColumns",
+        validation_alias=AliasChoices("availableColumns", "available_columns"),
     )
-    source_schema: Optional[str] = Field(default=None, serialization_alias="sourceSchema")
-    source_table: Optional[str] = Field(default=None, serialization_alias="sourceTable")
+    source_schema: Optional[str] = Field(
+        default=None,
+        serialization_alias="sourceSchema",
+        validation_alias=AliasChoices("sourceSchema", "source_schema"),
+    )
+    source_table: Optional[str] = Field(
+        default=None,
+        serialization_alias="sourceTable",
+        validation_alias=AliasChoices("sourceTable", "source_table"),
+    )
     warnings: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True)
@@ -198,3 +228,124 @@ class RunReportResponse(BaseModel):
     debug: Optional[dict[str, Any]] = None
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class SaveReportRequest(BaseModel):
+    name: str
+    description: str
+    tenant_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("tenantId", "tenant_id", "TenantId"),
+    )
+    domain: Optional[str] = None
+    report_type: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("reportType", "report_type"),
+    )
+    workflow_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("workflowName", "workflow_name"),
+    )
+    repository_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("repositoryName", "repository_name"),
+    )
+    owner: Optional[str] = None
+    visibility: str = "Private"
+    tags: list[str] = Field(default_factory=list)
+    status: str = "Draft"
+    viz: str = "table"
+    report_prompt: str = Field(default="", validation_alias=AliasChoices("reportPrompt", "report_prompt"))
+    report_spec: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("reportSpec", "report_spec"),
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class UpdateReportRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    visibility: Optional[str] = None
+    tags: Optional[list[str]] = None
+    status: Optional[str] = None
+    favorite: Optional[bool] = None
+    report_prompt: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("reportPrompt", "report_prompt"),
+    )
+    report_spec: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices("reportSpec", "report_spec"),
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SavedReportCard(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    domain: str = ""
+    owner: str = ""
+    visibility: str = "Private"
+    tags: list[str] = Field(default_factory=list)
+    status: str = "Draft"
+    favorite: bool = False
+    views: int = 0
+    runs: int = 0
+    scheduled: bool = False
+    version: int = 1
+    viz: str = "table"
+    created_at: Optional[str] = Field(
+        default=None,
+        serialization_alias="createdAt",
+        validation_alias=AliasChoices("createdAt", "created_at"),
+    )
+    modified_at: Optional[str] = Field(
+        default=None,
+        serialization_alias="modifiedAt",
+        validation_alias=AliasChoices("modifiedAt", "modified_at"),
+    )
+    last_generated_at: Optional[str] = Field(
+        default=None,
+        serialization_alias="lastGeneratedAt",
+        validation_alias=AliasChoices("lastGeneratedAt", "last_generated_at"),
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class SavedReportDetail(SavedReportCard):
+    report_type: Optional[str] = Field(
+        default=None,
+        serialization_alias="reportType",
+        validation_alias=AliasChoices("reportType", "report_type"),
+    )
+    workflow_name: Optional[str] = Field(
+        default=None,
+        serialization_alias="workflowName",
+        validation_alias=AliasChoices("workflowName", "workflow_name"),
+    )
+    repository_name: Optional[str] = Field(
+        default=None,
+        serialization_alias="repositoryName",
+        validation_alias=AliasChoices("repositoryName", "repository_name"),
+    )
+    tenant_id: str = Field(
+        default="",
+        serialization_alias="tenantId",
+        validation_alias=AliasChoices("tenantId", "tenant_id"),
+    )
+    report_prompt: str = Field(
+        default="",
+        serialization_alias="reportPrompt",
+        validation_alias=AliasChoices("reportPrompt", "report_prompt"),
+    )
+    report_spec: dict[str, Any] = Field(
+        default_factory=dict,
+        serialization_alias="reportSpec",
+        validation_alias=AliasChoices("reportSpec", "report_spec"),
+    )
+    schedule: Optional[Any] = None

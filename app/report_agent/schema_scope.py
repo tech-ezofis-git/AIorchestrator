@@ -176,14 +176,7 @@ def scope_schema(
         candidates.append((schema_name, table, cols))
 
     facts = [item for item in candidates if is_fact_table(item[1])]
-    if not facts and report_type.key in ("specific_workflow", "all_workflows"):
-        for schema_name, table in schema_obj.tables:
-            if _is_plumbing(table) or not is_fact_table(table):
-                continue
-            cols = schema_obj.get_columns_for_table(schema_name, table)
-            if cols:
-                facts.append((schema_name, table, cols))
-    if not facts and report_type.key in ("specific_repository", "all_repositories"):
+    if not facts and report_type.key in ("all_workflows", "all_repositories"):
         for schema_name, table in schema_obj.tables:
             if _is_plumbing(table) or not is_fact_table(table):
                 continue
@@ -249,12 +242,13 @@ def list_workflow_options(schema_obj: DatabaseSchema) -> list[ScopeOption]:
             continue
         seen.add(_norm(name))
         options.append(ScopeOption(id=wid or name, name=name))
-    # also names from table_to_workflow that look like workflows
+    if options:
+        options.sort(key=lambda o: o.name.lower())
+        return options
     for key, name in schema_obj.table_to_workflow.items():
         n = (name or "").strip()
         if not n or _norm(n) in seen:
             continue
-        # skip if key looks like a pure repo token without workflow entry — still useful as names
         seen.add(_norm(n))
         options.append(ScopeOption(id=key, name=n))
     options.sort(key=lambda o: o.name.lower())
@@ -262,23 +256,27 @@ def list_workflow_options(schema_obj: DatabaseSchema) -> list[ScopeOption]:
 
 
 def list_repository_options(schema_obj: DatabaseSchema) -> list[ScopeOption]:
-    """Repositories discovered via metadata (names in table_to_workflow from repo meta)."""
-    # Prefer tables named wrepository rows if workflows list is empty of repos —
-    # metadata_service stores repo id->name in table_to_workflow.
     options: list[ScopeOption] = []
     seen: set[str] = set()
+    for repo in getattr(schema_obj, "repositories", None) or []:
+        n = (repo.name or "").strip()
+        if not n or _norm(n) in seen:
+            continue
+        seen.add(_norm(n))
+        options.append(ScopeOption(id=repo.repository_id or n, name=n))
+    if options:
+        options.sort(key=lambda o: o.name.lower())
+        return options
     for key, name in schema_obj.table_to_workflow.items():
         n = (name or "").strip()
         if not n or _norm(n) in seen:
             continue
-        # Heuristic: repo tokens often map to items_* tables
         if any(
             t.lower().startswith("items_") and _norm(key) in _norm(t)
             for _, t in schema_obj.tables
-        ) or _norm(key):
+        ):
             seen.add(_norm(n))
             options.append(ScopeOption(id=key, name=n))
-    # Also include names from repositories definition tables via workflows-like list if present
     options.sort(key=lambda o: o.name.lower())
     return options
 

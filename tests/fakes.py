@@ -60,6 +60,7 @@ class FakeDBPool:
         self.platform_ap_pipeline: dict[str, dict[str, Any]] = {}
         self.tenant_ap_pipeline: dict[str, dict[str, Any]] = {}
         self.tenant_ap_pipeline_logs: list[dict[str, Any]] = []
+        self.saved_reports: dict[str, dict[str, Any]] = {}
 
     def _catalog_agent_by_id(self, agent_id: Any) -> Optional[dict[str, Any]]:
         return self.catalog_agents.get(str(agent_id))
@@ -409,7 +410,66 @@ class FakeDBPool:
             return
         raise AssertionError(f"FakeDBPool.execute: unrecognized catalog query: {query!r}")
 
+    def _saved_report_row(self, report_id: Any) -> Optional[dict[str, Any]]:
+        return self.saved_reports.get(str(report_id))
+
     async def fetchrow(self, query: str, *args: Any):
+        if "INSERT INTO saved_reports" in query:
+            report_id = uuid.uuid4()
+            spec = _json_val(args[13]) if len(args) > 13 else {}
+            row = {
+                "id": report_id,
+                "tenant_id": args[0] or "",
+                "name": args[1],
+                "description": args[2],
+                "domain": args[3],
+                "report_type": args[4],
+                "workflow_name": args[5],
+                "repository_name": args[6],
+                "owner": args[7],
+                "visibility": args[8],
+                "tags": list(args[9] or []),
+                "status": args[10],
+                "version": 1,
+                "favorite": False,
+                "views": 0,
+                "runs": 0,
+                "viz": args[11],
+                "report_prompt": args[12] or "",
+                "report_spec": spec if isinstance(spec, dict) else {},
+                "schedule": None,
+                "created_at": self._now(),
+                "modified_at": self._now(),
+                "last_generated_at": self._now(),
+            }
+            self.saved_reports[str(report_id)] = row
+            return row
+        if "UPDATE saved_reports SET" in query and "RETURNING" in query:
+            report_id, tenant_id = args[0], args[1]
+            row = self._saved_report_row(report_id)
+            if row is None or row.get("tenant_id") != (tenant_id or ""):
+                return None
+            row.update(
+                {
+                    "name": args[2],
+                    "description": args[3],
+                    "visibility": args[4],
+                    "status": args[5],
+                    "favorite": bool(args[6]),
+                    "tags": list(args[7] or []),
+                    "report_prompt": args[8] or "",
+                    "report_spec": _json_val(args[9]) if len(args) > 9 else row.get("report_spec") or {},
+                    "version": int(row.get("version") or 1) + 1,
+                    "modified_at": self._now(),
+                }
+            )
+            return row
+        if "FROM saved_reports WHERE id" in query:
+            report_id, tenant_id = args[0], args[1]
+            row = self._saved_report_row(report_id)
+            if row is None or row.get("tenant_id") != (tenant_id or ""):
+                return None
+            return row
         if "current_database()" in query:
             return {"db": "fake"}
         if 'catalog."Tenants"' in query:
@@ -527,6 +587,12 @@ class FakeDBPool:
         raise AssertionError(f"FakeDBPool.executemany: unrecognized query: {query!r}")
 
     async def fetch(self, query: str, *args: Any):
+        if "FROM saved_reports" in query:
+            tenant_id = args[0] if args else ""
+            rows = [r for r in self.saved_reports.values() if r.get("tenant_id") == (tenant_id or "")]
+            rows.sort(key=lambda r: r.get("modified_at") or self._now(), reverse=True)
+            rows.sort(key=lambda r: not bool(r.get("favorite")))
+            return rows
         if 'catalog."Tenants"' in query:
             return list(getattr(self, "catalog_tenants_directory", []) or [])
         if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
@@ -610,6 +676,21 @@ class FakeDBPool:
     async def execute(self, query: str, *args: Any):
         if query.strip().upper().startswith("CREATE ") or query.strip().upper().startswith("ALTER "):
             return
+        if "DELETE FROM saved_reports" in query:
+            report_id, tenant_id = args[0], args[1]
+            row = self._saved_report_row(report_id)
+            if row is None or row.get("tenant_id") != (tenant_id or ""):
+                return "DELETE 0"
+            self.saved_reports.pop(str(report_id), None)
+            return "DELETE 1"
+        if "UPDATE saved_reports SET runs" in query:
+            report_id, tenant_id = args[0], args[1]
+            row = self._saved_report_row(report_id)
+            if row is not None and row.get("tenant_id") == (tenant_id or ""):
+                row["runs"] = int(row.get("runs") or 0) + 1
+                row["views"] = int(row.get("views") or 0) + 1
+                row["last_generated_at"] = self._now()
+            return "UPDATE 1"
         if "catalog_agents" in query or "catalog_models" in query or "catalog_tenant_models" in query or "catalog_tenant_agent_models" in query:
             return self._handle_catalog_execute(query, args)
         if "INSERT INTO platform_ap_pipeline" in query:
