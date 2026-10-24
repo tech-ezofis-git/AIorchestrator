@@ -161,6 +161,7 @@ async def run(ctx: ApContext) -> ApSkillResult:
             "invoice_number": field_text(invoice, "invoice_number") or None,
             "po_number": (po_match.get("po_number") if isinstance(po_match, dict) else None),
             "duplicate": bool(duplicate.get("is_duplicate_invoice")),
+            "duplicate_of": duplicate.get("duplicate_of"),
             "possible_duplicate_of": duplicate.get("possible_duplicate_of"),
             "backorder": bool(backorder.get("detected")),
             "matter_status": matter.get("status") if isinstance(matter, dict) else None,

@@ -191,7 +191,9 @@ def build_validation_reason(
     if not narrative:
         return base
     if base and base not in narrative and not narrative.startswith(base[:40]):
-        # Prefer the richer narrative; keep base if it adds unique context (e.g. duplicate cap).
+        # A hard duplicate should lead the sentence. The PO score stays after it.
+        if "duplicate" in base.lower() and "capped:" not in base.lower():
+            return f"{base} {narrative}".strip()
         if "capped:" in base.lower() or "duplicate" in base.lower():
             return f"{narrative} ({base})"
     return narrative

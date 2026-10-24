@@ -14,7 +14,7 @@ DEFAULT_REVIEW_LABELS: dict[str, str] = {
     "PARTIALLY_MATCHED": "Partially Matched",
     "NOT_MATCHED": "Not Matched",
     "NON_INVOICE": "Non-Invoice",
-    "DUPLICATE": "Not Matched",
+    "DUPLICATE": "Duplicate",
 }
 
 

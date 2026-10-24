@@ -566,17 +566,27 @@ def _supplier_validation(vendor: dict[str, Any], invoice: dict[str, Any]) -> dic
 def _invoice_errors(duplicate: dict[str, Any], finalize: dict[str, Any]) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     severity = "NONE"
+    duplicate_of = (
+        duplicate.get("duplicate_of")
+        or duplicate.get("possible_duplicate_of")
+        or finalize.get("duplicate_of")
+        or finalize.get("possible_duplicate_of")
+    )
     if duplicate.get("is_duplicate_invoice") or finalize.get("duplicate"):
         severity = "DUPLICATE"
         errors.append(
             {
                 "code": "DUPLICATE_INVOICE",
-                "message": "Possible duplicate invoice",
-                "possible_duplicate_of": duplicate.get("possible_duplicate_of")
-                or finalize.get("possible_duplicate_of"),
+                "message": f"Duplicate of {duplicate_of}." if duplicate_of else "Possible duplicate invoice",
+                "possible_duplicate_of": duplicate_of,
             }
         )
-    return {"severity": severity, "errors": errors}
+    return {
+        "severity": severity,
+        "detected": severity == "DUPLICATE",
+        "duplicate_of": duplicate_of if severity == "DUPLICATE" else None,
+        "errors": errors,
+    }
 
 
 def _back_order(backorder: dict[str, Any], finalize: dict[str, Any]) -> dict[str, Any]:

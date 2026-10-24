@@ -106,7 +106,7 @@ _MATCH_LABELS = {
     "PARTIALLY_MATCHED": "Partially Matched",
     "NOT_MATCHED": "Not Matched",
     "NON_INVOICE": "Non-Invoice",
-    "DUPLICATE": "Not Matched",
+    "DUPLICATE": "Duplicate",
 }
 
 def _first_value(data: dict[str, Any], *keys: str) -> Any:
@@ -315,7 +315,7 @@ def extras_from_artifacts(artifacts: dict[str, Any], skill_id: str) -> dict[str,
         or grn_match.get("decision")
     )
     if duplicate.get("is_duplicate_invoice") and not finalize.get("decision"):
-        extras["Matched Status"] = "Not Matched"
+        extras["Matched Status"] = "Duplicate"
     elif decision:
         extras["Matched Status"] = _MATCH_LABELS.get(str(decision).strip().upper(), str(decision).strip())
 
